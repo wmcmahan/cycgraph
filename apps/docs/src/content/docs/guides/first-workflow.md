@@ -115,8 +115,7 @@ import { GraphRunner, InMemoryPersistenceProvider } from '@mcai/orchestrator';
 const persistence = new InMemoryPersistenceProvider();
 const runner = new GraphRunner(graph, initialState, {
   persistStateFn: async (state) => {
-    await persistence.saveWorkflowState(state);
-    await persistence.saveWorkflowRun(state);
+    await persistence.saveWorkflowSnapshot(state);
   },
 });
 

@@ -14,7 +14,7 @@ Most AI orchestration frameworks model workflows as linear chains or strict DAGs
 - Multiple candidates to **evolve in parallel** across generations to find the absolute best solution.
 - A workflow to **pause for human review**, and resume safely hours later without context loss.
 
-MC-AI solves this by using a **Cyclic State Graph**. Nodes in the graph can loop, revisit previous nodes, and make runtime routing decisions by examining a shared state blackboard.
+MC-AI solves this by using a **Cyclic State Graph**. Nodes in the graph can loop, revisit previous nodes, and make runtime routing decisions by reading from a single shared state object — `WorkflowState.memory`.
 
 ## Core mental model
 
@@ -24,7 +24,7 @@ Everything in MC-AI revolves around four core concepts:
 |---------|-----------| 
 | **Graph** | Your workflow definition — a set of nodes connected by edges. |
 | **Node** | A unit of work: an Agent, an MCP Tool, a Supervisor, or a Subgraph. |
-| **State** | A shared blackboard. All nodes read from and write to this state. |
+| **State** | A shared object (`WorkflowState.memory`). All nodes read from and write to this state. |
 | **Reducer** | A pure function that takes the current state and an action, and returns the new state. |
 
 Agents never talk directly to each other. They read from the shared state, do their work, and emit actions. Reducers apply those actions to produce a new state. This guarantees that **every state transition is auditable**, eliminates race conditions in swarms, and enables features like time-travel debugging and workflow rollbacks.

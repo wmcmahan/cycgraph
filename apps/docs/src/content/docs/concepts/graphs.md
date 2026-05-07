@@ -80,5 +80,5 @@ Loops back to the writer if score is low.
 ## Next steps
 
 - [Nodes](/concepts/nodes/) — node types, configuration, and state slicing
-- [Workflow State](/concepts/workflow-state/) — the shared blackboard
+- [Workflow State](/concepts/workflow-state/) — the shared state object
 - [Agents](/concepts/agents/) — how agent nodes work

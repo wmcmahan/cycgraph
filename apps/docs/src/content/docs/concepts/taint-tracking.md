@@ -129,6 +129,7 @@ Setting `strict_taint: true` on the graph upgrades warnings to hard rejections. 
 ```typescript
 const graph = createGraph({
   name: 'Strict Taint Example',
+  description: 'Routes to a fallback agent when external (tainted) data would otherwise drive the decision.',
   strict_taint: true, // reject tainted data in routing
   nodes: [
     { id: 'fetch', type: 'tool', tool_id: 'web_search', read_keys: ['*'], write_keys: ['search_results'] },
@@ -136,7 +137,11 @@ const graph = createGraph({
     { id: 'fallback', type: 'agent', agent_id: FALLBACK_ID, read_keys: ['goal'], write_keys: ['analysis'] },
   ],
   edges: [
-    { source: 'fetch', target: 'analyze', condition: 'search_results.length > 0' },
+    {
+      source: 'fetch',
+      target: 'analyze',
+      condition: { type: 'conditional', condition: 'length(search_results) > 0' },
+    },
     { source: 'fetch', target: 'fallback' }, // taken when strict_taint rejects the condition
   ],
   start_node: 'fetch',

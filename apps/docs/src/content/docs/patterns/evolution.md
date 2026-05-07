@@ -3,9 +3,9 @@ title: Evolution (DGM)
 description: Population-based selection — run N candidates in parallel, score them, and breed the next generation.
 ---
 
-The **Evolution** pattern—inspired by Darwin Godel Machines—runs multiple candidate solutions in parallel, scores each with a fitness evaluator, selects the best, and "breeds" the next generation using the winner's output as context. 
+The **Evolution** pattern — inspired by Darwin Gödel Machines — runs multiple candidate solutions in parallel, scores each with a fitness evaluator, selects the best, and breeds the next generation using the winner's output as context.
 
-This process continues across multiple generations until a specific fitness threshold is met or a stagnation condition is reached. Here, the LLM acts as the mutation operator: by supplying the winning parent as context alongside a calculated temperature, its stochastic creativity produces deliberate variation.
+The loop continues across multiple generations until a fitness threshold is met or a stagnation condition is reached. The LLM itself acts as the mutation operator: each candidate receives the winning parent in its prompt alongside a temperature that decreases generation by generation, producing controlled variation that converges over time.
 
 ## How it works
 
@@ -133,14 +133,17 @@ const graph = createGraph({
 
 ## Core concepts
 
-### Prompt Context Injection
+### Prompt context injection
 
 Each candidate receives the previous generation's winner automatically in its state view. Your candidate agent's system prompt must explicitly address these variables to "mutate" successfully:
 
 > "If `_evolution_parent` is provided, use it as a starting point. The parent scored `_evolution_parent_fitness`—aim to do better. Current generation: `_evolution_generation`."
 
-### Cost Considerations
+### Cost considerations
 
-Evolution executes a massive amount of LLM calls. With a population size of 5 and max generations of 10, you are triggering up to 50 candidate executions plus 50 evaluations. 
+Evolution executes many LLM calls. With a population size of 5 and max generations of 10, you trigger up to 50 candidate executions plus 50 evaluations — easily 100x the cost of a single-shot generation.
 
-You can configure `error_strategy: 'best_effort'` on your node to gracefully handle occasional downstream API timeouts without failing the entire generation. Always set a conservative `fitness_threshold` so the loop exits as early as possible.
+Two safeguards keep this manageable:
+
+- Set `error_strategy: 'best_effort'` so a single API failure within a generation doesn't kill the entire run.
+- Set a conservative `fitness_threshold` and `stagnation_generations` so the loop exits as soon as quality plateaus.

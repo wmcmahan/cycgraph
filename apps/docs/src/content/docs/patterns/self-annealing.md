@@ -24,6 +24,13 @@ flowchart TB
 4. This cycle repeats until the threshold is met or a safety limit (max iterations) is reached.
 5. Once the threshold is met, control moves forward (e.g. to a Publisher node).
 
+## When to use this pattern
+
+- **Code generation & review**: An agent writes code, and an evaluator agent runs static analysis or reviews the logic. If bugs are found, the generator tries again.
+- **Content refinement**: Writing, editing, and translation where the output must meet a strict brand voice or formatting standard.
+- **Data extraction validation**: Extracting unstructured data into strict JSON, where an evaluator checks for missing fields or hallucinations and forces a retry.
+- **Any task where one output must meet a rigid quality bar.** If you want to explore multiple distinct creative approaches simultaneously, use [Evolution](/patterns/evolution/) instead.
+
 ## Implementation example
 
 This example demonstrates a self-annealing loop where a Writer drafts content, an Evaluator scores it, and the loop repeats until the score hits `0.8` or higher, before passing the approved draft to a Publisher. 
@@ -135,17 +142,10 @@ const graph = createGraph({
 });
 ```
 
-## When to use this pattern
-
-- **Code generation & review**: An agent writes code, and an evaluator agent runs static analysis or reviews the logic. If bugs are found, the generator tries again.
-- **Content refinement**: Writing, editing, and translation where the output must meet a strict brand voice or formatting standard.
-- **Data extraction validation**: Extracting unstructured data into strict JSON, where an evaluator checks for missing fields or hallucinations and forces a retry.
-- **Any task where one output must meet a rigid quality bar**. (If you want to explore multiple distinct creative approaches simultaneously, use [Evolution](/patterns/evolution/) instead.)
-
 ## Core concepts
 
 ### Breaking infinite loops
 
 Because LLMs can get stuck failing to fix a problem, the Self-Annealing loop needs a safety valve. 
 
-Pass a `max_iterations` limit when creating the initial `WorkflowState` object (e.g. `max_iterations: 20`). The state automatically tracks the `iteration_count` across the entire workflow. If the loop causes the workflow to exceed this limit, the orchestrator will safely halt and throw an `ExceededMaxIterationsError` to prevent runaway API costs.
+Pass a `max_iterations` limit when creating the initial `WorkflowState` object (e.g. `max_iterations: 20`). The state automatically tracks the `iteration_count` across the entire workflow. If execution exceeds this limit, the orchestrator halts the run and transitions the workflow to `failed` to prevent runaway API costs.

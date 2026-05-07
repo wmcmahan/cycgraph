@@ -150,6 +150,29 @@ const runner = new GraphRunner(graph, state, {
 
 The GraphRunner tracks consecutive persistence failures. If `persistStateFn` fails 3 times in a row, the runner throws a `PersistenceUnavailableError` rather than silently continuing with divergent in-memory and storage state. The counter resets on any successful persist call.
 
+## Replaying the event log
+
+`loadEvents(run_id)` returns the raw, ordered event rows for a run. Use it to inspect what happened during execution, replay actions through reducers in test code, or rebuild state for a debugger UI.
+
+```typescript
+import type { WorkflowEvent } from '@mcai/orchestrator';
+
+const events = await persistence.loadEvents(runId);
+
+for (const event of events) {
+  console.log(
+    `[seq=${event.sequence_id}] ${event.event_type} (${event.node_id ?? '—'})`
+  );
+}
+
+// Reconstruct the actions that drove state transitions
+const actions = events
+  .filter((e) => e.event_type === 'action_applied')
+  .map((e) => e.payload);
+```
+
+For full crash recovery, prefer `GraphRunner.recoverFromEventLog()` — it handles checkpoints, sequence integrity checks, and reducer replay automatically. Use `loadEvents()` directly when you need raw access for tooling or post-hoc analysis.
+
 ## State versioning
 
 Every call to `saveWorkflowState()` creates a new version. This enables:

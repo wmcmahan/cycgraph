@@ -23,8 +23,8 @@ The orchestrator has a structured error hierarchy so that every failure mode has
 | `SupervisorConfigError` | `supervisor-executor/errors` | `supervisorId` | Supervisor missing config |
 | `SupervisorRoutingError` | `supervisor-executor/errors` | `chosenNode`, `allowedNodes` | Supervisor routes to invalid node |
 | `ArchitectError` | `architect/errors` | — | Graph generation fails after retries |
-| `MCPGatewayError` | `mcp/errors` | — | MCP gateway unreachable |
-| `MCPToolExecutionError` | `mcp/errors` | `toolName` | MCP tool returns error |
+| `MCPServerNotFoundError` | `mcp/errors` | `serverId` | MCP server registry has no entry for the requested ID |
+| `MCPAccessDeniedError` | `mcp/errors` | `serverId`, `agentId` | Agent does not have permission to access the MCP server |
 | `PersistenceUnavailableError` | `db/persistence-health` | — | Consecutive persistence failures exceed threshold |
 
 All errors extend `Error` and set `this.name` to their class name, enabling reliable `switch(error.name)` handling across module boundaries.
@@ -44,8 +44,8 @@ All errors extend `Error` and set `this.name` to their class name, enabling reli
 - `CircuitBreakerOpenError` — Node failures tripped the breaker. Automatically retries after timeout.
 - `AgentTimeoutError` — Individual LLM call timed out. Retryable per `failure_policy`.
 - `AgentExecutionError` — LLM call failed (API error, rate limit). Retryable per `failure_policy`.
-- `MCPGatewayError` — MCP gateway unreachable. Tool adapter falls back to built-in tools.
-- `MCPToolExecutionError` — Specific MCP tool failed. Retryable depending on tool.
+- `MCPServerNotFoundError` — Registry has no entry for the requested MCP server ID. Non-retryable; fix the agent's tool sources or register the server.
+- `MCPAccessDeniedError` — Agent does not have permission to access the MCP server (RBAC denial). Non-retryable; adjust the server's `allowed_agents` or the agent permissions.
 
 ### Data integrity errors — halt execution
 
@@ -63,8 +63,8 @@ All errors extend `Error` and set `this.name` to their class name, enabling reli
 |-------|-----------|-------|
 | `AgentTimeoutError` | Yes | Retried per `failure_policy.max_retries` |
 | `AgentExecutionError` | Yes | With exponential backoff |
-| `MCPGatewayError` | Yes | Tool adapter retries, then falls back |
-| `MCPToolExecutionError` | Yes | Depends on tool semantics |
+| `MCPServerNotFoundError` | No | Fix tool sources or register the server |
+| `MCPAccessDeniedError` | No | Security violation — fix agent permissions |
 | `CircuitBreakerOpenError` | Auto | Transitions to half-open after timeout |
 | `NodeConfigError` | No | Fix the graph definition |
 | `UnsupportedNodeTypeError` | No | Fix the graph definition |
@@ -126,7 +126,6 @@ const graph = createGraph({
       read_keys: ['order'],
       write_keys: ['payment_result'],
       requires_compensation: true,
-      compensation_tool_id: 'stripe_refund', // tool to call on rollback
     },
     {
       id: 'reserve_inventory',
@@ -135,7 +134,6 @@ const graph = createGraph({
       read_keys: ['order'],
       write_keys: ['reservation'],
       requires_compensation: true,
-      compensation_tool_id: 'inventory_release',
     },
     // ... more nodes ...
   ],
@@ -151,7 +149,7 @@ const runner = new GraphRunner(graph, state, {
 });
 ```
 
-If `reserve_inventory` fails, the engine automatically calls `stripe_refund` (the compensation for `charge_payment`) and sets status to `cancelled`.
+A node with `requires_compensation: true` pushes a compensation entry onto the `compensation_stack` after successful execution. The host application is responsible for registering the compensating tool calls — the orchestrator does not infer them from the forward action. If `reserve_inventory` fails and `auto_rollback: true` is set, the engine drains the stack in LIFO order (calling each registered compensator) and transitions the workflow to `cancelled`.
 
 When `auto_rollback` is `false` (the default), the compensation stack is preserved in state but not executed — the host application decides how to handle rollback.
 
@@ -161,7 +159,7 @@ When `auto_rollback` is `false` (the default), the compensation stack is preserv
 
 ```typescript
 const runner = new GraphRunner(graph, state, {
-  persistStateFn: async (s) => persistence.saveWorkflowState(s),
+  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // Start the workflow

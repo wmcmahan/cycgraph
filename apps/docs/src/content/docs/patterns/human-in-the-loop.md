@@ -23,6 +23,13 @@ flowchart TB
 4. **Resume**: An API call is made back to the orchestrator supplying the human's decision (e.g., approved/rejected) and optional feedback.
 5. **Continuation**: The workflow wakes up, injects the human's response into the state memory, and traverses the next edge.
 
+## When to use this pattern
+
+- **High-stakes actions**: an agent proposes a production deployment, financial transaction, or email blast, but a human must sign off before execution.
+- **Content publication**: a writer agent produces a draft, and a human editor reviews and approves before publishing.
+- **Compliance and auditing**: automated analysis that requires a mandatory human compliance review before proceeding.
+- **Iterative feedback**: a human provides specific, nuanced feedback during the pause, which is fed back to the agent for revision (a HITL + [Self-Annealing](/patterns/self-annealing/) hybrid).
+
 ## Implementation example
 
 This example demonstrates a classic approval gate: A Writer agent drafts an article, execution pauses for a human to review the draft, and then upon approval, a Publisher agent finalizes it.
@@ -69,7 +76,7 @@ When you execute the workflow, it will automatically pause when it reaches the `
 
 ```typescript
 const runner1 = new GraphRunner(graph, initialState, {
-  persistStateFn: async (s) => persistence.saveWorkflowState(s),
+  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // The run() promise resolves early with a 'waiting' status
@@ -91,12 +98,12 @@ if (pausedState.status === 'waiting') {
 Later, when your user clicks "Approve" or "Reject" in your UI, you instantiate a new `GraphRunner` with the persisted state, apply their response, and run it again.
 
 ```typescript
-// 1. Fetch the paused state from your DB
-const stateFromDB = await persistence.getWorkflowState(workflowId);
+// 1. Fetch the paused state from your DB (latest version for the run)
+const stateFromDB = await persistence.loadLatestWorkflowState(runId);
 
 // 2. Create a fresh runner
 const runner2 = new GraphRunner(graph, stateFromDB, {
-  persistStateFn: async (s) => persistence.saveWorkflowState(s),
+  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // 3. Inject the human's decision
@@ -171,10 +178,3 @@ await queue.enqueue({
 ```
 
 The key distinction: `release` (not `nack`) transitions the job to `paused` status without counting it as a failure. Paused jobs are not re-claimable by `dequeue` — this prevents the worker from re-executing the approval gate in a loop while awaiting a human response. A separate `resume` job carries the human's response.
-
-## When to use this pattern
-
-- **High-stakes actions**: An agent proposes a production deployment, financial transaction, or email blast, but a human must sign off before execution.
-- **Content publication**: A writer agent produces a draft article, and a human editor reviews and approves it before publishing.
-- **Compliance & Auditing**: Automated analysis that requires a mandatory human compliance review before proceeding.
-- **Iterative feedback**: A human provides specific, nuanced feedback during the pause, which is fed back to the agent for revision (creating a Human-in-the-Loop + [Self-Annealing](/patterns/self-annealing/) hybrid).

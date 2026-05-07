@@ -38,9 +38,9 @@ Events are a discriminated union on the `type` field. They split into two catego
 |-------|--------|-------------|
 | `workflow:start` | `workflow_id`, `run_id` | Workflow execution has begun. |
 | `workflow:rollback` | `workflow_id`, `run_id` | Compensation stack is being unwound. |
-| `node:start` | `node_id`, `node_type` | A node has started executing. |
-| `node:complete` | `node_id`, `node_type`, `duration_ms` | A node has finished successfully. |
-| `node:failed` | `node_id`, `node_type`, `error`, `attempt` | A node execution failed (may retry). |
+| `node:start` | `node_id`, `type` | A node has started executing. |
+| `node:complete` | `node_id`, `type`, `duration_ms` | A node has finished successfully. |
+| `node:failed` | `node_id`, `type`, `error`, `attempt` | A node execution failed (may retry). |
 | `node:retry` | `node_id`, `attempt`, `backoff_ms` | A failed node is being retried after a backoff delay. |
 | `action:applied` | `action_id`, `action_type`, `node_id`, `memory_diff?` | A reducer has applied an action to state. Includes memory diff when keys changed. |
 | `state:persisted` | `run_id`, `iteration` | State has been persisted (via `persistStateFn`). |
@@ -48,7 +48,7 @@ Events are a discriminated union on the `type` field. They split into two catego
 | `tool:call_start` | `run_id`, `node_id`, `tool_name`, `tool_call_id`, `args` | A tool has started executing. |
 | `tool:call_finish` | `run_id`, `node_id`, `tool_name`, `tool_call_id`, `duration_ms`, `success`, `error?` | A tool has finished executing. |
 | `budget:threshold_reached` | `run_id`, `threshold_pct`, `cost_usd`, `budget_usd` | Cost has crossed a budget threshold (50%, 75%, 90%, 100%). |
-| `model:resolved` | `run_id`, `node_id`, `requested_model`, `resolved_model`, `reason?` | A model identifier has been resolved (e.g., via budget-aware fallback). |
+| `model:resolved` | `run_id`, `node_id`, `agent_id`, `original_model`, `resolved_model`, `reason`, `preference`, `remaining_budget_usd?` | A model identifier has been resolved (e.g., via budget-aware fallback). |
 
 All events include a `timestamp` field (Unix ms).
 
@@ -129,6 +129,37 @@ The `MemoryDiff` type is exported from `@mcai/orchestrator`:
 | `values` | `Record<string, unknown>` | New values for added and changed keys. |
 
 When no memory keys changed (e.g., `goto_node` or `set_status` actions), `memory_diff` is `undefined` — no overhead is incurred.
+
+## Forwarding events over SSE
+
+`stream()` returns an async iterable, which maps directly to a Server-Sent Events handler. Below is a minimal Express endpoint that streams every workflow event to a connected client:
+
+```typescript
+import express from 'express';
+import { GraphRunner, isTerminalEvent } from '@mcai/orchestrator';
+
+const app = express();
+
+app.get('/runs/:runId/stream', async (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  const runner = new GraphRunner(graph, state, options);
+
+  for await (const event of runner.stream()) {
+    res.write(`event: ${event.type}\n`);
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    if (isTerminalEvent(event)) break;
+  }
+
+  res.end();
+});
+```
+
+WebSocket transports follow the same shape — replace `res.write` with `socket.send` and serialize each event as JSON. Because terminal events carry the full `WorkflowState`, clients can compute the final result without polling.
 
 ## Event listeners (non-streaming)
 

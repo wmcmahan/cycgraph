@@ -14,19 +14,19 @@ MC-AI treats agents as **configuration, not code**. There are no base classes to
 | `id` | `string` (UUID) | auto-generated | Unique identifier, returned by `registry.register()`. |
 | `name` | `string` | *required* | Human-readable name used in UI and traces. |
 | `description` | `string` | — | Used by supervisor nodes to route work to this agent. |
-| `model` | `string` | *required* | Model ID (e.g. `'claude-3-5-sonnet-latest'`, `'gpt-4o'`). |
+| `model` | `string` | *required* | Model ID (e.g. `'claude-sonnet-4-20250514'`, `'gpt-4o'`). |
 | `provider` | `string` | *required* | Provider mapped in `ProviderRegistry` (e.g. `'anthropic'`). |
 | `system_prompt` | `string` | *required* | The persona, instructions, and rules for the LLM. |
 | `temperature` | `number` | `0.7` | Value between 0.0 (deterministic) and 1.0 (creative). |
 | `max_steps` | `number` | `10` | Safety limit for multi-step tool execution loops. |
-| `tools` | `ToolSource[]` | `[]` | MCP tools this agent can access (e.g. `[{ type: "mcp", name: "github" }]`). |
+| `tools` | `ToolSource[]` | `[]` | MCP tools this agent can access (e.g. `[{ type: "mcp", server_id: "github" }]`). |
 | `model_preference` | `ModelTier` | — | Capability tier (`'high'`, `'medium'`, `'low'`) for [budget-aware model selection](/guides/model-selection/). When set and a resolver is configured, overrides `model` at runtime. |
 | `provider_options` | `object` | — | Provider-specific options passed to `generateText`/`streamText` (e.g. extended thinking). |
 | `permissions` | `object` | *required* | Zero-trust state permissions (`read_keys`, `write_keys`). |
 
 ## Agent registry
 
-The `AgentRegistry` is a lookup interface to load these configurations into the runtime. You can implement your own (e.g. reading from a database), but the framework provides `InMemoryAgentRegistry` and `PostgresAgentRegistry`.
+The `AgentRegistry` is a lookup interface to load these configurations into the runtime. You can implement your own (e.g. reading from a database), but the framework provides `InMemoryAgentRegistry` (in `@mcai/orchestrator`) and `DrizzleAgentRegistry` (in `@mcai/orchestrator-postgres`).
 
 ```typescript
 import { InMemoryAgentRegistry } from '@mcai/orchestrator';

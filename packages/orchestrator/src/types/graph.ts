@@ -38,13 +38,13 @@ export type NodeType = z.infer<typeof NodeTypeSchema>;
  * Conditional edge routing logic.
  *
  * - `always`      — unconditional (default)
- * - `conditional` — evaluated via a Jexl expression against workflow memory
+ * - `conditional` — evaluated via a filtrex expression against workflow memory
  * - `map`         — used by map-reduce fan-out nodes
  */
 export const EdgeConditionSchema = z.object({
   /** Routing strategy. */
   type: z.enum(['always', 'conditional', 'map']),
-  /** Jexl expression (e.g. `"memory.decision == 'A'"`). Required for `conditional`. */
+  /** Filtrex expression (e.g. `"memory.decision == 'A'"`). Required for `conditional`. */
   condition: z.string().optional(),
   /** Expected value for simple equality checks. */
   value: z.unknown().optional(),

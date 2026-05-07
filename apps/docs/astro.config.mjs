@@ -4,9 +4,9 @@ import mermaid from 'astro-mermaid';
 import vercel from '@astrojs/vercel';
 
 export default defineConfig({
-  site: 'https://mc-ai-docs.vercel.app',
+  site: 'https://flattop.io/',
   adapter: vercel(),
-  output: 'server',
+  output: 'static',
   integrations: [
     mermaid({ autoTheme: true }), // must come before starlight
     starlight({
@@ -31,6 +31,7 @@ export default defineConfig({
           items: [
             { label: 'Introduction', slug: 'getting-started/introduction' },
             { label: 'Quick Start', slug: 'getting-started/quick-start' },
+            { label: 'Troubleshooting', slug: 'getting-started/troubleshooting' },
           ],
         },
         {

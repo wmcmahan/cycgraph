@@ -103,7 +103,7 @@ const runner = new GraphRunner(graph, state, { memoryRetriever });
 
 ### Combined with context compression
 
-For the full pipeline -- retrieve memory, then compress before injection:
+For the full pipeline — retrieve memory, then compress before injection:
 
 ```typescript
 import { GraphRunner } from '@mcai/orchestrator';
@@ -208,7 +208,7 @@ await index.rebuild(store);
 
 ## Next steps
 
-- [Memory System](/concepts/memory/) -- architectural deep dive
-- [Context Engine](/concepts/context-engine/) -- compress memory before prompt injection
-- [Using the Context Engine](/guides/context-engine/) -- compression integration guide
-- [Persistence](/concepts/persistence/) -- how workflow state persistence relates to memory
+- [Memory System](/concepts/memory/) — architectural deep dive
+- [Context Engine](/concepts/context-engine/) — compress memory before prompt injection
+- [Using the Context Engine](/guides/context-engine/) — compression integration guide
+- [Persistence](/concepts/persistence/) — how workflow state persistence relates to memory

@@ -29,6 +29,13 @@ flowchart TB
 3. **Wait**: The map node halts workflow progression until every single parallel task has either completed or timed out.
 4. **Aggregation (Synthesize)**: All the outputs from the workers are collected into a `mapper_results` array. A Synthesizer node reads this array and merges the fragments into a final, cohesive output.
 
+## When to use this pattern
+
+- **Document processing at scale** — summarize, classify, or extract from hundreds of documents that won't fit in a single context window.
+- **Research fan-out** — break a broad topic into sub-topics and assign one researcher per sub-topic in parallel.
+- **Bulk transformation** — translate, reformat, or annotate a list of items where each item is independent of the others.
+- **Anything embarrassingly parallel** — if the work is naturally per-item and the items don't depend on each other, Map-Reduce is faster and cheaper than processing them sequentially in a loop.
+
 ## Implementation example
 
 This example demonstrates a map-reduce pipeline where a Splitter breaks a broad topic into sub-topics, a Map node executes parallel Researchers for each sub-topic, and a Synthesizer merges the results. 
@@ -132,8 +139,9 @@ When the map node launches your parallel workers, it intercepts their memory vie
 - `_map_index`: Which position in the array this item occupies (e.g. `0`, `1`, `2`).
 - `_map_total`: The total size of the input array.
 
-### Model Cost Efficiency
-Optimizing Map-Reduce requires pairing the right LLM tier with the right node.
+### Model cost efficiency
 
-- **The Worker (Map)**: Because you are fanning out potentially hundreds of tasks simultaneously, the map worker should use the fastest, cheapest model available (e.g., Claude 3.5 Haiku or GPT-4o-mini). These agents are doing focused, narrow work—complex reasoning is rarely required.
-- **The Synthesizer (Reduce)**: The node receiving the array of outputs *does* require heavy reasoning to deduplicate and find patterns across the fragments. This agent should utilize a frontier reasoning model (e.g., Claude 3.5 Sonnet or GPT-4o).
+Pair the right LLM tier with the right node.
+
+- **The worker (Map)** fans out potentially hundreds of tasks simultaneously, so it should use the fastest, cheapest model available (e.g. `claude-haiku-4-5-20251001` or `gpt-4o-mini`). Workers do focused, narrow work — complex reasoning is rarely required.
+- **The synthesizer (Reduce)** receives the full array of outputs and *does* need heavy reasoning to deduplicate and find patterns across fragments. Use a frontier model (e.g. `claude-sonnet-4-20250514` or `gpt-4o`).

@@ -26,13 +26,27 @@ All hooks are optional. Implement only the ones you need.
 
 Called before a node runs. Return `{ shortCircuit: action }` to skip execution entirely and use the provided action instead. Useful for caching or circuit-breaking.
 
+The example below uses a process-local `Map` so you can copy and run it; in production, swap in Redis or your existing cache backend. Caching keys should include both `node.id` and a hash of the relevant input — caching by node ID alone is unsafe whenever the inputs change between runs.
+
 ```typescript
+import type { GraphRunnerMiddleware } from '@mcai/orchestrator';
+import type { Action } from '@mcai/orchestrator';
+
+const cache = new Map<string, Action>();
+
 const cachingMiddleware: GraphRunnerMiddleware = {
   async beforeNodeExecute(ctx) {
-    const cached = cache.get(ctx.node.id);
+    // Cache key combines node id with any inputs that influence the action.
+    const key = `${ctx.node.id}:${JSON.stringify(ctx.state.memory.goal ?? '')}`;
+    const cached = cache.get(key);
     if (cached) {
       return { shortCircuit: cached };
     }
+  },
+
+  async afterReduce(ctx, action) {
+    const key = `${ctx.node.id}:${JSON.stringify(ctx.state.memory.goal ?? '')}`;
+    cache.set(key, action);
   },
 };
 ```

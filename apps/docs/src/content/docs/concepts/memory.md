@@ -3,7 +3,7 @@ title: Memory System
 description: Temporal hierarchical knowledge graph for persistent agent memory across workflow runs.
 ---
 
-The **Memory System** (`@mcai/memory`) provides a temporal knowledge graph with xMemory-inspired hierarchical organization. It gives agents persistent, queryable memory that survives across workflow runs -- not just the ephemeral `WorkflowState.memory` that exists within a single execution.
+The **Memory System** (`@mcai/memory`) provides a temporal knowledge graph with xMemory-inspired hierarchical organization. It gives agents persistent, queryable memory that survives across workflow runs — not just the ephemeral `WorkflowState.memory` that exists within a single execution.
 
 The memory package is standalone with zero orchestrator dependencies. It works with any application or as the memory layer inside `@mcai/orchestrator` via the `memoryRetriever` option.
 
@@ -36,10 +36,10 @@ Queries start at the theme level and drill down only as needed, reducing token u
 
 Entities and relationships form a directed graph with temporal awareness:
 
-- **Entities** -- people, organizations, concepts, tools, locations
-- **Relationships** -- directed, weighted edges with `valid_from` / `valid_until` windows
-- **Temporal invalidation** -- old facts are soft-deleted (invalidated), not removed
-- **Provenance tracking** -- every record knows its origin (agent, tool, human, system, derived)
+- **Entities** — people, organizations, concepts, tools, locations
+- **Relationships** — directed, weighted edges with `valid_from` / `valid_until` windows
+- **Temporal invalidation** — old facts are soft-deleted (invalidated), not removed
+- **Provenance tracking** — every record knows its origin (agent, tool, human, system, derived)
 
 ```typescript
 import { InMemoryMemoryStore } from '@mcai/memory';
@@ -47,11 +47,24 @@ import type { Entity, Relationship } from '@mcai/memory';
 
 const store = new InMemoryMemoryStore();
 
+const aliceId = crypto.randomUUID();
+const acmeId = crypto.randomUUID();
+
 await store.putEntity({
-  id: crypto.randomUUID(),
+  id: aliceId,
   name: 'Alice',
   entity_type: 'person',
   attributes: { role: 'engineer' },
+  provenance: { source: 'agent', created_at: new Date() },
+  created_at: new Date(),
+  updated_at: new Date(),
+});
+
+await store.putEntity({
+  id: acmeId,
+  name: 'Acme Corp',
+  entity_type: 'organization',
+  attributes: {},
   provenance: { source: 'agent', created_at: new Date() },
   created_at: new Date(),
   updated_at: new Date(),
@@ -118,8 +131,8 @@ Greedy single-pass assignment: each fact joins the most similar existing theme (
 
 Two-pass clustering that prevents theme proliferation:
 
-1. **Assignment pass** -- same greedy assignment as `SimpleThemeClusterer`
-2. **Merge pass** -- pairwise cosine similarity between all theme centroids; themes above `mergeThreshold` are merged, centroids recomputed
+1. **Assignment pass** — same greedy assignment as `SimpleThemeClusterer`
+2. **Merge pass** — pairwise cosine similarity between all theme centroids; themes above `mergeThreshold` are merged, centroids recomputed
 
 ```typescript
 import { ConsolidatingThemeClusterer } from '@mcai/memory';
@@ -200,11 +213,11 @@ const consolidator = new MemoryConsolidator(store, index, {
 });
 
 const report = await consolidator.consolidate();
-// report.factsDeduped      -- near-duplicates merged
-// report.factsDecayed      -- low-relevance facts pruned
-// report.episodesPruned    -- old episodes removed
-// report.themesCleanedUp   -- themes with updated fact_ids
-// report.themesRemoved     -- empty themes deleted
+// report.factsDeduped      — near-duplicates merged
+// report.factsDecayed      — low-relevance facts pruned
+// report.episodesPruned    — old episodes removed
+// report.themesCleanedUp   — themes with updated fact_ids
+// report.themesRemoved     — empty themes deleted
 ```
 
 Consolidation cascades to themes: when facts are pruned, the themes that referenced them have their `fact_ids` updated and their embeddings recomputed. Themes with zero remaining facts are deleted.
@@ -289,7 +302,7 @@ const runner = new GraphRunner(graph, state, { memoryRetriever });
 
 ## Next steps
 
-- [Workflow State](/concepts/workflow-state/) -- ephemeral per-run memory vs persistent knowledge graph
-- [Context Engine](/concepts/context-engine/) -- compress memory payloads before prompt injection
-- [Using Memory](/guides/memory/) -- practical guide for integrating memory into workflows
-- [Persistence](/concepts/persistence/) -- how workflow state is persisted alongside memory
+- [Workflow State](/concepts/workflow-state/) — ephemeral per-run memory vs persistent knowledge graph
+- [Context Engine](/concepts/context-engine/) — compress memory payloads before prompt injection
+- [Using Memory](/guides/memory/) — practical guide for integrating memory into workflows
+- [Persistence](/concepts/persistence/) — how workflow state is persisted alongside memory

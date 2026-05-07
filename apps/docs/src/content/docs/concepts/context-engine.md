@@ -29,7 +29,7 @@ Each stage is independent and composable. Use the full pipeline, a single stage,
 
 ## Segments
 
-All content enters the pipeline as **segments** -- typed chunks with a role, priority, and optional lock:
+All content enters the pipeline as **segments** — typed chunks with a role, priority, and optional lock:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -79,10 +79,10 @@ const pipeline = createIncrementalPipeline({
   enableCaching: true,
 });
 
-// Turn 1 -- all segments compressed
+// Turn 1 — all segments compressed
 const turn1 = pipeline.compress({ segments, budget });
 
-// Turn 2 -- only changed segments re-compressed
+// Turn 2 — only changed segments re-compressed
 const turn2 = pipeline.compress(
   { segments: updatedSegments, budget },
   turn1.state,
@@ -286,7 +286,7 @@ All providers are optional. Without them, the engine falls back to statistical m
 
 ## Next steps
 
-- [Workflow State](/concepts/workflow-state/) -- how memory flows through the orchestrator
-- [Memory System](/concepts/memory/) -- hierarchical knowledge graph that feeds the context engine
-- [Budget-Aware Model Selection](/guides/model-selection/) -- how model choice affects compression
-- [Using the Context Engine](/guides/context-engine/) -- practical integration guide
+- [Workflow State](/concepts/workflow-state/) — how memory flows through the orchestrator
+- [Memory System](/concepts/memory/) — hierarchical knowledge graph that feeds the context engine
+- [Budget-Aware Model Selection](/guides/model-selection/) — how model choice affects compression
+- [Using the Context Engine](/guides/context-engine/) — practical integration guide

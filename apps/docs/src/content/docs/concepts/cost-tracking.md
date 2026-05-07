@@ -107,7 +107,7 @@ Each resolution emits a `model:resolved` stream event with one of three reasons:
 | `budget_critical` | Forced to the lowest tier — budget is nearly exhausted |
 
 ```typescript
-for await (const event of runner.stream(state)) {
+for await (const event of runner.stream()) {
   if (event.type === 'model:resolved') {
     console.log(`${event.node_id}: ${event.reason} → ${event.resolved_model}`);
   }

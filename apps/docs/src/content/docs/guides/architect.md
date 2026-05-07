@@ -83,16 +83,20 @@ Instead of calling `generateWorkflow()` directly, you can give the Architect's b
 
 ### Step 1: Initialize persistence
 
-The publish and get tools need to save/load graphs from your storage backend. Call `initArchitectTools()` once at application startup:
+The publish and get tools need to save/load graphs from your storage backend. Call `initArchitectTools()` once at application startup with `saveGraph` and `loadGraph` callbacks. Any persistence implementation works — in-memory for development, Drizzle/Postgres for production:
 
 ```typescript
-import { initArchitectTools } from '@mcai/orchestrator';
+import { InMemoryPersistenceProvider, initArchitectTools } from '@mcai/orchestrator';
+
+const persistence = new InMemoryPersistenceProvider();
 
 initArchitectTools({
   saveGraph: async (graph) => persistence.saveGraph(graph),
   loadGraph: async (id) => persistence.loadGraph(id),
 });
 ```
+
+For production, swap in `DrizzlePersistenceProvider` from `@mcai/orchestrator-postgres` — the callback signatures are identical.
 
 :::note
 The draft tool works without initialization — it only generates graphs in memory. The publish and get tools will throw `ArchitectError` if called before `initArchitectTools()`.

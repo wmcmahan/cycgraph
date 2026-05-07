@@ -199,6 +199,6 @@ Used by `evolution` nodes. Population-based optimization — generates N candida
 ## Next steps
 
 - [Graphs](/concepts/graphs/) — graph structure and edge configuration
-- [Workflow State](/concepts/workflow-state/) — the shared blackboard
+- [Workflow State](/concepts/workflow-state/) — the shared state object
 - [Agents](/concepts/agents/) — how agent nodes work
 

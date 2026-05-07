@@ -67,20 +67,25 @@ const formatterId = registry.register({
 
 ## Wiring the resolver into GraphRunner
 
-Pass the resolver as part of `GraphRunnerOptions`:
+Wire the registries globally once at startup, then pass `modelResolver` via `GraphRunnerOptions`:
 
 ```typescript
-import { GraphRunner } from '@mcai/orchestrator';
+import {
+  GraphRunner,
+  configureAgentFactory,
+  configureProviderRegistry,
+} from '@mcai/orchestrator';
 
-const runner = new GraphRunner({
-  graph,
-  agentRegistry: registry,
-  providerRegistry: providers,
+// Once at startup:
+configureProviderRegistry(providers);
+configureAgentFactory(registry);
+
+// Per run:
+const runner = new GraphRunner(graph, initialState, {
   modelResolver,               // ← budget-aware resolution
-  // ...other options
 });
 
-const finalState = await runner.run(initialState);
+const finalState = await runner.run();
 ```
 
 ## Budget-aware downgrade logic
@@ -107,7 +112,7 @@ Each resolution produces one of three reasons:
 The runner emits `model:resolved` stream events so you can observe every resolution decision:
 
 ```typescript
-for await (const event of runner.stream(initialState)) {
+for await (const event of runner.stream()) {
   if (event.type === 'model:resolved') {
     console.log(
       `[${event.node_id}] ${event.reason}: ${event.original_model} → ${event.resolved_model}` +
@@ -163,16 +168,17 @@ const myResolver: ModelResolver = (preference, provider, remainingBudgetUsd) => 
 import {
   GraphRunner,
   InMemoryAgentRegistry,
-  InMemoryPersistence,
+  InMemoryPersistenceProvider,
   createProviderRegistry,
   configureProviderRegistry,
+  configureAgentFactory,
   defaultModelResolver,
   createGraph,
   createWorkflowState,
 } from '@mcai/orchestrator';
 import type { ModelTierMap } from '@mcai/orchestrator';
 
-// 1. Set up providers
+// 1. Set up providers (wired globally)
 const providers = createProviderRegistry();
 configureProviderRegistry(providers);
 
@@ -183,7 +189,7 @@ const tierMap: ModelTierMap = {
   low:    { anthropic: 'claude-haiku-4-5-20251001' },
 };
 
-// 3. Register agents with model_preference
+// 3. Register agents (wire registry globally)
 const registry = new InMemoryAgentRegistry();
 
 const researcherId = registry.register({
@@ -206,34 +212,35 @@ const writerId = registry.register({
   permissions: { read_keys: ['research'], write_keys: ['summary'] },
 });
 
+configureAgentFactory(registry);
+
 // 4. Build the graph
 const graph = createGraph({
   name: 'Budget-Aware Research',
+  description: 'Research a topic, then summarize it under a budget.',
   nodes: [
-    { id: 'research', type: 'agent', agent_id: researcherId },
-    { id: 'write',    type: 'agent', agent_id: writerId },
+    { id: 'research', type: 'agent', agent_id: researcherId, read_keys: ['goal'], write_keys: ['research'] },
+    { id: 'write',    type: 'agent', agent_id: writerId,     read_keys: ['research'], write_keys: ['summary'] },
   ],
-  edges: [{ from: 'research', to: 'write' }],
+  edges: [{ source: 'research', target: 'write' }],
   start_node: 'research',
   end_nodes: ['write'],
 });
 
-// 5. Run with model resolution + budget
-const runner = new GraphRunner({
-  graph,
-  agentRegistry: registry,
-  providerRegistry: providers,
-  persistence: new InMemoryPersistence(),
-  modelResolver: defaultModelResolver(tierMap),
-});
-
+// 5. Build state and run with the resolver
+const persistence = new InMemoryPersistenceProvider();
 const state = createWorkflowState({
   workflow_id: graph.id,
   goal: 'Research and summarize quantum computing',
   budget_usd: 0.50,
 });
 
-for await (const event of runner.stream(state)) {
+const runner = new GraphRunner(graph, state, {
+  modelResolver: defaultModelResolver(tierMap),
+  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
+});
+
+for await (const event of runner.stream()) {
   if (event.type === 'model:resolved') {
     console.log(`${event.node_id}: ${event.reason} → ${event.resolved_model}`);
   }
@@ -254,6 +261,6 @@ for await (const event of runner.stream(state)) {
 ## Next steps
 
 - [Cost & Budget Tracking](/concepts/cost-tracking/) — set budgets and monitor spending
-- [Custom LLM Providers](/concepts/custom-providers/) — register providers referenced in your tier map
+- [Custom LLM Providers](/guides/custom-providers/) — register providers referenced in your tier map
 - [Agents](/concepts/agents/) — full agent configuration reference
 - [Streaming](/concepts/streaming/) — consume `model:resolved` events in real time

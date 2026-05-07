@@ -98,7 +98,7 @@ const pipeline = createPipeline({
 
 ## Query-aware compression
 
-When the user's query is known, pass it to the heuristic scorer to boost relevant tokens:
+When the user's query is known, configure the heuristic scorer to weight tokens that match the query, so query-relevant content survives pruning at the expense of unrelated text:
 
 ```typescript
 import { createPipeline, createHeuristicPruningStage, createAllocatorStage } from '@mcai/context-engine';
@@ -111,11 +111,15 @@ const pipeline = createPipeline({
 });
 
 const result = pipeline.compress({
-  segments,
+  segments: [
+    { id: 'query', content: userQuery, role: 'query', priority: 10, locked: true },
+    { id: 'memory', content: serialize(memory), role: 'memory', priority: 5 },
+  ],
   budget: { maxTokens: 4096, outputReserve: 512 },
-  // The query is available in the scorer context
 });
 ```
+
+Mark the query segment as `locked: true` so it is never pruned — the heuristic scorer reads its tokens to compute relevance scores for the unlocked segments. `queryWeight` is a multiplier between `0` and `1`; higher values bias the scorer more heavily toward query-matching content.
 
 ## Working with memory payloads
 
@@ -201,6 +205,6 @@ const guarded = createCircuitBreaker(semanticDedupStage, tracker, {
 
 ## Next steps
 
-- [Context Engine](/concepts/context-engine/) -- architectural deep dive
-- [Memory System](/concepts/memory/) -- the knowledge graph that feeds the context engine
-- [Budget-Aware Model Selection](/guides/model-selection/) -- how model choice affects compression
+- [Context Engine](/concepts/context-engine/) — architectural deep dive
+- [Memory System](/concepts/memory/) — the knowledge graph that feeds the context engine
+- [Budget-Aware Model Selection](/guides/model-selection/) — how model choice affects compression

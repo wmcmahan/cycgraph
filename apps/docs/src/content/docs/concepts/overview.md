@@ -3,7 +3,7 @@ title: How MC-AI Works
 description: A high-level overview of the Cyclic State Graph architecture and its core concepts.
 ---
 
-MC-AI is a **workflow engine** built around four primary concepts: Graphs, Nodes, Agents, and State. Understanding how these pieces interlock is the key to building effective, robust AI workflows.
+MC-AI is a **workflow engine** built around four primary concepts: Graphs, Nodes, Agents, and State. The sections below explain what each one is and how they fit together.
 
 ## The core concepts
 
@@ -29,7 +29,7 @@ Agents are decoupled from Nodes. You register your Agents in an `AgentRegistry`,
 
 ### 4. Workflow State
 
-Instead of passing output directly between nodes in a fragile chain, all nodes in MC-AI read from and write to a **shared blackboard** called the `WorkflowState`.
+Instead of passing output directly between nodes in a fragile chain, all nodes in MC-AI read from and write to a **shared state object** — the `WorkflowState`.
 
 ```typescript
 {

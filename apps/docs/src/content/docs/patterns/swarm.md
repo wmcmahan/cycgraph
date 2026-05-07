@@ -1,47 +1,45 @@
 ---
 title: Swarm
-description: Peer-to-peer handoffs — agents collaborate and dynamically pass control to one another.
+description: Peer-to-peer handoffs — specialized agents pass control to one another based on the next-best skill.
 ---
 
-The **Swarm** pattern enables a network of highly specialized, independent agents to collaborate on a task by dynamically handing off control to one another based on who is best suited for the next step.
+The **Swarm** pattern lets a network of specialized agents collaborate by handing control off to one another based on which peer is best suited for the next step.
 
-Unlike the [Supervisor](/patterns/supervisor/) pattern—where a central manager dictates routing—the Swarm operates horizontally. Each agent evaluates its own capabilities against the remaining goal; if another agent in the swarm is better equipped to handle the next phase, the current agent seamlessly transfers execution to its peer.
+Unlike the [Supervisor](/patterns/supervisor/) pattern, where a central manager dictates routing, Swarm operates horizontally. Each agent decides whether to continue working or hand off to a peer. The orchestrator validates handoffs against the agent's declared `peer_nodes` and enforces a `max_handoffs` circuit breaker to prevent infinite delegation loops.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    Start(["Input"]) --> A
+    Start(["Goal"]) --> A["Researcher"]
 
-    subgraph The Swarm
-        A["Research Specialist"] <-->|handoff| B["Math Expert"]
+    subgraph Swarm
+        A <-->|handoff| B["Math Expert"]
         B <-->|handoff| C["Python Writer"]
         A <-->|handoff| C
     end
 
-    A -->|"__done__"| Done(["Output"])
-    B -->|"__done__"| Done
-    C -->|"__done__"| Done
+    A --> Done(["End"])
+    B --> Done
+    C --> Done
 ```
 
-1. **Initialization**: The workflow enters the `swarm` node and triggers the first agent.
-2. **Peer Evaluation**: The active agent uses its tools and logic to progress the task. When it reaches the limit of its specialization, it looks at the list of available `peer_nodes` in the Swarm.
-3. **Handoff**: The agent calls a built-in handoff tool, suspending its own execution and transferring control—along with the current state memory—to a peer (e.g., passing control from the Researcher to the Math Expert to crunch the numbers).
-4. **Completion**: The peers continue passing the baton until one of them determines the overarching goal is fully achieved, at which point it hands off to the `__done__` sentinel, terminating the Swarm.
+1. **Entry.** The workflow enters at one peer — whichever node is the graph's `start_node`.
+2. **Peer evaluation.** The active agent reads its goal alongside `_swarm_config.peer_nodes`, which the orchestrator injects into the agent's state view so it knows who else is available.
+3. **Handoff.** When the agent decides another peer is better suited, it writes `_peer_delegation: { peer_node_id, reason }` to memory. The orchestrator validates the target is in `peer_nodes`, then dispatches a `handoff` action that routes execution to that peer. The agent's other memory updates are preserved across the handoff.
+4. **Continuation or completion.** If the agent does not delegate, normal graph edges run. The workflow ends when execution reaches an `end_node` without a pending handoff.
 
 ## When to use this pattern
 
-- **Highly diverse toolsets**: When you have many specialized tools (UI interactions, database queries, code execution) that would overwhelm a single LLM's context window. Instead, create specialized agents for each domain.
-- **Complex, unstructured workflows**: When the problem requires fluid back-and-forth collaboration rather than a strict linear pipeline or a rigid managerial hierarchy.
-- **Autonomous troubleshooting**: A "Triage" agent can hand off to a "Database Config" agent, who realizes it's actually an infrastructure issue and hands off to the "DevOps" agent.
+- **Highly diverse toolsets** — many specialized tools (UI interactions, database queries, code execution) that would overwhelm a single LLM's context. Split them across specialists, one per domain.
+- **Unpredictable execution order** — problems where the next best step depends on prior results, not a fixed pipeline.
+- **Autonomous troubleshooting** — a "Triage" agent hands off to "Database Config", which realizes it's actually an infrastructure issue and hands off to "DevOps".
 
 ## Implementation example
 
-The `swarm` node relies on an intelligent routing definition. You define the network of peers, and the orchestrator automatically handles the dynamic state transfers between them by injecting handoff capabilities into their prompts.
+A swarm node is just an `agent` node with `swarm_config` attached. There is no separate `swarm` node type. Each peer is its own `agent` node, and each declares its own `swarm_config` listing the *other* peers it can delegate to.
 
-### 1. The Specialized Agents
-
-First, register the independent specialists that will make up the swarm network.
+### 1. The specialist agents
 
 ```typescript
 import { InMemoryAgentRegistry } from '@mcai/orchestrator';
@@ -52,7 +50,12 @@ const RESEARCHER_ID = registry.register({
   name: 'Research Expert',
   model: 'claude-sonnet-4-20250514',
   provider: 'anthropic',
-  system_prompt: 'You specialize in fetching information and summarizing facts. When calculation is needed, hand off to the Math Expert.',
+  system_prompt: [
+    'You specialize in fetching information and summarizing facts.',
+    'When the goal requires calculation, hand off to the Math Expert by writing',
+    '`_peer_delegation: { peer_node_id: "math_wiz", reason: "..." }` to memory.',
+    'When code execution is needed, hand off to the Python Writer.',
+  ].join(' '),
   temperature: 0.3,
   tools: [{ type: 'mcp', server_id: 'web-search' }],
   permissions: { read_keys: ['*'], write_keys: ['*'] },
@@ -62,76 +65,116 @@ const MATH_ID = registry.register({
   name: 'Math Expert',
   model: 'claude-sonnet-4-20250514',
   provider: 'anthropic',
-  system_prompt: 'You specialize in complex arithmetic and logic. You cannot read the web. Receive data, calculate the result, and hand off to the Python Writer if scripting is needed, or finish the task if the goal is met.',
-  temperature: 0.0, // Absolute precision
+  system_prompt:
+    'You specialize in arithmetic and logic. Receive data, calculate the result, and hand off to the Python Writer if scripting is needed.',
+  temperature: 0.0,
   tools: [{ type: 'mcp', server_id: 'calculator' }],
   permissions: { read_keys: ['*'], write_keys: ['*'] },
 });
 
-const C முறை_ID = registry.register({
+const PYTHON_WRITER_ID = registry.register({
   name: 'Python Writer',
   model: 'claude-sonnet-4-20250514',
   provider: 'anthropic',
-  system_prompt: 'You write and execute Python scripts to process data. You do not search the web.',
+  system_prompt:
+    'You write and execute Python scripts to process data. You do not search the web.',
   temperature: 0.1,
   tools: [{ type: 'mcp', server_id: 'code-sandbox' }],
   permissions: { read_keys: ['*'], write_keys: ['*'] },
 });
 ```
 
-### 2. The Swarm Node
+### 2. The swarm graph
 
-Next, map those agents as standard nodes in the graph, and weave them together using a `swarm` parent node.
+Each peer is a standard `agent` node with `swarm_config` listing the other peers it can hand off to. Edges define what happens when no handoff is requested — typically a default forward path or a route to a terminal node.
 
 ```typescript
 import { createGraph } from '@mcai/orchestrator';
 
 const graph = createGraph({
   name: 'Data Analysis Swarm',
-  description: 'Peer-to-peer swarm solving complex data questions',
+  description: 'Peer-to-peer agents collaborating on data questions.',
   nodes: [
-    {
-      id: 'analysis_swarm',
-      type: 'swarm',
-      read_keys: ['*'],
-      write_keys: ['*'],
-      swarm_config: {
-        peer_nodes: ['researcher', 'math_wiz', 'python_dev'],
-        handoff_mode: 'agent_choice', // Agents use LLM reasoning to pick the next peer
-        max_handoffs: 15,             // Prevent infinite handoff loops
-      },
-    },
-    // The individual peers must still be defined as nodes in the graph
-    // so the orchestrator knows how to execute them
     {
       id: 'researcher',
       type: 'agent',
       agent_id: RESEARCHER_ID,
-      read_keys: ['*'], write_keys: ['*'],
+      swarm_config: {
+        peer_nodes: ['math_wiz', 'python_dev'],
+        max_handoffs: 10,
+        handoff_mode: 'agent_choice',
+      },
+      read_keys: ['*'],
+      write_keys: ['*'],
     },
     {
       id: 'math_wiz',
       type: 'agent',
       agent_id: MATH_ID,
-      read_keys: ['*'], write_keys: ['*'],
+      swarm_config: {
+        peer_nodes: ['researcher', 'python_dev'],
+        max_handoffs: 10,
+        handoff_mode: 'agent_choice',
+      },
+      read_keys: ['*'],
+      write_keys: ['*'],
     },
     {
       id: 'python_dev',
       type: 'agent',
-      agent_id: C_ID,
-      read_keys: ['*'], write_keys: ['*'],
+      agent_id: PYTHON_WRITER_ID,
+      swarm_config: {
+        peer_nodes: ['researcher', 'math_wiz'],
+        max_handoffs: 10,
+        handoff_mode: 'agent_choice',
+      },
+      read_keys: ['*'],
+      write_keys: ['*'],
     },
   ],
-  edges: [],
-  start_node: 'analysis_swarm',
-  end_nodes: ['analysis_swarm'], // Swarm nodes resolve internally
+  // Edges fire when an agent does NOT delegate. Use them to define a
+  // default forward path or a route to a terminal node.
+  edges: [
+    { source: 'researcher', target: 'python_dev' },
+    { source: 'math_wiz', target: 'python_dev' },
+  ],
+  start_node: 'researcher',
+  end_nodes: ['python_dev'],
 });
 ```
 
 ## Core concepts
 
-### Handoff Tool Injection
-When an agent is part of a `swarm` node, the orchestrator automatically intercepts its execution and injects a dynamic tool into its context (e.g., `handoff_to_peer`). The tool definition contains the IDs and descriptions of all available `peer_nodes`, allowing the LLM natively to decide when and who to pass control to. 
+### Handoff via `_peer_delegation`
 
-### Max Handoffs Limit
-Swarm behavior is highly emergent, which means it can easily derail into infinite handoff loops if two agents continually pass a problem back and forth without resolving it. The `max_handoffs` configuration acts as a hard circuit-breaker: if the swarm exceeds this number of transitions, the orchestrator forcibly halts the run to protect your API budget.
+A swarm-mode agent hands off by writing a `_peer_delegation` object to memory:
+
+```ts
+{
+  peer_node_id: 'math_wiz',     // must be in this node's swarm_config.peer_nodes
+  reason: 'Numerical breakdown required',
+  context?: unknown,             // optional — passed through to the peer
+}
+```
+
+The orchestrator strips this key, validates `peer_node_id`, and emits a `handoff` action that re-routes execution. The agent's other memory updates are preserved across the handoff.
+
+If the agent attempts to hand off to a node not in `peer_nodes`, the runner throws `NodeConfigError`.
+
+### Visibility into peers
+
+Before each call, the orchestrator injects a `_swarm_config` object into the agent's state view so it can see who's available and how much budget is left:
+
+```ts
+{
+  peer_nodes: ['math_wiz', 'python_dev'],
+  max_handoffs: 10,
+  handoff_count: 2,
+}
+```
+
+Agents can reference this in their reasoning to decide whether further handoff is warranted.
+
+### Max handoffs (circuit breaker)
+
+Swarms can derail into infinite ping-pong if two agents keep handing the same problem back. `max_handoffs` halts further delegation once `_swarm_handoff_count` reaches the limit. After that, any `_peer_delegation` requests are silently dropped and the agent's other memory updates flow through normal graph edges.
