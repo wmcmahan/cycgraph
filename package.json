@@ -23,7 +23,10 @@
     "node": ">=22.0.0"
   },
   "overrides": {
-    "underscore": ">=1.13.8"
+    "underscore": ">=1.13.8",
+    "protobufjs": ">=8.0.1",
+    "esbuild": ">=0.25.0",
+    "@ai-sdk/provider": "^3.0.10"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0"

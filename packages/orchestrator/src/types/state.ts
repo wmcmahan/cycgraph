@@ -252,7 +252,8 @@ export type HandoffPayload = z.infer<typeof HandoffPayloadSchema>;
 export const RequestHumanInputPayloadSchema = z.object({
   waiting_for: WaitingReasonSchema.optional(),
   timeout_ms: z.number().optional(),
-  pending_approval: z.unknown(),
+  /** Arbitrary review payload. Optional — agents pausing for generic input may omit it. */
+  pending_approval: z.unknown().optional(),
 });
 export type RequestHumanInputPayload = z.infer<typeof RequestHumanInputPayloadSchema>;
 

@@ -9,6 +9,9 @@
     "build": "astro build",
     "preview": "astro preview"
   },
+  "overrides": {
+    "path-to-regexp": ">=6.3.0"
+  },
   "dependencies": {
     "@astrojs/starlight": "^0.38.4",
     "@astrojs/vercel": "^10.0.6",
