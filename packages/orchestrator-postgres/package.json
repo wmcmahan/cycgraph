@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/orchestrator-postgres",
-  "version": "1.0.0",
+  "version": "0.1.0-beta.0",
   "description": "PostgreSQL persistence adapter for @cycgraph/orchestrator with Drizzle ORM, pgvector, and event sourcing.",
   "keywords": [
     "orchestrator",
