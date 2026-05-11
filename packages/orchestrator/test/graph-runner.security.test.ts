@@ -552,7 +552,7 @@ describe('GraphRunner — Token Budget Enforcement', () => {
 
     const persistSpy = vi.fn().mockResolvedValue(undefined);
     const state = createState({ max_token_budget: 1000 });
-    const runner = new GraphRunner(graph, state, persistSpy);
+    const runner = new GraphRunner(graph, state, { persistStateFn: persistSpy });
 
     try {
       await runner.run();

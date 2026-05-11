@@ -184,7 +184,7 @@ describe('GraphRunner — State Persistence', () => {
   test('should call persistState function', async () => {
     const initialState = createTestState();
     const persistSpy = vi.fn().mockResolvedValue(undefined);
-    const runner = new GraphRunner(createLinearGraph(), initialState, persistSpy);
+    const runner = new GraphRunner(createLinearGraph(), initialState, { persistStateFn: persistSpy });
     await runner.run();
 
     expect(persistSpy).toHaveBeenCalled();
@@ -195,7 +195,7 @@ describe('GraphRunner — State Persistence', () => {
 
   test('should emit state:persisted events', async () => {
     const initialState = createTestState();
-    const runner = new GraphRunner(createLinearGraph(), initialState, vi.fn().mockResolvedValue(undefined));
+    const runner = new GraphRunner(createLinearGraph(), initialState, { persistStateFn: vi.fn().mockResolvedValue(undefined) });
     const persistedSpy = vi.fn();
     runner.on('state:persisted', persistedSpy);
     await runner.run();

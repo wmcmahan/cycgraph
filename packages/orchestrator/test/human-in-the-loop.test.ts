@@ -141,7 +141,7 @@ describe('Human-in-the-Loop', () => {
     const state = createState();
     const persist = vi.fn();
 
-    const runner = new GraphRunner(graph, state, persist);
+    const runner = new GraphRunner(graph, state, { persistStateFn: persist });
     const finalState = await runner.run();
 
     expect(finalState.status).toBe('waiting');

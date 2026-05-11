@@ -369,7 +369,7 @@ describe('GraphRunner.stream() — Backward Compatibility', () => {
 
   test('state:persisted events emitted with persistStateFn', async () => {
     const persistSpy = vi.fn().mockResolvedValue(undefined);
-    const runner = new GraphRunner(createLinearGraph(), createInitialState(), persistSpy);
+    const runner = new GraphRunner(createLinearGraph(), createInitialState(), { persistStateFn: persistSpy });
     const events = await collectStreamEvents(runner);
 
     const persisted = events.filter(e => e.type === 'state:persisted');

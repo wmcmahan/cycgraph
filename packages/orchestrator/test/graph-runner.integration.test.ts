@@ -176,7 +176,7 @@ describe('GraphRunner — Integration Tests', () => {
     };
 
     const state = createTestState({ goal: 'Research and write about the sky' });
-    const runner = new GraphRunner(graph, state, persistFn);
+    const runner = new GraphRunner(graph, state, { persistStateFn: persistFn });
     const final = await runner.run();
 
     // Verify full pipeline execution

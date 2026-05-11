@@ -100,15 +100,11 @@ runner/
 Extends `EventEmitter`. The single public entry point for executing a workflow graph.
 
 ```typescript
-// Options object (preferred)
 const runner = new GraphRunner(graph, initialState, {
   persistStateFn?,
   loadGraphFn?,
   eventLog?,       // EventLogWriter for durable execution
 });
-
-// Positional args (backward compatible)
-const runner = new GraphRunner(graph, initialState, persistStateFn?, loadGraphFn?);
 ```
 
 | Parameter | Type | Purpose |

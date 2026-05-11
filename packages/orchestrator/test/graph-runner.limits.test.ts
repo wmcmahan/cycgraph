@@ -151,7 +151,7 @@ describe('GraphRunner — Timeout Management', () => {
       await new Promise(resolve => setTimeout(resolve, 20));
     };
 
-    const slowRunner = new GraphRunner(graph, initialState, slowPersist);
+    const slowRunner = new GraphRunner(graph, initialState, { persistStateFn: slowPersist });
 
     // Timeout now throws instead of returning silently
     try {

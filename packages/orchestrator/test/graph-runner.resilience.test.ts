@@ -261,7 +261,7 @@ describe('GraphRunner — Error Handling & Events', () => {
 
     const persistSpy = vi.fn().mockResolvedValue(undefined);
     const failedSpy = vi.fn();
-    const runner = new GraphRunner(graph, createState(), persistSpy);
+    const runner = new GraphRunner(graph, createState(), { persistStateFn: persistSpy });
     runner.on('workflow:failed', failedSpy);
 
     try {
@@ -490,7 +490,7 @@ describe('GraphRunner — Saga Rollback', () => {
     };
 
     const persistSpy = vi.fn().mockResolvedValue(undefined);
-    const runner = new GraphRunner(graph, state, persistSpy);
+    const runner = new GraphRunner(graph, state, { persistStateFn: persistSpy });
 
     await runner.rollback();
 
@@ -521,7 +521,7 @@ describe('GraphRunner — Saga Rollback', () => {
     };
 
     const rollbackSpy = vi.fn();
-    const runner = new GraphRunner(graph, state, vi.fn().mockResolvedValue(undefined));
+    const runner = new GraphRunner(graph, state, { persistStateFn: vi.fn().mockResolvedValue(undefined) });
     runner.on('workflow:rollback', rollbackSpy);
 
     await runner.rollback();
@@ -574,7 +574,7 @@ describe('GraphRunner — Saga Rollback', () => {
     };
 
     const persistSpy = vi.fn().mockResolvedValue(undefined);
-    const runner = new GraphRunner(graph, state, persistSpy);
+    const runner = new GraphRunner(graph, state, { persistStateFn: persistSpy });
 
     // Should NOT throw
     await runner.rollback();
@@ -639,7 +639,7 @@ describe('GraphRunner — Graph Validation', () => {
     };
 
     const persistSpy = vi.fn().mockResolvedValue(undefined);
-    const runner = new GraphRunner(graph, createState(), persistSpy);
+    const runner = new GraphRunner(graph, createState(), { persistStateFn: persistSpy });
 
     try {
       await runner.run();
@@ -700,7 +700,7 @@ describe('GraphRunner — Persistence Resilience', () => {
     };
 
     const brokenPersist = vi.fn().mockRejectedValue(new Error('DB connection failed'));
-    const runner = new GraphRunner(graph, createState(), brokenPersist);
+    const runner = new GraphRunner(graph, createState(), { persistStateFn: brokenPersist });
 
     await expect(runner.run()).rejects.toThrow('Persistence unavailable');
     expect(brokenPersist).toHaveBeenCalled();
@@ -730,7 +730,7 @@ describe('GraphRunner — Persistence Resilience', () => {
       callCount++;
       if (callCount % 3 !== 0) throw new Error('DB connection failed');
     });
-    const runner = new GraphRunner(graph, createState(), intermittentPersist);
+    const runner = new GraphRunner(graph, createState(), { persistStateFn: intermittentPersist });
     const final = await runner.run();
 
     expect(final.status).toBe('completed');
@@ -756,7 +756,7 @@ describe('GraphRunner — Persistence Resilience', () => {
       callCount++;
       if (callCount <= 2) throw new Error('DB connection failed');
     });
-    const runner = new GraphRunner(graph, createState(), partialPersist);
+    const runner = new GraphRunner(graph, createState(), { persistStateFn: partialPersist });
     const final = await runner.run();
 
     expect(final.status).toBe('completed');

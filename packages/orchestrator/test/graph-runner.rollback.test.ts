@@ -229,7 +229,7 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
     };
 
     const persistSpy = vi.fn().mockResolvedValue(undefined);
-    const runner = new GraphRunner(graph, createState(), persistSpy);
+    const runner = new GraphRunner(graph, createState(), { persistStateFn: persistSpy });
 
     const rollbackSpy = vi.fn();
     runner.on('workflow:rollback', rollbackSpy);
@@ -378,7 +378,7 @@ describe('GraphRunner — Graceful Shutdown', () => {
     const persistSpy = vi.fn().mockResolvedValue(undefined);
     const pausedSpy = vi.fn();
 
-    const runner = new GraphRunner(graph, createState(), persistSpy);
+    const runner = new GraphRunner(graph, createState(), { persistStateFn: persistSpy });
     runner.on('workflow:paused', pausedSpy);
 
     // Request shutdown after a brief delay (node-a should already be executing)

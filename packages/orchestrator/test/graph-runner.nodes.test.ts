@@ -200,7 +200,7 @@ describe('GraphRunner — Execution Flow', () => {
       statusChanges.push(state.status);
     };
 
-    const runner = new GraphRunner(createLinearGraph(), createInitialState(), persistFn);
+    const runner = new GraphRunner(createLinearGraph(), createInitialState(), { persistStateFn: persistFn });
     await runner.run();
 
     expect(statusChanges).toContain('running');

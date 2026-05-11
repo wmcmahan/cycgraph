@@ -161,7 +161,7 @@ describe('Subgraph Execution', () => {
     const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
     const state = createTestState({ memory: { parent_input: 'hello' } });
 
-    const runner = new GraphRunner(parentGraph, state, undefined, loadGraphFn);
+    const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
     const finalState = await runner.run();
 
     expect(finalState.status).toBe('completed');
@@ -203,7 +203,7 @@ describe('Subgraph Execution', () => {
       memory: { allowed_key: 'mapped_value', secret_key: 'should_not_transfer' },
     });
 
-    const runner = new GraphRunner(parentGraph, state, undefined, loadGraphFn);
+    const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
     const finalState = await runner.run();
 
     expect(finalState.status).toBe('completed');
@@ -246,7 +246,7 @@ describe('Subgraph Execution', () => {
       total_tokens_used: 3000,
     });
 
-    const runner = new GraphRunner(parentGraph, state, undefined, loadGraphFn);
+    const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
     const finalState = await runner.run();
 
     expect(finalState.status).toBe('completed');
@@ -311,7 +311,7 @@ describe('Subgraph Execution', () => {
     });
 
     const state = createTestState();
-    const runner = new GraphRunner(parentGraph, state, undefined, loadGraphFn);
+    const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
 
     await expect(runner.run()).rejects.toThrow(/[Cc]ycle/);
   });
@@ -344,7 +344,7 @@ describe('Subgraph Execution', () => {
 
     const loadGraphFn = vi.fn().mockResolvedValue(null);
     const state = createTestState();
-    const runner = new GraphRunner(parentGraph, state, undefined, loadGraphFn);
+    const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
 
     await expect(runner.run()).rejects.toThrow(/missing graph/);
   });
@@ -398,7 +398,7 @@ describe('Subgraph Execution', () => {
 
     const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
     const state = createTestState();
-    const runner = new GraphRunner(parentGraph, state, undefined, loadGraphFn);
+    const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
 
     await expect(runner.run()).rejects.toThrow(/missing tool_id/);
   });
@@ -484,7 +484,7 @@ describe('Subgraph Execution', () => {
 
     const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
     const state = createTestState();
-    const runner = new GraphRunner(parentGraph, state, undefined, loadGraphFn);
+    const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
     const finalState = await runner.run();
 
     expect(finalState.status).toBe('completed');
