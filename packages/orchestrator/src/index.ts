@@ -34,6 +34,7 @@ export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBrea
 // ─── Stream Events ─────────────────────────────────────────────────
 export type { StreamEvent, TerminalStreamEvent, ModelResolvedEvent, ContextCompressedEvent, MemoryDiff } from './runner/stream-events.js';
 export { isTerminalEvent } from './runner/stream-events.js';
+export { StreamChannel } from './runner/stream-channel.js';
 
 export * from './runner/helpers.js';
 export * from './runner/conditions.js';

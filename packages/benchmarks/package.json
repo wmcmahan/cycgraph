@@ -1,0 +1,22 @@
+{
+  "name": "@cycgraph/benchmarks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Performance benchmarks for @cycgraph/* packages. Never published.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "bench": "LOG_LEVEL=error vitest bench --run",
+    "bench:watch": "LOG_LEVEL=error vitest bench",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cycgraph/orchestrator": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^4.0.18"
+  }
+}
