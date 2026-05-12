@@ -19,7 +19,7 @@
     "bench": "npm run bench --workspace=packages/benchmarks",
     "changeset": "changeset",
     "version": "changeset version && npm install --package-lock-only",
-    "release": "npm run build && changeset publish --tag beta"
+    "release": "npm run build && changeset publish"
   },
   "engines": {
     "node": ">=22.0.0"
