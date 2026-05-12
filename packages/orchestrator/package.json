@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/orchestrator",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "Graph-based workflow orchestrator with durable execution, multi-agent coordination, and human-in-the-loop approval gates.",
   "keywords": [
     "orchestrator",

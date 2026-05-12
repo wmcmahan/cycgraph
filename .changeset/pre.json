@@ -9,5 +9,7 @@
     "@cycgraph/orchestrator": "0.1.0-beta.1",
     "@cycgraph/orchestrator-postgres": "0.1.0-beta.1"
   },
-  "changesets": []
+  "changesets": [
+    "beta-2-runner-refactor"
+  ]
 }
