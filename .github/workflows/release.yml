@@ -13,9 +13,10 @@ concurrency:
 permissions:
   contents: write       # bot pushes the Version Packages PR + tags
   pull-requests: write  # bot opens/updates the Version Packages PR
+  id-token: write       # OIDC token for npm trusted publishing
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '24'
 
 jobs:
   release:
