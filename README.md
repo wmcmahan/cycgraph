@@ -1,68 +1,165 @@
+<div align="center">
+
 # cycgraph
 
-**Agentic orchestration built on a Cyclic State Graph architecture.**
+[![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?label=%40cycgraph%2Forchestrator&color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
+[![CI](https://github.com/wmcmahan/mc-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/wmcmahan/mc-ai/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io)
 
-cycgraph is a production-ready workflow engine for building complex, multi-step AI agent systems. It provides robust patterns for Supervisors, Map-Reduce, Evolution (DGM), Human-in-the-Loop, and Swarms — all driven by configuration, not hardcoded chains.
+[📚 Documentation](https://flattop.io) &nbsp;·&nbsp; [🧪 Examples](./packages/orchestrator/examples/) &nbsp;·&nbsp; [🪞 Compound Learning Demo](./packages/orchestrator/examples/learning-research-agent/) &nbsp;·&nbsp; [🐛 Issues](https://github.com/wmcmahan/mc-ai/issues)
 
-[📚 **Read the full documentation here** →](https://flattop.io/)
+</div>
 
 ---
 
-## Why cycgraph?
+> **Status:** `0.1.0-beta`. The API is stabilising; minor versions may still introduce breaking changes until 1.0. Core primitives (graph engine, durable execution, memory, MCP integration) are covered by 2,100+ tests and exercised by the runnable examples.
 
-Most AI orchestration frameworks model workflows as linear chains or strict Directed Acyclic Graphs (DAGs). This works for simple pipelines, but falls apart when you need an agent to loop back and self-correct, a supervisor to dynamically route work, or a workflow to pause for human approval.
+cycgraph is an agent orchestration engine built on a **Cyclic State Graph**. Define multi-step agent workflows declaratively, run them with durable execution, and let them **distill what they learned** into a persistent knowledge store that future runs retrieve automatically. Cyclic loops, dynamic supervisors, population-based evolution, and human-in-the-loop gates ship as first-class node types, not framework extensions.
 
-cycgraph uses a **Cyclic State Graph**. Nodes can loop, revisit previous steps, and make runtime decisions based on a shared state blackboard. Agents never communicate directly — they emit actions that are applied via pure reducer functions, eliminating race conditions and making every state transition fully auditable.
+## What makes cycgraph different
 
-## Key Features
+| | cycgraph | Most agent frameworks |
+|---|---|---|
+| **Compound learning across runs** | First-class `reflection` node + `MemoryWriter` + tag-scoped retrieval. Agents that ran yesterday inform agents that run today. | Usually a separate vector-store integration you wire yourself |
+| **Per-node resource budgets** | `budget: { max_tokens, max_cost_usd }` on every node. A runaway agent can't drain the workflow. | Workflow-wide caps only |
+| **Zero-trust state slicing** | Every node declares `read_keys` / `write_keys`. Taint tracking on external data, MCP server allowlists, prompt-injection guards. | Optional middleware at best |
+| **Cyclic by design** | Loops, conditional routing, and nested subgraphs are native operations — not a DAG with backward-pointing edges bolted on. | DAG-shaped with workarounds |
+| **TypeScript-first** | Zod schemas at every boundary, strict mode throughout, MCP-native tool integration. | Mostly Python ecosystems with TS as a port |
+| **Durable execution** | Event-sourced replay, atomic state snapshots, saga compensation, HITL pauses that survive process restarts. | Varies by framework |
 
-- **Graph-Based Orchestration** — Define workflows as cyclic or acyclic graphs with typed nodes and edges.
-- **Advanced Patterns out-of-the-box** — Built-in support for Supervisors, Swarms, Map-Reduce, and population-based Darwinian Evolution.
-- **Human-in-the-Loop** — Approval nodes that securely persist workflow state and resume exactly where they left off upon human input.
-- **Built for Production** — Includes native retry backoffs, circuit breakers, saga rollbacks, and durable execution capabilities.
-- **Enterprise Security** — Zero Trust architecture with taint tracking to flag and sandbox external data throughout the execution pipeline.
-- **Zero Required Infrastructure** — The core orchestrator is a lightweight TypeScript library with in-memory execution. PostgreSQL is entirely optional.
+## What it looks like
 
-## Quick Start
+A two-node graph — an agent that researches and a `reflection` node that distills its notes into a memory store. Run the same graph twice on related goals and **run 2's prompt automatically contains what run 1 learned**.
 
-### 1. Install
+```typescript
+import { GraphRunner, createGraph, createWorkflowState } from '@cycgraph/orchestrator';
+
+const graph = createGraph({
+  name: 'Learning Research Agent',
+  description: 'Researches a topic, reflects on lessons, compounds across runs',
+  nodes: [
+    {
+      id: 'research',
+      type: 'agent',
+      agent_id: RESEARCHER,
+      read_keys: ['goal'],
+      write_keys: ['notes'],
+      memory_query: { tags: ['lesson:research-v1'], max_facts: 20 },
+      budget: { max_cost_usd: 0.10 },
+    },
+    {
+      id: 'reflect',
+      type: 'reflection',
+      read_keys: ['notes'],
+      write_keys: ['reflection'],
+      reflection_config: {
+        source_keys: ['notes'],
+        extractor: { type: 'rule_based', min_sentence_length: 25 },
+        tags: ['lesson', 'lesson:research-v1'],
+      },
+    },
+  ],
+  edges: [{ source: 'research', target: 'reflect' }],
+  start_node: 'research',
+  end_nodes: ['reflect'],
+});
+
+const runner = (goal: string) => new GraphRunner(
+  graph,
+  createWorkflowState({ workflow_id: graph.id, goal }),
+  { memoryWriter, memoryRetriever },
+);
+
+await runner('Evaluating scientific source credibility').run();
+await runner('Evaluating news source credibility').run();
+```
+
+Full runnable version — including the agent registration, memory adapters, and side-by-side run-1 vs run-2 stats — is in [`examples/learning-research-agent`](./packages/orchestrator/examples/learning-research-agent/).
+
+## Built-in patterns
+
+Each pattern is a node type. Declarative, composable, and traced through OpenTelemetry.
+
+| Pattern | Use it when |
+|---|---|
+| **[Supervisor](https://flattop.io/patterns/supervisor/)** | An LLM decides which specialist worker should run next, iteratively |
+| **[Swarm](https://flattop.io/patterns/swarm/)** | Peer agents hand off work to each other based on competence |
+| **[Map-Reduce](https://flattop.io/patterns/map-reduce/)** | Fan out an array of items to parallel workers, then merge |
+| **[Evolution (DGM)](https://flattop.io/patterns/evolution/)** | Generate N candidates per generation, score fitness, breed the winners |
+| **[Self-Annealing](https://flattop.io/patterns/self-annealing/)** | Iteratively refine a single output, dropping temperature each pass |
+| **[Reflection](https://flattop.io/patterns/reflection/)** | Distill run output into atomic facts that future runs retrieve |
+| **[Human-in-the-Loop](https://flattop.io/patterns/human-in-the-loop/)** | Pause for a human reviewer; resume hours later from the exact checkpoint |
+
+Plus deterministic primitives: `verifier` (LLM-judge / filtrex expression / JSONPath assertion), `voting` (consensus across N voter agents), `subgraph` (nested workflows with isolated state).
+
+## What you get
+
+- **Cyclic graph engine** — loops, retries, conditional routing via [filtrex](https://github.com/joewalnes/filtrex), nested subgraphs, parallel fan-out/fan-in.
+- **12 node types** — see the [Nodes reference](https://flattop.io/concepts/nodes/).
+- **Compound learning across runs** — `reflection` node distills run output into atomic facts; future runs retrieve them via `memory_query` on any agent node. Backed by a temporal knowledge graph in `@cycgraph/memory`.
+- **Production-safety primitives** — per-node `budget`, `factSanitizer` for PII redaction, taint tracking, zero-trust `read_keys`/`write_keys`, prompt-injection guards.
+- **Durable execution** — event-sourced replay, atomic state snapshots, saga compensation, auto-compaction.
+- **Streaming** — `stream()` async generator with real-time token deltas, tool-call events, and typed lifecycle events.
+- **MCP tools** — built-in default servers (web search, fetch), tool manifest caching, per-tool circuit breakers.
+- **Observability** — 17 lifecycle events, OpenTelemetry spans, Prometheus metrics, per-agent + per-workflow token/cost tracking.
+- **Distributed execution** — `WorkflowWorker` for multi-process deployments with crash recovery.
+
+## Quick start
+
+**In your project:**
 
 ```bash
 npm install @cycgraph/orchestrator
 ```
 
-### 2. Run a built-in example
-
-You can run any of our built-in pattern examples instantly using `npx tsx` and an Anthropic API key.
+**Try a runnable example first (no project needed):**
 
 ```bash
-# Clone the repository to access the examples
-git clone https://github.com/wmcmahan/mc-ai.git
-cd mc-ai
-npm install
-
-# Run a Supervisor routing between specialists
-ANTHROPIC_API_KEY=sk-ant-... npx tsx packages/orchestrator/examples/supervisor-routing/supervisor-routing.ts
-
-# Run a Map-Reduce fan-out with parallel workers
-ANTHROPIC_API_KEY=sk-ant-... npx tsx packages/orchestrator/examples/map-reduce/map-reduce.ts
+git clone https://github.com/wmcmahan/mc-ai.git && cd mc-ai && npm install
+ANTHROPIC_API_KEY=sk-ant-... npx tsx packages/orchestrator/examples/research-and-write/research-and-write.ts
 ```
 
-*See the [Getting Started Guide](https://github.com/wmcmahan/mc-ai/tree/main/apps/docs/src/content/docs/getting-started/quick-start.md) for a complete walkthrough of building your own workflow from scratch.*
+See the [Quick Start guide](https://flattop.io/getting-started/quick-start/) for a complete walkthrough. The [`examples/`](./packages/orchestrator/examples/) directory has runnable scripts for every built-in pattern plus infrastructure setups (Postgres, Ollama, MCP) — the table below points at the most commonly searched-for ones.
 
-## Project Structure
+## Examples by what you're trying to build
 
-This monorepo contains the following packages:
+- **A research agent that learns over runs** → [`learning-research-agent`](./packages/orchestrator/examples/learning-research-agent/)
+- **Multi-specialist routing** → [`supervisor-routing`](./packages/orchestrator/examples/supervisor-routing/)
+- **Quality loop until score ≥ N** → [`eval-loop`](./packages/orchestrator/examples/eval-loop/)
+- **Parallel research workers + merge** → [`map-reduce`](./packages/orchestrator/examples/map-reduce/)
+- **Verify-and-fix with deterministic gates** → [`verifier-fix-loop`](./packages/orchestrator/examples/verifier-fix-loop/)
+- **Voting / consensus across N agents** → [`voting`](./packages/orchestrator/examples/voting/)
+- **Evolutionary candidate breeding** → [`evolution`](./packages/orchestrator/examples/evolution/)
+- **Pause for human review + resume** → [`human-in-the-loop`](./packages/orchestrator/examples/human-in-the-loop/)
+- **MCP tools (web search, fetch)** → [`mcp-integration`](./packages/orchestrator/examples/mcp-integration/)
+- **Local Ollama models** → [`ollama-local`](./packages/orchestrator/examples/ollama-local/)
+- **Postgres durable execution** → [`postgres-persistence`](./packages/orchestrator/examples/postgres-persistence/)
 
-- `packages/orchestrator`: The core graph engine (`@cycgraph/orchestrator`) with zero infrastructure dependencies.
-- `packages/orchestrator-postgres`: An optional persistence adapter (`@cycgraph/orchestrator-postgres`) for durable state, event sourcing, and vector search.
-- `apps/docs`: The official Starlight documentation site.
-- `apps/api`: The Fastify gateway and server runtime.
+## Packages
+
+| Package | What it does |
+|---|---|
+| [`@cycgraph/orchestrator`](./packages/orchestrator) | Core graph engine. Zero infrastructure dependencies. |
+| [`@cycgraph/memory`](./packages/memory) | Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes). |
+| [`@cycgraph/context-engine`](./packages/context-engine) | Optional prompt compression pipeline — 40-70% token reduction on memory payloads. |
+| [`@cycgraph/orchestrator-postgres`](./packages/orchestrator-postgres) | Postgres + pgvector adapter for durable state, event log, agent registry, and memory store. |
+| [`@cycgraph/evals`](./packages/evals) | Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions. |
+
+## Documentation
+
+The full documentation site lives at **[flattop.io](https://flattop.io)**:
+
+- **[Quick Start](https://flattop.io/getting-started/quick-start/)** — your first workflow in 5 minutes
+- **[Core Concepts](https://flattop.io/concepts/overview/)** — graphs, nodes, agents, state
+- **[Patterns](https://flattop.io/patterns/supervisor/)** — runnable guides for each built-in pattern
+- **[Troubleshooting](https://flattop.io/getting-started/troubleshooting/)** — common errors, fixes, and the gotchas that fail silently
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for development setup instructions, coding standards, and PR guidelines.
+Issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and the architecture decisions worth knowing before opening a PR. Security disclosures go through [SECURITY.md](SECURITY.md).
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+[Apache 2.0](LICENSE).
