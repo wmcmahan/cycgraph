@@ -23,8 +23,8 @@ cycgraph is an agent orchestration engine built on a **Cyclic State Graph**. Def
 | | cycgraph | Most agent frameworks |
 |---|---|---|
 | **Compound learning across runs** | First-class `reflection` node + `MemoryWriter` + tag-scoped retrieval. Agents that ran yesterday inform agents that run today. | Usually a separate vector-store integration you wire yourself |
-| **Per-node resource budgets** | `budget: { max_tokens, max_cost_usd }` on every node. A runaway agent can't drain the workflow. | Workflow-wide caps only |
-| **Zero-trust state slicing** | Every node declares `read_keys` / `write_keys`. Taint tracking on external data, MCP server allowlists, prompt-injection guards. | Optional middleware at best |
+| **Per-node resource budgets** | `budget: { max_tokens, max_cost_usd }` on every node. A runaway agent can't drain the workflow. | Typically workflow-wide caps |
+| **Zero-trust state slicing** | Every node declares `read_keys` / `write_keys`. Taint tracking on external data, MCP server allowlists, prompt-injection guards. | Often middleware or hand-wired |
 | **Cyclic by design** | Loops, conditional routing, and nested subgraphs are native operations — not a DAG with backward-pointing edges bolted on. | DAG-shaped with workarounds |
 | **TypeScript-first** | Zod schemas at every boundary, strict mode throughout, MCP-native tool integration. | Mostly Python ecosystems with TS as a port |
 | **Durable execution** | Event-sourced replay, atomic state snapshots, saga compensation, HITL pauses that survive process restarts. | Varies by framework |
@@ -143,7 +143,7 @@ See the [Quick Start guide](https://flattop.io/getting-started/quick-start/) for
 |---|---|
 | [`@cycgraph/orchestrator`](./packages/orchestrator) | Core graph engine. Zero infrastructure dependencies. |
 | [`@cycgraph/memory`](./packages/memory) | Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes). |
-| [`@cycgraph/context-engine`](./packages/context-engine) | Optional prompt compression pipeline — 40-70% token reduction on memory payloads. |
+| [`@cycgraph/context-engine`](./packages/context-engine) | Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads. |
 | [`@cycgraph/orchestrator-postgres`](./packages/orchestrator-postgres) | Postgres + pgvector adapter for durable state, event log, agent registry, and memory store. |
 | [`@cycgraph/evals`](./packages/evals) | Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions. |
 

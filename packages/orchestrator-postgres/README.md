@@ -1,6 +1,26 @@
+<div align="center">
+
 # @cycgraph/orchestrator-postgres
 
-PostgreSQL persistence adapter for `@cycgraph/orchestrator`. Provides durable state, event sourcing, agent registry, usage tracking, and retention management backed by Postgres via Drizzle ORM.
+**Postgres + pgvector adapter for cycgraph. Durable workflow state, event sourcing, agent registry, and memory backend in one package.**
+
+[![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator-postgres?color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator-postgres)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+
+[📚 Documentation](https://flattop.io/operations/deployment/) &nbsp;·&nbsp; [📖 Schema reference](./src/schema.ts)
+
+</div>
+
+---
+
+Drop-in Postgres backend for [`@cycgraph/orchestrator`](https://www.npmjs.com/package/@cycgraph/orchestrator). Every interface (`PersistenceProvider`, `EventLogWriter`, `AgentRegistry`, `UsageRecorder`, `RetentionService`, plus the `@cycgraph/memory` `MemoryStore` / `MemoryIndex`) has a Drizzle ORM implementation that swaps in for the in-memory defaults — one import change.
+
+Use this package when:
+- You need workflows to **survive process restarts** (durable execution via event-sourced replay).
+- You want **production-grade event log** with checkpoints, compaction, and idempotent appends.
+- You need to **share an agent registry** across multiple worker processes.
+- You're using `@cycgraph/memory` and want a **persistent, queryable knowledge graph** with pgvector HNSW similarity search.
 
 ## Install
 
@@ -8,20 +28,22 @@ PostgreSQL persistence adapter for `@cycgraph/orchestrator`. Provides durable st
 npm install @cycgraph/orchestrator-postgres
 ```
 
-**Peer dependencies**: `@cycgraph/orchestrator`, `drizzle-orm`, `postgres`.
+**Peer dependencies:** `@cycgraph/orchestrator`, `drizzle-orm`, `postgres`.
 
 ## Setup
 
 ```bash
-# Start Postgres (Docker Compose provided at repo root)
-docker-compose up -d
+# Start Postgres (docker-compose.yml provided at the repo root)
+docker compose up -d
 
 # Set connection string
-export DATABASE_URL=postgres://mcai:mcai@localhost:5433/mcai
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5433/mcai"
 
-# Run migrations
+# Run migrations (creates all tables — workflow + memory)
 npm run db:migrate
 ```
+
+The bundled `docker-compose.yml` ships `postgres:16` with `pgvector` enabled and runs on port `5433` (so it won't clash with a local Postgres on 5432).
 
 ## Usage
 
@@ -31,128 +53,151 @@ import {
   DrizzleEventLogWriter,
   DrizzleAgentRegistry,
   DrizzleUsageRecorder,
-  DrizzleRetentionService,
 } from '@cycgraph/orchestrator-postgres';
 import { GraphRunner } from '@cycgraph/orchestrator';
 
 const persistence = new DrizzlePersistenceProvider();
 const eventLog = new DrizzleEventLogWriter();
+const usageRecorder = new DrizzleUsageRecorder();
 const agentRegistry = new DrizzleAgentRegistry();
 
-// Register an agent
-const agentId = await agentRegistry.register({
+const WRITER_ID = await agentRegistry.register({
   name: 'Writer',
   model: 'claude-sonnet-4-20250514',
   provider: 'anthropic',
   system_prompt: 'You are a writer.',
-  tools: [{ type: 'builtin', name: 'save_to_memory' }],
+  tools: [],
   permissions: { read_keys: ['*'], write_keys: ['draft'] },
 });
 
-// Run a workflow with Postgres persistence
 const runner = new GraphRunner(graph, state, {
-  persistStateFn: async (s) => { await persistence.saveWorkflowState(s); },
-  eventLogWriter: eventLog,
+  persistStateFn: async (s) => { await persistence.saveWorkflowSnapshot(s); },
+  eventLog,
 });
 
-const result = await runner.run();
+const finalState = await runner.run();
+await usageRecorder.record({ run_id: finalState.run_id, tokens: finalState.total_tokens_used, cost_usd: finalState.total_cost_usd });
 ```
 
-## Components
+If a worker process crashes mid-run, the next `GraphRunner` instance loaded with the same `run_id` will resume from the last persisted state and replay events from the event log — no work lost.
+
+## What ships in this package
+
+### Workflow durability
 
 | Class | Implements | Purpose |
 |-------|-----------|---------|
-| `DrizzlePersistenceProvider` | `PersistenceProvider` | Graph, workflow run, and state CRUD with versioned snapshots |
-| `DrizzleEventLogWriter` | `EventLogWriter` | Append-only event log, checkpoints, compaction |
-| `DrizzleAgentRegistry` | `AgentRegistry` | Agent config CRUD (register, load, update, list, delete) |
-| `DrizzleUsageRecorder` | `UsageRecorder` | Per-run token and cost tracking |
+| `DrizzlePersistenceProvider` | `PersistenceProvider` | Atomic state snapshots, run records, versioned history (`workflow_runs`, `workflow_states`) |
+| `DrizzleEventLogWriter` | `EventLogWriter` | Append-only event log + auto-compaction (`workflow_events`, `workflow_checkpoints`) |
+| `DrizzleAgentRegistry` | `AgentRegistry` | Multi-process agent config store (`agents`) |
+| `DrizzleUsageRecorder` | `UsageRecorder` | Per-run token + cost tracking (`usage_records`) |
 | `DrizzleRetentionService` | `RetentionService` | Tiered archival (hot/warm/cold) with transactional safety |
 
-## Schema
+### Memory backend (for `@cycgraph/memory`)
 
-Tables are defined in `src/schema.ts` and managed via Drizzle migrations in `drizzle/`.
+| Class | Implements | Purpose |
+|-------|-----------|---------|
+| `DrizzleMemoryStore` | `MemoryStore` | Entities, relationships, episodes, facts, themes — CRUD with temporal validity |
+| `DrizzleMemoryIndex` | `MemoryIndex` | pgvector HNSW similarity search over facts, themes, entities |
+
+```typescript
+import { DrizzleMemoryStore, DrizzleMemoryIndex } from '@cycgraph/orchestrator-postgres';
+import { retrieveMemory } from '@cycgraph/memory';
+
+const store = new DrizzleMemoryStore();
+const index = new DrizzleMemoryIndex();
+
+// Same `retrieveMemory()` API as the in-memory backend
+const result = await retrieveMemory(store, index, {
+  tags: ['lesson:research-v1'],
+  limit: 20, max_hops: 0, min_similarity: 0, include_invalidated: false,
+});
+```
+
+## Schema overview
+
+Defined in [`src/schema.ts`](./src/schema.ts) and managed via Drizzle migrations in [`drizzle/`](./drizzle/).
+
+### Workflow tables
 
 | Table | Purpose |
 |-------|---------|
 | `graphs` | Reusable graph definitions |
 | `workflow_runs` | Execution run metadata |
 | `workflow_states` | Versioned state snapshots (ordered by `version`, not timestamp) |
-| `workflow_events` | Append-only event log with sequence IDs and unique constraints |
+| `workflow_events` | Append-only event log with `(run_id, sequence_id)` unique constraint |
 | `workflow_checkpoints` | State snapshots for event log compaction |
-| `agents` | Agent configuration registry (includes `provider_options` JSONB column) |
-| `usage_records` | Token and cost tracking per run |
+| `agents` | Agent configuration registry (includes `provider_options` JSONB) |
+| `usage_records` | Per-run token and cost tracking |
+| `mcp_servers` | Trusted MCP server registry with access-control rules |
 
-### Migrations
-
-```bash
-# Generate a migration after editing schema.ts
-npx drizzle-kit generate --config=packages/orchestrator-postgres/drizzle.config.ts
-
-# Apply migrations
-npm run db:migrate
-
-# Push schema directly (dev only)
-npx drizzle-kit push --config=packages/orchestrator-postgres/drizzle.config.ts
-```
-
-## Error Contracts
-
-- **Event log writes propagate errors** — failed appends (other than duplicate conflicts) are not silently swallowed. The caller (GraphRunner) receives the error and increments its failure counter.
-- **Atomic snapshots** — `DrizzlePersistenceProvider.saveWorkflowSnapshot()` wraps both run and state saves in a single database transaction, preventing inconsistent state if one write fails.
-- **State versioning** — `loadLatestWorkflowState` sorts by `version` (not `created_at`) to handle sub-millisecond state saves correctly.
-- **Transactional archival** — `archiveCompletedWorkflows` wraps its two-phase update (run status + state status) in a database transaction. If either fails, both roll back.
-- **Idempotent event append** — appending an event with a duplicate `(run_id, sequence_id)` is silently ignored via `ON CONFLICT DO NOTHING`. This makes retries after network timeouts safe without risking duplicate events.
-
-## Memory Tables (Optional)
-
-Six tables for the `@cycgraph/memory` knowledge graph backed by pgvector HNSW:
+### Memory tables
 
 | Table | Purpose |
 |-------|---------|
-| `memory_entities` | Knowledge graph nodes |
-| `memory_relationships` | Directed temporal edges |
+| `memory_entities` | Knowledge-graph nodes |
+| `memory_relationships` | Directed temporal edges (`source_id` → `target_id`, with `valid_from` / `valid_until`) |
 | `memory_episodes` | Message groups |
-| `memory_facts` | Atomic semantic facts |
+| `memory_facts` | Atomic semantic facts (with `tags` JSONB column for tag-based retrieval) |
 | `memory_themes` | Fact clusters |
-| `memory_entity_facts` | Join table for entity-fact lookups |
+| `memory_entity_facts` | Join table for entity ↔ fact lookups |
 
-### Usage
+All embedding columns use pgvector HNSW indexes with cosine distance.
 
-```typescript
-import { DrizzleMemoryStore, DrizzleMemoryIndex } from '@cycgraph/orchestrator-postgres';
-import type { MemoryStore, MemoryIndex } from '@cycgraph/memory';
+## Migrations
 
-const store: MemoryStore = new DrizzleMemoryStore();
-const index: MemoryIndex = new DrizzleMemoryIndex();
+```bash
+# Generate a new migration after editing schema.ts
+npx drizzle-kit generate --config=packages/orchestrator-postgres/drizzle.config.ts
 
-// Use with @cycgraph/memory APIs
-await store.putEntity(entity);
-const results = await index.searchFacts(embedding, { limit: 10, min_similarity: 0.7 });
+# Apply pending migrations
+npm run db:migrate
+
+# Push schema directly (dev only — bypasses the migration history)
+npx drizzle-kit push --config=packages/orchestrator-postgres/drizzle.config.ts
 ```
 
-### Embedding Dimensions
+### Embedding dimensions
 
-The default embedding dimension is 1536 (matching OpenAI text-embedding-ada-002).
-To use a different dimension, update the `EMBEDDING_DIMENSIONS` constant in the schema
-and generate a new migration.
+Default is **1536** (OpenAI `text-embedding-ada-002`, `text-embedding-3-small`). To use a different dimension, edit `EMBEDDING_DIMENSIONS` in `src/schema.ts` and generate a new migration.
 
 ```typescript
 import { EMBEDDING_DIMENSIONS } from '@cycgraph/orchestrator-postgres';
 // Default: 1536
 ```
 
+## Operational notes
+
+- **Atomic snapshots** — `DrizzlePersistenceProvider.saveWorkflowSnapshot()` wraps both run and state writes in a single transaction. No torn writes if either fails.
+- **Idempotent event appends** — duplicate `(run_id, sequence_id)` pairs are silently ignored via `ON CONFLICT DO NOTHING`. Retries after network timeouts are safe.
+- **Version-ordered state loads** — `loadLatestWorkflowState()` sorts by `version`, not `created_at`. Handles sub-millisecond saves correctly.
+- **Transactional archival** — `archiveCompletedWorkflows()` wraps its two-phase update (run status + state status) in a transaction. Either both succeed or both roll back.
+- **Event log writes propagate errors** — failed appends (other than dedup conflicts) are not silently swallowed. The `GraphRunner` sees the error and increments its failure counter so observability dashboards can alert.
+
+## Common errors
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `password authentication failed` | Connection string doesn't match the docker-compose defaults | The bundled `docker-compose.yml` uses `postgres:postgres@localhost:5433/mcai` — adjust accordingly if you customised it |
+| `database "mcai" does not exist` | Migrations not yet run | `npm run db:migrate` |
+| `extension "vector" is not available` | Using stock Postgres without pgvector | Use the bundled `docker-compose.yml` (image includes pgvector) or install the extension yourself |
+| `Could not find a relation "memory_facts"` | Old migration history before the memory schema landed | Regenerate from scratch: drop the DB, recreate, run all migrations |
+| Slow vector queries | Missing HNSW indexes | Confirm migrations applied through `0006_minor_pixie` — that's when the `idx_*_embedding` indexes land |
+
 ## Testing
 
-Tests require a running Postgres instance. They are automatically skipped when `DATABASE_URL` is not set.
+Tests require a running Postgres instance. They are skipped automatically when `DATABASE_URL` is not set.
 
 ```bash
-# Start Postgres
-docker-compose up -d
-
-# Run tests
-DATABASE_URL=postgres://mcai:mcai@localhost:5433/mcai npm run test --workspace=packages/orchestrator-postgres
+docker compose up -d
+DATABASE_URL="postgresql://postgres:postgres@localhost:5433/mcai" \
+  npm run test --workspace=packages/orchestrator-postgres
 ```
+
+## Contributing
+
+Issues and PRs welcome on [GitHub](https://github.com/wmcmahan/mc-ai). See [CONTRIBUTING.md](https://github.com/wmcmahan/mc-ai/blob/main/CONTRIBUTING.md).
 
 ## License
 
-[Apache 2.0](./LICENSE)
+[Apache 2.0](https://github.com/wmcmahan/mc-ai/blob/main/LICENSE).

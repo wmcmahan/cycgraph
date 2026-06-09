@@ -1,10 +1,38 @@
+<div align="center">
+
 # @cycgraph/orchestrator
 
-A graph engine for orchestrating AI agent workflows. Define agents, tools, supervisors, and routing logic as configuration — the engine handles execution, state, retries, and recovery.
+**The core engine of cycgraph — a TypeScript agent orchestrator built on a Cyclic State Graph.**
 
-```
-Define Graph (nodes + edges) → GraphRunner.run() → Execute Nodes → Reduce State → Persist → Follow Edges → Done
-```
+[![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
+[![CI](https://github.com/wmcmahan/mc-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/wmcmahan/mc-ai/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io)
+
+[📚 Documentation](https://flattop.io) &nbsp;·&nbsp; [🧪 Examples](./examples/) &nbsp;·&nbsp; [🪞 Compound Learning Demo](./examples/learning-research-agent/) &nbsp;·&nbsp; [🐛 Issues](https://github.com/wmcmahan/mc-ai/issues)
+
+</div>
+
+---
+
+> **Status:** `0.1.0-beta`. The API is stabilising; minor versions may still introduce breaking changes until 1.0. Core primitives (graph engine, durable execution, memory, MCP integration) are covered by 2,100+ tests and exercised by the runnable examples.
+
+Define multi-step agent workflows declaratively, run them with durable execution, and let them **distill what they learned** into a persistent knowledge store that future runs retrieve automatically. Cyclic loops, dynamic supervisors, population-based evolution, and human-in-the-loop gates ship as first-class node types, not framework extensions.
+
+## What you get in this package
+
+`@cycgraph/orchestrator` is the **standalone graph engine**. Zero infrastructure dependencies — runs entirely in-memory by default. Pair it with [`@cycgraph/memory`](https://www.npmjs.com/package/@cycgraph/memory) for cross-run learning or [`@cycgraph/orchestrator-postgres`](https://www.npmjs.com/package/@cycgraph/orchestrator-postgres) for durable persistence when you need it.
+
+- **Cyclic graph engine** — loops, retries, conditional routing via [filtrex](https://github.com/joewalnes/filtrex), nested subgraphs, parallel fan-out/fan-in.
+- **12 node types** — `agent`, `tool`, `router`, `supervisor`, `approval`, `map`, `synthesizer`, `voting`, `subgraph`, `evolution`, `verifier`, `reflection`.
+- **Compound learning across runs** — `reflection` node distills run output into atomic facts; future runs retrieve them via `memory_query` on any agent node.
+- **Production-safety primitives** — per-node `budget` (token + cost caps), `factSanitizer` for PII redaction, taint tracking on external data, zero-trust `read_keys` / `write_keys`, prompt-injection guards.
+- **Durable execution** — event-sourced replay, atomic state snapshots, saga compensation, auto-compaction.
+- **Streaming** — `stream()` async generator with real-time token deltas, tool-call events, and typed lifecycle events.
+- **MCP-native tools** — built-in default servers (web search, fetch), tool manifest caching, per-tool circuit breakers.
+- **Observability** — 17 lifecycle events, OpenTelemetry spans, Prometheus metrics, per-agent + per-workflow token / cost tracking.
+- **Distributed execution** — `WorkflowWorker` for multi-process deployments with crash recovery.
 
 ## Install
 
@@ -12,305 +40,131 @@ Define Graph (nodes + edges) → GraphRunner.run() → Execute Nodes → Reduce 
 npm install @cycgraph/orchestrator
 ```
 
-**Peer dependencies**: `ai` (v6+), `zod`, and at least one provider adapter (`@ai-sdk/anthropic`, `@ai-sdk/openai`, or any Vercel AI SDK-compatible provider).
+Both Anthropic and OpenAI are built-in. For Ollama, custom providers, or Groq, see [Custom LLM Providers](https://flattop.io/guides/custom-providers/).
 
-## 5-Minute Quick Start
+## What it looks like
 
-The fastest way to see the engine in action is to run an example. This requires Node.js 24+ and an Anthropic API key.
-
-```bash
-git clone https://github.com/wmcmahan/mc-ai.git
-cd mc-ai
-npm install
-cd packages/orchestrator
-npx tsc
-
-# Run a 2-node linear workflow
-ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/research-and-write/research-and-write.ts
-```
-
-To use OpenAI instead, change `provider` to `'openai'`, update the `model` field (e.g. `'gpt-4o'`), and set `OPENAI_API_KEY`.
-
-### Minimal Code
+A two-node graph: an agent that researches, a `reflection` node that distills its notes into a memory store. Run the same graph twice on related goals and **run 2's prompt automatically contains what run 1 learned**.
 
 ```typescript
-import { v4 as uuidv4 } from 'uuid';
-import {
-  GraphRunner,
-  InMemoryPersistenceProvider,
-  InMemoryAgentRegistry,
-  configureAgentFactory,
-  createProviderRegistry,
-  configureProviderRegistry,
-  type Graph,
-  type WorkflowState,
-} from '@cycgraph/orchestrator';
+import { GraphRunner, createGraph, createWorkflowState } from '@cycgraph/orchestrator';
 
-// 1. Register an agent (agents are config, not classes — ID is auto-generated)
-const registry = new InMemoryAgentRegistry();
-const agentId = registry.register({
-  name: 'Writer',
-  model: 'claude-sonnet-4-20250514',
-  provider: 'anthropic',
-  system_prompt: 'Write a summary of the goal.',
-  temperature: 0.7,
-  max_steps: 3,
-  tools: [],
-  permissions: { read_keys: ['goal'], write_keys: ['draft'] },
-});
-configureAgentFactory(registry);
-
-// 2. Configure LLM providers (OpenAI + Anthropic are built-in)
-const providers = createProviderRegistry();
-configureProviderRegistry(providers);
-
-// 3. Define a graph (version/created_at/updated_at are persistence-layer concerns)
-const graph: Graph = {
-  id: uuidv4(),
-  name: 'Simple',
-  description: 'Single-node writer workflow',
-  nodes: [{ id: 'write', type: 'agent', agent_id: agentId, read_keys: ['goal'], write_keys: ['draft'] }],
-  edges: [],
-  start_node: 'write',
-  end_nodes: ['write'],
-};
-
-// 4. Run (use createWorkflowState — only workflow_id and goal are required)
-import { createWorkflowState } from '@cycgraph/orchestrator';
-
-const state = createWorkflowState({
-  workflow_id: graph.id,
-  goal: 'Explain how transformers work',
+const graph = createGraph({
+  name: 'Learning Research Agent',
+  description: 'Researches a topic, reflects on lessons, compounds across runs',
+  nodes: [
+    {
+      id: 'research',
+      type: 'agent',
+      agent_id: RESEARCHER,
+      read_keys: ['goal'],
+      write_keys: ['notes'],
+      memory_query: { tags: ['lesson:research-v1'], max_facts: 20 }, // ← retrieves prior lessons
+      budget: { max_cost_usd: 0.10 },                                 // ← per-node cost cap
+    },
+    {
+      id: 'reflect',
+      type: 'reflection',                                              // ← distills notes → atomic facts
+      read_keys: ['notes'],
+      write_keys: ['reflection'],
+      reflection_config: {
+        source_keys: ['notes'],
+        extractor: { type: 'rule_based', min_sentence_length: 25 },
+        tags: ['lesson', 'lesson:research-v1'],
+      },
+    },
+  ],
+  edges: [{ source: 'research', target: 'reflect' }],
+  start_node: 'research',
+  end_nodes: ['reflect'],
 });
 
-const persistence = new InMemoryPersistenceProvider();
-const runner = new GraphRunner(graph, state, {
-  persistStateFn: async (s) => { await persistence.saveWorkflowState(s); },
-});
+const runner = (goal: string) => new GraphRunner(
+  graph,
+  createWorkflowState({ workflow_id: graph.id, goal }),
+  { memoryWriter, memoryRetriever },
+);
 
-const result = await runner.run();
-console.log(result.memory.draft);
+await runner('Evaluating scientific source credibility').run();
+await runner('Evaluating news source credibility').run();
 ```
 
-### Custom LLM Providers
+Full runnable version with agent registration and memory adapters is in [`examples/learning-research-agent`](./examples/learning-research-agent/).
 
-The `ProviderRegistry` supports any Vercel AI SDK-compatible provider. OpenAI and Anthropic are built-in; register additional providers at startup:
+## Built-in patterns
 
-Agents can then use `provider: 'groq'` or `provider: 'ollama'` in their config. The registry also supports provider inference — a model in the provider's known model list auto-resolves to that provider when `provider` is omitted. Use `addModel()` to register new model names at runtime.
+Each pattern is a node type. Declarative, composable, traced through OpenTelemetry.
 
-For local models via Ollama, use the built-in `registerOllamaProvider()` helper which handles factory injection and model registration:
+| Pattern | Use it when |
+|---|---|
+| **[Supervisor](https://flattop.io/patterns/supervisor/)** | An LLM decides which specialist worker should run next, iteratively |
+| **[Swarm](https://flattop.io/patterns/swarm/)** | Peer agents hand off work to each other based on competence |
+| **[Map-Reduce](https://flattop.io/patterns/map-reduce/)** | Fan out an array of items to parallel workers, then merge |
+| **[Evolution (DGM)](https://flattop.io/patterns/evolution/)** | Generate N candidates per generation, score fitness, breed the winners |
+| **[Self-Annealing](https://flattop.io/patterns/self-annealing/)** | Iteratively refine a single output, dropping temperature each pass |
+| **[Reflection](https://flattop.io/patterns/reflection/)** | Distill run output into atomic facts that future runs retrieve |
+| **[Human-in-the-Loop](https://flattop.io/patterns/human-in-the-loop/)** | Pause for a human reviewer; resume hours later from the exact checkpoint |
+
+Plus deterministic primitives: `verifier` (LLM-judge / filtrex expression / JSONPath assertion), `voting` (consensus across N voter agents), `subgraph` (nested workflows with isolated state).
+
+## Streaming
+
+`run()` returns the final state. `stream()` exposes every lifecycle event as it happens, including real-time token deltas.
 
 ```typescript
-import { registerOllamaProvider } from '@cycgraph/orchestrator';
-registerOllamaProvider(providers); // uses OLLAMA_BASE_URL or defaults to http://localhost:11434
-```
-
-### Streaming
-
-Use `stream()` for real-time event consumption, including token-by-token LLM output:
-
-```typescript
-import { GraphRunner, isTerminalEvent } from '@cycgraph/orchestrator';
-import type { StreamEvent } from '@cycgraph/orchestrator';
-
-const runner = new GraphRunner(graph, state, opts);
-
 for await (const event of runner.stream()) {
   switch (event.type) {
-    case 'agent:token_delta':
-      process.stdout.write(event.token);  // real-time tokens
-      break;
-    case 'node:complete':
-      console.log(`${event.node_id} done in ${event.duration_ms}ms`);
-      break;
-    case 'workflow:complete':
-      console.log('Done:', event.state.status);
-      break;
+    case 'agent:token_delta': process.stdout.write(event.token); break;
+    case 'tool:call_start': console.log(`\n[${event.tool_name}]`); break;
+    case 'node:complete': console.log(`\n  ✓ ${event.node_id}`); break;
+    case 'workflow:complete': console.log('\ndone:', event.state.memory); break;
   }
 }
 ```
 
-`stream()` is the canonical execution path — `run()` consumes it internally. Terminal events (`workflow:complete`, `workflow:failed`, `workflow:timeout`, `workflow:waiting`) carry the full `WorkflowState`. Use `isTerminalEvent()` to narrow.
+Terminal events (`workflow:complete`, `workflow:failed`, `workflow:timeout`, `workflow:waiting`) carry the full `WorkflowState`. Use `isTerminalEvent()` to narrow.
 
-See [examples/](./examples/) for complete, runnable versions.
+## Examples by what you're trying to build
 
-## Features
+- **A research agent that learns over runs** → [`learning-research-agent`](./examples/learning-research-agent/)
+- **Multi-specialist routing** → [`supervisor-routing`](./examples/supervisor-routing/)
+- **Quality loop until score ≥ N** → [`eval-loop`](./examples/eval-loop/)
+- **Parallel research workers + merge** → [`map-reduce`](./examples/map-reduce/)
+- **Verify-and-fix with deterministic gates** → [`verifier-fix-loop`](./examples/verifier-fix-loop/)
+- **Voting / consensus across N agents** → [`voting`](./examples/voting/)
+- **Evolutionary candidate breeding** → [`evolution`](./examples/evolution/)
+- **Pause for human review + resume** → [`human-in-the-loop`](./examples/human-in-the-loop/)
+- **MCP tools (web search, fetch)** → [`mcp-integration`](./examples/mcp-integration/)
+- **Local Ollama models** → [`ollama-local`](./examples/ollama-local/)
+- **Postgres durable execution** → [`postgres-persistence`](./examples/postgres-persistence/)
 
-| Category | Highlights |
-|----------|-----------|
-| **Graph Engine** | Cyclic graphs, 12 node types, conditional routing via [filtrex](https://github.com/joewalnes/filtrex), parallel fan-out/fan-in |
-| **Node Types** | `agent` `tool` `router` `supervisor` `approval` `map` `synthesizer` `voting` `subgraph` `evolution` `verifier` `reflection` |
-| **Compound Learning** | `reflection` node + `memoryWriter` distill run output into atomic facts; future runs retrieve them via `memory_query` on agent nodes — agents that get smarter across runs |
-| **Resilience** | Retry with backoff (linear/exponential/fixed), circuit breakers, typed saga rollback, durable execution via event sourcing, event log auto-compaction |
-| **Security** | Zero Trust state slicing (`read_keys`/`write_keys`), taint tracking for external data, permission-enforced reducers |
-| **Streaming** | `stream()` async generator, real-time token deltas, tool call start/finish events, memory diffs on `action:applied`, typed `StreamEvent` union, `isTerminalEvent()` guard, `AbortSignal` cancellation |
-| **MCP Tools** | Tool manifest caching (5-min TTL), per-tool execution timeouts, connection retry with backoff, auto-reconnect |
-| **Observability** | 17 lifecycle events, OpenTelemetry tracing (opt-in), Prometheus metrics, token and tool call streaming |
-| **Cost Control** | Token budgets, per-run cost tracking, budget-aware model resolution (all node types), workflow and node-level timeouts |
-| **Context Compression** | Optional `@cycgraph/context-engine` integration — format compression, dedup, CoT distillation, heuristic pruning with `context:compressed` stream events |
-| **Distributed Execution** | `WorkflowWorker` with per-workflow assignment, `WorkflowQueue` interface, visibility-timeout crash recovery, HITL pause (`paused` status — not re-claimable), dead-lettering, configurable concurrency |
-| **Persistence** | Mandatory atomic snapshots, differential state persistence (delta tracking), event log auto-compaction |
-
-## Context Compression (Optional)
-
-Reduce token costs by 40-70% on agent memory payloads. Pass a `contextCompressor` to `GraphRunnerOptions` — the orchestrator uses it to compress memory before injecting into agent and supervisor prompts.
-
-```typescript
-import { GraphRunner } from '@cycgraph/orchestrator';
-import type { ContextCompressor } from '@cycgraph/orchestrator';
-import { createOptimizedPipeline, serialize } from '@cycgraph/context-engine';
-
-const { pipeline } = createOptimizedPipeline({ preset: 'balanced' });
-
-const contextCompressor: ContextCompressor = (sanitizedMemory, options) => {
-  const result = pipeline.compress({
-    segments: [{ id: 'memory', content: serialize(sanitizedMemory), role: 'memory', priority: 1 }],
-    budget: { maxTokens: options?.maxTokens ?? 8192, outputReserve: 0 },
-    model: options?.model,
-  });
-  return { compressed: result.segments[0].content, metrics: result.metrics };
-};
-
-const runner = new GraphRunner(graph, state, { contextCompressor });
-```
-
-Without `@cycgraph/context-engine` installed, the orchestrator works exactly as before — memory is serialized as `JSON.stringify(data, null, 2)` with a 50KB byte cap.
-
-Compression metrics are emitted as `context:compressed` stream events and can be consumed via `runner.on('context:compressed', ...)` for observability.
-
-## Examples
-
-| Example | Pattern | What It Shows |
-|---------|---------|---------------|
-| [research-and-write](./examples/research-and-write/) | Linear | 2-node pipeline with state slicing |
-| [supervisor-routing](./examples/supervisor-routing/) | Supervisor | LLM-powered dynamic routing between specialists |
-| [human-in-the-loop](./examples/human-in-the-loop/) | Approval Gate | Pause for human review, then continue |
-| [map-reduce](./examples/map-reduce/) | Map-Reduce | Fan-out to parallel workers, synthesize results |
-| [eval-loop](./examples/eval-loop/) | Conditional Cycle | Iterative refinement with quality gate via conditional edges |
-| [streaming](./examples/streaming/) | Streaming | Real-time event streaming with token-by-token output via `stream()` |
-| [ollama-local](./examples/ollama-local/) | Local Models | Run workflows with Ollama local models via `registerOllamaProvider()` |
+Run any of them after cloning the repo:
 
 ```bash
-cd packages/orchestrator
-ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/<example-name>/<example-name>.ts
+ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/research-and-write/research-and-write.ts
 ```
+
+## Companion packages
+
+| Package | What it adds |
+|---|---|
+| [`@cycgraph/memory`](https://www.npmjs.com/package/@cycgraph/memory) | Temporal knowledge graph + xMemory hierarchical retrieval — the store reflection nodes write to. Works standalone too. |
+| [`@cycgraph/context-engine`](https://www.npmjs.com/package/@cycgraph/context-engine) | Composable prompt-compression pipeline. Strips redundant facts, verbose serialisation, and stale reasoning traces. Plug in via `contextCompressor`. |
+| [`@cycgraph/orchestrator-postgres`](https://www.npmjs.com/package/@cycgraph/orchestrator-postgres) | Postgres + pgvector adapter — `PersistenceProvider`, `EventLogWriter`, `AgentRegistry`, `MemoryStore`. Drop-in replacements for the in-memory defaults. |
+| [`@cycgraph/evals`](https://www.npmjs.com/package/@cycgraph/evals) | Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions. |
 
 ## Documentation
 
-- **[Examples](./examples/)** — Runnable workflow examples with full source
-- **[CONTRIBUTING](https://github.com/wmcmahan/mc-ai/blob/main/CONTRIBUTING.md)** — Development setup, coding standards, PR guidelines
-
-## Project Structure
-
-```
-src/
-  agent/          Agent factory, provider registry, executor, supervisor, evaluator
-  architect/      Natural language → graph generation
-  db/             Event log writers (in-memory, no-op)
-  evals/          Eval framework (assertions, runner)
-  mcp/            MCP connection manager, tool adapter, gateway client
-  persistence/    Persistence interfaces + in-memory implementations (including WorkflowQueue)
-  reducers/       Pure state reducer functions
-  runner/         GraphRunner, node executors, circuit breaker, WorkflowWorker
-  types/          Graph, State, Action, Event (Zod schemas)
-  utils/          Logger, tracing, metrics, taint, pricing
-  validation/     Graph structure validation
-  index.ts        Public API barrel export
-```
-
-## Security Model
-
-The engine enforces a Zero Trust security model: agents are untrusted by default and receive only what they need.
-
-### State View Filtering
-
-Each node declares `read_keys` and `write_keys`. Before execution, the engine slices `WorkflowState.memory` so the agent only sees permitted keys:
-
-```typescript
-{ id: 'writer', type: 'agent', agent_id: '...', read_keys: ['draft', 'outline'], write_keys: ['draft'] }
-```
-
-- `['*']` grants access to all non-internal keys
-- Dot-notation paths (e.g. `'user.name'`) filter nested objects
-- Keys starting with `_` are **always** blocked regardless of permissions — these are reserved for internal bookkeeping (taint registry, etc.)
-
-### Taint Tracking
-
-Data originating from external tools (web search, browser, MCP tools) is automatically tagged in `memory._taint_registry`. This tracks which keys contain potentially untrusted content and their provenance (source tool, timestamp).
-
-- **Default behavior**: Tainted keys used in conditional edge routing produce a warning log
-- **Strict mode**: Set `strict_taint: true` on the graph to reject routing decisions based on tainted data entirely
-- Tainted data in supervisor routing inputs triggers an explicit warning in the supervisor's prompt
-
-### Permission-Enforced Reducers
-
-The reducer validates every state mutation against the acting node's `write_keys`:
-
-- `update_memory` payloads are checked key-by-key against the node's allowed writes
-- `_`-prefixed keys are rejected even with `write_keys: ['*']`
-- `merge_parallel_results` payloads follow the same rules
-
-### Prompt Injection Sanitization
-
-Agent inputs pass through sanitizers that:
-
-- Apply NFKC Unicode normalization (catches Cyrillic homograph attacks)
-- Strip carriage returns and normalize consecutive newlines
-- Remove Unicode directional overrides (`U+202A`–`U+202E`, `U+2066`–`U+2069`)
-- Detect base64-encoded injection phrases
-
-## Error Handling & Recovery
-
-### Retry with Backoff
-
-Each node can define a `failure_policy`:
-
-```typescript
-failure_policy: { max_retries: 3, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 30000 }
-```
-
-Strategies: `fixed`, `linear`, `exponential`. The runner retries the node up to `max_retries` times before marking it as failed.
-
-### Circuit Breaker
-
-The circuit breaker tracks failure rates per node and transitions through `closed → open → half_open` states. When open, the node is skipped with a `CircuitBreakerOpenError`. Configurable thresholds and reset timeouts.
-
-### Compensation / Rollback
-
-Nodes with `requires_compensation: true` push a compensation action onto `WorkflowState.compensation_stack`. On failure:
-
-- **`auto_rollback: true`** (GraphRunner option): Executes LIFO compensation actions automatically, setting status to `cancelled`
-- **`auto_rollback: false`** (default): Compensation stack is preserved but not executed — the host application decides
-
-### Workflow Timeouts
-
-Two timeout levels:
-
-- **Workflow-level**: `max_execution_time_ms` on WorkflowState. Checked between nodes and via `Promise.race` during node execution
-- **Node-level**: `timeout_ms` on individual nodes. Enforced per-execution
-
-When the workflow timeout fires during node execution, the `AbortSignal` is triggered and a `WorkflowTimeoutError` is thrown.
-
-### Approval Gate Timeouts
-
-Approval nodes with `timeout_ms` set a `waiting_timeout_at` deadline. If the workflow is resumed after the deadline expires, it transitions to `timeout` status immediately.
-
-### Event Log Failure Policy
-
-The `EventLogWriter` is append-only with idempotent appends — duplicate `(run_id, sequence_id)` pairs are silently ignored via `ON CONFLICT DO NOTHING`, making retries after network timeouts safe. Other errors propagate to the runner and increment its internal failure counter.
-
-### Persistence Failure Escalation
-
-The GraphRunner tracks consecutive persistence failures. After 3 consecutive failures, it throws a `PersistenceUnavailableError` rather than continuing with divergent in-memory and storage state. The counter resets on any successful persist call.
-
-### Graceful Shutdown
-
-Call `runner.shutdown()` to signal the engine to stop after the current node completes. The workflow remains in `running` status (resumable) and emits a `workflow:paused` event.
+- **[Quick Start](https://flattop.io/getting-started/quick-start/)** — your first workflow in 5 minutes
+- **[Core Concepts](https://flattop.io/concepts/overview/)** — graphs, nodes, agents, state, memory
+- **[Patterns](https://flattop.io/patterns/supervisor/)** — runnable guides for each built-in pattern
+- **[Troubleshooting](https://flattop.io/getting-started/troubleshooting/)** — common errors, fixes, and the gotchas that fail silently
+- **[Operations / Deployment](https://flattop.io/operations/deployment/)** — durable persistence, distributed execution, monitoring
 
 ## Contributing
 
-See [CONTRIBUTING.md](https://github.com/wmcmahan/mc-ai/blob/main/CONTRIBUTING.md).
+Issues and PRs welcome on [GitHub](https://github.com/wmcmahan/mc-ai). See [CONTRIBUTING.md](https://github.com/wmcmahan/mc-ai/blob/main/CONTRIBUTING.md) for development setup and the architecture decisions worth knowing before opening a PR.
 
 ## License
 
-[Apache 2.0](./LICENSE)
+[Apache 2.0](https://github.com/wmcmahan/mc-ai/blob/main/LICENSE).

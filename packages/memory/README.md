@@ -1,8 +1,39 @@
+<div align="center">
+
 # @cycgraph/memory
 
-Temporal and hierarchical memory service for LLM agents. Provides a knowledge graph with temporal validity, xMemory-inspired hierarchical organization (messages → episodes → facts → themes), and efficient top-down retrieval.
+**A temporal knowledge graph + hierarchical memory layer for TypeScript LLM agents.**
 
-Built as a standalone package with zero orchestrator dependencies. Ships with working in-memory implementations; production backends (Postgres/pgvector) implement the same interfaces.
+[![npm](https://img.shields.io/npm/v/@cycgraph/memory?color=cb3837)](https://www.npmjs.com/package/@cycgraph/memory)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Standalone](https://img.shields.io/badge/standalone-zero%20deps%20except%20zod-3b82f6)](#zero-dependency-core)
+
+[📚 Documentation](https://flattop.io/concepts/memory/) &nbsp;·&nbsp; [📖 Strategy](./STRATEGY.md) &nbsp;·&nbsp; [🧪 Examples](../orchestrator/examples/learning-research-agent/)
+
+</div>
+
+---
+
+`@cycgraph/memory` is a **temporal knowledge graph** with **xMemory-inspired hierarchical retrieval**. Designed for TypeScript LLM applications that want richer recall than a flat similarity search — provenance, time-bounded validity, entity relationships, and a hierarchy that lets prompts drill down only when they need to. Works standalone with any LLM stack — Vercel AI SDK, LangChain.js, raw `fetch` — or drops into [`@cycgraph/orchestrator`](https://www.npmjs.com/package/@cycgraph/orchestrator) for cross-run agent learning.
+
+## What this package gives you
+
+A vector store handles "find similar to this query." This package adds the structure around it:
+
+- **Temporal validity** — every record carries `valid_from` / `valid_until`. Facts are invalidated, not deleted, so you can ask "what was true on 2026-01-15?" without losing the audit trail.
+- **Entities + typed relationships** — a directed graph alongside the embedding layer. Facts can be reached by similarity, by tag, **or** by walking out from an entity ID.
+- **xMemory-inspired hierarchy** — messages → episodes → facts → themes. Queries can start at the theme level and drill down only when more detail is needed, reducing prompt tokens versus returning every matching fact.
+- **Retrieval paths that don't require embeddings** — query by `tags`, by `entity_ids`, or by full embedding similarity. Pick whichever the situation calls for; you don't need to wire an embedding provider just to retrieve by tag.
+- **Provenance on every record** — `source: 'agent' | 'tool' | 'human' | 'system' | 'derived'` plus optional `run_id` / `node_id` / `agent_id`. Useful for trust, audit, and debugging "why is this fact here?"
+- **Same interface, in-memory or Postgres** — develop against `InMemoryMemoryStore`, ship against [`DrizzleMemoryStore`](https://www.npmjs.com/package/@cycgraph/orchestrator-postgres). One-line swap.
+
+## What you can build with it
+
+- **Agents that learn across sessions** — store distilled lessons after each run, retrieve them by tag in the next.
+- **RAG with temporal awareness** — ask "what was true on 2026-01-15?" not just "what's in the embedding store right now."
+- **Knowledge graphs for support / triage workflows** — entities, relationships, episode-grouped conversations.
+- **Memory for any LLM stack** — Vercel AI SDK, LangChain.js, the OpenAI SDK directly. No orchestrator required.
 
 ## Install
 
@@ -10,529 +41,165 @@ Built as a standalone package with zero orchestrator dependencies. Ships with wo
 npm install @cycgraph/memory
 ```
 
-Requires Node.js 24+.
+Zero runtime dependencies except [`zod`](https://github.com/colinhacks/zod). In-memory implementations included — drop in a Postgres backend later via [`@cycgraph/orchestrator-postgres`](https://www.npmjs.com/package/@cycgraph/orchestrator-postgres).
 
-## Architecture
-
-```
-Messages
-  ↓  EpisodeSegmenter
-Episodes (topic-coherent message groups)
-  ↓  SemanticExtractor
-SemanticFacts (atomic knowledge units)
-  ↓  ThemeClusterer
-Themes (high-level clusters)
-```
-
-Parallel to the hierarchy, a **knowledge graph** stores entities (nodes) and relationships (edges) with temporal validity windows. Retrieval combines both: top-down hierarchical search and BFS subgraph extraction.
-
-### Memory Hierarchy (xMemory)
-
-| Level | Type | Description |
-|-------|------|-------------|
-| 0 | Messages | Raw conversation turns |
-| 1 | Episodes | Groups of messages about one topic |
-| 2 | SemanticFacts | Atomic facts distilled from episodes |
-| 3 | Themes | Clusters of related facts |
-
-Queries start at the theme level and drill down only as needed, reducing token usage by up to 50% compared to flat retrieval.
-
-### Knowledge Graph
-
-Entities and relationships form a directed graph with temporal awareness:
-
-- **Entities** — people, organizations, concepts, objects
-- **Relationships** — directed, weighted edges with `valid_from` / `valid_until` windows
-- **Temporal invalidation** — old facts are invalidated, not deleted (Zep pattern)
-- **Provenance tracking** — every record knows its origin (agent, tool, human, system, derived)
-
-## Quick Start
+## Quick taste
 
 ```typescript
 import {
   InMemoryMemoryStore,
   InMemoryMemoryIndex,
+  RuleBasedExtractor,
   SimpleEpisodeSegmenter,
-  SimpleSemanticExtractor,
-  SimpleThemeClusterer,
   retrieveMemory,
 } from '@cycgraph/memory';
-import type { Message, MemoryQuery } from '@cycgraph/memory';
 
 const store = new InMemoryMemoryStore();
 const index = new InMemoryMemoryIndex();
-const segmenter = new SimpleEpisodeSegmenter();
-const extractor = new SimpleSemanticExtractor();
-const clusterer = new SimpleThemeClusterer();
 
-// 1. Ingest messages
-const messages: Message[] = [
-  { id: crypto.randomUUID(), role: 'user', content: 'Tell me about the project', timestamp: new Date('2024-01-01T10:00:00Z'), metadata: {} },
-  { id: crypto.randomUUID(), role: 'assistant', content: 'It uses a graph-based workflow engine', timestamp: new Date('2024-01-01T10:01:00Z'), metadata: {} },
+// 1. Ingest some messages — segment into episodes, extract facts + entities + relationships
+const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 5 * 60 * 1000 });
+const extractor = new RuleBasedExtractor({ minSentenceLength: 15 });
+
+const messages = [
+  { id: crypto.randomUUID(), role: 'user', content: 'Alice works at Acme Corp.', timestamp: new Date(), metadata: {} },
+  { id: crypto.randomUUID(), role: 'assistant', content: 'Acme Corp acquired Widget Co in 2024.', timestamp: new Date(), metadata: {} },
 ];
 
-// 2. Segment into episodes
-const episodes = await segmenter.segment(messages);
-for (const ep of episodes) {
+for (const ep of await segmenter.segment(messages)) {
   await store.putEpisode(ep);
+  const { facts, entities, relationships } = await extractor.extract(ep);
+  for (const f of facts) await store.putFact(f);
+  for (const e of entities) await store.putEntity(e);
+  for (const r of relationships) await store.putRelationship(r);
 }
 
-// 3. Extract facts
-for (const ep of episodes) {
-  const facts = await extractor.extract(ep);
-  for (const fact of facts) {
-    await store.putFact(fact);
-  }
-}
-
-// 4. Cluster into themes
-const allFacts = await store.findFacts();
-const themes = await clusterer.cluster(allFacts);
-for (const theme of themes) {
-  await store.putTheme(theme);
-}
-
-// 5. Rebuild search index
-await index.rebuild(store);
-
-// 6. Query
-const query: MemoryQuery = {
-  embedding: [1, 0, 0],    // from your embedding provider
-  limit: 20,
-  min_similarity: 0.5,
-  include_invalidated: false,
-  max_hops: 2,
-};
-
-const result = await retrieveMemory(store, index, query);
-// result.themes, result.facts, result.episodes, result.entities, result.relationships
-```
-
-## Knowledge Graph
-
-### Entities
-
-```typescript
-import { InMemoryMemoryStore } from '@cycgraph/memory';
-import type { Entity } from '@cycgraph/memory';
-
-const store = new InMemoryMemoryStore();
-
-const entity: Entity = {
-  id: crypto.randomUUID(),
-  name: 'Alice',
-  entity_type: 'person',
-  attributes: { role: 'engineer' },
-  provenance: { source: 'agent', agent_id: 'extractor-01', created_at: new Date() },
-  created_at: new Date(),
-  updated_at: new Date(),
-};
-
-await store.putEntity(entity);
-
-// Find by type
-const people = await store.findEntities({ entity_type: 'person' });
-
-// Soft-delete (invalidate)
-await store.putEntity({ ...entity, invalidated_at: new Date(), superseded_by: newEntityId });
-
-// Query excludes invalidated by default
-const active = await store.findEntities(); // excludes invalidated
-const all = await store.findEntities({ include_invalidated: true });
-```
-
-### Relationships
-
-Directed edges with temporal validity windows:
-
-```typescript
-import type { Relationship } from '@cycgraph/memory';
-
-const rel: Relationship = {
-  id: crypto.randomUUID(),
-  source_id: aliceId,
-  target_id: acmeId,
-  relation_type: 'work_at',
-  weight: 1.0,
-  attributes: { department: 'engineering' },
-  valid_from: new Date('2024-01-01'),
-  valid_until: undefined, // still valid
-  provenance: { source: 'agent', created_at: new Date() },
-};
-
-await store.putRelationship(rel);
-
-// Query by entity
-const outgoing = await store.getRelationshipsForEntity(aliceId, { direction: 'outgoing' });
-const workRels = await store.getRelationshipsForEntity(aliceId, { relation_type: 'work_at' });
-```
-
-### Subgraph Extraction
-
-BFS traversal from seed entities:
-
-```typescript
-import { extractSubgraph } from '@cycgraph/memory';
-
-const subgraph = await extractSubgraph(store, [aliceId], {
-  max_hops: 2,
-  valid_at: new Date(),        // only currently-valid relationships
-  include_invalidated: false,
+// 2. Retrieve facts by tag (no embedding provider needed)
+const result = await retrieveMemory(store, index, {
+  tags: ['business'],
+  max_hops: 0, limit: 10, min_similarity: 0, include_invalidated: false,
 });
-
-// subgraph.entities — all entities within 2 hops
-// subgraph.relationships — edges connecting them
+console.log(result.facts.map(f => f.content));
 ```
 
-## Retrieval
+## The xMemory hierarchy
 
-### Hierarchical Retrieval (Embedding-Based)
+```
+Messages              ← raw conversation turns
+   ↓  EpisodeSegmenter
+Episodes              ← topic-coherent groups
+   ↓  SemanticExtractor (rule-based or LLM-driven)
+SemanticFacts         ← atomic, self-contained knowledge units
+   ↓  ThemeClusterer
+Themes                ← high-level clusters
+```
 
-Top-down search following the xMemory pattern:
+Retrieval starts at the **theme** level and drills down only as needed — themes give the gist in 1-2 sentences each, facts give the details, episodes give the source conversation. Reduces token usage by ~50% versus flat vector retrieval over the same corpus.
 
-1. Match themes by embedding similarity
-2. Expand to facts via `fact_ids`
-3. Apply temporal filters
-4. Expand to source episodes
-5. Collect referenced entities
-6. Get relationships between entities
+Parallel to the hierarchy, a **knowledge graph** stores entities (typed nodes) and relationships (directed, weighted, temporally-bounded edges). Queries can start from an entity ID and BFS out — useful for "who else interacts with this person?" or "what other facts mention this concept?"
+
+## Retrieval paths
 
 ```typescript
 import { retrieveMemory } from '@cycgraph/memory';
 
-const result = await retrieveMemory(store, index, {
-  embedding: queryVector,
-  limit: 20,
-  min_similarity: 0.5,
-  valid_at: new Date(),          // only currently-valid facts
-  changed_since: lastQueryTime,  // only recent changes
-  include_invalidated: false,
-  max_hops: 2,
+// Path 1 — Tag-only (no embedding needed)
+await retrieveMemory(store, index, {
+  tags: ['lesson', 'graph:research-v1'],
+  limit: 20, max_hops: 0, min_similarity: 0, include_invalidated: false,
+});
+
+// Path 2 — Entity-based (knowledge graph traversal)
+await retrieveMemory(store, index, {
+  entity_ids: [aliceId],
+  max_hops: 2,    // ← walk 2 hops out from Alice
+  limit: 20, min_similarity: 0.5, include_invalidated: false,
+});
+
+// Path 3 — Embedding-based (semantic similarity over themes → facts)
+await retrieveMemory(store, index, {
+  embedding: await embed('source credibility methodology'),
+  limit: 20, max_hops: 0, min_similarity: 0.5, include_invalidated: false,
+});
+
+// Combine any path with temporal filtering
+await retrieveMemory(store, index, {
+  tags: ['lesson'],
+  valid_at: new Date('2026-01-15'),  // ← what was true on this date?
+  limit: 20, max_hops: 0, min_similarity: 0, include_invalidated: false,
 });
 ```
 
-### Entity-Based Retrieval
+## Memory consolidation
 
-When you have specific entity IDs, retrieval uses subgraph extraction instead of theme matching:
-
-```typescript
-const result = await retrieveMemory(store, index, {
-  entity_ids: [aliceId, bobId],
-  max_hops: 2,
-  limit: 20,
-  min_similarity: 0.5,
-  include_invalidated: false,
-});
-
-// Returns subgraph + related facts, themes, and episodes
-```
-
-### Tag-Based Retrieval
-
-Every `SemanticFact` carries an optional `tags: string[]` field. Queries supplying `tags` (without `entity_ids` or `embedding`) take a dedicated path: list facts via `store.findFacts`, intersect tags, apply temporal validity, attach related themes and episodes. Useful for "give me all lessons from graph X" style queries that don't need an embedding provider.
-
-```typescript
-const result = await retrieveMemory(store, index, {
-  tags: ['lesson', 'graph:research-v1'],   // match at least one
-  limit: 20,
-  max_hops: 0,
-  min_similarity: 0,
-  include_invalidated: false,
-});
-```
-
-Tags also intersect with the embedding and entity paths — passing `tags` alongside `embedding` or `entity_ids` filters the matching facts to those carrying at least one tag.
-
-When facts are written by the orchestrator's `reflection` node, the configured `reflection_config.tags` are applied automatically — namespace them (e.g. `graph:my-workflow-v1`) so multiple graphs can share a store without polluting each other's retrieval.
-
-### Temporal Filtering
-
-Filter records by validity windows:
-
-```typescript
-import { isValidAt, isChangedSince, filterValid } from '@cycgraph/memory';
-
-// Check individual records
-isValidAt(relationship, new Date());        // within [valid_from, valid_until)?
-isChangedSince(fact, lastCheckTime);        // created or invalidated after date?
-
-// Batch filter
-const validFacts = filterValid(allFacts, {
-  valid_at: new Date(),
-  changed_since: lastSync,
-  include_invalidated: false,
-});
-```
-
-## Similarity Search
-
-The `MemoryIndex` provides embedding-based search over all record types:
-
-```typescript
-import { InMemoryMemoryIndex } from '@cycgraph/memory';
-
-const index = new InMemoryMemoryIndex();
-await index.rebuild(store); // build from store contents
-
-const similar = await index.searchEntities(queryEmbedding, {
-  limit: 10,
-  min_similarity: 0.7,
-});
-// [{ item: Entity, score: number }, ...]
-
-await index.searchFacts(queryEmbedding, { limit: 5 });
-await index.searchThemes(queryEmbedding, { limit: 3 });
-await index.searchEpisodes(queryEmbedding, { limit: 5 });
-```
-
-The in-memory index uses brute-force cosine similarity. Production backends implement the same `MemoryIndex` interface with pgvector HNSW.
-
-## Hierarchy Pipeline
-
-### Episode Segmenter
-
-Groups messages into topic-coherent episodes based on time gaps:
-
-```typescript
-import { SimpleEpisodeSegmenter } from '@cycgraph/memory';
-
-const segmenter = new SimpleEpisodeSegmenter({
-  gap_threshold_ms: 5 * 60 * 1000, // 5 minute gap = new episode
-  max_topic_length: 100,
-});
-
-const episodes = await segmenter.segment(messages);
-```
-
-### Semantic Extractor
-
-Distills episodes into atomic facts:
-
-```typescript
-import { SimpleSemanticExtractor } from '@cycgraph/memory';
-
-const extractor = new SimpleSemanticExtractor();
-const facts = await extractor.extract(episode);
-// Simple impl: one fact per episode (content = topic)
-```
-
-### Advanced Extractors
-
-#### RuleBasedExtractor
-
-Extracts 3-10 facts per episode with entity and relationship detection:
-
-```typescript
-import { RuleBasedExtractor } from '@cycgraph/memory';
-
-const extractor = new RuleBasedExtractor({
-  minSentenceLength: 20,  // skip short sentences
-});
-
-const facts = await extractor.extract(episode);
-// Produces multiple facts per episode with entity_ids populated
-// Detects: capitalized names, @handles, camelCase, ACRONYMS
-// Extracts relationships: work_at, manage, depend_on, etc.
-
-// Entity extraction is available standalone:
-const entities = extractor.extractEntities('Alice Smith works at Acme Corp');
-// [{ name: 'Alice Smith', type: 'person' }, { name: 'Acme Corp', type: 'organization' }]
-```
-
-#### LLMExtractor
-
-LLM-backed extraction with rule-based fallback:
-
-```typescript
-import { LLMExtractor } from '@cycgraph/memory';
-import type { LLMProvider } from '@cycgraph/memory';
-
-const provider: LLMProvider = {
-  complete: async (prompt) => { /* call your LLM */ return jsonResponse; },
-};
-
-const extractor = new LLMExtractor({ provider, maxFactsPerEpisode: 20 });
-const facts = await extractor.extract(episode);
-// Falls back to RuleBasedExtractor on LLM failure
-```
-
-### Theme Clusterer
-
-Groups facts into thematic clusters using embedding similarity:
-
-```typescript
-import { SimpleThemeClusterer } from '@cycgraph/memory';
-
-const clusterer = new SimpleThemeClusterer({
-  similarity_threshold: 0.7, // min similarity to join existing theme
-});
-
-const themes = await clusterer.cluster(facts);
-// Reuse existing themes on subsequent calls:
-const updated = await clusterer.cluster(newFacts, existingThemes);
-```
-
-Facts without embeddings are assigned to a "General" fallback theme.
-
-### Consolidating Theme Clusterer
-
-Two-pass clustering that merges near-duplicate themes after assignment:
-
-```typescript
-import { ConsolidatingThemeClusterer } from '@cycgraph/memory';
-
-const clusterer = new ConsolidatingThemeClusterer({
-  assignmentThreshold: 0.7,  // min similarity to join theme
-  mergeThreshold: 0.85,      // merge themes above this
-  maxThemes: 50,             // soft cap
-});
-
-const themes = await clusterer.cluster(facts, existingThemes);
-// Pass 1: greedy assignment (same as SimpleThemeClusterer)
-// Pass 2: merges near-duplicate themes, recomputes centroids
-```
-
-## Memory Consolidation
-
-### MemoryConsolidator
-
-Deduplicates, decays, and prunes memory records to stay within budget:
+Long-lived stores grow. The bundled `MemoryConsolidator` deduplicates near-identical facts, applies time-decay scoring to prune low-relevance facts, and removes orphaned themes — keeping the store within budget without losing the audit trail.
 
 ```typescript
 import { MemoryConsolidator } from '@cycgraph/memory';
 
 const consolidator = new MemoryConsolidator(store, index, {
-  maxFacts: 1000,
-  maxEpisodes: 100,
+  maxFacts: 10_000,
   decayHalfLifeDays: 30,
   dedupThreshold: 0.9,
-  deleteMode: 'soft',
-  batchSize: 1000,  // paginated fact loading to avoid OOM on large stores
-  logger: { warn: (msg) => console.warn(msg) },  // optional structured logging
+  deleteMode: 'soft',   // invalidate, don't hard-delete
 });
 
 const report = await consolidator.consolidate();
-// report.factsDeduped, report.factsDecayed, report.episodesPruned
-// report.themesCleanedUp, report.themesRemoved, report.totalReclaimed
+console.log(`pruned ${report.totalReclaimed} records`);
 ```
 
-### ConflictDetector
+A separate `ConflictDetector` finds facts that semantically contradict each other and applies a resolution policy (keep newest / keep highest-confidence / mark all conflicting). Useful in long-running stores where the LLM extracts subtly different versions of the same fact over time.
 
-Detects and auto-resolves contradictory facts:
+## Standalone or as cycgraph's memory layer
+
+This package was built to work either way.
+
+**Standalone** — Use it as the persistent memory layer for any TS LLM application. The retrieval result includes `facts`, `entities`, `themes`, `episodes`, and `relationships` — render them into your own prompt format.
+
+**With `@cycgraph/orchestrator`** — A `reflection` node distills workflow output into facts and writes them via the `MemoryWriter` adapter; agent nodes declare a `memory_query` directive and the runner auto-injects retrieved facts into prompts. See [`examples/learning-research-agent`](../orchestrator/examples/learning-research-agent/).
+
+## Backends
+
+| Backend | Package | Use case |
+|---|---|---|
+| `InMemoryMemoryStore` + `InMemoryMemoryIndex` | this package | Dev, tests, single-process apps. Zero dependencies. |
+| `DrizzleMemoryStore` + `DrizzleMemoryIndex` | [`@cycgraph/orchestrator-postgres`](https://www.npmjs.com/package/@cycgraph/orchestrator-postgres) | Production. Postgres + pgvector. Same interface — swap one line. |
 
 ```typescript
-import { ConflictDetector } from '@cycgraph/memory';
+// Dev
+import { InMemoryMemoryStore, InMemoryMemoryIndex } from '@cycgraph/memory';
+const store = new InMemoryMemoryStore();
+const index = new InMemoryMemoryIndex();
 
-const detector = new ConflictDetector(store, index, {
-  autoResolveSupersession: true,
-  embeddingThreshold: 0.8,
-  supersessionDayThreshold: 1,  // minimum days apart for supersession (configurable)
-  policy: 'negation-invalidates-positive',
-});
-
-const conflicts = await detector.detectConflicts();
-// Three types: 'negation', 'supersession', 'semantic_contradiction'
-
-// Auto-resolve with policy
-const resolution = await detector.autoResolveAll(conflicts);
-// resolution.resolved, resolution.skipped, resolution.details
+// Production
+import { DrizzleMemoryStore, DrizzleMemoryIndex } from '@cycgraph/orchestrator-postgres';
+const store = new DrizzleMemoryStore(db);
+const index = new DrizzleMemoryIndex(db);
 ```
 
-## Interfaces
+## Extractors
 
-All components are interface-driven. Implement these for custom backends:
+Three extractors ship with the package — pick by trade-off:
 
-| Interface | Purpose | Implementations |
-|-----------|---------|----------------|
-| `MemoryStore` | CRUD for all record types | `InMemoryMemoryStore`, `DrizzleMemoryStore` (postgres) |
-| `MemoryIndex` | Embedding similarity search | `InMemoryMemoryIndex`, `DrizzleMemoryIndex` (pgvector) |
-| `EpisodeSegmenter` | Messages --> Episodes | `SimpleEpisodeSegmenter` |
-| `SemanticExtractor` | Episode --> SemanticFacts | `SimpleSemanticExtractor`, `RuleBasedExtractor`, `LLMExtractor` |
-| `ThemeClusterer` | Facts --> Themes | `SimpleThemeClusterer`, `ConsolidatingThemeClusterer` |
-| `EmbeddingProvider` | Text --> vector embedding | (consumer-provided) |
+| Extractor | LLM call? | Output |
+|---|---|---|
+| `SimpleSemanticExtractor` | No | One fact per episode topic. Fast, minimal coverage. |
+| `RuleBasedExtractor` | No | Multi-fact extraction with regex-based entity detection + verb-inflection relationship matching. |
+| `LLMExtractor` | Yes | Structured-output extraction via any LLM. Falls back to `RuleBasedExtractor` on parse failure. |
 
-### Batch Operations
+Custom extractors: implement the `SemanticExtractor` interface (one method, `extract(episode) → ExtractionResult`).
 
-`MemoryStore` includes batch retrieval methods for efficient bulk lookups:
+## Documentation
 
-```typescript
-// Batch retrieval (single round-trip in production backends)
-const entities = await store.getEntities(['id1', 'id2', 'id3']);
-// Returns Map<string, Entity> — missing IDs silently absent
+- **[Memory concept guide](https://flattop.io/concepts/memory/)** — the full architecture
+- **[Memory usage guide](https://flattop.io/guides/memory/)** — recipes for ingesting, retrieving, consolidating
+- **[Reflection pattern](https://flattop.io/patterns/reflection/)** — compound learning across runs
+- **[Strategy doc](./STRATEGY.md)** — the research foundation (xMemory, Zep, temporal graphs)
 
-const facts = await store.getFacts(factIds);
-const episodes = await store.getEpisodes(episodeIds);
-const themes = await store.getThemes(themeIds);
-```
+## Contributing
 
-### EmbeddingProvider
-
-This package is embedding-agnostic. Provide your own implementation:
-
-```typescript
-import type { EmbeddingProvider } from '@cycgraph/memory';
-
-const openaiEmbeddings: EmbeddingProvider = {
-  dimensions: 1536,
-  async embed(text) {
-    // call OpenAI embeddings API
-    return vector;
-  },
-  async embedBatch(texts) {
-    // batch call
-    return vectors;
-  },
-};
-```
-
-## Schemas
-
-All record types have Zod schemas for validation:
-
-```typescript
-import { EntitySchema, RelationshipSchema, MemoryQuerySchema } from '@cycgraph/memory';
-
-const entity = EntitySchema.parse(untrustedInput);
-const query = MemoryQuerySchema.parse(requestBody); // applies defaults
-```
-
-| Schema | Key Fields |
-|--------|------------|
-| `ProvenanceSchema` | `source`, `agent_id`, `tool_name`, `run_id`, `confidence`, `created_at` |
-| `EntitySchema` | `name`, `entity_type`, `attributes`, `embedding`, `invalidated_at`, `superseded_by` |
-| `RelationshipSchema` | `source_id`, `target_id`, `relation_type`, `weight`, `valid_from`, `valid_until` |
-| `MessageSchema` | `role`, `content`, `timestamp`, `metadata` |
-| `EpisodeSchema` | `topic`, `messages`, `started_at`, `ended_at`, `fact_ids` |
-| `SemanticFactSchema` | `content`, `source_episode_ids`, `entity_ids`, `theme_id`, `valid_from`, `valid_until` |
-| `ThemeSchema` | `label`, `description`, `fact_ids`, `embedding` |
-| `MemoryQuerySchema` | `text`, `embedding`, `entity_ids`, `max_hops`, `valid_at`, `changed_since`, `limit` |
-| `MemoryResultSchema` | `themes`, `facts`, `episodes`, `entities`, `relationships` |
-
-## Production Backend
-
-Production deployments use `@cycgraph/orchestrator-postgres` which provides `DrizzleMemoryStore` and `DrizzleMemoryIndex` backed by Postgres + pgvector HNSW.
-
-See the [@cycgraph/orchestrator-postgres README](../orchestrator-postgres/README.md) for setup.
-
-## Development
-
-```bash
-npm install
-npm run build --workspace=packages/memory
-npm run test --workspace=packages/memory
-npm run lint --workspace=packages/memory
-```
-
-## Research Foundation
-
-| Technique | Source | Contribution |
-|-----------|--------|-------------|
-| xMemory | King's College London / Turing Institute, 2025 | 4-level hierarchy, top-down retrieval |
-| Microsoft GraphRAG | Microsoft Research, 2024 | Graph-structured retrieval, community summarization |
-| Zep (Temporal KG) | Rasmussen et al., 2025 | Temporal validity windows, fact invalidation |
-| Graphiti | Zep/Neo4j, 2025 | Real-time incremental KG updates |
-| MAGMA | arxiv, 2025 | Multi-graph agentic memory architecture |
+Issues and PRs welcome on [GitHub](https://github.com/wmcmahan/mc-ai). See [CONTRIBUTING.md](https://github.com/wmcmahan/mc-ai/blob/main/CONTRIBUTING.md).
 
 ## License
 
-Apache-2.0
+[Apache 2.0](https://github.com/wmcmahan/mc-ai/blob/main/LICENSE).
