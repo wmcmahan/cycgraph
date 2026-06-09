@@ -10,6 +10,8 @@
     "@cycgraph/orchestrator-postgres": "0.1.0-beta.1"
   },
   "changesets": [
-    "beta-2-runner-refactor"
+    "beta-2-runner-refactor",
+    "guardrails-pair",
+    "reflection-compound-learning"
   ]
 }

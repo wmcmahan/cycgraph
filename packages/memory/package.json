@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/memory",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "Temporal and hierarchical memory service for LLM agents — knowledge graph, episode segmentation, semantic deduplication, and efficient retrieval.",
   "keywords": [
     "memory",
