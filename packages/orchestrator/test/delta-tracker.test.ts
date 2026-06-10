@@ -167,6 +167,37 @@ describe('StateDeltaTracker', () => {
     });
   });
 
+  describe('rollback', () => {
+    test('rollback re-includes a failed persist in the next delta', () => {
+      const s1 = makeState({ memory: { a: '1' } });
+      tracker.computeDelta(s1); // first = full, baseline = s1
+
+      // Persist of s2 "fails" — the changes a→2, b added must not be lost.
+      const s2 = makeState({ run_id: s1.run_id, memory: { a: '2', b: 'new' } });
+      tracker.computeDelta(s2);
+      tracker.rollback();
+
+      // Next delta diffs against s1 (the last *durable* state), so it carries
+      // the rolled-back changes rather than diffing against the never-persisted s2.
+      const s3 = makeState({ run_id: s1.run_id, memory: { a: '2', b: 'new' } });
+      const result = tracker.computeDelta(s3);
+      expect(result.type).toBe('patch');
+      if (result.type === 'patch') {
+        expect(result.patch.memory_updates).toEqual({ a: '2', b: 'new' });
+      }
+    });
+
+    test('rollback restores the persist count (no skipped versions)', () => {
+      const state = makeState();
+      tracker.computeDelta(state); // count 1
+      tracker.computeDelta(state); // count 2
+      expect(tracker.getPersistCount()).toBe(2);
+
+      tracker.rollback(); // undo the second
+      expect(tracker.getPersistCount()).toBe(1);
+    });
+  });
+
   describe('isolation', () => {
     test('mutations to original state do not affect tracked state', () => {
       const state = makeState({ memory: { key: 'original' } });

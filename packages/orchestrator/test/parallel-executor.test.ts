@@ -118,6 +118,31 @@ describe('Parallel Executor', () => {
     expect(results[0].tokens_used).toBe(100);
   });
 
+  test('passes a per-task abort signal that fires on timeout', async () => {
+    let observedSignal: AbortSignal | undefined;
+    let abortedDuringRun = false;
+
+    const tasks = [makeTask('slow')];
+    const executeFn = vi.fn(async (task: ParallelTask, signal?: AbortSignal) => {
+      observedSignal = signal;
+      // Never resolve on its own — only the timeout abort should end it.
+      await new Promise<void>((resolve) => {
+        signal?.addEventListener('abort', () => { abortedDuringRun = true; resolve(); }, { once: true });
+      });
+      return makeAction(task.node.id);
+    });
+
+    await executeParallel(tasks, executeFn, {
+      max_concurrency: 1,
+      error_strategy: 'best_effort',
+      task_timeout_ms: 20,
+    });
+
+    // The signal is provided to executeFn and is aborted when the task times out.
+    expect(observedSignal).toBeInstanceOf(AbortSignal);
+    expect(abortedDuringRun).toBe(true);
+  });
+
   test('should handle empty task list', async () => {
     const executeFn = vi.fn();
     const results = await executeParallel([], executeFn, {

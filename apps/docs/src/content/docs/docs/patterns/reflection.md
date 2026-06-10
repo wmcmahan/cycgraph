@@ -66,7 +66,19 @@ const memoryIndex = new InMemoryMemoryIndex();
 
 const LESSON_TAG = 'graph:research-v1';
 
-const memoryWriter: MemoryWriter = async (facts) => {
+// Tracks which write scopes have already been persisted. The runner passes
+// the same `idempotency_key` (`run_id:node_id:iteration`) when a write
+// repeats for the same node execution — after a node retry or crash
+// recovery — and a writer that ignores it duplicates facts in long-term
+// memory on every retry.
+const writtenScopes = new Map<string, string[]>();
+
+const memoryWriter: MemoryWriter = async (facts, options) => {
+  const scope = options?.idempotency_key;
+  if (scope && writtenScopes.has(scope)) {
+    return { fact_ids: writtenScopes.get(scope)! }; // already written — dedupe
+  }
+
   const ids: string[] = [];
   for (const fact of facts) {
     const stored = {
@@ -86,6 +98,7 @@ const memoryWriter: MemoryWriter = async (facts) => {
     await memoryStore.putFact(stored);
     ids.push(stored.id);
   }
+  if (scope) writtenScopes.set(scope, ids);
   return { fact_ids: ids };
 };
 
@@ -187,6 +200,8 @@ The `tags` field on `reflection_config` is applied to every fact written by the 
 
 Reflection writes whatever the extractor produces. If your agents handle PII, customer data, or anything sensitive, those values can land in the long-lived memory store. The `factSanitizer` hook on `GraphRunnerOptions` runs once per fact between extraction and the writer call. Returning `null` drops the fact; returning a modified fact substitutes it.
 
+Fact content is also injection-sanitized automatically before persistence (the same denylist applied to memory before prompt embedding), closing a cross-run stored-injection channel — tainted external text distilled into a "lesson" can't carry instruction-override payloads into a future run's prompt.
+
 ```typescript
 import type { FactSanitizer } from '@cycgraph/orchestrator';
 
@@ -207,7 +222,7 @@ const runner = new GraphRunner(graph, state, {
 });
 ```
 
-Errors thrown by the sanitizer are logged and absorbed — the original fact passes through unchanged. A downed PII service must never block compound learning, only weaken it.
+The sanitizer **fails closed** by default: if it throws (a downed PII service, a buggy regex), the fact is dropped rather than persisted unredacted — a transient outage must not silently leak PII into durable, cross-run memory. Set `factSanitizerFailMode: 'pass'` on `GraphRunnerOptions` to restore fail-open behavior (write the original fact on error) when reflection availability matters more than redaction guarantees.
 
 ### Capping reflection cost with `budget`
 

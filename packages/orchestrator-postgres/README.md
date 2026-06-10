@@ -18,7 +18,8 @@ Drop-in Postgres backend for [`@cycgraph/orchestrator`](https://www.npmjs.com/pa
 
 Use this package when:
 - You need workflows to **survive process restarts** (durable execution via event-sourced replay).
-- You want **production-grade event log** with checkpoints, compaction, and idempotent appends.
+- You want a **production-grade event log** with checkpoints, compaction, and conflict-rejecting appends.
+- You need a **durable job queue** with atomic claims and run fencing to run workflows safely across multiple processes.
 - You need to **share an agent registry** across multiple worker processes.
 - You're using `@cycgraph/memory` and want a **persistent, queryable knowledge graph** with pgvector HNSW similarity search.
 
@@ -87,8 +88,9 @@ If a worker process crashes mid-run, the next `GraphRunner` instance loaded with
 
 | Class | Implements | Purpose |
 |-------|-----------|---------|
-| `DrizzlePersistenceProvider` | `PersistenceProvider` | Atomic state snapshots, run records, versioned history (`workflow_runs`, `workflow_states`) |
-| `DrizzleEventLogWriter` | `EventLogWriter` | Append-only event log + auto-compaction (`workflow_events`, `workflow_checkpoints`) |
+| `DrizzlePersistenceProvider` | `PersistenceProvider` | Atomic state snapshots, run records, versioned history (`workflow_runs`, `workflow_states`); optional run fencing |
+| `DrizzleEventLogWriter` | `EventLogWriter` | Append-only event log + auto-compaction (`workflow_events`, `workflow_checkpoints`); rejects duplicate `(run_id, sequence_id)` appends; optional run fencing |
+| `DrizzleWorkflowQueue` | `WorkflowQueue` | Durable job queue with `FOR UPDATE SKIP LOCKED` atomic claims and per-claim fencing epochs (`workflow_jobs`) |
 | `DrizzleAgentRegistry` | `AgentRegistry` | Multi-process agent config store (`agents`) |
 | `DrizzleUsageRecorder` | `UsageRecorder` | Per-run token + cost tracking (`usage_records`) |
 | `DrizzleRetentionService` | `RetentionService` | Tiered archival (hot/warm/cold) with transactional safety |
@@ -127,9 +129,12 @@ Defined in [`src/schema.ts`](./src/schema.ts) and managed via Drizzle migrations
 | `workflow_states` | Versioned state snapshots (ordered by `version`, not timestamp) |
 | `workflow_events` | Append-only event log with `(run_id, sequence_id)` unique constraint |
 | `workflow_checkpoints` | State snapshots for event log compaction |
+| `workflow_jobs` | Durable job queue (`DrizzleWorkflowQueue`) — `SKIP LOCKED` claims, visibility timeouts |
 | `agents` | Agent configuration registry (includes `provider_options` JSONB) |
 | `usage_records` | Per-run token and cost tracking |
 | `mcp_servers` | Trusted MCP server registry with access-control rules |
+
+`workflow_runs` carries a `claim_epoch` column — the [run fencing](https://flattop.io/concepts/distributed-execution/#run-fencing) token bumped on every job claim.
 
 ### Memory tables
 

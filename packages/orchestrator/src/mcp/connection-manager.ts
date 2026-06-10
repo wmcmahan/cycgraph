@@ -24,6 +24,7 @@ import {
   type ToolCircuitBreakerMetrics,
   type ToolCircuitBreakerOptions,
 } from './tool-circuit-breaker.js';
+import { Semaphore } from './semaphore.js';
 import type { MCPServerRegistry } from '../persistence/interfaces.js';
 import type { ToolSource, MCPServerEntry } from '../types/tools.js';
 import type { TaintMetadata } from '../types/state.js';
@@ -60,10 +61,17 @@ export interface ToolResolver {
 
   /**
    * Drain accumulated taint entries from MCP tool executions.
-   * Returns the accumulated entries (keyed by `serverId:toolName`) and clears the internal map.
+   *
+   * Pass the exact toolset returned by a prior `resolveTools()` call to drain
+   * ONLY that execution's taint — required for correctness under concurrent
+   * executions (voting / evolution / map), where a single shared accumulator
+   * would let one agent's drain swallow another's still-accumulating entries.
+   * Called with no argument, falls back to a process-wide accumulator
+   * (legacy / single-execution behavior).
+   *
    * Optional — only implemented by MCPConnectionManager.
    */
-  drainTaintEntries?(): Map<string, TaintMetadata>;
+  drainTaintEntries?(tools?: Record<string, unknown>): Map<string, TaintMetadata>;
 }
 
 // ─── Lazy Imports ───────────────────────────────────────────────────
@@ -173,6 +181,13 @@ export interface MCPConnectionManagerOptions {
    * (5 consecutive failures → 30s cooldown → 2 successes to close).
    */
   tool_circuit_breaker?: ToolCircuitBreakerOptions | null;
+  /**
+   * Default cap on concurrent tool calls per MCP server. Overridable per-server
+   * via `MCPServerEntry.max_concurrent_calls`. `0` (default) means unlimited —
+   * set a finite value to protect servers from wide fan-out.
+   * @default 0 (unlimited)
+   */
+  default_max_concurrent_calls?: number;
 }
 
 /** Cached tool manifest entry. */
@@ -190,7 +205,14 @@ export class MCPConnectionManager implements ToolResolver {
   private readonly clients = new Map<string, MCPClientType>();
   private readonly pending = new Map<string, Promise<MCPClientType>>();
   private readonly registry: MCPServerRegistry;
+  // Process-wide fallback accumulator (used when drainTaintEntries() is
+  // called without a toolset handle).
   private taintEntries = new Map<string, TaintMetadata>();
+  // Per-resolution taint collectors, keyed by the toolset object returned
+  // from resolveTools(). A WeakMap so collectors are GC'd with their tools.
+  // This is what makes concurrent executions race-free: each gets its own
+  // collector, and drainTaintEntries(tools) retrieves exactly that one.
+  private readonly taintByToolset = new WeakMap<object, Map<string, TaintMetadata>>();
   private readonly toolCache = new Map<string, ToolCacheEntry>();
   private readonly cacheTtlMs: number;
   private readonly defaultToolTimeoutMs: number;
@@ -200,14 +222,34 @@ export class MCPConnectionManager implements ToolResolver {
    * skips the check/record path entirely in that case.
    */
   private readonly toolBreakers: ToolCircuitBreakerManager | null;
+  /** Per-server concurrency limiters, keyed by serverId. Absent → unlimited. */
+  private readonly serverSemaphores = new Map<string, Semaphore>();
+  private readonly defaultMaxConcurrentCalls: number;
 
   constructor(registry: MCPServerRegistry, options?: MCPConnectionManagerOptions) {
     this.registry = registry;
     this.cacheTtlMs = options?.cache_ttl_ms ?? DEFAULT_CACHE_TTL_MS;
     this.defaultToolTimeoutMs = options?.default_tool_timeout_ms ?? 30_000;
+    this.defaultMaxConcurrentCalls = options?.default_max_concurrent_calls ?? 0;
     this.toolBreakers = options?.tool_circuit_breaker === null
       ? null
       : new ToolCircuitBreakerManager(options?.tool_circuit_breaker ?? undefined);
+  }
+
+  /**
+   * Resolve (and lazily create) the concurrency limiter for a server. Returns
+   * `undefined` when the effective limit is unlimited (`0`), so the hot path
+   * stays allocation-free for the common case.
+   */
+  private getServerSemaphore(serverId: string, entry: MCPServerEntry): Semaphore | undefined {
+    const limit = entry.max_concurrent_calls ?? this.defaultMaxConcurrentCalls;
+    if (!limit || limit < 1) return undefined;
+    let sem = this.serverSemaphores.get(serverId);
+    if (!sem) {
+      sem = new Semaphore(limit);
+      this.serverSemaphores.set(serverId, sem);
+    }
+    return sem;
   }
 
   /**
@@ -227,7 +269,11 @@ export class MCPConnectionManager implements ToolResolver {
    */
   async resolveTools(sources: ToolSource[], agentId?: string): Promise<Record<string, unknown>> {
     const tools: Record<string, unknown> = {};
-    const mcpToolSets: Array<{ serverId: string; toolSet: Record<string, unknown>; filter?: string[]; toolTimeoutMs: number }> = [];
+    // Fresh per-resolution taint collector — wrapped tools below write into
+    // THIS map, so concurrent resolveTools()/execute()/drain() cycles never
+    // cross-attribute taint (registered against `tools` at the end).
+    const collector = new Map<string, TaintMetadata>();
+    const mcpToolSets: Array<{ serverId: string; toolSet: Record<string, unknown>; filter?: string[]; toolTimeoutMs: number; semaphore?: Semaphore }> = [];
 
     // Separate built-in and MCP sources
     const mcpSources = sources.filter(s => s.type === 'mcp');
@@ -248,7 +294,8 @@ export class MCPConnectionManager implements ToolResolver {
           const entry = await this.checkAccess(source.server_id, agentId);
           const toolSet = await this.getToolsForServer(source.server_id);
           const toolTimeoutMs = entry.tool_timeout_ms ?? this.defaultToolTimeoutMs;
-          return { serverId: source.server_id, toolSet, filter: source.tool_names, toolTimeoutMs };
+          const semaphore = this.getServerSemaphore(source.server_id, entry);
+          return { serverId: source.server_id, toolSet, filter: source.tool_names, toolTimeoutMs, semaphore };
         })
       );
 
@@ -282,13 +329,13 @@ export class MCPConnectionManager implements ToolResolver {
     }
 
     // Add MCP tools with taint wrapping, timeout, and optional namespacing
-    for (const { serverId, toolSet, filter, toolTimeoutMs } of mcpToolSets) {
+    for (const { serverId, toolSet, filter, toolTimeoutMs, semaphore } of mcpToolSets) {
       const toolNames = filter ?? Object.keys(toolSet);
       for (const name of toolNames) {
         if (!(name in toolSet)) continue;
 
         const tool = toolSet[name] as Record<string, unknown>;
-        const wrappedTool = this.wrapToolWithTaint(tool, name, serverId, toolTimeoutMs);
+        const wrappedTool = this.wrapToolWithTaint(tool, name, serverId, toolTimeoutMs, collector, semaphore);
         const finalName = collisions.has(name) ? `${serverId}__${name}` : name;
 
         if (collisions.has(name)) {
@@ -298,6 +345,10 @@ export class MCPConnectionManager implements ToolResolver {
         tools[finalName] = wrappedTool;
       }
     }
+
+    // Register the collector against this toolset so drainTaintEntries(tools)
+    // can retrieve exactly this execution's entries (even if empty).
+    this.taintByToolset.set(tools, collector);
 
     return tools;
   }
@@ -498,6 +549,8 @@ export class MCPConnectionManager implements ToolResolver {
     toolName: string,
     serverId: string,
     toolTimeoutMs: number = 0,
+    collector?: Map<string, TaintMetadata>,
+    semaphore?: Semaphore,
   ): Record<string, unknown> {
     const originalExecute = tool.execute as ((args: unknown) => Promise<unknown>) | undefined;
 
@@ -505,34 +558,43 @@ export class MCPConnectionManager implements ToolResolver {
       return { ...tool };
     }
 
+    // The timeout-raced invocation, factored out so it can run inside the
+    // per-server concurrency permit when one is configured.
+    const invoke = async (args: unknown): Promise<unknown> => {
+      if (toolTimeoutMs > 0) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), toolTimeoutMs);
+        try {
+          return await Promise.race([
+            originalExecute(args),
+            new Promise<never>((_, reject) => {
+              controller.signal.addEventListener('abort', () => {
+                reject(new Error(`MCP tool "${toolName}" on server "${serverId}" timed out after ${toolTimeoutMs}ms`));
+              }, { once: true });
+            }),
+          ]);
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+      return originalExecute(args);
+    };
+
     return {
       ...tool,
       execute: async (args: unknown): Promise<unknown> => {
         // Refuse execution upfront if the per-tool breaker is open.
         // Throws ToolCircuitBreakerOpenError; the agent executor catches the
         // tool error and surfaces it to the LLM as a normal tool-call failure.
+        // Checked BEFORE acquiring a permit so a tripped breaker fails fast
+        // without occupying a concurrency slot.
         this.toolBreakers?.check(serverId, toolName);
 
         let result: unknown;
         try {
-          if (toolTimeoutMs > 0) {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), toolTimeoutMs);
-            try {
-              result = await Promise.race([
-                originalExecute(args),
-                new Promise<never>((_, reject) => {
-                  controller.signal.addEventListener('abort', () => {
-                    reject(new Error(`MCP tool "${toolName}" on server "${serverId}" timed out after ${toolTimeoutMs}ms`));
-                  }, { once: true });
-                }),
-              ]);
-            } finally {
-              clearTimeout(timeoutId);
-            }
-          } else {
-            result = await originalExecute(args);
-          }
+          // Hold a per-server permit for the duration of the call (including
+          // the timeout window) so wide fan-out can't overwhelm one server.
+          result = semaphore ? await semaphore.run(() => invoke(args)) : await invoke(args);
         } catch (err) {
           this.toolBreakers?.recordFailure(serverId, toolName);
           throw err;
@@ -541,12 +603,16 @@ export class MCPConnectionManager implements ToolResolver {
         this.toolBreakers?.recordSuccess(serverId, toolName);
 
         const taintKey = `${serverId}:${toolName}`;
-        this.taintEntries.set(taintKey, {
+        const entry = {
           source: 'mcp_tool' as const,
           tool_name: toolName,
           server_id: serverId,
           created_at: new Date().toISOString(),
-        });
+        };
+        // Write to the per-resolution collector (race-free); also mirror to
+        // the process-wide map so a no-arg drainTaintEntries() still works.
+        (collector ?? this.taintEntries).set(taintKey, entry);
+        this.taintEntries.set(taintKey, entry);
         return result;
       },
     };
@@ -554,10 +620,22 @@ export class MCPConnectionManager implements ToolResolver {
 
   /**
    * Drain accumulated taint entries from MCP tool executions.
-   * Returns the accumulated entries (keyed by `serverId:toolName`) and clears the internal map.
-   * Call this after an agent execution completes to retrieve taint metadata for post-processing.
+   *
+   * Pass the toolset returned by the paired `resolveTools()` call to drain
+   * ONLY that execution's entries (race-free under concurrency). With no
+   * argument, drains the process-wide accumulator (legacy behavior).
+   *
+   * @param tools - The exact toolset object from `resolveTools()`.
    */
-  drainTaintEntries(): Map<string, TaintMetadata> {
+  drainTaintEntries(tools?: Record<string, unknown>): Map<string, TaintMetadata> {
+    if (tools) {
+      const collector = this.taintByToolset.get(tools);
+      if (collector) {
+        const entries = new Map(collector);
+        collector.clear();
+        return entries;
+      }
+    }
     const entries = new Map(this.taintEntries);
     this.taintEntries.clear();
     return entries;

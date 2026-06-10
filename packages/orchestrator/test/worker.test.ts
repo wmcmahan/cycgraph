@@ -269,6 +269,66 @@ describe('WorkflowWorker', () => {
     recoverSpy.mockRestore();
   });
 
+  test('recovery reconciliation: snapshot ahead of event log → resumes from snapshot', async () => {
+    // Two-node graph: a → b
+    const graph: Graph = {
+      id: uuidv4(),
+      name: 'Reconcile Graph',
+      nodes: [
+        makeNode({ id: 'a', agent_id: 'a' }),
+        makeNode({ id: 'b', agent_id: 'b' }),
+      ],
+      edges: [{ id: 'a->b', source: 'a', target: 'b', condition: { type: 'always' as const } }],
+      start_node: 'a',
+      end_nodes: ['b'],
+    } as Graph;
+    await persistence.saveGraph(graph);
+
+    const runId = uuidv4();
+
+    // Produce a real, complete event log for the run (no snapshots wired).
+    const liveState = createTestState({ workflow_id: graph.id, run_id: runId, goal: 'test' });
+    const liveRunner = new GraphRunner(graph, liveState, { eventLog });
+    await liveRunner.run();
+
+    // Simulate lost tail appends: drop everything after the first few events,
+    // so event-log replay reconstructs an EARLY state (contiguity preserved).
+    const events = eventLog.getEventsForRun(runId);
+    events.splice(4);
+
+    // The latest snapshot, however, reflects MORE progress than the replayed
+    // state — e.g. its writes committed while the event appends were lost.
+    await persistence.saveWorkflowSnapshot(createTestState({
+      workflow_id: graph.id,
+      run_id: runId,
+      goal: 'test',
+      status: 'running',
+      current_node: 'b',
+      visited_nodes: ['a'],
+      iteration_count: 10,
+      memory: { a_result: 'from-snapshot' },
+    }));
+
+    await queue.enqueue({ type: 'start', run_id: runId, graph_id: graph.id });
+
+    const workerEvents: string[] = [];
+    const w = createWorker();
+    w.on('job:completed', () => workerEvents.push('completed'));
+
+    await w.start();
+    await waitFor(() => workerEvents.includes('completed'));
+
+    // If the worker resumed from the snapshot, node a's output is the
+    // snapshot's value (a never re-executed) and only b ran. If it had
+    // trusted the truncated event log, a_result would be the mock agent
+    // output from re-execution.
+    const finalState = await persistence.loadLatestWorkflowState(runId);
+    expect(finalState).not.toBeNull();
+    expect(finalState!.memory.a_result).toBe('from-snapshot');
+    expect(finalState!.memory.b_result).toBe('Mock agent output');
+    expect(finalState!.status).toBe('completed');
+  });
+
   test('resume job: recover → applyHumanResponse → run → ack', async () => {
     const graph = createSimpleGraph();
     await persistence.saveGraph(graph);

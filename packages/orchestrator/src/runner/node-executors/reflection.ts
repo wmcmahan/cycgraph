@@ -34,6 +34,7 @@ import type { GraphNode, ReflectionConfig } from '../../types/graph.js';
 import type { Action, StateView } from '../../types/state.js';
 import type { MemoryWriter, MemoryWriterFact } from '../../agent/memory-writer.js';
 import { createLogger } from '../../utils/logger.js';
+import { sanitizeString } from '../../agent/agent-executor/sanitizers.js';
 import { NodeConfigError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
 
@@ -147,7 +148,7 @@ async function extractRuleBased(
   };
 
   const facts: MemoryWriterFact[] = unique.map((content) => ({
-    content,
+    content: sanitizeFactContent(content),
     tags: config.tags,
     entities,
     provenance,
@@ -156,7 +157,9 @@ async function extractRuleBased(
   const sanitized = await applySanitizer(facts, node.id, ctx);
   if (sanitized.length === 0) return [];
 
-  const result = await writer(sanitized);
+  const result = await writer(sanitized, {
+    idempotency_key: writeIdempotencyKey(node, stateView, ctx),
+  });
   return result.fact_ids;
 }
 
@@ -215,7 +218,7 @@ async function extractViaLLM(
   };
 
   const facts: MemoryWriterFact[] = extraction.facts.map((content) => ({
-    content,
+    content: sanitizeFactContent(content),
     tags: config.tags,
     entities,
     provenance,
@@ -226,8 +229,24 @@ async function extractViaLLM(
     return { factIds: [], tokensUsed: extraction.tokens_used };
   }
 
-  const result = await writer(sanitized);
+  const result = await writer(sanitized, {
+    idempotency_key: writeIdempotencyKey(node, stateView, ctx),
+  });
   return { factIds: result.fact_ids, tokensUsed: extraction.tokens_used };
+}
+
+/**
+ * Deduplication scope for a reflection write: one node execution = one key.
+ * Deliberately excludes the retry attempt — a retry of the same execution
+ * must dedupe against the first attempt's (possibly successful) write, or
+ * every retry permanently duplicates facts in long-term memory.
+ */
+function writeIdempotencyKey(
+  node: GraphNode,
+  stateView: StateView,
+  ctx: NodeExecutorContext,
+): string {
+  return `${stateView.run_id}:${node.id}:${ctx.state.iteration_count}`;
 }
 
 /**
@@ -247,8 +266,15 @@ async function applySanitizer(
   const sanitizer = ctx.factSanitizer;
   if (!sanitizer) return facts;
 
+  // Fail closed by default: a thrown sanitizer (downed PII service, buggy
+  // regex) drops the fact rather than persisting it unredacted into durable,
+  // cross-run memory. Hosts that prioritize reflection availability over
+  // redaction guarantees can opt into 'pass' on GraphRunnerOptions.
+  const failMode = ctx.factSanitizerFailMode ?? 'drop';
+
   const out: MemoryWriterFact[] = [];
   let dropped = 0;
+  let erroredDropped = 0;
   for (const fact of facts) {
     try {
       const result = await sanitizer(fact);
@@ -258,22 +284,46 @@ async function applySanitizer(
       }
       out.push(result);
     } catch (err) {
-      logger.warn('fact_sanitizer_failed', {
+      if (failMode === 'drop') {
+        erroredDropped++;
+        logger.error('fact_sanitizer_failed_drop', err instanceof Error ? err : new Error(String(err)), {
+          node_id: nodeId,
+          fail_mode: failMode,
+        });
+        continue;
+      }
+      logger.warn('fact_sanitizer_failed_pass', {
         node_id: nodeId,
+        fail_mode: failMode,
         error: err instanceof Error ? err.message : String(err),
       });
       out.push(fact);
     }
   }
 
-  if (dropped > 0) {
+  if (dropped > 0 || erroredDropped > 0) {
     logger.info('reflection_facts_sanitized', {
       node_id: nodeId,
       kept: out.length,
       dropped,
+      dropped_on_error: erroredDropped,
     });
   }
   return out;
+}
+
+/**
+ * Strip prompt-injection vectors from a fact's content before it is
+ * persisted to long-term memory.
+ *
+ * Reflection facts are distilled from work that may include tainted external
+ * data (web pages, tool results). Without this, an attacker could plant
+ * instruction-shaped text that a *future* run retrieves via `memoryRetriever`
+ * and injects into prompts — a cross-run stored-injection channel. Reuses the
+ * same denylist sanitizer applied to memory before prompt embedding.
+ */
+function sanitizeFactContent(content: string): string {
+  return sanitizeString(content);
 }
 
 // ─── Helpers (shared by both extractors) ────────────────────────────

@@ -143,7 +143,13 @@ Each candidate receives the previous generation's winner automatically in its st
 
 Evolution executes many LLM calls. With a population size of 5 and max generations of 10, you trigger up to 50 candidate executions plus 50 evaluations — easily 100x the cost of a single-shot generation.
 
+Both candidate generation **and** evaluator scoring run in parallel, bounded by `max_concurrency` — a generation takes roughly one evaluation's wall-clock rather than scoring candidates one at a time.
+
 Two safeguards keep this manageable:
 
 - Set `error_strategy: 'best_effort'` so a single API failure within a generation doesn't kill the entire run.
 - Set a conservative `fitness_threshold` and `stagnation_generations` so the loop exits as soon as quality plateaus.
+
+### Outputs
+
+The node writes `${nodeId}_winner` (the best candidate's full output), `${nodeId}_winner_fitness`, `${nodeId}_winner_reasoning`, `${nodeId}_fitness_history`, and `${nodeId}_population`. Note that `_population` holds per-candidate fitness **summaries** (`index`, `fitness`, `reasoning`, `tokens_used`) — not every candidate's full output — to keep state and checkpoints small. The winning output is available in full under `_winner`.

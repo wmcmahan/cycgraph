@@ -34,6 +34,35 @@ import {
   MAX_VISITED_NODES,
   MAX_MEMORY_DROPS,
 } from '../runtime-config.js';
+import { canTransitionStatus } from './status-transitions.js';
+import { createLogger } from '../utils/logger.js';
+
+export { canTransitionStatus, isTerminalStatus, TERMINAL_STATUSES } from './status-transitions.js';
+
+const logger = createLogger('reducers.status');
+
+/**
+ * Apply a status change (plus any accompanying field updates) only if the
+ * transition is legal. An illegal transition — always a move *out of* a frozen
+ * terminal state — is a no-op: the whole action is dropped so a resurrected run
+ * can't appear. See {@link canTransitionStatus}.
+ */
+function transitionStatus(
+  state: WorkflowState,
+  to: WorkflowState['status'],
+  action: Action,
+  extraFields: Partial<WorkflowState> = {},
+): WorkflowState {
+  if (!canTransitionStatus(state.status, to)) {
+    logger.warn('illegal_status_transition_blocked', {
+      from: state.status,
+      to,
+      action_type: action.type,
+    });
+    return state;
+  }
+  return { ...state, ...extraFields, status: to, updated_at: timeOf(action) };
+}
 
 /**
  * Reducer function signature.
@@ -42,6 +71,34 @@ import {
  * Must return the original state unchanged for unrecognised action types.
  */
 export type Reducer = (state: WorkflowState, action: Action) => WorkflowState;
+
+/**
+ * Version of the reducer semantics used for event-log replay.
+ *
+ * Stamped onto the `workflow_started` event so recovery can detect when a
+ * log written by a different engine version is replayed through reducers
+ * whose semantics may have changed. Bump this whenever a reducer's
+ * observable state transitions change.
+ */
+export const REPLAY_VERSION = 1;
+
+/**
+ * Derive the logical time of an action from its metadata timestamp.
+ *
+ * Reducers MUST use this instead of `new Date()` so that event-log replay
+ * is deterministic: replaying a stored action reproduces the exact same
+ * `started_at` / `updated_at` / `waiting_timeout_at` values as the live run.
+ * Tolerates string timestamps (actions round-tripped through JSON/jsonb).
+ */
+function timeOf(action: Action): Date {
+  const t = action.metadata?.timestamp;
+  if (t instanceof Date) return t;
+  if (typeof t === 'string' || typeof t === 'number') {
+    const parsed = new Date(t);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return new Date();
+}
 
 // Re-export from runtime-config so existing consumers of `reducers/index.ts`
 // don't break. Prefer importing from `runtime-config.js` in new code.
@@ -72,10 +129,10 @@ export interface MemoryDropRecord {
 function filterOversizedValues(
   updates: Record<string, unknown>,
   nodeId?: string,
+  now: Date = new Date(),
 ): { filtered: Record<string, unknown>; drops: MemoryDropRecord[] } {
   const filtered: Record<string, unknown> = {};
   const drops: MemoryDropRecord[] = [];
-  const now = new Date();
   for (const [key, value] of Object.entries(updates)) {
     try {
       const serialized = JSON.stringify(value);
@@ -109,6 +166,35 @@ function appendVisited(visited: string[], nodeId: string): string[] {
   return next.length > MAX_VISITED_NODES ? next.slice(-MAX_VISITED_NODES) : next;
 }
 
+/** Well-known memory key for the taint registry (provenance of external data). */
+const TAINT_REGISTRY_KEY = '_taint_registry';
+
+/**
+ * Merge memory updates into existing memory, treating the taint registry as
+ * **append-only**.
+ *
+ * Security: the taint registry records which memory keys hold untrusted
+ * external data. If a node could overwrite `_taint_registry` wholesale, a
+ * crafted `update_memory: { _taint_registry: {} }` would clear all taint and
+ * let attacker-controlled data masquerade as trusted (bypassing strict_taint
+ * routing). Legitimate writers already pass the full existing+new registry,
+ * so a merge is correct for them and idempotent; for a malicious clear it
+ * preserves every existing entry. Taint can be added, never removed, via a
+ * normal memory update.
+ */
+function mergeMemory(
+  existing: Record<string, unknown>,
+  updates: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...existing, ...updates };
+  if (TAINT_REGISTRY_KEY in updates || TAINT_REGISTRY_KEY in existing) {
+    const prev = (existing[TAINT_REGISTRY_KEY] ?? {}) as Record<string, unknown>;
+    const incoming = (updates[TAINT_REGISTRY_KEY] ?? {}) as Record<string, unknown>;
+    merged[TAINT_REGISTRY_KEY] = { ...prev, ...incoming };
+  }
+  return merged;
+}
+
 // ─── Public Reducers ────────────────────────────────────────────────
 
 /**
@@ -121,16 +207,13 @@ export const updateMemoryReducer: Reducer = (state, action) => {
   if (action.type !== 'update_memory') return state;
 
   const { updates } = UpdateMemoryPayloadSchema.parse(action.payload);
-  const { filtered, drops } = filterOversizedValues(updates, action.metadata?.node_id);
+  const { filtered, drops } = filterOversizedValues(updates, action.metadata?.node_id, timeOf(action));
 
   return {
     ...state,
-    memory: {
-      ...state.memory,
-      ...filtered,
-    },
+    memory: mergeMemory(state.memory, filtered),
     memory_drops: appendMemoryDrops(state.memory_drops, drops),
-    updated_at: new Date(),
+    updated_at: timeOf(action),
   };
 };
 
@@ -145,11 +228,8 @@ export const setStatusReducer: Reducer = (state, action) => {
 
   const { status } = SetStatusPayloadSchema.parse(action.payload);
 
-  return {
-    ...state,
-    status,
-    updated_at: new Date(),
-  };
+  // Guarded: a terminal run can't be moved back to an active status.
+  return transitionStatus(state, status, action);
 };
 
 /**
@@ -167,7 +247,7 @@ export const gotoNodeReducer: Reducer = (state, action) => {
     ...state,
     current_node: node_id,
     visited_nodes: appendVisited(state.visited_nodes, node_id),
-    updated_at: new Date(),
+    updated_at: timeOf(action),
   };
 };
 
@@ -189,7 +269,7 @@ export const handoffReducer: Reducer = (state, action) => {
       delegated_to: node_id,
       reasoning,
       iteration: state.iteration_count,
-      timestamp: new Date(),
+      timestamp: timeOf(action),
     },
   ];
 
@@ -200,7 +280,7 @@ export const handoffReducer: Reducer = (state, action) => {
     supervisor_history: newHistory.length > MAX_SUPERVISOR_HISTORY
       ? newHistory.slice(-MAX_SUPERVISOR_HISTORY)
       : newHistory,
-    updated_at: new Date(),
+    updated_at: timeOf(action),
   };
 };
 
@@ -216,12 +296,13 @@ export const requestHumanInputReducer: Reducer = (state, action) => {
   if (action.type !== 'request_human_input') return state;
 
   const parsed = RequestHumanInputPayloadSchema.parse(action.payload);
-  const now = new Date();
+  // Logical time from the action, not wall clock: replaying this action must
+  // reproduce the original approval deadline, not extend it.
+  const now = timeOf(action);
   const timeout_ms = parsed.timeout_ms || 86_400_000;
 
-  return {
-    ...state,
-    status: 'waiting' as const,
+  // Guarded: don't move a terminal run into `waiting`.
+  return transitionStatus(state, 'waiting', action, {
     waiting_for: (parsed.waiting_for as WaitingReason) || 'human_approval',
     waiting_since: now,
     waiting_timeout_at: new Date(now.getTime() + timeout_ms),
@@ -229,8 +310,7 @@ export const requestHumanInputReducer: Reducer = (state, action) => {
       ...state.memory,
       _pending_approval: parsed.pending_approval,
     },
-    updated_at: now,
-  };
+  });
 };
 
 /**
@@ -259,9 +339,9 @@ export const resumeFromHumanReducer: Reducer = (state, action) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
   const { _pending_approval, ...restMemory } = state.memory;
 
-  return {
-    ...state,
-    status: 'running' as const,
+  // Guarded: a run that reached a terminal state (e.g. timed out while waiting)
+  // can't be resumed back to `running`.
+  return transitionStatus(state, 'running', action, {
     waiting_for: undefined,
     waiting_since: undefined,
     waiting_timeout_at: undefined,
@@ -269,8 +349,7 @@ export const resumeFromHumanReducer: Reducer = (state, action) => {
       ...restMemory,
       ...memoryUpdates,
     },
-    updated_at: new Date(),
-  };
+  });
 };
 
 /**
@@ -283,18 +362,15 @@ export const mergeParallelResultsReducer: Reducer = (state, action) => {
   if (action.type !== 'merge_parallel_results') return state;
 
   const { updates, total_tokens } = MergeParallelResultsPayloadSchema.parse(action.payload);
-  const { filtered, drops } = filterOversizedValues(updates, action.metadata?.node_id);
+  const { filtered, drops } = filterOversizedValues(updates, action.metadata?.node_id, timeOf(action));
   const totalTokens = total_tokens || 0;
 
   return {
     ...state,
-    memory: {
-      ...state.memory,
-      ...filtered,
-    },
+    memory: mergeMemory(state.memory, filtered),
     memory_drops: appendMemoryDrops(state.memory_drops, drops),
     total_tokens_used: (state.total_tokens_used || 0) + totalTokens,
-    updated_at: new Date(),
+    updated_at: timeOf(action),
   };
 };
 
@@ -335,33 +411,33 @@ export const internalReducer: Reducer = (state, action) => {
   // Internal actions have `_`-prefixed types that are not in ActionTypeSchema.
   // They are constructed via dispatchInternal() with a type cast and bypass
   // ActionSchema validation. We use InternalActionType for the switch.
+  // All time derivations use timeOf(action) — never wall clock — so that
+  // replaying the event log reconstructs byte-identical state (started_at,
+  // updated_at, deadlines) regardless of when the replay happens.
   switch (action.type as InternalActionType) {
     case '_init': {
-      const now = new Date();
+      const now = timeOf(action);
       if (action.payload.resume === true) {
-        return { ...state, status: 'running' as const, updated_at: now };
+        // Guarded: never resurrect a terminal run on resume/replay.
+        return transitionStatus(state, 'running', action);
       }
       const startNode = action.payload.start_node as string;
-      return {
-        ...state,
-        status: 'running' as const,
+      return transitionStatus(state, 'running', action, {
         current_node: startNode,
         visited_nodes: appendVisited(state.visited_nodes, startNode),
         started_at: now,
-        updated_at: now,
-      };
+      });
     }
 
     case '_fail':
-      return {
-        ...state,
-        status: 'failed' as const,
+      // Guarded: don't overwrite an existing terminal status (e.g. a late
+      // failure after the run already completed).
+      return transitionStatus(state, 'failed', action, {
         last_error: action.payload.last_error as string,
-        updated_at: new Date(),
-      };
+      });
 
     case '_complete':
-      return { ...state, status: 'completed' as const, updated_at: new Date() };
+      return transitionStatus(state, 'completed', action);
 
     case '_advance': {
       const nodeId = action.payload.node_id as string;
@@ -369,22 +445,22 @@ export const internalReducer: Reducer = (state, action) => {
         ...state,
         current_node: nodeId,
         visited_nodes: appendVisited(state.visited_nodes, nodeId),
-        updated_at: new Date(),
+        updated_at: timeOf(action),
       };
     }
 
     case '_timeout':
-      return { ...state, status: 'timeout' as const, updated_at: new Date() };
+      return transitionStatus(state, 'timeout', action);
 
     case '_cancel':
-      return { ...state, status: 'cancelled' as const, updated_at: new Date() };
+      return transitionStatus(state, 'cancelled', action);
 
     case '_track_tokens': {
       const tokens = action.payload.tokens as number;
       return {
         ...state,
         total_tokens_used: (state.total_tokens_used || 0) + tokens,
-        updated_at: new Date(),
+        updated_at: timeOf(action),
       };
     }
 
@@ -393,7 +469,7 @@ export const internalReducer: Reducer = (state, action) => {
       return {
         ...state,
         total_cost_usd: (state.total_cost_usd ?? 0) + costUsd,
-        updated_at: new Date(),
+        updated_at: timeOf(action),
       };
     }
 
@@ -402,17 +478,14 @@ export const internalReducer: Reducer = (state, action) => {
       return {
         ...state,
         _cost_alert_thresholds_fired: [...(state._cost_alert_thresholds_fired ?? []), threshold],
-        updated_at: new Date(),
+        updated_at: timeOf(action),
       };
     }
 
     case '_budget_exceeded':
-      return {
-        ...state,
-        status: 'failed' as const,
+      return transitionStatus(state, 'failed', action, {
         last_error: action.payload.last_error as string,
-        updated_at: new Date(),
-      };
+      });
 
     case '_push_compensation':
       return {
@@ -424,14 +497,14 @@ export const internalReducer: Reducer = (state, action) => {
             compensation_action: action.payload.compensation_action as { type: string; payload: Record<string, unknown> },
           },
         ],
-        updated_at: new Date(),
+        updated_at: timeOf(action),
       };
 
     case '_increment_iteration':
       return {
         ...state,
         iteration_count: state.iteration_count + 1,
-        updated_at: new Date(),
+        updated_at: timeOf(action),
       };
 
     case '_pop_compensation': {
@@ -440,7 +513,7 @@ export const internalReducer: Reducer = (state, action) => {
       return {
         ...state,
         compensation_stack: stack,
-        updated_at: new Date(),
+        updated_at: timeOf(action),
       };
     }
 

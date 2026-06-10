@@ -25,6 +25,7 @@ import type { MemoryRetriever } from '../agent/memory-retriever.js';
 import type { MemoryWriter } from '../agent/memory-writer.js';
 import type { FactSanitizer } from '../agent/fact-sanitizer.js';
 import type { FitnessFunction } from '../agent/fitness-function.js';
+import type { RateLimiter } from '../agent/rate-limiter.js';
 import { createStateView } from './state-view.js';
 import { executeAgent } from '../agent/agent-executor/executor.js';
 import { executeSupervisor } from '../agent/supervisor-executor/executor.js';
@@ -56,7 +57,9 @@ export interface ExecutorContextRunner {
   memoryRetriever?: MemoryRetriever;
   memoryWriter?: MemoryWriter;
   factSanitizer?: FactSanitizer;
+  factSanitizerFailMode?: 'drop' | 'pass';
   fitnessFunction?: FitnessFunction;
+  rateLimiter?: RateLimiter;
   toolResolver?: ToolResolver;
 
   emit(event: string, payload: unknown): boolean;
@@ -72,6 +75,8 @@ export interface ExecutorContextRunner {
  * `isStreaming` or `state.run_id` resolve correctly at call time.
  */
 export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecutorContext {
+  const rateLimiter = runner.rateLimiter;
+
   // Enable token streaming when there are event listeners (SSE bridge),
   // an explicit onToken callback was provided, or stream() is active.
   const shouldStream =
@@ -149,6 +154,7 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     state: runner.state,
     graph: runner.graph,
     loadGraphFn: runner.loadGraphFn,
+    toolResolver: runner.toolResolver,
     createStateView: (node: GraphNode) => createStateView(runner.state, node),
     abortSignal: runner.abortSignal,
     modelResolver: runner.modelResolver,
@@ -156,7 +162,9 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     memoryRetriever: runner.memoryRetriever,
     memoryWriter: runner.memoryWriter,
     factSanitizer: runner.factSanitizer,
+    factSanitizerFailMode: runner.factSanitizerFailMode,
     fitnessFunction: runner.fitnessFunction,
+    rateLimiter,
     remainingBudgetUsd,
     getRemainingBudgetUsd: () => {
       return (runner.state.budget_usd && runner.state.budget_usd > 0)
@@ -209,9 +217,31 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
       }
     },
     deps: {
-      executeAgent,
-      executeSupervisor,
-      evaluateQualityExecutor,
+      // Wrap the LLM-call deps so an injected rate limiter is awaited before
+      // every agent/supervisor/evaluator call — one chokepoint instead of
+      // threading the limiter through all seven call sites. No-op (zero wrap
+      // overhead) when no limiter is configured.
+      executeAgent: rateLimiter
+        ? (agentId, stateView, tools, attempt, options) =>
+            rateLimiter(
+              { agentId, kind: 'agent', ...(options?.node_id ? { nodeId: options.node_id } : {}) },
+              { abortSignal: runner.abortSignal },
+            ).then(() => executeAgent(agentId, stateView, tools, attempt, options))
+        : executeAgent,
+      executeSupervisor: rateLimiter
+        ? (node, stateView, history, attempt, options) =>
+            rateLimiter(
+              { agentId: node.agent_id ?? node.id, kind: 'supervisor', nodeId: node.id },
+              { abortSignal: runner.abortSignal },
+            ).then(() => executeSupervisor(node, stateView, history, attempt, options))
+        : executeSupervisor,
+      evaluateQualityExecutor: rateLimiter
+        ? (evaluatorAgentId, goal, data, instruction) =>
+            rateLimiter(
+              { agentId: evaluatorAgentId, kind: 'evaluator' },
+              { abortSignal: runner.abortSignal },
+            ).then(() => evaluateQualityExecutor(evaluatorAgentId, goal, data, instruction))
+        : evaluateQualityExecutor,
       extractFactsExecutor,
       loadAgent: (agentId: string) => agentFactory.loadAgent(agentId),
       getTaintRegistry,
@@ -219,7 +249,7 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
         ? (sources, agentId) => runner.toolResolver!.resolveTools(sources, agentId)
         : resolveBuiltinsOnly,
       drainTaintEntries: runner.toolResolver?.drainTaintEntries
-        ? () => runner.toolResolver!.drainTaintEntries!()
+        ? (tools?: Record<string, unknown>) => runner.toolResolver!.drainTaintEntries!(tools)
         : undefined,
     },
   };

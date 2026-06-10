@@ -13,7 +13,8 @@
  */
 
 import { bench, describe } from 'vitest';
-import { StreamChannel, type StreamEvent } from '@cycgraph/orchestrator';
+import { StreamChannel } from '@cycgraph/orchestrator/internal';
+import { type StreamEvent } from '@cycgraph/orchestrator';
 
 function makeTokenEvent(token: string): StreamEvent {
   return {

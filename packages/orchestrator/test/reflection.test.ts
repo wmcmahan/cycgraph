@@ -301,10 +301,39 @@ function makeReflectGraph(): Graph {
 }
 
 describe('GraphRunner — reflection dispatch', () => {
-  it('throws MemoryWriterMissingError when no memoryWriter is injected', async () => {
+  it('fails pre-flight when a reflection node has no memoryWriter (before any node runs)', async () => {
     const state = createTestState({ memory: { draft: 'some draft text' } });
     const runner = new GraphRunner(makeReflectGraph(), state);
-    await expect(runner.run()).rejects.toBeInstanceOf(MemoryWriterMissingError);
+    // The wiring pre-flight catches this before execution, so the run fails
+    // immediately with a clear message instead of mid-run after spending tokens.
+    await expect(runner.run()).rejects.toThrow(/memoryWriter/);
+  });
+
+  it('fails pre-flight when a node declares MCP tools but no toolResolver is wired', async () => {
+    const graph: Graph = {
+      id: uuidv4(),
+      name: 'mcp-graph',
+      description: 'agent node with mcp tools',
+      nodes: [
+        makeNode({
+          id: 'researcher',
+          type: 'agent',
+          agent_id: uuidv4(),
+          read_keys: ['goal'],
+          write_keys: ['notes'],
+          tools: [{ type: 'mcp', server_id: 'web-search' }],
+          failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 1, max_backoff_ms: 1 },
+        }),
+      ],
+      edges: [],
+      start_node: 'researcher',
+      end_nodes: ['researcher'],
+      strict_taint: false,
+    };
+    const runner = new GraphRunner(graph, createTestState({ memory: { goal: 'x' } }));
+    // No toolResolver → would otherwise run tool-less and "succeed" with
+    // degraded output. Pre-flight fails it loudly instead.
+    await expect(runner.run()).rejects.toThrow(/toolResolver/);
   });
 });
 

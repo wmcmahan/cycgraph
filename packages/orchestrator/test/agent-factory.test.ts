@@ -125,18 +125,23 @@ describe('AgentFactory', () => {
       await expect(factory.loadAgent(TEST_UUID)).rejects.toThrow(AgentLoadError);
     });
 
-    it('falls back to default config for invalid UUID (not found)', async () => {
-      const config = await factory.loadAgent('missing-agent');
-      expect(config.id).toBe('missing-agent');
-      expect(config.model).toBe('claude-sonnet-4-20250514');
-      expect(config.read_keys).toEqual([]);
-      expect(config.write_keys).toEqual([]);
+    it('fails closed for a non-UUID id when a registry is configured', async () => {
+      // A typo'd/invalid agent_id must surface, not silently become a generic
+      // deny-all assistant that "completes" with garbage output.
+      await expect(factory.loadAgent('missing-agent')).rejects.toThrow(AgentNotFoundError);
     });
 
-    it('falls back to default config when agent not in registry', async () => {
+    it('fails closed when the agent is not in the registry', async () => {
+      await expect(factory.loadAgent(TEST_UUID)).rejects.toThrow(AgentNotFoundError);
+    });
+
+    it('falls back to default when setAllowDefaultFallback(true) is opted in', async () => {
+      factory.setAllowDefaultFallback(true);
       const config = await factory.loadAgent(TEST_UUID);
       expect(config.id).toBe(TEST_UUID);
       expect(config.model).toBe('claude-sonnet-4-20250514');
+      expect(config.read_keys).toEqual([]);
+      expect(config.write_keys).toEqual([]);
     });
 
     it('handles null permissions safely', async () => {
@@ -210,6 +215,7 @@ describe('AgentFactory', () => {
     });
 
     it('caches config and serves from cache on second call', async () => {
+      factory.setAllowDefaultFallback(true);
       const config1 = await factory.loadAgent('cached-agent');
       const config2 = await factory.loadAgent('cached-agent');
       expect(config1).toEqual(config2);

@@ -23,12 +23,16 @@ The shared "blackboard" that all nodes read from and write to. This is the singl
 
 ### Schema: `WorkflowStateSchema`
 
+All temporal fields use coercing schemas (`z.coerce.date()`), so state loaded from JSON/jsonb storage round-trips back to real `Date` objects. Load state through `hydrateWorkflowState()` (which also applies schema migrations) rather than casting raw rows.
+
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
+| `state_schema_version` | `number` | `1` | Schema version; `hydrateWorkflowState()` migrates older snapshots forward and refuses newer ones |
 | `workflow_id` | `string (uuid)` | *required* | Links to graph definition |
 | `run_id` | `string (uuid)` | *required* | Unique execution run |
 | `created_at` | `Date` | *required* | When the run was created |
 | `updated_at` | `Date` | *required* | Last state mutation timestamp |
+| `_last_event_sequence_id` | `number?` | — | Runner-managed event-log high-water mark at persist time (crash-window idempotency) |
 | `goal` | `string` | *required* | User's objective |
 | `constraints` | `string[]` | `[]` | Restrictions on execution |
 | `status` | `WorkflowStatus` | *required* | Current state machine position |

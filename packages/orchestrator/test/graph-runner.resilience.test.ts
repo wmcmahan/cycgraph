@@ -43,11 +43,24 @@ vi.mock('@opentelemetry/api', () => ({
  */
 const agentCallCounts = new Map<string, number>();
 
+// Captures the run-correlation context observed during node execution, to
+// verify run() establishes it for downstream work (log correlation).
+const observedRunContext: { run_id?: string; graph_id?: string } = {};
+
 vi.mock('../src/agent/agent-executor/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _tools: any, attempt: number) => {
     // Track call counts so individual tests can control failure behavior
     const count = (agentCallCounts.get(agentId) || 0) + 1;
     agentCallCounts.set(agentId, count);
+
+    // Capture the run context active during node execution (real, unmocked
+    // context util) to verify run() correlation propagation.
+    if (agentId === 'context-probe') {
+      const { getCurrentContext } = await import('../src/utils/context.js');
+      const ctx = getCurrentContext();
+      observedRunContext.run_id = ctx.run_id;
+      observedRunContext.graph_id = ctx.graph_id;
+    }
 
     // 'always-fail' agent always throws (simulates permanent LLM failure)
     if (agentId === 'always-fail') {
@@ -57,6 +70,22 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
     // 'fail-then-succeed' fails on first 2 calls, succeeds on 3rd
     if (agentId === 'fail-then-succeed' && count <= 2) {
       throw new Error(`Agent ${agentId} transient failure (call ${count})`);
+    }
+
+    // 'fail-with-usage' fails on the first call with best-effort partial
+    // usage attached (as the real agent executor does), then succeeds.
+    if (agentId === 'fail-with-usage' && count === 1) {
+      const err = new Error('transient failure after partial spend') as Error & { partialUsage?: unknown };
+      err.partialUsage = { inputTokens: 40, outputTokens: 10, totalTokens: 50, model: 'gpt-4o' };
+      throw err;
+    }
+
+    // 'non-retryable' always throws an error flagged non-retryable (e.g. a
+    // 400 / context-length-exceeded). The retry loop must NOT retry it.
+    if (agentId === 'non-retryable') {
+      const err = new Error('context length exceeded') as Error & { retryable?: boolean };
+      err.retryable = false;
+      throw err;
     }
 
     // 'slow-agent' simulates a slow LLM call (for timeout testing)
@@ -175,6 +204,70 @@ describe('GraphRunner — Retry Behavior', () => {
     expect(final.status).toBe('completed');
     // Agent was called 3 times: 2 failures + 1 success
     expect(agentCallCounts.get('fail-then-succeed')).toBe(3);
+  });
+
+  test('counts tokens spent on a failed attempt toward the budget', async () => {
+    const graph: Graph = {
+      id: uuidv4(), name: 'Failed-attempt usage', description: '',
+      nodes: [
+        makeNode({
+          id: 'spendy', type: 'agent', agent_id: 'fail-with-usage',
+          failure_policy: { max_retries: 3, backoff_strategy: 'fixed', initial_backoff_ms: 10, max_backoff_ms: 100 },
+        }),
+      ],
+      edges: [],
+      start_node: 'spendy',
+      end_nodes: ['spendy'],
+    };
+
+    const final = await new GraphRunner(graph, createState()).run();
+
+    expect(final.status).toBe('completed');
+    // The first attempt failed after spending 50 tokens; those are counted
+    // even though only the second (successful) attempt produced an action.
+    expect(final.total_tokens_used).toBeGreaterThanOrEqual(50);
+  });
+
+  test('run() establishes run/graph correlation context for node execution', async () => {
+    observedRunContext.run_id = undefined;
+    observedRunContext.graph_id = undefined;
+
+    const graph: Graph = {
+      id: uuidv4(), name: 'Context Probe', description: '',
+      nodes: [makeNode({ id: 'probe', type: 'agent', agent_id: 'context-probe' })],
+      edges: [],
+      start_node: 'probe',
+      end_nodes: ['probe'],
+    };
+    const state = createState();
+
+    await new GraphRunner(graph, state).run();
+
+    // The agent executor (and thus every downstream log line) saw the run_id
+    // and graph_id without them being threaded through any parameter.
+    expect(observedRunContext.run_id).toBe(state.run_id);
+    expect(observedRunContext.graph_id).toBe(graph.id);
+  });
+
+  test('does not retry a non-retryable error (short-circuits)', async () => {
+    const graph: Graph = {
+      id: uuidv4(), name: 'Non-retryable', description: '',
+      nodes: [
+        makeNode({
+          id: 'perm-fail', type: 'agent', agent_id: 'non-retryable',
+          failure_policy: { max_retries: 3, backoff_strategy: 'fixed', initial_backoff_ms: 10, max_backoff_ms: 100 },
+        }),
+      ],
+      edges: [],
+      start_node: 'perm-fail',
+      end_nodes: ['perm-fail'],
+    };
+
+    await expect(new GraphRunner(graph, createState()).run()).rejects.toThrow(/context length/);
+
+    // Despite max_retries=3, the agent was called exactly once — a 400-class
+    // error fails the same way every time, so retrying is pure wasted spend.
+    expect(agentCallCounts.get('non-retryable')).toBe(1);
   });
 
   /**
@@ -761,5 +854,51 @@ describe('GraphRunner — Persistence Resilience', () => {
 
     expect(final.status).toBe('completed');
     expect(partialPersist).toHaveBeenCalled();
+  });
+});
+
+describe('GraphRunner — Rate Limiter', () => {
+  const singleAgentGraph = (): Graph => ({
+    id: uuidv4(), name: 'Rate Limited', description: '',
+    nodes: [makeNode({ id: 'n', type: 'agent', agent_id: 'good-agent' })],
+    edges: [],
+    start_node: 'n',
+    end_nodes: ['n'],
+  });
+
+  test('awaits the rate limiter before each LLM call', async () => {
+    const order: string[] = [];
+    agentCallCounts.clear();
+    const calls: Array<{ agentId: string; kind: string; nodeId?: string }> = [];
+
+    const rateLimiter = vi.fn(async (req: { agentId: string; kind: string; nodeId?: string }) => {
+      order.push('limiter');
+      calls.push(req);
+    });
+
+    const runner = new GraphRunner(singleAgentGraph(), createState(), { rateLimiter });
+    const final = await runner.run();
+
+    expect(final.status).toBe('completed');
+    expect(rateLimiter).toHaveBeenCalledTimes(1);
+    expect(calls[0]).toMatchObject({ agentId: 'good-agent', kind: 'agent', nodeId: 'n' });
+    // The limiter resolved before the agent produced its result.
+    expect(order[0]).toBe('limiter');
+  });
+
+  test('a throwing rate limiter fails the node', async () => {
+    const rateLimiter = vi.fn(async () => { throw new Error('rate limit ceiling reached'); });
+
+    // makeNode's default failure_policy (max_retries: 1) — the limiter throws on
+    // every attempt, so the run exhausts retries and rejects with its error.
+    const runner = new GraphRunner(singleAgentGraph(), createState(), { rateLimiter });
+    await expect(runner.run()).rejects.toThrow(/rate limit ceiling reached/);
+    expect(rateLimiter).toHaveBeenCalled();
+  });
+
+  test('no overhead path: runs normally without a rate limiter', async () => {
+    const runner = new GraphRunner(singleAgentGraph(), createState());
+    const final = await runner.run();
+    expect(final.status).toBe('completed');
   });
 });

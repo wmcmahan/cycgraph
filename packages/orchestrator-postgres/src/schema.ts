@@ -101,6 +101,12 @@ export const workflow_runs = pgTable('workflow_runs', {
   workflow_id: uuid('workflow_id').references(() => workflows.id, { onDelete: 'set null' }),
   graph_id: uuid('graph_id').references(() => graphs.id, { onDelete: 'restrict' }).notNull(),
   status: text('status', { enum: WORKFLOW_STATUSES }).notNull(),
+  /**
+   * Fencing token: incremented every time a worker claims a job for this
+   * run (DrizzleWorkflowQueue.dequeue). Fenced writers reject writes whose
+   * epoch is older — a reclaimed worker cannot clobber the new claimant.
+   */
+  claim_epoch: integer('claim_epoch').notNull().default(0),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   parent_run_id: uuid('parent_run_id').references((): AnyPgColumn => workflow_runs.id, { onDelete: 'set null' }),
   completed_at: timestamp('completed_at', { withTimezone: true }),
@@ -156,6 +162,35 @@ export const workflow_checkpoints = pgTable('workflow_checkpoints', {
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index('idx_workflow_checkpoints_run_seq').on(table.run_id, table.sequence_id),
+]);
+
+export const workflow_jobs = pgTable('workflow_jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  type: text('type', { enum: ['start', 'resume'] }).notNull(),
+  // No FK to workflow_runs — for 'start' jobs the run row is created at
+  // claim time (dequeue), after the job already exists.
+  run_id: uuid('run_id').notNull(),
+  graph_id: uuid('graph_id').notNull(),
+  initial_state: jsonb('initial_state'),
+  human_response: jsonb('human_response'),
+  priority: integer('priority').notNull().default(0),
+  max_attempts: integer('max_attempts').notNull().default(3),
+  attempt: integer('attempt').notNull().default(0),
+  visibility_timeout_ms: integer('visibility_timeout_ms').notNull().default(300_000),
+  status: text('status', {
+    enum: ['waiting', 'active', 'paused', 'completed', 'failed', 'dead_letter'],
+  }).notNull().default('waiting'),
+  worker_id: text('worker_id'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  visible_at: timestamp('visible_at', { withTimezone: true }),
+  last_heartbeat_at: timestamp('last_heartbeat_at', { withTimezone: true }),
+  last_error: text('last_error'),
+}, (table) => [
+  // Dequeue path: WHERE status='waiting' ORDER BY priority, created_at
+  index('idx_workflow_jobs_dequeue').on(table.status, table.priority, table.created_at),
+  index('idx_workflow_jobs_run_id').on(table.run_id),
+  // Reclaim path: WHERE status='active' AND visible_at <= now()
+  index('idx_workflow_jobs_reclaim').on(table.status, table.visible_at),
 ]);
 
 export const agents = pgTable('agents', {
@@ -321,6 +356,9 @@ export const memory_facts = pgTable('memory_facts', {
   index('idx_memory_facts_theme').on(table.theme_id),
   index('idx_memory_facts_valid').on(table.valid_from, table.valid_until),
   index('idx_memory_facts_embedding').using('hnsw', table.embedding.op('vector_cosine_ops')),
+  // GIN index backs the `tags ?| array[...]` tag filter (reflection-loop hot
+  // path) so tag-scoped fact retrieval is an index lookup, not a table scan.
+  index('idx_memory_facts_tags').using('gin', table.tags),
 ]);
 
 export const memory_entity_facts = pgTable('memory_entity_facts', {
@@ -346,6 +384,8 @@ export type Document = typeof documents.$inferSelect;
 export type Embedding = typeof embeddings.$inferSelect;
 export type WorkflowEventRow = typeof workflow_events.$inferSelect;
 export type NewWorkflowEventRow = typeof workflow_events.$inferInsert;
+export type WorkflowJobRow = typeof workflow_jobs.$inferSelect;
+export type NewWorkflowJobRow = typeof workflow_jobs.$inferInsert;
 export type WorkflowCheckpointRow = typeof workflow_checkpoints.$inferSelect;
 export type NewWorkflowCheckpointRow = typeof workflow_checkpoints.$inferInsert;
 export type UsageRecord = typeof usage_records.$inferSelect;

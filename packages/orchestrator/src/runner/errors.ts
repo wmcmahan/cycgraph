@@ -113,3 +113,26 @@ export class UnsupportedNodeTypeError extends Error {
     this.name = 'UnsupportedNodeTypeError';
   }
 }
+
+/**
+ * Thrown when execution reaches a node that is NOT a declared end node, yet
+ * has no outgoing edge whose condition matched. Previously the runner
+ * silently `_complete`d here, so a typo'd filtrex condition (which evaluates
+ * to `false`) or an unexpected memory shape produced a "successful" run that
+ * had only executed part of the graph. Failing loud surfaces the dead-end.
+ *
+ * Opt back into the legacy silent-completion behavior with
+ * `GraphRunnerOptions.allow_implicit_completion = true`.
+ */
+export class NoMatchingEdgeError extends Error {
+  constructor(
+    public readonly nodeId: string,
+  ) {
+    super(
+      `Node '${nodeId}' is not an end node and has no outgoing edge whose ` +
+      `condition matched — execution cannot proceed. Check the node's edge ` +
+      `conditions, or add it to end_nodes if it is meant to terminate.`,
+    );
+    this.name = 'NoMatchingEdgeError';
+  }
+}

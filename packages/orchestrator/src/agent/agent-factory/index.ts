@@ -25,9 +25,21 @@ export const agentFactory = new AgentFactory();
  * permissions.
  *
  * @param registry - The persistence backend for agent configs.
+ * @param options - Optional behavior flags.
+ * @param options.allowDefaultFallback - When `true`, an agent_id not found in
+ *   the registry returns the generic deny-all default instead of throwing
+ *   `AgentNotFoundError`. Defaults to `false` (fail closed) so a typo'd or
+ *   deleted agent_id surfaces as an error rather than silent garbage output.
+ *   Intended for tests / lightweight dev only.
  */
-export function configureAgentFactory(registry: AgentRegistry): void {
+export function configureAgentFactory(
+  registry: AgentRegistry,
+  options?: { allowDefaultFallback?: boolean },
+): void {
   agentFactory.setRegistry(registry);
+  if (options?.allowDefaultFallback !== undefined) {
+    agentFactory.setAllowDefaultFallback(options.allowDefaultFallback);
+  }
 }
 
 /**

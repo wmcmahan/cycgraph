@@ -367,6 +367,8 @@ const runner = new GraphRunner(graph, state, { memoryRetriever, memoryWriter });
 
 A `reflection` node at the end of the graph distills `research_notes` (or any source key) into facts and calls `memoryWriter`. Future runs pick those facts up through `memoryRetriever` with a matching `tags` query. See the [Reflection pattern](/docs/patterns/reflection/) and the `learning-research-agent` example for the full loop.
 
+**Deduplication contract:** the runner passes `options.idempotency_key` (formatted `run_id:node_id:iteration`) on every write. The same key is passed again when a write repeats for the same node execution — after a node retry or crash recovery. Writers SHOULD treat a repeated key as "already written" (skip or upsert); ignoring it duplicates facts in long-term memory on every retry. See the [Reflection pattern](/docs/patterns/reflection/) for a writer that implements the dedup.
+
 ## Next steps
 
 - [Workflow State](/docs/concepts/workflow-state/) — ephemeral per-run memory vs persistent knowledge graph

@@ -69,7 +69,8 @@ export function buildSystemPrompt(
   stateView: StateView,
   options?: BuildPromptOptions,
 ): string {
-  // Sanitize memory values to prevent prompt injection
+  // Sanitize memory values up front so the context compressor never sees raw
+  // injection content (it may be a third-party / LLM-backed transform).
   const sanitizedMemory = sanitizeForPrompt(stateView.memory);
 
   // Serialize memory — use context compressor when available, fall back to default
@@ -81,7 +82,9 @@ export function buildSystemPrompt(
         model: options.model,
       });
       if (result !== null) {
-        memoryJson = result.compressed;
+        // Compressor output is otherwise unbounded — cap it to the same budget
+        // as the default path before it reaches the prompt.
+        memoryJson = capToMemoryBudget(result.compressed);
         try { options.onCompressed?.(result.metrics); } catch { /* best-effort observability */ }
       } else {
         memoryJson = defaultSerializeMemory(sanitizedMemory);
@@ -95,6 +98,13 @@ export function buildSystemPrompt(
   } else {
     memoryJson = defaultSerializeMemory(sanitizedMemory);
   }
+
+  // Sanitize-AFTER-truncate: the final transformation before embedding is
+  // injection-sanitization, applied to exactly the bytes that will land in the
+  // prompt. This neutralizes anything the compressor may have (re)introduced
+  // and any boundary artifact a byte-level truncation could leave behind —
+  // closing the gap where sanitizing-then-truncating could re-expose content.
+  memoryJson = sanitizeString(memoryJson);
 
   const retrievedSection = renderRetrievedMemory(options?.retrievedMemory);
 
@@ -151,10 +161,12 @@ function renderRetrievedMemory(result: MemoryRetrievalResult | null | undefined)
 
   const byteSize = Buffer.byteLength(body, 'utf-8');
   if (byteSize > MAX_RETRIEVED_MEMORY_BYTES) {
-    body =
-      Buffer.from(body, 'utf-8')
-        .subarray(0, MAX_RETRIEVED_MEMORY_BYTES)
-        .toString('utf-8') + '\n... [truncated — retrieved memory exceeds size limit]';
+    // Truncate first, then re-sanitize the surviving bytes so a byte-level cut
+    // can't leave a partial boundary marker in the embedded text.
+    const cut = Buffer.from(body, 'utf-8')
+      .subarray(0, MAX_RETRIEVED_MEMORY_BYTES)
+      .toString('utf-8');
+    body = sanitizeString(cut) + '\n... [truncated — retrieved memory exceeds size limit]';
     logger.warn('retrieved_memory_truncated', {
       original_bytes: byteSize,
       limit_bytes: MAX_RETRIEVED_MEMORY_BYTES,
@@ -176,20 +188,25 @@ ${body}
  * This is the existing behavior, extracted for reuse as a fallback when no
  * context compressor is configured or the compressor returns null/throws.
  */
-function defaultSerializeMemory(sanitizedMemory: Record<string, unknown>): string {
-  let memoryJson = JSON.stringify(sanitizedMemory, null, 2);
+export function defaultSerializeMemory(sanitizedMemory: Record<string, unknown>): string {
+  return capToMemoryBudget(JSON.stringify(sanitizedMemory, null, 2));
+}
+
+/**
+ * Byte-cap a serialized-memory string to {@link MAX_MEMORY_PROMPT_BYTES},
+ * appending a visible truncation marker when it overflows. Shared by the
+ * default serializer and the compressor path so both honor the same budget.
+ */
+export function capToMemoryBudget(memoryJson: string): string {
   const memoryBytes = Buffer.byteLength(memoryJson, 'utf-8');
+  if (memoryBytes <= MAX_MEMORY_PROMPT_BYTES) return memoryJson;
 
-  if (memoryBytes > MAX_MEMORY_PROMPT_BYTES) {
-    const truncated = Buffer.from(memoryJson, 'utf-8').subarray(0, MAX_MEMORY_PROMPT_BYTES);
-    memoryJson = truncated.toString('utf-8') + '\n... [truncated — memory exceeds size limit]';
-    logger.warn('memory_truncated', {
-      original_bytes: memoryBytes,
-      limit_bytes: MAX_MEMORY_PROMPT_BYTES,
-    });
-  }
-
-  return memoryJson;
+  const truncated = Buffer.from(memoryJson, 'utf-8').subarray(0, MAX_MEMORY_PROMPT_BYTES);
+  logger.warn('memory_truncated', {
+    original_bytes: memoryBytes,
+    limit_bytes: MAX_MEMORY_PROMPT_BYTES,
+  });
+  return truncated.toString('utf-8') + '\n... [truncated — memory exceeds size limit]';
 }
 
 /**

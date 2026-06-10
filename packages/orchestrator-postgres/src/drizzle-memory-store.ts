@@ -17,7 +17,7 @@ import {
   memory_entity_facts,
 } from './schema.js';
 import type { MemoryProvenanceJson } from './schema.js';
-import { eq, and, or, isNull, inArray, desc } from 'drizzle-orm';
+import { eq, and, or, isNull, inArray, desc, sql } from 'drizzle-orm';
 import type {
   MemoryStore,
   EntityFilter,
@@ -447,11 +447,21 @@ export class DrizzleMemoryStore implements MemoryStore {
         .where(eq(memory_entity_facts.entity_id, filter.entity_id));
       conditions.push(inArray(memory_facts.id, factIdsForEntity));
     }
+    if (filter.tags && filter.tags.length > 0) {
+      // `tags ?| $1::text[]` — true if the jsonb `tags` array shares ANY element
+      // with the requested tags. Resolved via the GIN index on `tags`
+      // (migration 0015) instead of a client-side table scan. The tag list is
+      // bound as a single parameterized text[] (no string interpolation).
+      conditions.push(sql`${memory_facts.tags} ?| ${[...filter.tags]}::text[]`);
+    }
 
     const query = db.select().from(memory_facts);
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
+    // Deterministic order so LIMIT/OFFSET pagination is stable across calls
+    // (newest facts first; id as a tiebreak for equal timestamps).
     const rows = await (whereClause ? query.where(whereClause) : query)
+      .orderBy(desc(memory_facts.valid_from), memory_facts.id)
       .limit(filter.limit ?? 100)
       .offset(filter.offset ?? 0);
 

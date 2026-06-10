@@ -25,6 +25,13 @@ export interface FactFilter {
   theme_id?: string;
   entity_id?: string;
   include_invalidated?: boolean;
+  /**
+   * Match facts carrying **any** of these tags (OR semantics). Pushed into
+   * SQL by DB-backed stores (a GIN-indexed `tags ?| array[...]` on Postgres)
+   * so tag-scoped retrieval — the reflection-loop hot path — no longer pages
+   * the whole table client-side. Empty/undefined means "no tag filter".
+   */
+  tags?: readonly string[];
 }
 
 /** Filter options for relationship queries. */

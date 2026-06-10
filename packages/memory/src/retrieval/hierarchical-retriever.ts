@@ -218,6 +218,11 @@ async function retrieveByTags(
   while (matching.length < limit) {
     const page = await store.findFacts({
       include_invalidated,
+      // Push the tag filter into the store. DB-backed stores resolve this via
+      // a GIN-indexed `tags ?| array[...]` instead of scanning the whole
+      // table; the client-side `filterByTags` below stays as a correctness
+      // backstop for stores that don't honor the hint.
+      ...(query.tags && query.tags.length > 0 ? { tags: query.tags } : {}),
       limit: PAGE_SIZE,
       offset,
     });

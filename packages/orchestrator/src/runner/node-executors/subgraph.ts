@@ -19,6 +19,14 @@ import type { NodeExecutorContext } from './context.js';
 const logger = createLogger('runner.node.subgraph');
 
 /**
+ * Maximum nesting depth for subgraphs. Cycle detection only blocks revisiting
+ * the SAME subgraph id; a chain of DISTINCT subgraphs (g1 → g2 → … → gN) would
+ * otherwise recurse until native stack/heap exhaustion (DoS). 32 is far beyond
+ * any legitimate composition depth.
+ */
+const MAX_SUBGRAPH_DEPTH = 32;
+
+/**
  * Execute a subgraph node (nested workflow composition).
  *
  * Builds an isolated child state, runs a new {@link GraphRunner}
@@ -55,6 +63,16 @@ export async function executeSubgraphNode(
     throw new NodeConfigError(node.id, 'subgraph', `non-cyclic graph (cycle: ${[...subgraphStack, config.subgraph_id].join(' -> ')})`);
   }
 
+  // Depth cap: a chain of distinct subgraphs passes cycle detection but can
+  // still recurse without bound. Refuse beyond MAX_SUBGRAPH_DEPTH.
+  if (subgraphStack.length >= MAX_SUBGRAPH_DEPTH) {
+    throw new NodeConfigError(
+      node.id,
+      'subgraph',
+      `subgraph nesting within depth limit (${MAX_SUBGRAPH_DEPTH}); current chain: ${[...subgraphStack, config.subgraph_id].join(' -> ')}`,
+    );
+  }
+
   const childGraph = await ctx.loadGraphFn(config.subgraph_id);
   if (!childGraph) {
     throw new NodeConfigError(node.id, 'subgraph', `graph "${config.subgraph_id}"`);
@@ -75,6 +93,7 @@ export async function executeSubgraphNode(
     : undefined;
 
   const childState: WorkflowState = {
+    state_schema_version: 1,
     workflow_id: config.subgraph_id,
     run_id: uuidv4(),
     created_at: new Date(),
@@ -107,9 +126,22 @@ export async function executeSubgraphNode(
   // Lazy import to avoid circular dependency (GraphRunner → subgraph → GraphRunner)
   const { GraphRunner } = await import('../graph-runner.js');
 
+  // Propagate the parent's guardrails into the child runner. Without this a
+  // subgraph silently runs with NO toolResolver (built-ins only), NO
+  // factSanitizer (PII redaction off), NO memoryWriter (reflection nodes
+  // throw), and ignores cancellation — a real loss of security/correctness
+  // guarantees across the composition boundary.
   const childRunner = new GraphRunner(childGraph, childState, {
     loadGraphFn: ctx.loadGraphFn,
     onToken: ctx.onToken,
+    toolResolver: ctx.toolResolver,
+    modelResolver: ctx.modelResolver,
+    contextCompressor: ctx.contextCompressor,
+    memoryRetriever: ctx.memoryRetriever,
+    memoryWriter: ctx.memoryWriter,
+    factSanitizer: ctx.factSanitizer,
+    fitnessFunction: ctx.fitnessFunction,
+    ...(ctx.rateLimiter ? { rateLimiter: ctx.rateLimiter } : {}),
   });
   const finalChildState = await childRunner.run();
 

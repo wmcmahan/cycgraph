@@ -19,11 +19,21 @@ import { GraphRunner } from './graph-runner.js';
 import type { GraphRunnerOptions, HumanResponse } from './graph-runner.js';
 import type { WorkflowQueue, WorkflowJob } from '../persistence/queue-interfaces.js';
 import type { PersistenceProvider } from '../persistence/interfaces.js';
+import { StaleClaimError } from '../persistence/errors.js';
 import type { EventLogWriter } from '../db/event-log.js';
+import { EventSequenceConflictError } from '../db/event-log.js';
 import type { WorkflowState } from '../types/state.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('worker');
+
+/** Workflow statuses that mean a run is finished and its job can be acked. */
+const TERMINAL_JOB_STATUSES: WorkflowState['status'][] = [
+  'completed',
+  'failed',
+  'cancelled',
+  'timeout',
+];
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -61,6 +71,8 @@ export interface WorkflowWorkerEvents {
   'job:failed': { jobId: string; runId: string; error: string };
   'job:released': { jobId: string; runId: string };
   'job:dead_letter': { jobId: string; runId: string; error: string };
+  /** This worker's claim was fenced off — another worker owns the run now. */
+  'job:claim_lost': { jobId: string; runId: string };
   'worker:started': { workerId: string };
   'worker:stopped': { workerId: string };
 }
@@ -174,14 +186,35 @@ export class WorkflowWorker extends EventEmitter {
       await Promise.race([Promise.allSettled(promises), timeout]);
     }
 
-    // Release any remaining active jobs
+    // Hard-cancel runners that outlived the grace period. cancel() aborts
+    // in-flight LLM calls via the runner's AbortController — the old code
+    // released jobs while their runners were still executing, opening a
+    // split-brain window where another worker could claim the same run.
+    for (const [jobId, { runner }] of this.activeJobs.entries()) {
+      if (runner) {
+        logger.warn('cancelling_runner_past_grace_period', {
+          job_id: jobId,
+          worker_id: this.workerId,
+        });
+        runner.cancel();
+      }
+    }
+    // Give cancelled runners a moment to observe the abort and stop writing.
+    if (this.activeJobs.size > 0) {
+      await Promise.race([
+        Promise.allSettled([...this.activeJobs.values()].map(a => a.promise)),
+        new Promise<void>(resolve => setTimeout(resolve, 1_000)),
+      ]);
+    }
+
+    // Stop heartbeating any jobs that are still in flight. They remain
+    // ACTIVE in the queue: their visibility timeout expires and
+    // reclaimExpired() returns them to 'waiting' for another worker —
+    // the same path as crash recovery. (release() would park them as
+    // 'paused', which requires an explicit resume job.)
     for (const [jobId, { heartbeatTimer }] of this.activeJobs.entries()) {
       clearInterval(heartbeatTimer);
-      try {
-        await this.queue.release(jobId);
-      } catch (err) {
-        logger.error('release_on_shutdown_error', { job_id: jobId, error: (err as Error).message });
-      }
+      logger.info('job_left_active_on_shutdown', { job_id: jobId, worker_id: this.workerId });
     }
     this.activeJobs.clear();
 
@@ -257,32 +290,70 @@ export class WorkflowWorker extends EventEmitter {
         return;
       }
 
-      // 2. Build runner options
+      // 2. Build runner options. Factory-provided options WIN over the
+      // worker defaults — this is how per-job fenced persistence/event-log
+      // writers (carrying the job's claim_epoch) are wired in.
       const persistStateFn = (state: WorkflowState) =>
         this.persistence.saveWorkflowSnapshot(state);
 
       const extraOptions = this.runnerOptionsFactory?.(job) ?? {};
       const runnerOptions: GraphRunnerOptions = {
-        ...extraOptions,
         persistStateFn,
         eventLog: this.eventLog,
         loadGraphFn: (graphId: string) => this.persistence.loadGraph(graphId),
+        ...extraOptions,
       };
 
       // 3. Determine if recovery is needed
-      //    Even 'start' jobs may need recovery if a previous worker crashed mid-execution
+      //    Even 'start' jobs may need recovery if a previous worker crashed mid-execution.
+      //    Two recovery artifacts exist — the event log and the latest state
+      //    snapshot — and either can be ahead of the other (an append can fail
+      //    while the snapshot commits, and vice versa). Reconcile by taking
+      //    whichever reflects more progress instead of blindly trusting one.
       const latestSeqId = await this.eventLog.getLatestSequenceId(job.run_id);
+      const latestSnapshot = await this.persistence
+        .loadLatestWorkflowState(job.run_id)
+        .catch((err) => {
+          logger.warn('snapshot_load_failed_during_recovery', {
+            job_id: job.id,
+            run_id: job.run_id,
+            error: (err as Error).message,
+          });
+          return null;
+        });
       let runner: GraphRunner;
 
       if (latestSeqId >= 0) {
-        // Events exist — recover from event log
+        // Events exist — recover from event log replay
         runner = await GraphRunner.recover(
           graph,
           job.run_id,
           this.eventLog,
           runnerOptions,
         );
+
+        // Reconcile: if the snapshot is strictly ahead of the replayed state,
+        // some events were lost — resume from the snapshot to avoid silently
+        // re-executing nodes whose side effects already happened.
+        if (latestSnapshot && latestSnapshot.iteration_count > runner.getState().iteration_count) {
+          logger.warn('recovery_snapshot_ahead_of_event_log', {
+            job_id: job.id,
+            run_id: job.run_id,
+            snapshot_iteration: latestSnapshot.iteration_count,
+            replayed_iteration: runner.getState().iteration_count,
+          });
+          runner = new GraphRunner(graph, latestSnapshot, runnerOptions);
+        }
         logger.info('job_recovered', { job_id: job.id, run_id: job.run_id, latest_seq: latestSeqId });
+      } else if (latestSnapshot) {
+        // No events but a snapshot exists (event log was unavailable or is a
+        // Noop writer) — resume from the snapshot.
+        runner = new GraphRunner(graph, latestSnapshot, runnerOptions);
+        logger.info('job_recovered_from_snapshot', {
+          job_id: job.id,
+          run_id: job.run_id,
+          iteration: latestSnapshot.iteration_count,
+        });
       } else {
         // Fresh start
         const initialState = (job.initial_state ?? {}) as Partial<WorkflowState>;
@@ -293,6 +364,11 @@ export class WorkflowWorker extends EventEmitter {
           goal: (initialState.goal as string) ?? '',
           ...initialState,
         });
+        // Create the run record BEFORE execution starts: event-log writers
+        // with referential integrity (Postgres FK on workflow_events.run_id)
+        // need the run row to exist before the first event append, which
+        // happens before the first state snapshot would create it.
+        await this.persistence.saveWorkflowRun(state);
         runner = new GraphRunner(graph, state, runnerOptions);
       }
 
@@ -312,15 +388,27 @@ export class WorkflowWorker extends EventEmitter {
 
       // 6. Route based on result status
       if (result.status === 'waiting') {
-        // HITL pause — release without penalty
+        // HITL pause — release without penalty (paused until a resume job)
         await this.queue.release(job.id);
         this.emit('job:released', { jobId: job.id, runId: job.run_id });
         logger.info('job_released_hitl', { job_id: job.id, run_id: job.run_id });
-      } else {
+      } else if (TERMINAL_JOB_STATUSES.includes(result.status)) {
         // Terminal status — mark completed
         await this.queue.ack(job.id);
         this.emit('job:completed', { jobId: job.id, runId: job.run_id });
         logger.info('job_completed', { job_id: job.id, run_id: job.run_id, status: result.status });
+      } else {
+        // Non-terminal, non-waiting (e.g. 'running' after a graceful
+        // shutdown interrupted the loop). Leave the job ACTIVE: its
+        // visibility timeout expires, reclaimExpired() returns it to
+        // 'waiting', and another worker resumes from the checkpoint.
+        // (release() would park it as 'paused', which requires an explicit
+        // resume job — wrong for shutdown-interrupted work.)
+        logger.info('job_left_active_for_reclaim', {
+          job_id: job.id,
+          run_id: job.run_id,
+          status: result.status,
+        });
       }
     } catch (err) {
       const errorMsg = (err as Error).message ?? String(err);
@@ -329,6 +417,19 @@ export class WorkflowWorker extends EventEmitter {
         run_id: job.run_id,
         error: errorMsg,
       });
+
+      // A stale claim / sequence conflict means another worker owns this run
+      // now — this worker must NOT touch the job's queue state (nack would
+      // penalize or re-queue a job the new owner is actively processing).
+      if (err instanceof StaleClaimError || err instanceof EventSequenceConflictError) {
+        logger.warn('job_claim_lost', {
+          job_id: job.id,
+          run_id: job.run_id,
+          worker_id: this.workerId,
+        });
+        this.emit('job:claim_lost', { jobId: job.id, runId: job.run_id });
+        return;
+      }
 
       try {
         await this.queue.nack(job.id, errorMsg);

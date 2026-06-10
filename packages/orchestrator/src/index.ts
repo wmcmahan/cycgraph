@@ -5,6 +5,10 @@
  * functions are re-exported here. Consumers should import from
  * `@cycgraph/orchestrator` and never reach into internal paths.
  *
+ * Implementation details that are not part of the semver contract (the runner's
+ * internal reducer, the stream channel, filtrex/backoff internals) live behind
+ * the `@cycgraph/orchestrator/internal` subpath — see `src/internal.ts`.
+ *
  * @packageDocumentation
  */
 
@@ -14,9 +18,28 @@
 export * from './types/index.js';
 
 // ─── Reducers ───────────────────────────────────────────────────────
-// Pure state transition functions
+// Pure state transition functions. Explicit named exports — `internalReducer`
+// is intentionally NOT public (it's exposed via `@cycgraph/orchestrator/internal`).
 
-export * from './reducers/index.js';
+export {
+  REPLAY_VERSION,
+  MAX_SUPERVISOR_HISTORY,
+  MAX_VISITED_NODES,
+  MAX_MEMORY_DROPS,
+  updateMemoryReducer,
+  setStatusReducer,
+  gotoNodeReducer,
+  handoffReducer,
+  requestHumanInputReducer,
+  resumeFromHumanReducer,
+  mergeParallelResultsReducer,
+  rootReducer,
+  validateAction,
+  canTransitionStatus,
+  isTerminalStatus,
+  TERMINAL_STATUSES,
+} from './reducers/index.js';
+export type { Reducer, MemoryDropRecord } from './reducers/index.js';
 
 // ─── Graph Runner ───────────────────────────────────────────────────
 // Workflow execution engine
@@ -29,17 +52,17 @@ export { createStateView } from './runner/state-view.js';
 export type { GraphRunnerMiddleware, MiddlewareContext, BeforeNodeResult } from './runner/middleware.js';
 export { createObserverMiddleware } from './runner/observer-middleware.js';
 export type { ObserverMiddlewareOptions, ObserverFinding, ObserverSeverity, DiagnosticAgentOptions } from './runner/observer-middleware.js';
-export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError } from './runner/errors.js';
+export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './runner/errors.js';
 export { MemoryWriterMissingError } from './runner/node-executors/reflection.js';
 export { VerificationFailedError } from './runner/node-executors/verifier.js';
 
 // ─── Stream Events ─────────────────────────────────────────────────
 export type { StreamEvent, TerminalStreamEvent, ModelResolvedEvent, ContextCompressedEvent, MemoryDiff } from './runner/stream-events.js';
 export { isTerminalEvent } from './runner/stream-events.js';
-export { StreamChannel } from './runner/stream-channel.js';
-
-export * from './runner/helpers.js';
-export * from './runner/conditions.js';
+// `StreamChannel` and the low-level `helpers`/filtrex `conditions` internals are
+// NOT public — see `@cycgraph/orchestrator/internal`. Only the public condition
+// evaluator is re-exported here.
+export { evaluateCondition } from './runner/conditions.js';
 export { executeParallel } from './runner/parallel-executor.js';
 export type { ParallelTask, ParallelResult, ParallelExecutionConfig } from './runner/parallel-executor.js';
 export { executeEvolutionNode } from './runner/node-executors/evolution.js';
@@ -47,7 +70,7 @@ export { executeEvolutionNode } from './runner/node-executors/evolution.js';
 // ─── Event Sourcing / Durable Execution ─────────────────────────────
 
 export type { EventLogWriter } from './db/event-log.js';
-export { NoopEventLogWriter, InMemoryEventLogWriter } from './db/event-log.js';
+export { NoopEventLogWriter, InMemoryEventLogWriter, EventSequenceConflictError } from './db/event-log.js';
 export { PersistenceUnavailableError } from './db/persistence-health.js';
 
 // ─── Persistence ────────────────────────────────────────────────────
@@ -116,6 +139,9 @@ export type { FactSanitizer } from './agent/fact-sanitizer.js';
 
 // ─── Fitness Function (Evolution) ──────────────────────────────────
 export type { FitnessFunction, FitnessResult } from './agent/fitness-function.js';
+
+// ─── Rate Limiter (LLM call pacing) ────────────────────────────────
+export type { RateLimiter, RateLimitRequest, RateLimitCallKind } from './agent/rate-limiter.js';
 
 // ─── Evaluator (LLM-as-Judge) ───────────────────────────────────────
 

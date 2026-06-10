@@ -156,7 +156,7 @@ export class InMemoryMemoryStore implements MemoryStore {
   }
 
   async findFacts(filter: FactFilter & PaginationOptions = {}): Promise<SemanticFact[]> {
-    const { theme_id, entity_id, include_invalidated = false, limit = 100, offset = 0 } = filter;
+    const { theme_id, entity_id, tags, include_invalidated = false, limit = 100, offset = 0 } = filter;
     let results = [...this.facts.values()];
 
     if (!include_invalidated) {
@@ -168,7 +168,14 @@ export class InMemoryMemoryStore implements MemoryStore {
     if (entity_id) {
       results = results.filter((f) => f.entity_ids.includes(entity_id));
     }
+    if (tags && tags.length > 0) {
+      const wanted = new Set(tags);
+      results = results.filter((f) => f.tags.some((t) => wanted.has(t)));
+    }
 
+    // Map iteration is insertion-ordered, so pagination here is already
+    // deterministic. (The DB-backed store applies an explicit ORDER BY to get
+    // the same stability — see drizzle-memory-store.findFacts.)
     return results.slice(offset, offset + limit).map((f) => structuredClone(f));
   }
 

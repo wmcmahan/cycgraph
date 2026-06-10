@@ -52,6 +52,7 @@ const researcherId = registry.register({
 When an agent node runs, the **agent executor**:
 
 1. Loads the config from the `AgentRegistry` via the node's `agent_id`
+   - **Fails closed.** If the `agent_id` is not found in the configured registry, the executor throws `AgentNotFoundError` rather than substituting a generic default agent. A typo'd or deleted `agent_id` therefore surfaces as a loud failure instead of a workflow that "succeeds" with deny-all garbage output and real token spend. To opt into the legacy permissive fallback (dev/test only), call `configureAgentFactory(registry, { allowDefaultFallback: true })`. When **no** registry is configured at all (lightweight dev mode), the factory still falls back to a default config and warns on every call.
 2. Creates a **state view** — a precise slice of `WorkflowState.memory` based on `read_keys`
 3. Injects the goal, constraints, and state view into the prompt
 4. Streams the LLM execution via `ai` with the configured tools

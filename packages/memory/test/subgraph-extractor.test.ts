@@ -102,4 +102,15 @@ describe('extractSubgraph', () => {
     expect(result.entities[0].name).toBe('A');
     expect(result.relationships).toHaveLength(0);
   });
+
+  it('caps the number of visited entities via max_entities', async () => {
+    // Star graph: A connected to B, C, D — a single hop reaches 4 entities.
+    await store.putRelationship(makeRel(a.id, b.id));
+    await store.putRelationship(makeRel(a.id, c.id));
+    await store.putRelationship(makeRel(a.id, d.id));
+
+    const result = await extractSubgraph(store, [a.id], { max_hops: 2, max_entities: 2 });
+    // Bounded: stops expanding once 2 entities have been visited.
+    expect(result.entities.length).toBeLessThanOrEqual(2);
+  });
 });

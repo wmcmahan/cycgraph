@@ -127,6 +127,7 @@ The `@cycgraph/orchestrator-postgres` package provides production-grade Drizzle 
 - `DrizzleAgentRegistry`
 - `DrizzleMCPServerRegistry`
 - `DrizzleEventLogWriter`
+- `DrizzleWorkflowQueue` — durable job queue with `FOR UPDATE SKIP LOCKED` claims and fencing epochs (see [Distributed Execution](/docs/concepts/distributed-execution/))
 - `DrizzleUsageRecorder`
 - `DrizzleRetentionService`
 
@@ -150,6 +151,26 @@ const runner = new GraphRunner(graph, state, {
 
 The GraphRunner tracks consecutive persistence failures. If `persistStateFn` fails 3 times in a row, the runner throws a `PersistenceUnavailableError` rather than silently continuing with divergent in-memory and storage state. The counter resets on any successful persist call.
 
+### Event-log write barrier
+
+Event appends overlap with node execution (no per-event latency), but every `persistStateFn` call is preceded by a **flush barrier**: the runner awaits all outstanding event appends *before* the state snapshot commits. The event log is the snapshot's history — a snapshot must never exist whose events were silently lost, or event-log recovery would reconstruct an older state and re-execute nodes whose side effects already happened.
+
+Failure semantics mirror snapshots: a flush containing failures counts one strike, and three consecutive failed flushes halt the workflow. Two errors are **immediately fatal**, bypassing the strike budget, because both mean another writer is executing the same run:
+
+- `EventSequenceConflictError` — an append collided with an existing `(run_id, sequence_id)`. The `append()` contract *rejects* duplicates (both `InMemoryEventLogWriter` and `DrizzleEventLogWriter`) instead of silently dropping or double-storing them.
+- `StaleClaimError` — a fenced write carried an outdated claim epoch (see [Run fencing](/docs/concepts/distributed-execution/#run-fencing)).
+
+Each snapshot also records the event-log high-water mark it was persisted under (`_last_event_sequence_id`), which resume logic uses to decide whether a logged action's effects are already contained in the snapshot.
+
+### Loading state: hydration
+
+State snapshots round-trip through JSON/jsonb, which turns every `Date` into a string. All built-in loaders (`loadLatestWorkflowState`, checkpoint loads, recovery) pass loaded state through `hydrateWorkflowState()`, which:
+
+1. Applies any pending schema migrations (states carry a `state_schema_version`; snapshots from a *newer* engine version are refused with a clear error)
+2. Parses with `WorkflowStateSchema`, coercing temporal fields back to real `Date` objects and failing loudly on structurally invalid state
+
+If you implement a custom `PersistenceProvider` or `EventLogWriter`, call `hydrateWorkflowState()` (exported from `@cycgraph/orchestrator`) on every state you load from storage — handing the runner a raw JSON clone leaves date comparisons silently broken (e.g. approval-gate timeouts that never fire).
+
 ## Replaying the event log
 
 `loadEvents(run_id)` returns the raw, ordered event rows for a run. Use it to inspect what happened during execution, replay actions through reducers in test code, or rebuild state for a debugger UI.
@@ -167,11 +188,11 @@ for (const event of events) {
 
 // Reconstruct the actions that drove state transitions
 const actions = events
-  .filter((e) => e.event_type === 'action_applied')
-  .map((e) => e.payload);
+  .filter((e) => e.event_type === 'action_dispatched')
+  .map((e) => e.action);
 ```
 
-For full crash recovery, prefer `GraphRunner.recoverFromEventLog()` — it handles checkpoints, sequence integrity checks, and reducer replay automatically. Use `loadEvents()` directly when you need raw access for tooling or post-hoc analysis.
+For full crash recovery, prefer `GraphRunner.recover()` — it handles checkpoints, gap validation (contiguous sequence ids, throwing `EventLogCorruptionError` on a lost append), replay-version checks, and reducer replay automatically. Replay is deterministic: reducers derive all timestamps from the stored action metadata, so replaying the same log always reconstructs the same state — including approval deadlines. Use `loadEvents()` directly when you need raw access for tooling or post-hoc analysis.
 
 ## State versioning
 

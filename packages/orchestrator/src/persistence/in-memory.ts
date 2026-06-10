@@ -12,7 +12,9 @@
 
 import type { Graph } from '../types/graph.js';
 import type { WorkflowState } from '../types/state.js';
+import { hydrateWorkflowState } from '../types/state.js';
 import type { MCPServerEntry } from '../types/tools.js';
+import { MCPServerEntrySchema } from '../types/tools.js';
 import type {
   PersistenceProvider,
   AgentRegistry,
@@ -180,7 +182,9 @@ export class InMemoryPersistenceProvider implements PersistenceProvider {
     const existing = this.states.get(run_id);
     if (!existing || existing.length === 0) return null;
     const sorted = [...existing].sort((a, b) => b.version - a.version);
-    return sorted[0].state;
+    // The stored snapshot is a JSON clone (Dates are strings) — hydrate at
+    // the load boundary, matching the Postgres adapter's behavior.
+    return hydrateWorkflowState(sorted[0].state);
   }
 
   /** Load a lightweight state version history for a run. */
@@ -304,14 +308,26 @@ export class InMemoryAgentRegistry implements AgentRegistry {
 export class InMemoryMCPServerRegistry implements MCPServerRegistry {
   private readonly servers = new Map<string, MCPServerEntry>();
 
-  /** Register or update an MCP server entry. */
+  /**
+   * Register or update an MCP server entry.
+   *
+   * SECURITY: the entry is re-validated through {@link MCPServerEntrySchema}
+   * before it is stored. The registry is a trusted boundary — the stdio
+   * command allowlist and the URL SSRF guard are only enforced if every
+   * write actually parses, so we never trust a caller's `MCPServerEntry`
+   * (TypeScript types are compile-time only).
+   */
   async saveServer(entry: MCPServerEntry): Promise<void> {
-    this.servers.set(entry.id, { ...entry });
+    const validated = MCPServerEntrySchema.parse(entry);
+    this.servers.set(validated.id, validated);
   }
 
   /** Load a server by ID. Returns `null` if not found. */
   async loadServer(id: string): Promise<MCPServerEntry | null> {
-    return this.servers.get(id) ?? null;
+    const entry = this.servers.get(id);
+    if (!entry) return null;
+    // Re-validate on read as defense against direct map tampering.
+    return MCPServerEntrySchema.parse(entry);
   }
 
   /** List all registered servers. */
@@ -324,9 +340,10 @@ export class InMemoryMCPServerRegistry implements MCPServerRegistry {
     return this.servers.delete(id);
   }
 
-  /** Convenience alias for saveServer (test helper). */
+  /** Convenience alias for saveServer (test helper). Validates like saveServer. */
   register(entry: MCPServerEntry): void {
-    this.servers.set(entry.id, { ...entry });
+    const validated = MCPServerEntrySchema.parse(entry);
+    this.servers.set(validated.id, validated);
   }
 
   /** Clear all registered servers. */

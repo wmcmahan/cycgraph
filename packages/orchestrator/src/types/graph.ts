@@ -142,9 +142,9 @@ export const SupervisorConfigSchema = z.object({
   /** Agent ID for the LLM that makes routing decisions. Optional — falls back to `node.agent_id`. */
   agent_id: z.string().optional(),
   /** Node IDs this supervisor can delegate work to. */
-  managed_nodes: z.array(z.string()),
-  /** Max routing iterations before forced completion (loop guard). */
-  max_iterations: z.number().default(10),
+  managed_nodes: z.array(z.string()).max(200),
+  /** Max routing iterations before forced completion (loop guard). Capped to bound runaway LLM spend. */
+  max_iterations: z.number().int().min(1).max(1000).default(10),
   /** JSONPath expression that, when truthy, signals completion. */
   completion_condition: z.string().optional(),
 });
@@ -189,7 +189,7 @@ export const AnnealingConfigSchema = z.object({
   /** Quality threshold (0–1) to stop iteration. */
   threshold: z.number().min(0).max(1).default(0.8),
   /** Maximum annealing iterations. */
-  max_iterations: z.number().min(1).default(5),
+  max_iterations: z.number().int().min(1).max(1000).default(5),
   /** Starting temperature for LLM generation. */
   initial_temperature: z.number().min(0).max(2).default(1.0),
   /** Ending temperature (converges toward this). */
@@ -218,8 +218,8 @@ export const MapReduceConfigSchema = z.object({
   synthesizer_node_id: z.string().optional(),
   /** How to handle worker errors. */
   error_strategy: z.enum(['fail_fast', 'best_effort']).default('best_effort'),
-  /** Maximum concurrent workers. */
-  max_concurrency: z.number().min(1).default(5),
+  /** Maximum concurrent workers. Capped to bound parallel LLM fan-out. */
+  max_concurrency: z.number().int().min(1).max(50).default(5),
   /** Per-task timeout in milliseconds (guards against hung LLM calls). */
   task_timeout_ms: z.number().min(1).optional(),
 });
@@ -234,8 +234,8 @@ export type MapReduceConfig = z.infer<typeof MapReduceConfigSchema>;
  * Multiple agents vote independently, and a strategy aggregates results.
  */
 export const VotingConfigSchema = z.object({
-  /** Agent IDs that will vote. */
-  voter_agent_ids: z.array(z.string()).min(1),
+  /** Agent IDs that will vote. Capped to bound parallel LLM fan-out. */
+  voter_agent_ids: z.array(z.string()).min(1).max(50),
   /** Aggregation strategy. */
   strategy: z.enum(['majority_vote', 'weighted_vote', 'llm_judge']).default('majority_vote'),
   /** Memory key where each voter writes their vote. */
@@ -279,8 +279,8 @@ export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
  * fitness evaluator, select the best, and breed the next generation.
  */
 export const EvolutionConfigSchema = z.object({
-  /** Number of candidates per generation. */
-  population_size: z.number().min(2).default(5),
+  /** Number of candidates per generation. Capped to bound per-generation LLM fan-out. */
+  population_size: z.number().int().min(2).max(100).default(5),
   /** Agent ID that generates candidate solutions. */
   candidate_agent_id: z.string(),
   /**
@@ -294,8 +294,8 @@ export const EvolutionConfigSchema = z.object({
   selection_strategy: z.enum(['rank', 'tournament', 'roulette']).default('rank'),
   /** Top candidates preserved unchanged across generations (elitism). */
   elite_count: z.number().min(0).default(1),
-  /** Maximum number of generations. */
-  max_generations: z.number().min(1).default(10),
+  /** Maximum number of generations. Capped to bound total LLM spend (population × generations × 2). */
+  max_generations: z.number().int().min(1).max(100).default(10),
   /**
    * Fitness score for early exit. The evolution loop terminates as soon
    * as the best candidate's fitness meets or exceeds this value.
@@ -308,15 +308,15 @@ export const EvolutionConfigSchema = z.object({
    */
   fitness_threshold: z.number().min(0).default(0.9),
   /** Stop if no improvement for this many consecutive generations. */
-  stagnation_generations: z.number().min(1).default(3),
+  stagnation_generations: z.number().int().min(1).max(100).default(3),
   /** Starting temperature (diversity). */
   initial_temperature: z.number().min(0).max(2).default(1.0),
   /** Ending temperature (exploitation). */
   final_temperature: z.number().min(0).max(2).default(0.3),
   /** Tournament size for `tournament` strategy. */
   tournament_size: z.number().min(2).default(3),
-  /** Max concurrent candidate evaluations. */
-  max_concurrency: z.number().min(1).default(5),
+  /** Max concurrent candidate evaluations. Capped to bound parallel LLM fan-out. */
+  max_concurrency: z.number().int().min(1).max(50).default(5),
   /** How to handle candidate generation errors. */
   error_strategy: z.enum(['fail_fast', 'best_effort']).default('best_effort'),
   /** Custom instruction passed to the fitness evaluator. */
@@ -626,7 +626,7 @@ export const SubgraphConfigSchema = z.object({
   /** Child → parent memory key mapping. */
   output_mapping: z.record(z.string(), z.string()).default({}),
   /** Maximum iterations for the sub-workflow. */
-  max_iterations: z.number().min(1).default(50),
+  max_iterations: z.number().int().min(1).max(10000).default(50),
 });
 
 export type SubgraphConfig = z.infer<typeof SubgraphConfigSchema>;
@@ -683,8 +683,13 @@ export const GraphNodeSchema = z.object({
   memory_query: MemoryQuerySchema.optional(),
 
   // ── Security ──
-  /** Memory keys this node may read (`['*']` = all). */
-  read_keys: z.array(z.string()).default(['*']),
+  /**
+   * Memory keys this node may read. Defaults to `[]` (least privilege): a
+   * node sees only `goal` / `constraints` plus the keys it explicitly lists.
+   * Use `['*']` to grant full memory access (a validation warning flags it,
+   * since it defeats state slicing). Supports dot-notation for nested keys.
+   */
+  read_keys: z.array(z.string()).default([]),
   /** Memory keys this node may write (empty = deny-all). */
   write_keys: z.array(z.string()).default([]),
   /**

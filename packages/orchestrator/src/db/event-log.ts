@@ -18,6 +18,28 @@
 
 import type { NewWorkflowEvent, WorkflowEvent } from '../types/event.js';
 import type { WorkflowState } from '../types/state.js';
+import { hydrateWorkflowState } from '../types/state.js';
+
+/**
+ * Thrown when an `append()` collides with an existing `(run_id, sequence_id)`.
+ *
+ * A sequence conflict means two writers are appending to the same run — a
+ * split-brain that must surface loudly, never be silently absorbed. The
+ * GraphRunner treats this as fatal for the local runner.
+ */
+export class EventSequenceConflictError extends Error {
+  constructor(
+    public readonly runId: string,
+    public readonly sequenceId: number,
+  ) {
+    super(
+      `Event sequence conflict for run ${runId} at sequence_id ${sequenceId}: ` +
+      `another writer has already appended this event. ` +
+      `This indicates two workers are executing the same run.`,
+    );
+    this.name = 'EventSequenceConflictError';
+  }
+}
 
 /**
  * Interface for appending and reading workflow events.
@@ -25,10 +47,17 @@ import type { WorkflowState } from '../types/state.js';
  * Implementations must guarantee:
  * - Events are stored durably (fsync or DB commit)
  * - `loadEvents()` returns events in `sequence_id` order
- * - `append()` is idempotent for the same `(run_id, sequence_id)` pair
+ * - `append()` REJECTS a duplicate `(run_id, sequence_id)` pair with
+ *   {@link EventSequenceConflictError} — duplicates mean two writers are
+ *   racing on one run and must never be silently dropped or double-stored
  */
 export interface EventLogWriter {
-  /** Append a single event to the log. */
+  /**
+   * Append a single event to the log.
+   *
+   * @throws {EventSequenceConflictError} If an event with the same
+   *   `(run_id, sequence_id)` already exists.
+   */
   append(event: NewWorkflowEvent): Promise<void>;
 
   /** Load all events for a run, ordered by `sequence_id` ascending. */
@@ -109,6 +138,9 @@ export class InMemoryEventLogWriter implements EventLogWriter {
 
   async append(event: NewWorkflowEvent): Promise<void> {
     const list = this.events.get(event.run_id) ?? [];
+    if (list.some(e => e.sequence_id === event.sequence_id)) {
+      throw new EventSequenceConflictError(event.run_id, event.sequence_id);
+    }
     list.push({
       id: crypto.randomUUID(),
       ...event,
@@ -145,8 +177,12 @@ export class InMemoryEventLogWriter implements EventLogWriter {
   async loadCheckpoint(run_id: string): Promise<{ sequence_id: number; state: WorkflowState } | null> {
     const cp = this.checkpoints.get(run_id);
     if (!cp) return null;
-    // Return a deep clone so callers cannot mutate the stored checkpoint
-    return JSON.parse(JSON.stringify(cp));
+    // Deep clone so callers cannot mutate the stored checkpoint, then
+    // hydrate: the JSON round-trip turned Dates into strings, exactly like
+    // a jsonb column would. Hydrating here keeps in-memory behavior in
+    // parity with the Postgres adapter.
+    const clone = JSON.parse(JSON.stringify(cp)) as { sequence_id: number; state: unknown };
+    return { sequence_id: clone.sequence_id, state: hydrateWorkflowState(clone.state) };
   }
 
   async compact(run_id: string, beforeSequenceId: number): Promise<number> {

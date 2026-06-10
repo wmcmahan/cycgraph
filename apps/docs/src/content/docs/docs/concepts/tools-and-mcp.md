@@ -132,8 +132,10 @@ mcpRegistry.register({
 | Transport | Use case | Security |
 |-----------|----------|----------|
 | `stdio` | Local MCP server processes | Command allowlist: `npx`, `node`, `python3`, `python`, `uvx` |
-| `http` | Remote MCP servers (stateless) | HTTPS URLs only in production |
-| `sse` | Remote MCP servers (streaming) | HTTPS URLs only in production |
+| `http` | Remote MCP servers (stateless) | SSRF-guarded URLs (no private/loopback/metadata hosts) |
+| `sse` | Remote MCP servers (streaming) | SSRF-guarded URLs (no private/loopback/metadata hosts) |
+
+Every entry is re-validated through `MCPServerEntrySchema` on **both** `saveServer` and `loadServer`, so the command allowlist and SSRF guard are enforced even against a direct DB write, a migration, or an `any`-typed caller — not just at compile time. http/sse URLs that resolve to private, loopback, link-local, or cloud-metadata addresses are rejected; set `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true` to allow them in local development.
 
 Each `MCPServerEntry` also supports the following optional fields:
 

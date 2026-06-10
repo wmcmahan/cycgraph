@@ -438,7 +438,8 @@ describe('LLMGraphSchema', () => {
 
     expect(node.failure_policy.max_retries).toBe(3);
     expect(node.failure_policy.backoff_strategy).toBe('exponential');
-    expect(node.read_keys).toEqual(['*']);
+    // Least-privilege default — architect nodes must opt into memory reads.
+    expect(node.read_keys).toEqual([]);
     expect(node.write_keys).toEqual([]);
     expect(node.requires_compensation).toBe(false);
   });

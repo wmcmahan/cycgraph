@@ -26,7 +26,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Graph } from '../types/graph.js';
 import type { WorkflowState, Action } from '../types/state.js';
-import { rootReducer, internalReducer } from '../reducers/index.js';
+import { rootReducer, internalReducer, REPLAY_VERSION } from '../reducers/index.js';
 import type { EventLogWriter } from '../db/event-log.js';
 import type { WorkflowEvent } from '../types/event.js';
 import { EventLogCorruptionError } from './errors.js';
@@ -34,6 +34,35 @@ import { createLogger } from '../utils/logger.js';
 import { GraphRunner, type GraphRunnerOptions } from './graph-runner.js';
 
 const logger = createLogger('runner.recover');
+
+/**
+ * Verify the event log is gap-free before trusting it for replay.
+ *
+ * Every event gets a strictly sequential id, so the log for a run (or the
+ * tail after a checkpoint) must be contiguous starting at `afterSequenceId + 1`.
+ * A gap means an append was lost — replaying around it silently drops a
+ * state transition, so recovery must refuse instead.
+ *
+ * @throws {EventLogCorruptionError} On any gap or out-of-order sequence.
+ */
+function validateEventContiguity(
+  runId: string,
+  events: WorkflowEvent[],
+  afterSequenceId: number,
+): void {
+  let expected = afterSequenceId + 1;
+  for (const event of events) {
+    if (event.sequence_id !== expected) {
+      logger.error('event_log_gap_detected', new Error('Sequence gap in event log'), {
+        run_id: runId,
+        expected_sequence: expected,
+        actual_sequence: event.sequence_id,
+      });
+      throw new EventLogCorruptionError(runId);
+    }
+    expected++;
+  }
+}
 
 /**
  * Recover a workflow run from its event log via deterministic replay.
@@ -63,6 +92,8 @@ export async function recoverGraphRunner(
     events = await eventLog.loadEventsAfter(runId, checkpoint.sequence_id);
     startState = checkpoint.state;
 
+    validateEventContiguity(runId, events, checkpoint.sequence_id);
+
     logger.info('recovery_from_checkpoint', {
       run_id: runId,
       checkpoint_sequence_id: checkpoint.sequence_id,
@@ -83,9 +114,14 @@ export async function recoverGraphRunner(
       throw new EventLogCorruptionError(runId);
     }
 
+    // Without a checkpoint, the log must be complete from the very first
+    // event (sequence 0 is the run's _init dispatch).
+    validateEventContiguity(runId, events, -1);
+
     // Minimal pending state the reducers will transform into the
     // reconstructed state.
     startState = {
+      state_schema_version: 1,
       workflow_id: graph.id,
       run_id: runId,
       status: 'pending',
@@ -128,6 +164,21 @@ export async function recoverGraphRunner(
   let replayedInternals = 0;
 
   for (const event of events) {
+    if (event.event_type === 'workflow_started') {
+      // The live run stamps this event with the reducer replay version.
+      // A mismatch means the log was written under different reducer
+      // semantics — replay may reconstruct a state the original run never
+      // had. Surface it loudly; callers can decide whether to trust the run.
+      const loggedVersion = event.internal_payload?.replay_version;
+      if (loggedVersion !== undefined && loggedVersion !== REPLAY_VERSION) {
+        logger.warn('replay_version_mismatch', {
+          run_id: runId,
+          logged_version: loggedVersion,
+          current_version: REPLAY_VERSION,
+        });
+      }
+      continue;
+    }
     if (event.event_type === 'action_dispatched' && event.action) {
       state = rootReducer(state, event.action);
       const nodeId = event.node_id ?? event.action.metadata.node_id;

@@ -32,6 +32,23 @@ const mockTools2: Record<string, { description: string; execute: (args: unknown)
   },
 };
 
+// Instrumented slow tool — tracks peak concurrent in-flight executions so a
+// per-server semaphore can be observed.
+let slowInFlight = 0;
+let slowPeak = 0;
+const slowTools: Record<string, { description: string; execute: (args: unknown) => Promise<unknown> }> = {
+  slow: {
+    description: 'A slow tool',
+    execute: async () => {
+      slowInFlight++;
+      slowPeak = Math.max(slowPeak, slowInFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      slowInFlight--;
+      return { ok: true };
+    },
+  },
+};
+
 function createMockClient(tools: Record<string, unknown>) {
   return {
     tools: vi.fn().mockResolvedValue({ ...tools }),
@@ -46,7 +63,7 @@ vi.mock('@ai-sdk/mcp', () => ({
   createMCPClient: vi.fn(async (config: { name?: string }) => {
     // Determine which mock tools to use based on the client name
     const name = config.name ?? '';
-    const tools = name.includes('server2') ? mockTools2 : mockTools;
+    const tools = name.includes('slow') ? slowTools : name.includes('server2') ? mockTools2 : mockTools;
     const client = createMockClient(tools);
     createdClients.push({ serverId: name.replace('mcai-', ''), client });
     return client;
@@ -86,6 +103,14 @@ const sseServer: MCPServerEntry = {
   timeout_ms: 30_000,
 };
 
+// `slow` in the id routes the mock to the instrumented slowTools.
+const slowServer: MCPServerEntry = {
+  id: 'slowserver',
+  name: 'Slow Server',
+  transport: { type: 'http', url: 'https://slow.example.com/api' },
+  timeout_ms: 30_000,
+};
+
 // ─── Tests ──────────────────────────────────────────────────────────
 
 describe('MCPConnectionManager', () => {
@@ -96,7 +121,41 @@ describe('MCPConnectionManager', () => {
     registry = new InMemoryMCPServerRegistry();
     manager = new MCPConnectionManager(registry);
     createdClients = [];
+    slowInFlight = 0;
+    slowPeak = 0;
     vi.clearAllMocks();
+  });
+
+  // ── Per-server concurrency semaphore ──
+
+  describe('per-server concurrency limit', () => {
+    it('serializes tool calls to a server with max_concurrent_calls: 1', async () => {
+      await registry.saveServer({ ...slowServer, max_concurrent_calls: 1 });
+      const tools = await manager.resolveTools([{ type: 'mcp', server_id: 'slowserver' }]);
+      const slow = tools.slow as { execute: (a: unknown) => Promise<unknown> };
+
+      await Promise.all([0, 1, 2, 3].map(() => slow.execute({})));
+      expect(slowPeak).toBe(1);
+    });
+
+    it('allows parallel calls when no limit is configured', async () => {
+      await registry.saveServer(slowServer);
+      const tools = await manager.resolveTools([{ type: 'mcp', server_id: 'slowserver' }]);
+      const slow = tools.slow as { execute: (a: unknown) => Promise<unknown> };
+
+      await Promise.all([0, 1, 2, 3].map(() => slow.execute({})));
+      expect(slowPeak).toBeGreaterThan(1);
+    });
+
+    it('honors a manager-level default_max_concurrent_calls', async () => {
+      const limited = new MCPConnectionManager(registry, { default_max_concurrent_calls: 2 });
+      await registry.saveServer(slowServer);
+      const tools = await limited.resolveTools([{ type: 'mcp', server_id: 'slowserver' }]);
+      const slow = tools.slow as { execute: (a: unknown) => Promise<unknown> };
+
+      await Promise.all([0, 1, 2, 3, 4, 5].map(() => slow.execute({})));
+      expect(slowPeak).toBe(2);
+    });
   });
 
   // ── Built-in Tools ──

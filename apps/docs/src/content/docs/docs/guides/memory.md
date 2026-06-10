@@ -102,6 +102,10 @@ const memoryRetriever = async (query, options) => {
 const runner = new GraphRunner(graph, state, { memoryRetriever });
 ```
 
+:::tip[Tag-filtered retrieval is index-backed]
+Passing `tags` pushes the filter into the store rather than scanning facts client-side — this is the reflection loop's hot path. The Postgres store (`@cycgraph/orchestrator-postgres`) resolves it via a GIN index on `memory_facts.tags` (migration `0015`) and returns results in a deterministic `valid_from DESC, id` order for stable pagination. Run the migration before relying on tag retrieval at scale.
+:::
+
 :::caution[memoryRetriever is opt-in per node]
 The runner only calls `memoryRetriever` when an agent or supervisor node declares a `memory_query` directive. Without that, the retriever sits dormant and the option is silently a no-op. Add `memory_query` to every node that should receive retrieved memory:
 
@@ -137,7 +141,18 @@ To **persist** facts across runs, wire a `memoryWriter` and add a `reflection` n
 import { GraphRunner } from '@cycgraph/orchestrator';
 import type { MemoryWriter } from '@cycgraph/orchestrator';
 
-const memoryWriter: MemoryWriter = async (facts) => {
+// The runner passes options.idempotency_key (`run_id:node_id:iteration`)
+// so writers can dedupe repeated writes for the same node execution —
+// node retries and crash recovery re-invoke the writer, and ignoring the
+// key duplicates facts in long-term memory.
+const writtenScopes = new Map<string, string[]>();
+
+const memoryWriter: MemoryWriter = async (facts, options) => {
+  const scope = options?.idempotency_key;
+  if (scope && writtenScopes.has(scope)) {
+    return { fact_ids: writtenScopes.get(scope)! };
+  }
+
   const ids: string[] = [];
   for (const fact of facts) {
     const stored = {
@@ -157,6 +172,7 @@ const memoryWriter: MemoryWriter = async (facts) => {
     await store.putFact(stored);
     ids.push(stored.id);
   }
+  if (scope) writtenScopes.set(scope, ids);
   return { fact_ids: ids };
 };
 

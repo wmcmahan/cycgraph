@@ -281,6 +281,29 @@ describe('Evolution (DGM) Node', () => {
       expect((finalState.memory['evo-node_fitness_history'] as number[]).length).toBe(3);
     });
 
+    test('stops early when the node token budget is reached mid-evolution (bounds overspend)', async () => {
+      mockEvaluateQuality.mockResolvedValue({ score: 0.3, reasoning: 'meh', tokens_used: 20 });
+      setupDefaultAgentMock(); // resets candidateCallCount
+
+      // Each gen spends ~150 tokens (3 candidates × 30 + 3 evals × 20). The
+      // between-generation guard stops once accumulated spend crosses the cap.
+      // The runner's hard NodeBudgetExceededError still fires (the budget WAS
+      // exceeded), but the guard means we run ~2 generations, not all 10.
+      const graph = createEvolutionGraph({
+        max_generations: 10,
+        fitness_threshold: 0.99,
+        stagnation_generations: 10, // disable stagnation exit
+        population_size: 3,
+      });
+      graph.nodes[0].budget = { max_tokens: 200 };
+
+      await expect(new GraphRunner(graph, createState()).run()).rejects.toThrow(/max_tokens/);
+
+      // Without the guard the loop would run all 10 generations = 30 candidate
+      // calls. The guard stops it after ~2 generations.
+      expect(candidateCallCount).toBeLessThanOrEqual(6);
+    });
+
     test('should detect stagnation and exit early', async () => {
       // Evaluator returns same fitness every time → stagnation
       mockEvaluateQuality.mockResolvedValue({

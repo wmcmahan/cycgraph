@@ -51,15 +51,15 @@ A **Node** is a unit of work that is executed by the graph. It can be a single a
 
 ## State slicing
 
-Nodes declare which state keys they can read and write:
+Nodes declare which state keys they can read and write. Both **default to `[]` (least privilege)** — a node that omits `read_keys` sees only `goal` and `constraints`, and one that omits `write_keys` can write nothing. Opt into exactly what each node needs:
 
-`read_keys: ['goal', 'notes']` — the node sees only these keys from state
+`read_keys: ['goal', 'notes']` — the node sees only these keys from memory (plus `goal`/`constraints`, which are always available)
 <br>
 `write_keys: ['draft']` — the node can only write to these keys
 <br>
-`read_keys: ['*']` / `write_keys: ['*']` — Allow all state access (use sparingly)
+`read_keys: ['*']` / `write_keys: ['*']` — allow all memory access. `validateGraph` emits a warning for any node using `['*']` reads, since it defeats state slicing; reserve it for nodes that genuinely need every prior output (e.g. a final summarizer).
 
-This enforces the **principle of least privilege** — a writer agent can't read database credentials, and a researcher can't overwrite the final draft.
+This enforces the **principle of least privilege** — a writer agent can't read database credentials, and a researcher can't overwrite the final draft. Because the default is `[]`, a node that consumes an upstream node's output **must declare it**: a writer reading research notes needs `read_keys: ['notes']`, not the implicit full access of earlier versions.
 
 ## Compensation (Saga pattern)
 

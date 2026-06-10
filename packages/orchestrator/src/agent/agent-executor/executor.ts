@@ -24,6 +24,7 @@
  */
 
 import { streamText, tool, stepCountIs, jsonSchema } from 'ai';
+import { classifyRetryable } from './error-classification.js';
 import type { ToolSet } from 'ai';
 import { agentFactory } from '../agent-factory/index.js';
 import type { StateView, Action } from '../../types/state.js';
@@ -36,7 +37,7 @@ import { buildSystemPrompt, buildTaskPrompt } from './prompts.js';
 import { DEFAULT_AGENT_TIMEOUT_MS } from '../constants.js';
 import { extractMemoryUpdates } from './memory.js';
 import { validateMemoryUpdatePermissions } from './validation.js';
-import { AgentTimeoutError, AgentExecutionError } from './errors.js';
+import { AgentTimeoutError, AgentExecutionError, type PartialUsage } from './errors.js';
 
 const logger = createLogger('agent.executor');
 const tracer = getTracer('orchestrator.agent');
@@ -104,7 +105,7 @@ export async function executeAgent(
     onToken?: (token: string) => void;
     onToolCall?: (event: { toolName: string; toolCallId: string; args: unknown }) => void;
     onToolCallComplete?: (event: { toolName: string; toolCallId: string; durationMs: number; success: boolean; error?: string }) => void;
-    drainTaintEntries?: () => Map<string, TaintMetadata>;
+    drainTaintEntries?: (tools?: Record<string, unknown>) => Map<string, TaintMetadata>;
     /** Override the model from agent config (used by budget-aware model resolution). */
     model_override?: string;
     /** Context compressor for memory serialization in prompts. */
@@ -206,12 +207,17 @@ export async function executeAgent(
     let text: string;
     let usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined;
     let steps: AgentStep[];
+    // Hoisted so the catch can best-effort read partial usage on failure —
+    // a failed/timed-out attempt may still have spent tokens, which must be
+    // accounted for (a max_retries:3 node can otherwise spend ~4× its visible
+    // budget uncounted).
+    let result: Awaited<ReturnType<typeof streamText>> | undefined;
 
     try {
       // Execute agent with streaming
       // stopWhen enables multi-step tool use: LLM generates text, calls tools,
       // sees results, and can call more tools — critical for save_to_memory
-      const result = await streamText({
+      result = await streamText({
         model,
         system: systemPrompt,
         prompt: taskPrompt,
@@ -266,6 +272,12 @@ export async function executeAgent(
       // Extract tool calls and results from ALL steps.
       steps = ((await result.steps) ?? []) as AgentStep[];
     } catch (error) {
+      // Best-effort: a failed/aborted attempt may still have spent tokens.
+      // Read them so the runner can account for failed-attempt spend instead
+      // of discarding it. Bounded so a never-settling promise can't hang the
+      // error path; any rejection is swallowed (usage simply stays absent).
+      const partialUsage = await capturePartialUsage(result, config.model);
+
       if (error instanceof Error && error.name === 'AbortError') {
         const duration = Date.now() - startTime;
         logger.error('agent_timeout', error, {
@@ -274,7 +286,7 @@ export async function executeAgent(
           duration_ms: duration,
         });
         span.setAttribute('agent.error', 'timeout');
-        throw new AgentTimeoutError(agent_id, timeoutMs);
+        throw new AgentTimeoutError(agent_id, timeoutMs, partialUsage);
       }
 
       // Structured error handling — log and re-wrap
@@ -286,7 +298,7 @@ export async function executeAgent(
         duration_ms: duration,
       });
       span.setAttribute('agent.error', error instanceof Error ? error.message : String(error));
-      throw new AgentExecutionError(agent_id, error);
+      throw new AgentExecutionError(agent_id, error, partialUsage, classifyRetryable(error));
     } finally {
       clearTimeout(timeoutId);
     }
@@ -333,7 +345,9 @@ export async function executeAgent(
     // Apply MCP taint: if any MCP tools were called during this execution,
     // mark all output memory keys as tainted by MCP tool origin.
     const mcpToolCalls = toolCalls.filter((c) => c.toolName !== 'save_to_memory');
-    const mcpTaintEntries = options?.drainTaintEntries?.();
+    // Pass the toolset so taint is drained from THIS execution's collector —
+    // race-free when sibling executions (voting/evolution/map) run concurrently.
+    const mcpTaintEntries = options?.drainTaintEntries?.(rawTools);
 
     // Propagate taint: if any input memory keys were tainted, mark outputs as derived-tainted
     const outputKeys = Object.keys(memoryUpdates);
@@ -490,6 +504,37 @@ function createAbortControllerWithTimeout(timeoutMs: number) {
     timeoutId: setTimeout(() => controller.abort(), timeoutMs),
     controller,
   };
+}
+
+/**
+ * Best-effort read of token usage from a streamText result after the call
+ * failed or was aborted. Bounded by a short timeout so a never-settling
+ * `totalUsage` promise can't hang the error path; any rejection or absence
+ * yields `undefined` (no usage attributed — same as before this change, no
+ * regression).
+ */
+async function capturePartialUsage(
+  result: Awaited<ReturnType<typeof streamText>> | undefined,
+  model: string,
+): Promise<PartialUsage | undefined> {
+  if (!result) return undefined;
+  try {
+    const usage = await Promise.race([
+      result.totalUsage,
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 200)),
+    ]);
+    if (!usage) return undefined;
+    const total = usage.totalTokens ?? ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
+    if (!total) return undefined;
+    return {
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
+      totalTokens: total,
+      model,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /**

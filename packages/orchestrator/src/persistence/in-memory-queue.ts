@@ -27,6 +27,8 @@ import type {
  */
 export class InMemoryWorkflowQueue implements WorkflowQueue {
   private readonly jobs = new Map<string, WorkflowJob>();
+  /** Per-run fencing epochs, bumped on every claim (parity with DrizzleWorkflowQueue). */
+  private readonly runEpochs = new Map<string, number>();
 
   async enqueue(input: EnqueueJobInput): Promise<string> {
     const job = WorkflowJobSchema.parse({
@@ -49,6 +51,12 @@ export class InMemoryWorkflowQueue implements WorkflowQueue {
     if (!job) return null;
 
     const now = new Date();
+    // Fencing token: every claim of a run bumps its epoch, matching the
+    // DrizzleWorkflowQueue contract so fenced writers behave identically
+    // against both implementations.
+    const epoch = (this.runEpochs.get(job.run_id) ?? 0) + 1;
+    this.runEpochs.set(job.run_id, epoch);
+
     const updated: WorkflowJob = {
       ...job,
       status: 'active',
@@ -56,6 +64,7 @@ export class InMemoryWorkflowQueue implements WorkflowQueue {
       attempt: job.attempt + 1,
       visible_at: new Date(now.getTime() + job.visibility_timeout_ms),
       last_heartbeat_at: now,
+      claim_epoch: epoch,
     };
     this.jobs.set(job.id, updated);
     return updated;

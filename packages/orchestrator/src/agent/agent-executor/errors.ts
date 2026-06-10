@@ -38,10 +38,21 @@ export class PermissionDeniedError extends Error {
  * // → "Agent agent-123 timed out after 120000ms"
  * ```
  */
+/** Token usage observed before an agent call failed (best-effort, may be partial). */
+export interface PartialUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  model?: string;
+}
+
 export class AgentTimeoutError extends Error {
-  constructor(agent_id: string, timeout_ms: number) {
+  /** Tokens spent before the timeout, if the provider surfaced them. */
+  readonly partialUsage?: PartialUsage;
+  constructor(agent_id: string, timeout_ms: number, partialUsage?: PartialUsage) {
     super(`Agent ${agent_id} timed out after ${timeout_ms}ms`);
     this.name = 'AgentTimeoutError';
+    this.partialUsage = partialUsage;
   }
 }
 
@@ -59,9 +70,21 @@ export class AgentTimeoutError extends Error {
  * ```
  */
 export class AgentExecutionError extends Error {
-  constructor(agent_id: string, cause: unknown) {
+  /** Tokens spent before the failure, if the provider surfaced them. */
+  readonly partialUsage?: PartialUsage;
+  /**
+   * Whether retrying could plausibly succeed. `false` for deterministic
+   * failures (400 invalid-request, context-length-exceeded, 401/403/404) so
+   * the runner doesn't waste `max_retries` full LLM calls re-issuing a
+   * request that will fail identically. `true`/`undefined` for transient
+   * failures (429 rate-limit, 5xx, 529 overloaded, network).
+   */
+  readonly retryable?: boolean;
+  constructor(agent_id: string, cause: unknown, partialUsage?: PartialUsage, retryable?: boolean) {
     const message = cause instanceof Error ? cause.message : String(cause);
     super(`Agent ${agent_id} execution failed: ${message}`, { cause });
     this.name = 'AgentExecutionError';
+    this.partialUsage = partialUsage;
+    this.retryable = retryable;
   }
 }

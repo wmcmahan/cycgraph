@@ -218,6 +218,23 @@ describe('InMemoryMemoryStore', () => {
       expect(filtered).toHaveLength(1);
     });
 
+    it('findFacts filters by tags (OR semantics)', async () => {
+      await store.putFact(makeFact({ content: 'lesson', tags: ['lesson', 'graph:x'] }));
+      await store.putFact(makeFact({ content: 'other', tags: ['graph:x'] }));
+      await store.putFact(makeFact({ content: 'untagged', tags: [] }));
+
+      const byLesson = await store.findFacts({ tags: ['lesson'] });
+      expect(byLesson).toHaveLength(1);
+      expect(byLesson[0].content).toBe('lesson');
+
+      const byGraph = await store.findFacts({ tags: ['graph:x'] });
+      expect(byGraph.map((f) => f.content).sort()).toEqual(['lesson', 'other']);
+
+      // Empty/omitted tags is a no-op (returns all).
+      expect(await store.findFacts({ tags: [] })).toHaveLength(3);
+      expect(await store.findFacts({})).toHaveLength(3);
+    });
+
     it('findFacts filters by entity_id', async () => {
       const entityId = crypto.randomUUID();
       await store.putFact(makeFact({ entity_ids: [entityId] }));

@@ -6,9 +6,9 @@
  */
 
 import { describe, test, expect } from 'vitest';
-import { setupDatabaseTests, isDatabaseAvailable } from './setup.js';
+import { setupDatabaseTests, isDatabaseAvailable, seedRun } from './setup.js';
 import { DrizzleEventLogWriter } from '../src/drizzle-event-log.js';
-import { createWorkflowState } from '@cycgraph/orchestrator';
+import { createWorkflowState, EventSequenceConflictError } from '@cycgraph/orchestrator';
 import type { WorkflowState } from '@cycgraph/orchestrator';
 
 describe.skipIf(!isDatabaseAvailable())('DrizzleEventLogWriter', () => {
@@ -26,6 +26,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleEventLogWriter', () => {
 
   describe('append / loadEvents', () => {
     test('should append and load events in order', async () => {
+      await seedRun(runId);
       await writer.append({
         run_id: runId,
         sequence_id: 0,
@@ -49,7 +50,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleEventLogWriter', () => {
 
   describe('loadEventsAfter', () => {
     test('should load only events after the given sequence ID', async () => {
-      const rid = crypto.randomUUID();
+      const rid = await seedRun(crypto.randomUUID());
       for (let i = 0; i < 5; i++) {
         await writer.append({
           run_id: rid,
@@ -72,7 +73,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleEventLogWriter', () => {
     });
 
     test('should return highest sequence ID', async () => {
-      const rid = crypto.randomUUID();
+      const rid = await seedRun(crypto.randomUUID());
       await writer.append({ run_id: rid, sequence_id: 0, event_type: 'workflow_started' });
       await writer.append({ run_id: rid, sequence_id: 1, event_type: 'node_started' });
 
@@ -83,7 +84,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleEventLogWriter', () => {
 
   describe('checkpoint / loadCheckpoint', () => {
     test('should save and load checkpoint', async () => {
-      const rid = crypto.randomUUID();
+      const rid = await seedRun(crypto.randomUUID());
       const state = makeState();
 
       await writer.checkpoint(rid, 5, state);
@@ -100,7 +101,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleEventLogWriter', () => {
     });
 
     test('should return latest checkpoint when multiple exist', async () => {
-      const rid = crypto.randomUUID();
+      const rid = await seedRun(crypto.randomUUID());
       const state = makeState();
 
       await writer.checkpoint(rid, 3, state);
@@ -113,7 +114,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleEventLogWriter', () => {
 
   describe('compact', () => {
     test('should delete events before the given sequence ID', async () => {
-      const rid = crypto.randomUUID();
+      const rid = await seedRun(crypto.randomUUID());
       for (let i = 0; i < 5; i++) {
         await writer.append({
           run_id: rid,
@@ -131,20 +132,22 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleEventLogWriter', () => {
   });
 
   /**
-   * Validates fix 1.3: ON CONFLICT DO NOTHING makes append idempotent.
-   * Retry after network timeout no longer throws on duplicate events.
+   * A duplicate (run_id, sequence_id) means two writers are appending to the
+   * same run — split-brain. The append surfaces it as `EventSequenceConflictError`
+   * rather than silently dropping the event (the old `onConflictDoNothing`
+   * behavior masked split-brain). Mirrors the in-memory writer's contract
+   * (orchestrator/test/durable-replay.test.ts).
    */
-  describe('idempotent append (fix 1.3)', () => {
-    test('should silently ignore duplicate sequence_id (idempotent append)', async () => {
-      const rid = crypto.randomUUID();
+  describe('duplicate-sequence conflict detection', () => {
+    test('rejects a duplicate (run_id, sequence_id) with EventSequenceConflictError', async () => {
+      const rid = await seedRun(crypto.randomUUID());
       await writer.append({ run_id: rid, sequence_id: 0, event_type: 'workflow_started' });
 
-      // Duplicate sequence_id should be silently ignored (idempotent)
       await expect(
         writer.append({ run_id: rid, sequence_id: 0, event_type: 'workflow_started' }),
-      ).resolves.not.toThrow();
+      ).rejects.toBeInstanceOf(EventSequenceConflictError);
 
-      // Should still have only one event
+      // The original event is still the only one — the conflicting write was rejected.
       const events = await writer.loadEvents(rid);
       expect(events).toHaveLength(1);
     });

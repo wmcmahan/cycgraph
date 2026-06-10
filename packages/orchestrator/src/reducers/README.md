@@ -99,7 +99,7 @@ Keys prefixed with `_` (e.g. `_taint_registry`) are **excluded from validation**
 ## Design Principles
 
 - **Immutability**: Every reducer returns a new state object via spread (`{ ...state }`). Never mutates the input.
-- **Determinism**: Reducers are pure functions with no side effects. Given the same state and action, they always produce the same result.
+- **Determinism**: Reducers are pure functions with no side effects. Given the same state and action, they always produce the same result — including timestamps. Reducers derive all time fields (`started_at`, `updated_at`, `waiting_timeout_at`, history entry timestamps) from `action.metadata.timestamp` via the internal `timeOf(action)` helper, **never** from `new Date()`. This is what makes event-log replay reconstruct byte-identical state regardless of when replay runs; the `REPLAY_VERSION` constant is bumped whenever a reducer's observable transitions change.
 - **Single Responsibility**: Each sub-reducer handles exactly one action type.
 - **Safe Composition**: Unknown action types pass through unchanged. The pipeline is additive — adding a new reducer cannot break existing ones.
 

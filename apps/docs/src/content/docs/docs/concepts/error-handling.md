@@ -15,10 +15,11 @@ The orchestrator has a structured error hierarchy so that every failure mode has
 | `CircuitBreakerOpenError` | `runner/errors` | `nodeId` | Node circuit breaker is open |
 | `EventLogCorruptionError` | `runner/errors` | `runId` | Missing/corrupt events during recovery |
 | `UnsupportedNodeTypeError` | `runner/errors` | `nodeType` | Unknown node type encountered |
+| `NoMatchingEdgeError` | `runner/errors` | `nodeId` | A non-end node has no matching outgoing edge — a routing dead-end |
 | `PermissionDeniedError` | `agent-executor/errors` | — | Agent writes to unauthorized keys |
-| `AgentTimeoutError` | `agent-executor/errors` | — | Agent LLM call exceeds timeout |
-| `AgentExecutionError` | `agent-executor/errors` | `cause` | Agent LLM call fails (non-timeout) |
-| `AgentNotFoundError` | `agent-factory/errors` | — | Agent ID not in registry |
+| `AgentTimeoutError` | `agent-executor/errors` | `partialUsage` | Agent LLM call exceeds timeout |
+| `AgentExecutionError` | `agent-executor/errors` | `cause`, `retryable`, `partialUsage` | Agent LLM call fails (non-timeout) |
+| `AgentNotFoundError` | `agent-factory/errors` | — | Agent ID not found in a configured registry (fail closed) |
 | `AgentLoadError` | `agent-factory/errors` | `cause` | Registry lookup fails (transient) |
 | `SupervisorConfigError` | `supervisor-executor/errors` | `supervisorId` | Supervisor missing config |
 | `SupervisorRoutingError` | `supervisor-executor/errors` | `chosenNode`, `allowedNodes` | Supervisor routes to invalid node |
@@ -26,16 +27,27 @@ The orchestrator has a structured error hierarchy so that every failure mode has
 | `MCPServerNotFoundError` | `mcp/errors` | `serverId` | MCP server registry has no entry for the requested ID |
 | `MCPAccessDeniedError` | `mcp/errors` | `serverId`, `agentId` | Agent does not have permission to access the MCP server |
 | `PersistenceUnavailableError` | `db/persistence-health` | — | Consecutive persistence failures exceed threshold |
+| `EventSequenceConflictError` | `db/event-log` | `runId`, `sequenceId` | An event append collided with an existing `(run_id, sequence_id)` — two writers on one run |
+| `StaleClaimError` | `persistence/errors` | `runId`, `staleEpoch`, `currentEpoch` | A fenced write carried an outdated claim epoch — another worker owns the run |
 
 All errors extend `Error` and set `this.name` to their class name, enabling reliable `switch(error.name)` handling across module boundaries.
 
 ## Categories
 
-### Config errors — fix graph definition
+### Config / wiring errors — fix graph definition or runner options
+
+These fail **before any node runs** (a pre-flight check at the start of `run()`), so a misconfiguration surfaces immediately instead of mid-run after upstream nodes already spent tokens:
 
 - `NodeConfigError` — A node is missing required configuration (e.g. `agent_id`, `tool_id`, `approval_config`).
 - `SupervisorConfigError` — Supervisor node is missing its `supervisor_config`.
 - `UnsupportedNodeTypeError` — The graph references a node type the runner doesn't support.
+- **Missing `memoryWriter`** — the graph has a `reflection` node but no `memoryWriter` was injected. (A node with `memory_query` but no `memoryRetriever` is a warning, not a failure.)
+- **Missing `toolResolver`** — a node declares MCP tool sources but no `toolResolver` was injected (otherwise it would silently run tool-less and "succeed").
+- `AgentNotFoundError` — A node references an `agent_id` not found in the configured registry. **Fails closed** by default — a typo'd or deleted agent surfaces here rather than silently running a generic deny-all assistant. Opt into the legacy fallback with `configureAgentFactory(registry, { allowDefaultFallback: true })` for tests/dev.
+
+### Routing errors — dead-end detection
+
+- `NoMatchingEdgeError` — Execution reached a node that is **not** a declared end node, yet no outgoing edge's condition matched (e.g. a typo'd filtrex condition that evaluates to `false`). Previously this silently completed the workflow having executed only part of the graph; it now fails loud. Set `allow_implicit_completion: true` on `GraphRunnerOptions` for the legacy silent-completion behavior.
 
 ### Runtime errors — retry or degrade
 
@@ -43,14 +55,21 @@ All errors extend `Error` and set `this.name` to their class name, enabling reli
 - `WorkflowTimeoutError` — Execution exceeded wall-clock limit.
 - `CircuitBreakerOpenError` — Node failures tripped the breaker. Automatically retries after timeout.
 - `AgentTimeoutError` — Individual LLM call timed out. Retryable per `failure_policy`.
-- `AgentExecutionError` — LLM call failed (API error, rate limit). Retryable per `failure_policy`.
+- `AgentExecutionError` — LLM call failed. Carries a `retryable` flag derived from the provider's `APICallError.isRetryable`: transient failures (429 rate-limit, 5xx, 529 overloaded) retry per `failure_policy`, while **definitively non-retryable** failures (400 invalid-request, context-length-exceeded, 401/403/404) short-circuit the retry loop instead of re-issuing an identical request `max_retries` times. Both `AgentExecutionError` and `AgentTimeoutError` also carry best-effort `partialUsage` so a failed attempt's tokens are still counted toward budgets.
 - `MCPServerNotFoundError` — Registry has no entry for the requested MCP server ID. Non-retryable; fix the agent's tool sources or register the server.
 - `MCPAccessDeniedError` — Agent does not have permission to access the MCP server (RBAC denial). Non-retryable; adjust the server's `allowed_agents` or the agent permissions.
 
 ### Data integrity errors — halt execution
 
-- `EventLogCorruptionError` — Event log is missing or corrupt. Cannot safely recover.
-- `PersistenceUnavailableError` — Database unreachable after consecutive failures. Halts to prevent data loss.
+- `EventLogCorruptionError` — Event log is missing, corrupt, or has a sequence gap (a lost append). Replay refuses rather than silently dropping a state transition; the worker falls back to the latest snapshot when it reflects more progress.
+- `PersistenceUnavailableError` — Database unreachable after consecutive failures (3-strike rule, applied to both state snapshots and event-log flushes). Halts to prevent data loss.
+
+### Split-brain errors — abort the local runner immediately
+
+Both mean another worker is executing the same run. They bypass retries and the 3-strike budget — continuing only burns tokens on writes that will never land:
+
+- `EventSequenceConflictError` — An append hit an existing `(run_id, sequence_id)`. The event-log `append()` contract rejects duplicates instead of silently dropping them.
+- `StaleClaimError` — A fenced write (see [Run fencing](/docs/concepts/distributed-execution/#run-fencing)) carried a claim epoch older than the run's current one. The worker emits `job:claim_lost` and leaves the job's queue state untouched — it no longer owns it.
 
 ### Agent permission errors — security boundary
 
@@ -177,15 +196,15 @@ This is useful for deployments, scaling down, or pausing long-running workflows 
 
 ### Event log recovery
 
-`GraphRunner.recoverFromEventLog()` replays events:
-1. Check for checkpoint (fast path)
-2. If no checkpoint: load all events
-3. If no events: throw `EventLogCorruptionError`
-4. If no `_init` event: throw `EventLogCorruptionError`
-5. Verify monotonically increasing sequence IDs across all events
-6. Verify the first event is `workflow_started`
-7. If any integrity check fails: throw `EventLogCorruptionError`
-8. Replay events through reducers to reconstruct state
+`GraphRunner.recover(graph, runId, eventLog, options?)` rebuilds a ready-to-continue runner:
+1. Load the latest checkpoint (fast path); replay only events after it. Otherwise load all events.
+2. If no events and no checkpoint: throw `EventLogCorruptionError`
+3. Without a checkpoint, require an `_init` event in the log (else `EventLogCorruptionError`)
+4. Verify the events are **gap-free** — contiguous `sequence_id`s from the checkpoint anchor; any gap (a lost append) throws `EventLogCorruptionError`
+5. Check the `workflow_started` event's `REPLAY_VERSION` and warn on a mismatch (reducer-semantics drift)
+6. Replay events through the same pure reducers to reconstruct state — deterministically, since reducers take time from each action's metadata
+
+At the worker level, recovery also reconciles this replayed state against the latest snapshot and resumes from whichever reflects more progress (see [Distributed Execution → Crash recovery](/docs/concepts/distributed-execution/#crash-recovery)).
 
 ## Error propagation flow
 

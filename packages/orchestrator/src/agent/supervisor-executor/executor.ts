@@ -26,6 +26,8 @@ import { getTracer, withSpan } from '../../utils/tracing.js';
 import { v4 as uuidv4 } from 'uuid';
 import { SUPERVISOR_DONE } from './constants.js';
 import { buildSupervisorSystemPrompt } from './prompt.js';
+import { AgentExecutionError } from '../agent-executor/errors.js';
+import { classifyRetryable } from '../agent-executor/error-classification.js';
 import { SupervisorConfigError, SupervisorRoutingError } from './errors.js';
 
 const logger = createLogger('agent.supervisor');
@@ -154,14 +156,26 @@ export async function executeSupervisor(
       iteration: supervisorIterations + 1,
     });
 
-    const { output: decision, usage } = await generateText({
-      model,
-      output: Output.object({ schema: SupervisorDecisionSchema }),
-      system: systemPrompt,
-      prompt: `Based on the current workflow state, decide which node should execute next. Choose from the available nodes or select '${SUPERVISOR_DONE}' if the goal is fully achieved.`,
-      ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
-      ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
-    });
+    let decision: SupervisorDecision;
+    let usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined;
+    try {
+      const result = await generateText({
+        model,
+        output: Output.object({ schema: SupervisorDecisionSchema }),
+        system: systemPrompt,
+        prompt: `Based on the current workflow state, decide which node should execute next. Choose from the available nodes or select '${SUPERVISOR_DONE}' if the goal is fully achieved.`,
+        ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
+        ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
+      });
+      decision = result.output;
+      usage = result.usage;
+    } catch (error) {
+      // Wrap the raw provider error in the typed taxonomy with retriable
+      // classification — same path as agent nodes, so the runner's retry
+      // loop short-circuits a non-retryable 400 instead of retrying it.
+      span.setAttribute('supervisor.error', error instanceof Error ? error.message : String(error));
+      throw new AgentExecutionError(supervisorAgentId, error, undefined, classifyRetryable(error));
+    }
 
     const duration = Date.now() - startTime;
 
@@ -174,9 +188,19 @@ export async function executeSupervisor(
       output_tokens: usage?.outputTokens ?? 0,
     });
 
+    // Token usage from the routing call. MUST be attached to the returned
+    // action — the runner reads action.metadata.token_usage to drive token
+    // budgets, cost budgets, per-node budgets, and usage_records. Without it
+    // every supervisor iteration's spend is invisible to all budget guards.
+    const tokenUsage = {
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
+      totalTokens: usage?.totalTokens ?? ((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)),
+    };
+
     // Handle completion
     if (decision.next_node === SUPERVISOR_DONE) {
-      return createCompletionAction(node.id, attempt, duration, decision.reasoning, supervisorIterations);
+      return createCompletionAction(node.id, attempt, duration, decision.reasoning, supervisorIterations, tokenUsage, effectiveConfig.model);
     }
 
     // Validate routing against managed_nodes allowlist
@@ -194,8 +218,15 @@ export async function executeSupervisor(
     span.setAttribute('supervisor.input_tokens', usage?.inputTokens ?? 0);
     span.setAttribute('supervisor.output_tokens', usage?.outputTokens ?? 0);
 
-    return createHandoffAction(node, supervisorAgentId, attempt, duration, decision, supervisorIterations);
+    return createHandoffAction(node, supervisorAgentId, attempt, duration, decision, supervisorIterations, tokenUsage, effectiveConfig.model);
   });
+}
+
+/** Token usage breakdown attached to supervisor actions for budget accounting. */
+interface SupervisorTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
 }
 
 /**
@@ -215,6 +246,8 @@ function createHandoffAction(
   duration: number,
   decision: SupervisorDecision,
   iteration: number,
+  tokenUsage?: SupervisorTokenUsage,
+  model?: string,
 ): Action {
   return {
     id: uuidv4(),
@@ -231,6 +264,8 @@ function createHandoffAction(
       timestamp: new Date(),
       attempt,
       duration_ms: duration,
+      ...(model ? { model } : {}),
+      ...(tokenUsage ? { token_usage: tokenUsage } : {}),
     },
   };
 }
@@ -251,6 +286,8 @@ function createCompletionAction(
   duration: number,
   reasoning: string,
   iteration: number,
+  tokenUsage?: SupervisorTokenUsage,
+  model?: string,
 ): Action {
   return {
     id: uuidv4(),
@@ -265,6 +302,8 @@ function createCompletionAction(
       timestamp: new Date(),
       attempt,
       duration_ms: duration,
+      ...(model ? { model } : {}),
+      ...(tokenUsage ? { token_usage: tokenUsage } : {}),
     },
   };
 }

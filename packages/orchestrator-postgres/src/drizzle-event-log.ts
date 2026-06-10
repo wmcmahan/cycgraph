@@ -6,11 +6,12 @@
  */
 
 import { db } from './connection.js';
-import { workflow_events, workflow_checkpoints } from './schema.js';
+import { workflow_events, workflow_checkpoints, workflow_runs } from './schema.js';
 import type { WorkflowStateJson } from './schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import type { EventLogWriter } from '@cycgraph/orchestrator';
 import type { NewWorkflowEvent, WorkflowEvent, Action, WorkflowState } from '@cycgraph/orchestrator';
+import { hydrateWorkflowState, EventSequenceConflictError, StaleClaimError } from '@cycgraph/orchestrator';
 
 /** Tuning knobs for the event log writer. */
 export interface DrizzleEventLogWriterOptions {
@@ -23,6 +24,14 @@ export interface DrizzleEventLogWriterOptions {
    * @default 3
    */
   retain_checkpoints?: number;
+  /**
+   * Run fencing claim. When set, every append for `fencing.run_id` verifies
+   * (inside the append transaction, under `FOR SHARE`) that the run's
+   * `claim_epoch` still equals `fencing.epoch` and throws
+   * {@link StaleClaimError} otherwise — a reclaimed worker cannot keep
+   * appending to a run another worker now owns.
+   */
+  fencing?: { run_id: string; epoch: number };
 }
 
 const DEFAULT_RETAIN_CHECKPOINTS = 3;
@@ -32,6 +41,7 @@ const DEFAULT_RETAIN_CHECKPOINTS = 3;
  */
 export class DrizzleEventLogWriter implements EventLogWriter {
   private readonly retainCheckpoints: number;
+  private readonly fencing?: { run_id: string; epoch: number };
 
   constructor(options?: DrizzleEventLogWriterOptions) {
     const retain = options?.retain_checkpoints ?? DEFAULT_RETAIN_CHECKPOINTS;
@@ -42,9 +52,11 @@ export class DrizzleEventLogWriter implements EventLogWriter {
       );
     }
     this.retainCheckpoints = retain;
+    this.fencing = options?.fencing;
   }
+
   async append(event: NewWorkflowEvent): Promise<void> {
-    await db.insert(workflow_events).values({
+    const values = {
       run_id: event.run_id,
       sequence_id: event.sequence_id,
       event_type: event.event_type as 'workflow_started' | 'node_started' | 'action_dispatched' | 'internal_dispatched' | 'state_persisted',
@@ -53,7 +65,38 @@ export class DrizzleEventLogWriter implements EventLogWriter {
       internal_type: event.internal_type ?? null,
       internal_payload: event.internal_payload ?? null,
       created_at: new Date(),
-    }).onConflictDoNothing();
+    };
+    try {
+      if (this.fencing && this.fencing.run_id === event.run_id) {
+        const fencing = this.fencing;
+        // FOR SHARE allows concurrent appends from the legitimate claimant
+        // while conflicting with the FOR UPDATE epoch bump in dequeue — the
+        // epoch check and the insert are atomic.
+        await db.transaction(async (tx) => {
+          const rows = await tx
+            .select({ claim_epoch: workflow_runs.claim_epoch })
+            .from(workflow_runs)
+            .where(eq(workflow_runs.id, event.run_id))
+            .for('share');
+          const current = rows[0]?.claim_epoch;
+          if (current !== undefined && current !== fencing.epoch) {
+            throw new StaleClaimError(event.run_id, fencing.epoch, current);
+          }
+          await tx.insert(workflow_events).values(values);
+        });
+      } else {
+        await db.insert(workflow_events).values(values);
+      }
+    } catch (error) {
+      // A (run_id, sequence_id) unique violation means another writer is
+      // appending to this run — surface it as a sequence conflict instead of
+      // silently dropping the event (the old onConflictDoNothing behavior
+      // masked split-brain executions).
+      if (isUniqueViolation(error)) {
+        throw new EventSequenceConflictError(event.run_id, event.sequence_id);
+      }
+      throw error;
+    }
   }
 
   async loadEvents(run_id: string): Promise<WorkflowEvent[]> {
@@ -140,7 +183,9 @@ export class DrizzleEventLogWriter implements EventLogWriter {
     if (!row) return null;
     return {
       sequence_id: row.sequence_id,
-      state: row.state as unknown as WorkflowState,
+      // jsonb loses Date types — hydrate (migrate + parse + coerce dates)
+      // instead of casting, so resumed runs get real Date fields back.
+      state: hydrateWorkflowState(row.state),
     };
   }
 
@@ -181,4 +226,12 @@ function fromRow(row: typeof workflow_events.$inferSelect): WorkflowEvent {
 
 function toSerializable(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
+}
+
+/** Postgres unique-constraint violation (SQLSTATE 23505), possibly wrapped. */
+function isUniqueViolation(error: unknown): boolean {
+  if (error === null || typeof error !== 'object') return false;
+  const err = error as { code?: string; cause?: unknown };
+  if (err.code === '23505') return true;
+  return isUniqueViolation(err.cause);
 }

@@ -19,6 +19,9 @@ import type { NodeExecutorContext } from './context.js';
 import { ensureSaveToMemory } from './agent.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { checkCompositeBudget, logCompositeBudgetStop } from './budget-guard.js';
+import { combineAbortSignals } from '../../utils/abort.js';
+import { mapWithConcurrency } from '../../utils/concurrency.js';
 
 const logger = createLogger('runner.node.evolution');
 
@@ -137,10 +140,28 @@ export async function executeEvolutionNode(
   let finalPopulation: ScoredCandidate[] = [];
   let generationsRun = 0;
 
+  let budgetStopped = false;
   for (let gen = 0; gen < config.max_generations; gen++) {
-    generationsRun = gen + 1;
-
     if (ctx.abortSignal?.aborted) break;
+
+    // Incremental budget guard: stop BEFORE issuing another generation's
+    // worth of LLM calls if accumulated spend has crossed a cap. Without
+    // this, the per-node/workflow budget is only checked after the whole
+    // population × generations spend has already happened.
+    if (gen > 0) {
+      const decision = checkCompositeBudget(
+        node,
+        { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens, model: observedModel },
+        ctx,
+      );
+      if (decision.stop) {
+        logCompositeBudgetStop(node.id, decision);
+        budgetStopped = true;
+        break;
+      }
+    }
+
+    generationsRun = gen + 1;
 
     // Linear temperature interpolation: initial → final
     const progress = config.max_generations > 1 ? gen / (config.max_generations - 1) : 1;
@@ -184,24 +205,29 @@ export async function executeEvolutionNode(
 
     const results = await executeParallel(
       tasks,
-      async (task) => {
+      async (task, taskSignal) => {
         const agentConfig = await ctx.deps.loadAgent(task.node.agent_id!);
         const { modelOverride } = resolveModelForAgent(agentConfig, task.node.agent_id!, task.node.id, ctx);
         const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), task.node.agent_id!);
         const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, task.node.id) : undefined;
+        // Combine the workflow-level signal with the per-task timeout signal
+        // so a task_timeout_ms actually aborts the underlying LLM call instead
+        // of leaving it running (and burning uncounted tokens) in the background.
+        const abortSignal = combineAbortSignals(ctx.abortSignal, taskSignal);
         return ctx.deps.executeAgent(
           task.node.agent_id!,
           task.stateView,
           tools,
           attempt,
-          { temperature_override: temperature, node_id: task.node.id, abortSignal: ctx.abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { model_override: modelOverride } : {}), ...(task.node.default_write_key ? { default_write_key: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) },
+          { temperature_override: temperature, node_id: task.node.id, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { model_override: modelOverride } : {}), ...(task.node.default_write_key ? { default_write_key: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) },
         );
       },
       { max_concurrency: config.max_concurrency, error_strategy: config.error_strategy, task_timeout_ms: config.task_timeout_ms },
     );
 
-    // Score each successful candidate
-    const candidates: ScoredCandidate[] = [];
+    // First pass (sequential, cheap): keep successful candidates and fold their
+    // generation-token accounting in deterministic order.
+    const produced: Array<{ index: number; output: unknown; tokens: number }> = [];
     for (const result of results) {
       if (!result.success || !result.action) continue;
 
@@ -216,44 +242,55 @@ export async function executeEvolutionNode(
       if (!observedModel && typeof result.action.metadata.model === 'string') {
         observedModel = result.action.metadata.model;
       }
+      produced.push({ index: result.task_index, output: candidateOutput, tokens: actionTokens });
+    }
 
-      // Score the candidate. Prefer the runner-injected deterministic
-      // `fitnessFunction` when present (free, exact, no judge variance).
-      // Fall back to the LLM-as-judge evaluator when `evaluator_agent_id`
-      // is configured. Throw if neither is available.
-      let score: number;
-      let reasoning: string;
+    // Fail fast on misconfiguration before issuing any evaluator calls. Prefer
+    // the runner-injected deterministic `fitnessFunction` (free, exact, no judge
+    // variance); fall back to the LLM-as-judge `evaluator_agent_id`.
+    if (produced.length > 0 && !ctx.fitnessFunction && !config.evaluator_agent_id) {
+      throw new NodeConfigError(
+        node.id,
+        'evolution',
+        'evaluator_agent_id or GraphRunnerOptions.fitnessFunction',
+      );
+    }
+
+    // Second pass (bounded-parallel): score candidates concurrently. The
+    // evaluator LLM call dominates wall-clock, so scoring N candidates one at a
+    // time made each generation take ~N× a single evaluation. Concurrency is
+    // capped by the same `max_concurrency` knob used for candidate generation.
+    const scored = await mapWithConcurrency(produced, config.max_concurrency, async (cand) => {
       if (ctx.fitnessFunction) {
-        const result = await ctx.fitnessFunction(candidateOutput, stateView.goal);
-        score = result.score;
-        reasoning = result.reasoning ?? '';
-      } else if (config.evaluator_agent_id) {
-        const evalResult = await ctx.deps.evaluateQualityExecutor(
-          config.evaluator_agent_id,
-          stateView.goal,
-          candidateOutput,
-          config.evaluation_criteria,
-        );
-        score = evalResult.score;
-        reasoning = evalResult.reasoning;
-        // Evaluator currently reports only totalTokens; attribute conservatively
-        // to output so the cost path still computes a non-zero figure.
-        totalTokens += evalResult.tokens_used;
-        totalOutputTokens += evalResult.tokens_used;
-      } else {
-        throw new NodeConfigError(
-          node.id,
-          'evolution',
-          'evaluator_agent_id or GraphRunnerOptions.fitnessFunction',
-        );
+        const r = await ctx.fitnessFunction(cand.output, stateView.goal);
+        return { ...cand, fitness: r.score, reasoning: r.reasoning ?? '', evalTokens: 0 };
       }
+      const evalResult = await ctx.deps.evaluateQualityExecutor(
+        config.evaluator_agent_id!,
+        stateView.goal,
+        cand.output,
+        config.evaluation_criteria,
+      );
+      return {
+        ...cand,
+        fitness: evalResult.score,
+        reasoning: evalResult.reasoning,
+        evalTokens: evalResult.tokens_used,
+      };
+    });
 
+    const candidates: ScoredCandidate[] = [];
+    for (const r of scored) {
+      // Evaluator currently reports only totalTokens; attribute conservatively
+      // to output so the cost path still computes a non-zero figure.
+      totalTokens += r.evalTokens;
+      totalOutputTokens += r.evalTokens;
       candidates.push({
-        index: result.task_index,
-        output: candidateOutput,
-        fitness: score,
-        reasoning,
-        tokens_used: actionTokens, // evaluator tokens already folded into totals above
+        index: r.index,
+        output: r.output,
+        fitness: r.fitness,
+        reasoning: r.reasoning,
+        tokens_used: r.tokens,
       });
     }
 
@@ -334,7 +371,17 @@ export async function executeEvolutionNode(
         [`${node.id}_winner_reasoning`]: bestCandidate?.reasoning ?? '',
         [`${node.id}_generation`]: generationsRun,
         [`${node.id}_fitness_history`]: fitnessHistory,
-        [`${node.id}_population`]: finalPopulation,
+        // Store per-candidate fitness *summaries*, not the full population. The
+        // winning candidate's full output already lives in `${node.id}_winner`;
+        // persisting every candidate's complete `output` for every generation
+        // bloated WorkflowState (and every checkpoint) without adding signal.
+        [`${node.id}_population`]: finalPopulation.map((c) => ({
+          index: c.index,
+          fitness: c.fitness,
+          reasoning: c.reasoning,
+          tokens_used: c.tokens_used,
+        })),
+        [`${node.id}_budget_stopped`]: budgetStopped,
       },
       total_tokens: totalTokens,
     },

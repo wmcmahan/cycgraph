@@ -113,6 +113,7 @@ function buildInitialState(evalCase: EvalCase): WorkflowState {
     : undefined;
 
   return {
+    state_schema_version: 1,
     workflow_id: evalCase.graph.id,
     run_id: uuidv4(),
     created_at: new Date(),

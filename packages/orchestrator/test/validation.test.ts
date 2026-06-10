@@ -59,6 +59,24 @@ describe('Graph Validation', () => {
     });
   });
 
+  describe('least-privilege read_keys warning', () => {
+    test('warns when a node uses wildcard read_keys', () => {
+      const graph = createValidGraph(); // start node uses read_keys: ['*']
+      const result = validateGraph(graph);
+
+      expect(result.valid).toBe(true); // wildcard is allowed, just discouraged
+      expect(result.warnings.some(w => w.includes("'start'") && w.includes("read_keys includes '*'"))).toBe(true);
+    });
+
+    test('no warning when all nodes use explicit read_keys', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['goal'];
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w => w.includes("read_keys includes '*'"))).toBe(false);
+    });
+  });
+
   describe('start node validation', () => {
     test('should fail if start node does not exist', () => {
       const graph = createValidGraph();

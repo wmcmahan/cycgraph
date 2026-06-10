@@ -169,3 +169,34 @@ describe('InMemoryWorkflowQueue', () => {
     expect(depth.dead_letter).toBe(1);
   });
 });
+
+describe('InMemoryWorkflowQueue — fencing epochs', () => {
+  test('dequeue stamps claim_epoch, bumped on every claim of the same run', async () => {
+    const queue = new InMemoryWorkflowQueue();
+    const runId = crypto.randomUUID();
+    const jobId = await queue.enqueue({
+      type: 'start',
+      run_id: runId,
+      graph_id: crypto.randomUUID(),
+    });
+
+    const first = await queue.dequeue('worker-1');
+    expect(first?.claim_epoch).toBe(1);
+
+    await queue.nack(jobId, 'simulated crash');
+    const second = await queue.dequeue('worker-2');
+    expect(second?.run_id).toBe(runId);
+    expect(second?.claim_epoch).toBe(2);
+  });
+
+  test('claims of different runs have independent epochs', async () => {
+    const queue = new InMemoryWorkflowQueue();
+    await queue.enqueue({ type: 'start', run_id: crypto.randomUUID(), graph_id: crypto.randomUUID() });
+    await queue.enqueue({ type: 'start', run_id: crypto.randomUUID(), graph_id: crypto.randomUUID() });
+
+    const a = await queue.dequeue('worker-1');
+    const b = await queue.dequeue('worker-1');
+    expect(a?.claim_epoch).toBe(1);
+    expect(b?.claim_epoch).toBe(1);
+  });
+});

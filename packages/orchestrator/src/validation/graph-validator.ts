@@ -63,6 +63,15 @@ export function validateGraph(graph: Graph): ValidationResult {
     if (!outgoingEdges.has(node.id)) {
       outgoingEdges.set(node.id, []);
     }
+
+    // Least-privilege nudge: wildcard read access defeats state slicing —
+    // the node sees every other node's memory output, including any
+    // secrets/PII or tainted external data. Warn so authors scope reads.
+    if (node.read_keys.includes('*')) {
+      warnings.push(
+        `Node '${node.id}': read_keys includes '*' (full memory access) — prefer explicit keys for least privilege`,
+      );
+    }
   }
 
   // ── Start & end node existence ───────────────────────────────────────

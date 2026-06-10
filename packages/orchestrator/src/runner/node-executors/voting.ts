@@ -8,6 +8,7 @@ import type { NodeExecutorContext } from './context.js';
 import { ensureSaveToMemory } from './agent.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { combineAbortSignals } from '../../utils/abort.js';
 
 const logger = createLogger('runner.node.voting');
 
@@ -86,12 +87,13 @@ export async function executeVotingNode(
   // Execute all voters in parallel
   const results = await executeParallel(
     tasks,
-    async (task) => {
+    async (task, taskSignal) => {
       const agentConfig = await ctx.deps.loadAgent(task.node.agent_id!);
       const { modelOverride } = resolveModelForAgent(agentConfig, task.node.agent_id!, task.node.id, ctx);
       const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), task.node.agent_id!);
       const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, task.node.id) : undefined;
-      return ctx.deps.executeAgent(task.node.agent_id!, task.stateView, tools, attempt, { node_id: task.node.id, abortSignal: ctx.abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { model_override: modelOverride } : {}), ...(task.node.default_write_key ? { default_write_key: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) });
+      const abortSignal = combineAbortSignals(ctx.abortSignal, taskSignal);
+      return ctx.deps.executeAgent(task.node.agent_id!, task.stateView, tools, attempt, { node_id: task.node.id, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { model_override: modelOverride } : {}), ...(task.node.default_write_key ? { default_write_key: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) });
     },
     { max_concurrency: config.voter_agent_ids.length, error_strategy: 'best_effort', task_timeout_ms: config.task_timeout_ms },
   );

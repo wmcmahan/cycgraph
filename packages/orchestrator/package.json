@@ -29,6 +29,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js",
+      "default": "./dist/internal.js"
     }
   },
   "engines": {
@@ -64,17 +69,10 @@
     "uuid": "^13.0.0",
     "zod": "^4.3.6"
   },
-  "peerDependencies": {
-    "@cycgraph/context-engine": "*"
-  },
-  "peerDependenciesMeta": {
-    "@cycgraph/context-engine": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@types/node": "^25.3.5",
     "@types/uuid": "^11.0.0",
+    "@vitest/coverage-v8": "^4.1.5",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }

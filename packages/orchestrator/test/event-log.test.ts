@@ -2,6 +2,10 @@ import { describe, test, expect, beforeEach } from 'vitest';
 import { InMemoryEventLogWriter, NoopEventLogWriter } from '../src/db/event-log.js';
 import type { NewWorkflowEvent } from '../src/types/event.js';
 import type { WorkflowState } from '../src/types/state.js';
+import { createWorkflowState } from '../src/types/state.js';
+
+const WF_ID = '11111111-1111-4111-8111-111111111111';
+const RUN_ID = '22222222-2222-4222-8222-222222222222';
 
 function makeEvent(overrides: Partial<NewWorkflowEvent> = {}): NewWorkflowEvent {
   return {
@@ -14,18 +18,15 @@ function makeEvent(overrides: Partial<NewWorkflowEvent> = {}): NewWorkflowEvent 
 }
 
 function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
-  return {
-    workflow_id: 'wf-1',
-    run_id: 'run-1',
+  return createWorkflowState({
+    workflow_id: WF_ID,
+    run_id: RUN_ID,
     status: 'running',
     current_node: 'node-1',
     goal: 'test',
-    constraints: [],
     memory: { result: 'hello' },
-    node_results: {},
-    node_history: [],
     ...overrides,
-  } as WorkflowState;
+  });
 }
 
 describe('InMemoryEventLogWriter', () => {

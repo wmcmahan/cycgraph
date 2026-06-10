@@ -70,7 +70,7 @@ Because State is cleanly separated from the execution logic, it can be persisted
 
 For production deployments with concurrent workflows, the `WorkflowWorker` distributes execution across multiple processes. Each workflow runs on one worker for its entire lifetime — the `GraphRunner` is used as-is inside each worker.
 
-Workers poll a `WorkflowQueue` for jobs, execute them, and report results. Crashed workers are detected via visibility timeouts, and their jobs are recovered on another worker via event log replay.
+Workers poll a `WorkflowQueue` for jobs, execute them, and report results. Crashed workers are detected via visibility timeouts; their jobs are reclaimed and recovered on another worker by reconciling event-log replay against the latest state snapshot. **Run fencing** (a per-claim epoch, with the `DrizzleWorkflowQueue`) ensures a reclaimed-but-still-alive worker can't clobber the new owner.
 
 See [Distributed Execution](/docs/concepts/distributed-execution/) for details.
 

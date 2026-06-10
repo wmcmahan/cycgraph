@@ -12,7 +12,7 @@
 import { EventEmitter } from 'events';
 import type { Graph, GraphNode, GraphEdge } from '../types/graph.js';
 import type { WorkflowState, Action, StateView } from '../types/state.js';
-import { rootReducer, internalReducer, validateAction } from '../reducers/index.js';
+import { rootReducer, internalReducer, validateAction, REPLAY_VERSION } from '../reducers/index.js';
 import { calculateBackoff, sleep } from './helpers.js';
 import { evaluateCondition } from './conditions.js';
 import { getNextNode, getCurrentNode, shouldContinue, buildEdgeMap } from './router.js';
@@ -24,7 +24,9 @@ import { PersistenceCoordinator } from './persistence-coordinator.js';
 import { validateGraph } from '../validation/graph-validator.js';
 import { ActionSchema } from '../types/state.js';
 import { createLogger } from '../utils/logger.js';
-import { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError } from './errors.js';
+import { runWithContext } from '../utils/context.js';
+import { calculateCost } from '../utils/pricing.js';
+import { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './errors.js';
 import {
   incrementWorkflowsStarted,
   incrementWorkflowsCompleted,
@@ -34,7 +36,8 @@ import {
   recordCostUsd,
 } from '../utils/metrics.js';
 import type { EventLogWriter } from '../db/event-log.js';
-import { NoopEventLogWriter } from '../db/event-log.js';
+import { NoopEventLogWriter, EventSequenceConflictError } from '../db/event-log.js';
+import { StaleClaimError } from '../persistence/errors.js';
 import type { EventType } from '../types/event.js';
 import type { StreamEvent } from './stream-events.js';
 import { computeMemoryDiff } from './memory-differ.js';
@@ -54,26 +57,14 @@ import type { MemoryRetriever } from '../agent/memory-retriever.js';
 import type { MemoryWriter } from '../agent/memory-writer.js';
 import type { FactSanitizer } from '../agent/fact-sanitizer.js';
 import type { FitnessFunction } from '../agent/fitness-function.js';
+import type { RateLimiter } from '../agent/rate-limiter.js';
 import { PermissionDeniedError } from '../agent/agent-executor/errors.js';
 
 // Extracted modules
 import { CircuitBreakerManager } from './circuit-breaker.js';
 import { createStateView } from './state-view.js';
 import type { NodeExecutorContext } from './node-executors/context.js';
-import {
-  executeAgentNode,
-  executeToolNode,
-  executeRouterNode,
-  executeSupervisorNode,
-  executeApprovalNode,
-  executeMapNode,
-  executeVotingNode,
-  executeSynthesizerNode,
-  executeSubgraphNode,
-  executeEvolutionNode,
-  executeVerifierNode,
-  executeReflectionNode,
-} from './node-executors/index.js';
+import { getNodeExecutor } from './node-executors/index.js';
 
 const logger = createLogger('runner.graph');
 const tracer = getTracer('orchestrator.runner');
@@ -135,6 +126,14 @@ export interface GraphRunnerEvents {
 }
 
 /**
+ * Default number of events between automatic event-log compactions when an
+ * `eventLog` is wired and `compaction_interval` is not specified. Conservative
+ * enough that short runs never compact, low enough that a long run's event log
+ * stays bounded. Set `compaction_interval: 0` to opt out.
+ */
+export const DEFAULT_COMPACTION_INTERVAL = 1000;
+
+/**
  * Options for constructing a GraphRunner.
  * Preferred over positional constructor args.
  */
@@ -163,6 +162,14 @@ export interface GraphRunnerOptions {
    * Defaults to false.
    */
   auto_rollback?: boolean;
+  /**
+   * When true, a node that is not a declared end node yet has no matching
+   * outgoing edge silently completes the workflow (legacy behavior). When
+   * false (default), the runner fails with `NoMatchingEdgeError` so a
+   * dead-end (e.g. a typo'd edge condition) surfaces instead of producing a
+   * misleading "completed" run that only executed part of the graph.
+   */
+  allow_implicit_completion?: boolean;
   /**
    * Budget-aware model resolver.
    *
@@ -205,6 +212,17 @@ export interface GraphRunnerOptions {
    */
   factSanitizer?: FactSanitizer;
   /**
+   * What to do when `factSanitizer` THROWS (not returns null) — e.g. a
+   * downed PII service or a buggy regex.
+   *
+   * - `'drop'` (default): fail closed — drop the fact. The right default
+   *   for a safety/redaction control: a transient sanitizer outage must not
+   *   silently leak unredacted PII into durable, cross-run memory.
+   * - `'pass'`: fail open — write the original (unsanitized) fact. Only use
+   *   when reflection availability matters more than redaction guarantees.
+   */
+  factSanitizerFailMode?: 'drop' | 'pass';
+  /**
    * Optional deterministic fitness evaluator for `evolution` nodes. When
    * provided, the evolution executor uses it instead of the LLM-as-judge
    * `evaluator_agent_id`. Use for tasks with verifiable answers — regex,
@@ -213,14 +231,27 @@ export interface GraphRunnerOptions {
    */
   fitnessFunction?: FitnessFunction;
   /**
+   * Optional rate-limiting hook awaited before every LLM call (agent,
+   * supervisor, evaluator). Use to pace a workflow inside a provider's
+   * request/throughput budget — the implementation may delay (throttle) or
+   * throw (hard ceiling). Same injection pattern as the other ports; the engine
+   * defines the type, you provide the policy.
+   */
+  rateLimiter?: RateLimiter;
+  /**
    * Number of events between automatic event log compactions.
    *
-   * When set (and an `eventLog` is provided), the runner will
-   * automatically checkpoint and compact the event log every N events.
-   * This prevents unbounded event log growth in long-running workflows.
+   * When > 0 (and an `eventLog` is provided), the runner automatically
+   * checkpoints and compacts the event log every N events, preventing
+   * unbounded event-log growth in long-running workflows. Compaction is
+   * recovery-safe: it writes a checkpoint, then deletes only the events behind
+   * it (recovery loads the checkpoint + the tail via `loadEventsAfter`).
    *
-   * Set to 0 or omit to disable auto-compaction (manual only via `compactEvents()`).
-   * @default 0 (disabled)
+   * Defaults to {@link DEFAULT_COMPACTION_INTERVAL} so a long run can't grow the
+   * event log without bound by default. Set to `0` to disable auto-compaction
+   * (e.g. when you retain the full event history for audit and compact manually
+   * via `compactEvents()`).
+   * @default 1000
    */
   compaction_interval?: number;
   /**
@@ -282,6 +313,7 @@ export class GraphRunner extends EventEmitter {
 
   // Auto-rollback on failure (saga compensation)
   private readonly autoRollback: boolean;
+  private readonly allowImplicitCompletion: boolean;
 
   // Budget-aware model resolver (optional)
   private readonly modelResolver?: ModelResolver;
@@ -298,8 +330,14 @@ export class GraphRunner extends EventEmitter {
   // Optional pre-write sanitizer applied to reflection facts before persistence
   private readonly factSanitizer?: FactSanitizer;
 
+  // Behavior when factSanitizer throws: 'drop' (fail closed, default) or 'pass'
+  private readonly factSanitizerFailMode: 'drop' | 'pass';
+
   // Optional deterministic fitness evaluator for evolution nodes
   private readonly fitnessFunction?: FitnessFunction;
+
+  // Optional rate-limiting hook awaited before every LLM call
+  private readonly rateLimiter?: RateLimiter;
 
   // Auto-compaction: compact event log every N events (0 = disabled)
   private readonly compactionInterval: number;
@@ -352,9 +390,12 @@ export class GraphRunner extends EventEmitter {
     this.memoryRetriever = options?.memoryRetriever;
     this.memoryWriter = options?.memoryWriter;
     this.factSanitizer = options?.factSanitizer;
+    this.factSanitizerFailMode = options?.factSanitizerFailMode ?? 'drop';
     this.fitnessFunction = options?.fitnessFunction;
+    this.rateLimiter = options?.rateLimiter;
     this.autoRollback = options?.auto_rollback ?? false;
-    this.compactionInterval = options?.compaction_interval ?? 0;
+    this.allowImplicitCompletion = options?.allow_implicit_completion ?? false;
+    this.compactionInterval = options?.compaction_interval ?? DEFAULT_COMPACTION_INTERVAL;
     this.persistDeltaFn = options?.persistDeltaFn;
     if (this.persistDeltaFn) {
       this.deltaTracker = new StateDeltaTracker(options?.deltaTrackerOptions);
@@ -436,14 +477,48 @@ export class GraphRunner extends EventEmitter {
     this.appendEvent('internal_dispatched', { internal_type: type, internal_payload: payload });
   }
 
-  // Event log failure tracking for observability
+  // Consecutive event-log flush failures. Mirrors the snapshot 3-strike
+  // rule in PersistenceCoordinator: three consecutive failed flushes halt
+  // the workflow instead of silently degrading durable-execution recovery.
   private eventLogFailures: number = 0;
+
+  /** Halt threshold for consecutive event-log flush failures. */
+  private static readonly MAX_EVENT_LOG_FAILURES = 3;
+
+  // Append promises issued since the last flush. Appends overlap with node
+  // execution (no per-event latency), but persistState() awaits them all
+  // BEFORE writing the snapshot so the event log can never silently fall
+  // behind the snapshot it anchors.
+  private pendingAppends: Array<Promise<{ ok: boolean }>> = [];
+
+  // A fatal append error observed on any append: a sequence conflict or a
+  // stale claim both mean another writer is executing this run — fatal for
+  // this runner regardless of the consecutive-failure budget.
+  private eventLogFatalError: Error | null = null;
+
+  // Events recorded before sequenceId is known to be past the existing log.
+  // applyHumanResponse() runs before run() on resume, when a fresh runner
+  // still has sequenceId 0 — appending immediately would collide with the
+  // run's existing events. Deferred events are replayed through appendEvent
+  // in executeLoop's resume path, right after the sequence rebuild.
+  private deferAppends = false;
+  private deferredEvents: Array<{
+    event_type: EventType;
+    opts: {
+      node_id?: string;
+      action?: Action;
+      internal_type?: string;
+      internal_payload?: Record<string, unknown>;
+    };
+  }> = [];
 
   /**
    * Append an event to the durable event log.
-   * Fire-and-forget — failures are logged but never halt the workflow.
-   * Errors are caught to prevent unhandled promise rejections and tracked
-   * via a failure counter for observability.
+   *
+   * The write starts immediately but is not awaited here — `flushEventLog()`
+   * (called from `persistState()`) awaits every outstanding append before
+   * the state snapshot commits. Failures are tracked there; sequence
+   * conflicts are remembered and re-thrown as fatal.
    */
   private appendEvent(
     event_type: EventType,
@@ -454,23 +529,72 @@ export class GraphRunner extends EventEmitter {
       internal_payload?: Record<string, unknown>;
     } = {},
   ): void {
+    if (this.deferAppends) {
+      this.deferredEvents.push({ event_type, opts });
+      return;
+    }
     const event = {
       run_id: this.state.run_id,
       sequence_id: this.sequenceId++,
       event_type,
       ...opts,
     };
-    // Intentionally not awaited — event log is best-effort alongside
-    // the primary state snapshot path.
-    this.eventLog.append(event).catch((error) => {
+    const promise = this.eventLog.append(event).then(
+      () => ({ ok: true }),
+      (error) => {
+        if (error instanceof EventSequenceConflictError || error instanceof StaleClaimError) {
+          this.eventLogFatalError = error;
+        }
+        logger.error('event_log_append_failed', error, {
+          run_id: this.state.run_id,
+          sequence_id: event.sequence_id,
+          event_type,
+        });
+        return { ok: false };
+      },
+    );
+    this.pendingAppends.push(promise);
+  }
+
+  /**
+   * Await all outstanding event-log appends.
+   *
+   * Called by `persistState()` as a write barrier: events must be durable
+   * before the snapshot that reflects them. Without this barrier a crash
+   * could leave a snapshot whose history is missing from the log, and
+   * event-log recovery would silently reconstruct an older state.
+   *
+   * @throws {EventSequenceConflictError} If any append collided with an
+   *   existing sequence_id — another writer owns this run.
+   * @throws {Error} After {@link MAX_EVENT_LOG_FAILURES} consecutive
+   *   flushes containing failures (same rule as snapshot persistence).
+   */
+  private async flushEventLog(): Promise<void> {
+    if (this.pendingAppends.length === 0) return;
+    const pending = this.pendingAppends;
+    this.pendingAppends = [];
+    const results = await Promise.all(pending);
+
+    if (this.eventLogFatalError) {
+      throw this.eventLogFatalError;
+    }
+
+    const failed = results.filter(r => !r.ok).length;
+    if (failed > 0) {
       this.eventLogFailures++;
-      logger.error('event_log_append_failed', error, {
+      logger.error('event_log_flush_failed', new Error(`${failed} append(s) failed`), {
         run_id: this.state.run_id,
-        sequence_id: event.sequence_id,
-        event_type,
-        consecutive_failures: this.eventLogFailures,
+        consecutive_failed_flushes: this.eventLogFailures,
       });
-    });
+      if (this.eventLogFailures >= GraphRunner.MAX_EVENT_LOG_FAILURES) {
+        throw new Error(
+          `Event log unavailable after ${this.eventLogFailures} consecutive failed flushes. ` +
+          `Halting workflow to prevent unrecoverable event-log divergence.`,
+        );
+      }
+    } else {
+      this.eventLogFailures = 0;
+    }
   }
 
   /**
@@ -500,7 +624,9 @@ export class GraphRunner extends EventEmitter {
       get memoryRetriever() { return self.memoryRetriever; },
       get memoryWriter() { return self.memoryWriter; },
       get factSanitizer() { return self.factSanitizer; },
+      get factSanitizerFailMode() { return self.factSanitizerFailMode; },
       get fitnessFunction() { return self.fitnessFunction; },
+      get rateLimiter() { return self.rateLimiter; },
       get toolResolver() { return self.toolResolver; },
       emit: (event, payload) => self.emit(event, payload),
       listenerCount: (event) => self.listenerCount(event),
@@ -569,6 +695,31 @@ export class GraphRunner extends EventEmitter {
       return;
     }
 
+    // Pre-flight wiring checks: catch missing runner dependencies BEFORE any
+    // node runs, instead of failing mid-run after upstream nodes already spent
+    // tokens (and, for some, being pointlessly retried).
+    const wiring = this.checkRuntimeWiring();
+    if (wiring.errors.length > 0) {
+      const errorMsg = `Runner wiring error: ${wiring.errors.join(', ')}`;
+      logger.error('runner_wiring_failed', new Error(errorMsg), { graph_id: this.graph.id });
+      this.dispatchInternal('_fail', { last_error: errorMsg });
+      await this.persistState();
+      yield* this.drainPendingEvents();
+      this.lastRunError = new Error(errorMsg);
+      yield {
+        type: 'workflow:failed',
+        workflow_id: this.state.workflow_id,
+        run_id: this.state.run_id,
+        error: errorMsg,
+        state: this.state,
+        timestamp: Date.now(),
+      };
+      return;
+    }
+    for (const w of wiring.warnings) {
+      logger.warn('runner_wiring_warning', { graph_id: this.graph.id, warning: w });
+    }
+
     // Log validation warnings
     if (validation.warnings.length > 0) {
       logger.warn('graph_validation_warnings', { warnings: validation.warnings });
@@ -632,33 +783,50 @@ export class GraphRunner extends EventEmitter {
         iteration: this.state.iteration_count,
         visited: this.state.visited_nodes.length,
       });
-      this.dispatchInternal('_init', { resume: true });
+      // Advance sequenceId past the existing log BEFORE dispatching anything:
+      // a checkpoint-constructed runner starts at sequenceId 0, and appending
+      // the resume _init with a stale id would collide with an existing event
+      // (rejected by the writer → spurious split-brain error).
       const rebuild = await this.idempotency.rebuildFromEventLog(
         this.eventLog,
         this.state.run_id,
-        this.state.iteration_count,
+        {
+          current_node: this.state.current_node,
+          iteration_count: this.state.iteration_count,
+          _last_event_sequence_id: this.state._last_event_sequence_id,
+        },
       );
       // The tracker doesn't own sequenceId — advance it ourselves so the event
       // log stays continuous after replay.
-      if (rebuild.maxSequenceId !== null) {
+      if (rebuild.maxSequenceId !== null && rebuild.maxSequenceId + 1 > this.sequenceId) {
         this.sequenceId = rebuild.maxSequenceId + 1;
       }
+      this.dispatchInternal('_init', { resume: true });
     } else {
       this.dispatchInternal('_init', { start_node: this.graph.start_node });
     }
+
+    // Record events deferred from before execution (applyHumanResponse) —
+    // sequenceId is now guaranteed past the run's existing log.
+    if (this.deferredEvents.length > 0) {
+      const deferred = this.deferredEvents;
+      this.deferredEvents = [];
+      for (const { event_type, opts } of deferred) {
+        this.appendEvent(event_type, opts);
+      }
+    }
+
     await this.persistState();
     yield* this.drainPendingEvents();
 
-    // Log workflow_started event (first event in the event log for this run)
-    this.appendEvent('workflow_started');
+    // Log workflow_started event. Carries the reducer replay version so
+    // recovery can detect logs written under different reducer semantics.
+    this.appendEvent('workflow_started', {
+      internal_payload: { replay_version: REPLAY_VERSION },
+    });
 
-    const workflowSpan = { setAttribute: (_k: string, _v: unknown) => {} };
-    try {
-      // Get a real span if tracing is available
-      const realTracer = getTracer('orchestrator.runner');
-      void realTracer; // span wrapping handled via withSpan pattern in run()
-    } catch { /* noop */ }
-
+    // The `workflow.run` span is established by run(); stream() consumers can
+    // wrap their own consumption loop if they want a root span.
     try {
       while (shouldContinue(this.state) && !this.abortController.signal.aborted) {
         // Check global timeout
@@ -690,6 +858,45 @@ export class GraphRunner extends EventEmitter {
           await this.persistState();
           yield* this.drainPendingEvents();
           break;
+        }
+
+        // Idempotency: if this (node, iteration) action was already reduced
+        // into state before a crash (post-persist, pre-advance window), the
+        // snapshot we resumed from contains its effects. Re-executing would
+        // double-apply the action and double-spend the LLM call — skip the
+        // node entirely and perform only the routing the crash interrupted.
+        const executionIteration = this.state.iteration_count;
+        if (this.idempotency.has(currentNode.id, executionIteration)) {
+          logger.warn('duplicate_node_execution_skipped', {
+            node_id: currentNode.id,
+            iteration: executionIteration,
+            run_id: this.state.run_id,
+          });
+
+          this.dispatchInternal('_increment_iteration');
+          if (this.state.iteration_count >= this.state.max_iterations) {
+            this.dispatchInternal('_fail', { last_error: `Max iterations reached: ${this.state.iteration_count}` });
+            await this.persistState();
+            yield* this.drainPendingEvents();
+            break;
+          }
+          if (this.graph.end_nodes.includes(currentNode.id)) {
+            this.dispatchInternal('_complete');
+            await this.persistState();
+            yield* this.drainPendingEvents();
+            break;
+          }
+          const skipNext = getNextNode(this.edgeMap, this.nodeMap, currentNode, this.state);
+          if (!skipNext) {
+            this.dispatchInternal('_complete');
+            await this.persistState();
+            yield* this.drainPendingEvents();
+            break;
+          }
+          this.dispatchInternal('_advance', { node_id: skipNext.id });
+          await this.persistState();
+          yield* this.drainPendingEvents();
+          continue;
         }
 
         // Log node_started event before execution
@@ -753,11 +960,10 @@ export class GraphRunner extends EventEmitter {
             yield { type: 'node:complete', node_id: currentNode.id, node_type: currentNode.type, duration_ms, timestamp: Date.now() };
             this.emit('node:complete', { node_id: currentNode.id, type: currentNode.type, duration_ms });
           } else {
-            action = await withSpan(tracer, `node.execute.${currentNode.type}`, async (nodeSpan) => {
-              nodeSpan.setAttribute('node.id', currentNode.id);
-              nodeSpan.setAttribute('node.type', currentNode.type);
-              return this.executeNodeWithTimeout(currentNode);
-            });
+            // Node span + run context are established inside
+            // executeNodeWithTimeout, so both this branch and the streaming
+            // branch above are covered uniformly.
+            action = await this.executeNodeWithTimeout(currentNode);
           }
         }
 
@@ -786,15 +992,6 @@ export class GraphRunner extends EventEmitter {
           throw new PermissionDeniedError(`Node ${currentNode.id} tried to write to unauthorized keys`);
         }
 
-        // Check idempotency using monotonically increasing sequence ID (unique per action)
-        if (this.idempotency.has(currentNode.id, this.sequenceId)) {
-          logger.warn('duplicate_action', { idempotency_key: `${currentNode.id}:${this.sequenceId}`, node_id: currentNode.id });
-          continue;
-        }
-
-        // Mark as executed
-        this.idempotency.add(currentNode.id, this.sequenceId);
-
         // Track compensation (saga pattern)
         if (currentNode.requires_compensation && action.compensation) {
           this.dispatchInternal('_push_compensation', {
@@ -819,6 +1016,11 @@ export class GraphRunner extends EventEmitter {
 
         // Apply action via reducer
         this.state = rootReducer(this.state, action);
+
+        // Mark applied AFTER the reduce succeeds — the marker means "this
+        // (node, iteration)'s effects are in state", which is what the
+        // pre-execution duplicate check above relies on.
+        this.idempotency.add(currentNode.id, executionIteration);
 
         // Compute memory diff
         const memoryAfter = this.state.memory;
@@ -1011,14 +1213,40 @@ export class GraphRunner extends EventEmitter {
           continue;
         }
 
-        // Determine next node from outgoing edges
+        // Determine next node from outgoing edges. We already returned above
+        // if this were an end node, so reaching here with no match is a
+        // dead-end: fail loud instead of silently "completing" a partial run.
         let nextNode = getNextNode(this.edgeMap, this.nodeMap, currentNode, this.state);
         if (!nextNode) {
-          logger.info('execution_complete', { graph_id: this.graph.id, run_id: this.state.run_id });
-          this.dispatchInternal('_complete');
+          if (this.allowImplicitCompletion) {
+            logger.info('execution_complete', { graph_id: this.graph.id, run_id: this.state.run_id });
+            this.dispatchInternal('_complete');
+            await this.persistState();
+            yield* this.drainPendingEvents();
+            break;
+          }
+          // Dead-end → fail loud (mirrors the graph-validation failure path).
+          const deadEnd = new NoMatchingEdgeError(currentNode.id);
+          logger.error('no_matching_edge', deadEnd, { graph_id: this.graph.id, run_id: this.state.run_id, node_id: currentNode.id });
+          this.dispatchInternal('_fail', { last_error: deadEnd.message });
           await this.persistState();
           yield* this.drainPendingEvents();
-          break;
+          this.lastRunError = deadEnd;
+          incrementWorkflowsFailed({ graph_id: this.graph.id });
+          this.emit('workflow:failed', {
+            workflow_id: this.state.workflow_id,
+            run_id: this.state.run_id,
+            error: deadEnd.message,
+          });
+          yield {
+            type: 'workflow:failed',
+            workflow_id: this.state.workflow_id,
+            run_id: this.state.run_id,
+            error: deadEnd.message,
+            state: this.state,
+            timestamp: Date.now(),
+          };
+          return;
         }
 
         // Hook: beforeAdvance — can override routing
@@ -1163,6 +1391,15 @@ export class GraphRunner extends EventEmitter {
       }
     } finally {
       this.isStreaming = false;
+      // Final barrier: ensure trailing appends (terminal events dispatched
+      // after the last persist) are durable before the generator returns.
+      // Failures here are logged, not thrown — the run is already over and
+      // throwing from a finally would mask the run's real outcome.
+      await this.flushEventLog().catch((error) => {
+        logger.error('event_log_final_flush_failed', error, {
+          run_id: this.state.run_id,
+        });
+      });
     }
   }
 
@@ -1203,9 +1440,21 @@ export class GraphRunner extends EventEmitter {
   async run(): Promise<WorkflowState> {
     this.lastRunError = undefined;
     try {
-      for await (const _event of this.executeLoop()) {
-        // Drain all events — run() consumes but discards them
-      }
+      // Establish run-correlation context so every downstream log line
+      // (agent executor, MCP, provider, persistence) carries run_id/graph_id
+      // without threading them through every call. Covers the whole
+      // non-streaming / worker path. The `workflow.run` root span wraps the
+      // entire run so node/agent spans nest under it in traces.
+      await runWithContext(
+        { run_id: this.state.run_id, graph_id: this.graph.id },
+        () => withSpan(tracer, 'workflow.run', async (runSpan) => {
+          runSpan.setAttribute('workflow.run_id', this.state.run_id);
+          runSpan.setAttribute('graph.id', this.graph.id);
+          for await (const _event of this.executeLoop()) {
+            // Drain all events — run() consumes but discards them
+          }
+        }),
+      );
     } finally {
       // Close MCP connections opened during this run
       if (this.toolResolver) {
@@ -1275,6 +1524,28 @@ export class GraphRunner extends EventEmitter {
   /**
    * Execute node with retry and circuit breaker
    */
+  /**
+   * Count tokens/cost spent on a failed agent attempt. Reads the best-effort
+   * `partialUsage` that the agent executor attaches to its typed errors and
+   * dispatches the same `_track_tokens` / `_track_cost` internal actions the
+   * success path uses, so failed-attempt spend is visible to every budget.
+   */
+  private trackFailedAttemptUsage(error: unknown): void {
+    const usage = (error as { partialUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number; model?: string } })?.partialUsage;
+    if (!usage) return;
+
+    const totalTokens = usage.totalTokens ?? ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
+    if (totalTokens > 0) {
+      this.dispatchInternal('_track_tokens', { tokens: totalTokens });
+    }
+    if (usage.model && (usage.inputTokens || usage.outputTokens)) {
+      const cost = calculateCost(usage.model, usage.inputTokens ?? 0, usage.outputTokens ?? 0);
+      if (cost > 0) {
+        this.dispatchInternal('_track_cost', { cost_usd: cost });
+      }
+    }
+  }
+
   private async executeNodeWithRetry(node: GraphNode): Promise<Action> {
     const policy = node.failure_policy;
     let lastError: Error | undefined;
@@ -1298,9 +1569,26 @@ export class GraphRunner extends EventEmitter {
       } catch (error) {
         lastError = error as Error;
 
+        // Account for tokens spent on this FAILED attempt. The agent executor
+        // attaches best-effort partial usage to AgentExecutionError /
+        // AgentTimeoutError; without this, a node that retries N times only
+        // ever counts the successful attempt's tokens, hiding up to N×
+        // the visible spend from every budget.
+        this.trackFailedAttemptUsage(error);
+
         // Update circuit breaker
         if (policy.circuit_breaker?.enabled) {
           this.circuitBreakers.update(node.id, false, this.graph.nodes);
+        }
+
+        // Short-circuit on a definitively non-retryable error (e.g. a 400
+        // invalid-request or context-length-exceeded). Retrying would re-issue
+        // an identical request that fails the same way — pure wasted spend.
+        // Only `retryable === false` short-circuits; `undefined` (unknown
+        // error) still retries.
+        if ((error as { retryable?: boolean })?.retryable === false) {
+          logger.warn('node_error_non_retryable', { node_id: node.id, attempt, error: lastError?.message });
+          break;
         }
 
         const is_last_attempt = attempt === policy.max_retries;
@@ -1341,34 +1629,13 @@ export class GraphRunner extends EventEmitter {
     const stateView = createStateView(this.state, node);
     const ctx = this.buildExecutorContext();
 
-    switch (node.type) {
-      case 'agent':
-        return await executeAgentNode(node, stateView, attempt, ctx);
-      case 'tool':
-        return await executeToolNode(node, stateView, attempt, ctx);
-      case 'router':
-        return await executeRouterNode(node, stateView, attempt, ctx);
-      case 'supervisor':
-        return await executeSupervisorNode(node, stateView, attempt, ctx);
-      case 'approval':
-        return await executeApprovalNode(node, stateView, attempt, ctx);
-      case 'map':
-        return await executeMapNode(node, stateView, attempt, ctx);
-      case 'voting':
-        return await executeVotingNode(node, stateView, attempt, ctx);
-      case 'synthesizer':
-        return await executeSynthesizerNode(node, stateView, attempt, ctx);
-      case 'subgraph':
-        return await executeSubgraphNode(node, stateView, attempt, ctx);
-      case 'evolution':
-        return await executeEvolutionNode(node, stateView, attempt, ctx);
-      case 'verifier':
-        return await executeVerifierNode(node, stateView, attempt, ctx);
-      case 'reflection':
-        return await executeReflectionNode(node, stateView, attempt, ctx);
-      default:
-        throw new UnsupportedNodeTypeError(node.type);
+    // Dispatch via the node-executor registry (a compiler-exhaustive
+    // Record<NodeType, NodeExecutor>) instead of a hand-maintained switch.
+    const executor = getNodeExecutor(node.type);
+    if (!executor) {
+      throw new UnsupportedNodeTypeError(node.type);
     }
+    return await executor(node, stateView, attempt, ctx);
   }
 
   /**
@@ -1376,6 +1643,18 @@ export class GraphRunner extends EventEmitter {
    * Called by the worker before run() on HITL resume.
    */
   applyHumanResponse(response: HumanResponse): void {
+    // Defer event appends until run()/stream() resumes: this method is
+    // called before execution, when a freshly-constructed runner's
+    // sequenceId hasn't been advanced past the run's existing event log yet.
+    this.deferAppends = true;
+    try {
+      this.applyHumanResponseInner(response);
+    } finally {
+      this.deferAppends = false;
+    }
+  }
+
+  private applyHumanResponseInner(response: HumanResponse): void {
     const pendingApproval = this.state.memory._pending_approval as {
       node_id?: string;
       rejection_node_id?: string;
@@ -1399,6 +1678,15 @@ export class GraphRunner extends EventEmitter {
     };
 
     this.state = rootReducer(this.state, action);
+
+    // Durably record the human decision BEFORE the _advance dispatches below,
+    // so event-log replay applies the resume in the same order as the live
+    // run. Without this, a recovered run would reconstruct state without the
+    // human's response.
+    this.appendEvent('action_dispatched', {
+      node_id: action.metadata.node_id,
+      action,
+    });
 
     // Handle rejection routing
     if (response.decision === 'rejected' && pendingApproval?.rejection_node_id) {
@@ -1492,64 +1780,70 @@ export class GraphRunner extends EventEmitter {
   /**
    * Persist state to the configured persistence layer and trigger
    * auto-compaction when due. Delegates to {@link PersistenceCoordinator}.
-   */
-  private async persistState(): Promise<void> {
-    await this.persistence.persist(this.state, this.sequenceId);
-  }
-
-  /**
-   * Reconstruct idempotency keys from persisted state on resume.
-   * Only completed iterations (0 through iteration_count-1) are reconstructed.
-   * The current iteration has NOT completed and must be re-executed.
+   *
+   * Flushes the event log FIRST — events are the snapshot's history and must
+   * never be missing for a snapshot that exists. If the flush fails (below
+   * the halt threshold) the snapshot still proceeds: the snapshot is the
+   * stronger recovery anchor, and recovery reconciles the two by taking
+   * whichever has more progress.
    */
   /**
-   * Validate event log integrity on resume.
+   * Validate that the runner's injected dependencies match what the graph
+   * needs, before execution starts. Returns hard errors (which fail the run
+   * immediately) and soft warnings.
    *
-   * Checks for:
-   * - Monotonically increasing sequence IDs with no gaps
-   * - First event is `workflow_started`
-   * - Event count is consistent with iteration_count
-   *
-   * Throws {@link EventLogCorruptionError} if corruption is detected.
-   * Silently succeeds if no events exist (event log may be noop).
+   * Checks:
+   *  - a `reflection` node requires `memoryWriter` (error — the executor
+   *    would otherwise throw `MemoryWriterMissingError` mid-run).
+   *  - a node declaring `mcp` tool sources requires `toolResolver` (error —
+   *    otherwise the node silently runs with built-in tools only and
+   *    "succeeds" with degraded output).
+   *  - a node declaring `memory_query` benefits from `memoryRetriever`
+   *    (warning — without it retrieval silently returns nothing).
    */
-  private async validateEventLogIntegrity(): Promise<void> {
-    try {
-      const events = await this.eventLog.loadEvents(this.state.run_id);
+  private checkRuntimeWiring(): { errors: string[]; warnings: string[] } {
+    const errors: string[] = [];
+    const warnings: string[] = [];
 
-      // No events is OK — event log may be a NoopEventLogWriter
-      if (events.length === 0) return;
+    const hasReflection = this.graph.nodes.some((n) => n.type === 'reflection');
+    if (hasReflection && !this.memoryWriter) {
+      errors.push(
+        `graph has reflection node(s) but no memoryWriter was provided on GraphRunnerOptions`,
+      );
+    }
 
-      // Check that first event is workflow_started
-      if (events[0].event_type !== 'workflow_started') {
-        logger.error('event_log_integrity_failed', new Error('Missing workflow_started event'), {
-          first_event_type: events[0].event_type,
-          run_id: this.state.run_id,
-        });
-        throw new EventLogCorruptionError(this.state.run_id);
-      }
-
-      // Check monotonically increasing sequence IDs with no gaps
-      for (let i = 1; i < events.length; i++) {
-        const prev = events[i - 1].sequence_id;
-        const curr = events[i].sequence_id;
-        if (curr !== prev + 1) {
-          logger.error('event_log_integrity_failed', new Error('Sequence gap detected'), {
-            expected_sequence: prev + 1,
-            actual_sequence: curr,
-            run_id: this.state.run_id,
-          });
-          throw new EventLogCorruptionError(this.state.run_id);
+    if (!this.toolResolver) {
+      for (const node of this.graph.nodes) {
+        const declaresMcp = (node.tools ?? []).some((t) => t.type === 'mcp');
+        if (declaresMcp) {
+          errors.push(
+            `node '${node.id}' declares MCP tool sources but no toolResolver was provided on GraphRunnerOptions`,
+          );
         }
       }
-    } catch (error) {
-      if (error instanceof EventLogCorruptionError) throw error;
-      // loadEvents failed — log but don't block resume
-      logger.warn('event_log_integrity_check_skipped', {
-        error: error instanceof Error ? error.message : String(error),
-        run_id: this.state.run_id,
-      });
     }
+
+    if (!this.memoryRetriever) {
+      const consumer = this.graph.nodes.find((n) => n.memory_query !== undefined);
+      if (consumer) {
+        warnings.push(
+          `node '${consumer.id}' declares memory_query but no memoryRetriever was provided — retrieval will be skipped`,
+        );
+      }
+    }
+
+    return { errors, warnings };
+  }
+
+  private async persistState(): Promise<void> {
+    // Stamp the snapshot with the event-log high-water mark BEFORE flushing:
+    // every event with sequence_id <= this mark is durable by the time the
+    // snapshot commits, so resume logic can decide whether a logged action's
+    // effects are already inside this snapshot. Runner-internal bookkeeping —
+    // not a reducer concern (no state semantics change).
+    this.state = { ...this.state, _last_event_sequence_id: this.sequenceId - 1 };
+    await this.flushEventLog();
+    await this.persistence.persist(this.state, this.sequenceId);
   }
 
   /**
@@ -1558,6 +1852,23 @@ export class GraphRunner extends EventEmitter {
    * preventing timer leaks when the node completes before the timeout fires.
    */
   private async executeNodeWithTimeout(node: GraphNode): Promise<Action> {
+    // Re-establish run context here too: under stream(), an external consumer
+    // drives the generator outside run()'s runWithContext scope, so this
+    // per-node chokepoint is where node/agent/MCP logs pick up run_id. The
+    // node.execute span also lives here so BOTH the streaming and
+    // non-streaming paths produce it (the streaming branch had none).
+    return runWithContext(
+      { run_id: this.state.run_id, graph_id: this.graph.id },
+      () => withSpan(tracer, `node.execute.${node.type}`, (nodeSpan) => {
+        nodeSpan.setAttribute('node.id', node.id);
+        nodeSpan.setAttribute('node.type', node.type);
+        nodeSpan.setAttribute('workflow.run_id', this.state.run_id);
+        return this.executeNodeWithTimeoutInner(node);
+      }),
+    );
+  }
+
+  private async executeNodeWithTimeoutInner(node: GraphNode): Promise<Action> {
     const nodeTimeout = node.failure_policy.timeout_ms;
 
     // Calculate remaining workflow-level timeout
@@ -1699,6 +2010,17 @@ export class GraphRunner extends EventEmitter {
   /** Expose readonly access to the event log writer (for testing/diagnostics) */
   getEventLog(): EventLogWriter {
     return this.eventLog;
+  }
+
+  /**
+   * Read-only view of the current workflow state.
+   *
+   * Used by callers that need to inspect a runner before/after execution —
+   * e.g. the worker reconciles a recovered runner's progress against the
+   * latest state snapshot. Treat the returned object as immutable.
+   */
+  getState(): Readonly<WorkflowState> {
+    return this.state;
   }
 
 }

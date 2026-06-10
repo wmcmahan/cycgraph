@@ -54,6 +54,15 @@ export class AgentFactory {
   private configCache = new Map<string, CacheEntry<AgentConfig>>();
   private registry: AgentRegistry | null = null;
   private providerRegistry: ProviderRegistry = createProviderRegistry();
+  /**
+   * Whether a registry-configured-but-not-found agent falls back to the
+   * generic deny-all default instead of throwing. Defaults to `false`
+   * (fail closed): a typo'd or deleted `agent_id` must surface as an error,
+   * not silently run a generic assistant that produces garbage output with
+   * real token spend. Set `true` (via {@link setAllowDefaultFallback}) only
+   * for tests / lightweight dev that intentionally reference unregistered IDs.
+   */
+  private allowDefaultFallback = false;
 
   /**
    * Configure the agent registry for database-backed agent loading.
@@ -76,6 +85,18 @@ export class AgentFactory {
   setProviderRegistry(providerRegistry: ProviderRegistry): void {
     this.providerRegistry = providerRegistry;
     this.modelCache.clear();
+  }
+
+  /**
+   * Opt into the legacy fail-open behavior where an agent_id not found in a
+   * configured registry returns the generic deny-all default config instead
+   * of throwing {@link AgentNotFoundError}.
+   *
+   * Intended for tests / lightweight dev only. Production should leave this
+   * `false` so a typo'd or deleted agent_id fails loudly.
+   */
+  setAllowDefaultFallback(allow: boolean): void {
+    this.allowDefaultFallback = allow;
   }
 
   /**
@@ -109,22 +130,21 @@ export class AgentFactory {
    *
    * Resolution order:
    * 1. Return from cache if present and not expired.
-   * 2. Query the registry if configured.
-   * 3. Fall back to default config (deny-all) if the agent is not found.
+   * 2. If no registry is configured, fall back to the default config
+   *    (lightweight / "no persistence wired" mode).
+   * 3. Query the registry. A configured-but-not-found agent FAILS CLOSED by
+   *    default ({@link AgentNotFoundError}) — see {@link setAllowDefaultFallback}.
    *
    * Transient errors (DB connection, network) are **not** caught —
    * they propagate as {@link AgentLoadError} to prevent silent data loss.
    *
    * @param agent_id - The UUID of the agent to load.
    * @returns A validated {@link AgentConfig}.
+   * @throws {AgentNotFoundError} When a configured registry has no such agent (fail closed).
    * @throws {AgentLoadError} On transient registry failures or missing API keys.
    */
   async loadAgent(agent_id: string): Promise<AgentConfig> {
     try {
-      if (!isValidUUID(agent_id)) {
-        throw new AgentNotFoundError(agent_id);
-      }
-
       // Check cache with TTL (fallback entries have shorter TTL)
       const cached = this.configCache.get(agent_id);
       if (cached) {
@@ -135,10 +155,17 @@ export class AgentFactory {
         this.configCache.delete(agent_id);
       }
 
-      // If no registry is configured, fall back to default
+      // No registry configured → lightweight mode: fall back to the default
+      // config for any id. This is an explicit "persistence not wired" mode
+      // (logged on every call), distinct from the fail-closed not-found case.
       if (!this.registry) {
         logger.warn('no_registry_fallback', { agent_id });
         return this.cacheAndReturn(agent_id, this.getDefaultConfig(agent_id), true);
+      }
+
+      // A non-UUID id can never be in the registry — treat as not found.
+      if (!isValidUUID(agent_id)) {
+        throw new AgentNotFoundError(agent_id);
       }
 
       // Load from registry
@@ -171,10 +198,18 @@ export class AgentFactory {
       logger.info('agent_loaded', { agent_id, model: validated.model, provider: validated.provider });
       return this.cacheAndReturn(agent_id, validated, false);
     } catch (error) {
-      // AgentNotFoundError is a known, permanent error — fall back to default
+      // AgentNotFoundError is a known, permanent error. By default we FAIL
+      // CLOSED: a typo'd / deleted agent_id (or a non-UUID) must surface, not
+      // silently run a generic deny-all assistant that "completes" with
+      // garbage output and real token spend. Opt into the legacy fallback via
+      // setAllowDefaultFallback(true) for tests / lightweight dev.
       if (error instanceof AgentNotFoundError) {
-        logger.warn('agent_not_found_fallback', { agent_id });
-        return this.cacheAndReturn(agent_id, this.getDefaultConfig(agent_id), true);
+        if (this.allowDefaultFallback) {
+          logger.warn('agent_not_found_fallback', { agent_id });
+          return this.cacheAndReturn(agent_id, this.getDefaultConfig(agent_id), true);
+        }
+        logger.error('agent_not_found', error, { agent_id });
+        throw error;
       }
 
       // Transient errors (DB connection, schema, network) — propagate up.

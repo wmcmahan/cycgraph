@@ -78,6 +78,9 @@ const TRACKED_FIELDS = [
 export class StateDeltaTracker {
   private lastState: WorkflowState | null = null;
   private persistCount: number = 0;
+  // One-level undo stash for the most recent computeDelta (see rollback()).
+  private prevState: WorkflowState | null = null;
+  private prevPersistCount: number = 0;
   private readonly fullSnapshotInterval: number;
   private readonly maxPatchBytes: number;
 
@@ -87,7 +90,13 @@ export class StateDeltaTracker {
   }
 
   /**
-   * Compute a delta between the last-persisted state and the current state.
+   * Compute a delta between the last-persisted state and the current state,
+   * advancing the baseline to `state`.
+   *
+   * The previous baseline is stashed so a failed persist can be undone via
+   * {@link rollback}: if the caller's write throws, it rolls back and the next
+   * `computeDelta` re-diffs against the last *durably persisted* state, so the
+   * failed iteration's changes are re-included rather than silently lost.
    *
    * Returns a full snapshot when:
    * - This is the first persist (no previous state)
@@ -97,6 +106,12 @@ export class StateDeltaTracker {
    * Otherwise returns a compact patch with only changed fields and memory keys.
    */
   computeDelta(state: WorkflowState): DeltaResult {
+    // Stash the pre-advance baseline so rollback() can undo this on a failed
+    // persist. Single-level: the coordinator always persists (and possibly
+    // rolls back) before the next computeDelta.
+    this.prevState = this.lastState;
+    this.prevPersistCount = this.persistCount;
+
     this.persistCount++;
 
     // Force full snapshot on first persist or at interval
@@ -105,7 +120,7 @@ export class StateDeltaTracker {
       return { type: 'full', state };
     }
 
-    const patch = this.buildPatch(this.lastState, state);
+    const patch = this.buildPatch(this.lastState, state, this.persistCount);
 
     // Check patch size — fall back to full snapshot if too large
     const estimatedSize = JSON.stringify(patch).length;
@@ -119,9 +134,21 @@ export class StateDeltaTracker {
   }
 
   /**
-   * Build a patch from two state snapshots.
+   * Undo the baseline advance from the most recent {@link computeDelta}. Call
+   * this when the persist that consumed that delta failed, so the next delta
+   * diffs against the last successfully persisted state (no lost patches, no
+   * skipped version numbers).
    */
-  private buildPatch(prev: WorkflowState, curr: WorkflowState): StatePatch {
+  rollback(): void {
+    this.lastState = this.prevState;
+    this.persistCount = this.prevPersistCount;
+  }
+
+  /**
+   * Build a patch from two state snapshots. `version` is the persist count
+   * this patch will carry once committed.
+   */
+  private buildPatch(prev: WorkflowState, curr: WorkflowState, version: number): StatePatch {
     const fields: Record<string, unknown> = {};
 
     // Diff scalar fields (use string comparison for Date-typed fields)
@@ -156,7 +183,7 @@ export class StateDeltaTracker {
 
     return {
       run_id: curr.run_id,
-      version: this.persistCount,
+      version,
       fields,
       memory_updates: memoryUpdates,
       memory_removals: memoryRemovals,
@@ -191,6 +218,8 @@ export class StateDeltaTracker {
   reset(): void {
     this.lastState = null;
     this.persistCount = 0;
+    this.prevState = null;
+    this.prevPersistCount = 0;
   }
 
   /** Number of persists since creation or last reset. */

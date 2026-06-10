@@ -26,6 +26,7 @@ This guide is for operators running cycgraph in production. If you're still on `
 Required:
 
 - **Postgres 16** with the `vector` extension installed (`init.sql` in `@cycgraph/orchestrator-postgres` handles this)
+- **Migrations applied** — run `npm run db:migrate` (or `drizzle-kit migrate`) before first boot and on every upgrade. The durable job queue (`workflow_jobs`) and the run `claim_epoch` fencing column ship in migration `0014`.
 - **MCP servers** running in isolated containers — never on the host
 
 Optional but recommended:
@@ -35,18 +36,38 @@ Optional but recommended:
 
 ## Wiring the postgres adapter
 
+The `GraphRunner` consumes persistence through injected callbacks (`persistStateFn`, `eventLog`), not provider objects directly — so you adapt the Drizzle providers into the runner's options. In production you usually drive runs through a `WorkflowWorker` rather than constructing `GraphRunner` by hand:
+
 ```typescript
-import { GraphRunner } from '@cycgraph/orchestrator';
+import { WorkflowWorker } from '@cycgraph/orchestrator';
 import {
+  DrizzleWorkflowQueue,
   DrizzlePersistenceProvider,
   DrizzleEventLogWriter,
-  DrizzleUsageRecorder,
+  createFencedRunnerOptions,
 } from '@cycgraph/orchestrator-postgres';
 
-const runner = new GraphRunner(graph, state, {
+const worker = new WorkflowWorker({
+  queue: new DrizzleWorkflowQueue(),
   persistence: new DrizzlePersistenceProvider(),
   eventLog: new DrizzleEventLogWriter({ retain_checkpoints: 3 }),
-  usageRecorder: new DrizzleUsageRecorder(),
+  // Per-job fenced writers carry the job's claim epoch (see below).
+  runnerOptionsFactory: (job) => ({
+    ...createFencedRunnerOptions(job),
+    toolResolver: new MCPConnectionManager(mcpRegistry),
+  }),
+});
+
+await worker.start();
+```
+
+To drive a single run directly instead, adapt the provider into a `persistStateFn`:
+
+```typescript
+const persistence = new DrizzlePersistenceProvider();
+const runner = new GraphRunner(graph, state, {
+  persistStateFn: (s) => persistence.saveWorkflowSnapshot(s),
+  eventLog: new DrizzleEventLogWriter({ retain_checkpoints: 3 }),
   toolResolver: new MCPConnectionManager(mcpRegistry),
 });
 ```
@@ -62,11 +83,17 @@ Set `DATABASE_URL` in the environment. The pool is lazily initialized with 5 ret
 | **MCP tool calls** | One per tool per agent step | Concurrent calls to *different* tools within the same step are sequential by AI SDK design |
 | **Postgres pool** | 20 connections | `DB_POOL_MAX` env var |
 
-### Optimistic locking
+### Version-increment retry
 
-Concurrent saves to the same `run_id` race on the `MAX(version)+1` increment. The persistence adapter **automatically retries** unique-violation errors with full-jitter exponential backoff (default: 5 retries, 10–500ms delays). You do not need to wrap saves yourself.
+Concurrent saves to the same `run_id` race on the `MAX(version)+1` increment. The persistence adapter **automatically retries** unique-violation errors with full-jitter exponential backoff (default: 5 retries, 10–500ms delays). You do not need to wrap saves yourself. This handles benign in-process races (e.g. a delta write and a snapshot landing together).
 
-If you see persistent `23505 unique_violation` errors after retry exhaustion, two GraphRunner instances are racing on the same run. Either serialize them or partition by run.
+### Run fencing (multi-worker safety)
+
+Version-increment retry resolves *who writes which version*, but it does not stop **two workers executing the same run** from interleaving state. That's the job of fencing.
+
+Every `DrizzleWorkflowQueue.dequeue()` bumps a `claim_epoch` on the run row. `createFencedRunnerOptions(job)` builds persistence and event-log writers that carry the job's epoch and verify it inside each write transaction; a write from a worker whose claim was reclaimed (missed heartbeats during a GC pause or partition) is rejected with `StaleClaimError`, and the runner aborts immediately rather than clobbering the new claimant.
+
+Always wire `runnerOptionsFactory: (job) => createFencedRunnerOptions(job)` on the worker for multi-process deployments. Without it, a paused-but-alive worker can resume after its job was reclaimed and corrupt the run. The event log independently rejects duplicate `(run_id, sequence_id)` appends with `EventSequenceConflictError`, which the runner also treats as fatal — a second line of defense against split-brain.
 
 ## Retention policy
 
@@ -167,3 +194,6 @@ See [Troubleshooting](/docs/getting-started/troubleshooting/) for first-run erro
 | Postgres pool exhausted | Long-running transactions | Investigate slow queries. Increase `DB_POOL_MAX` only after confirming the underlying cause. |
 | Event log table grows unbounded | Retention crons not wired | Schedule `archiveCompletedWorkflows()` + `deleteWarmData()`. Run a one-shot prune if backlogged. |
 | Workflow stuck in `waiting` | Human-in-the-loop never received approval | Check `state.waiting_timeout_at` — defaults to 24h. Send a `resume_from_human` action. |
+| `StaleClaimError` / `job:claim_lost` events | A worker's job was reclaimed (missed heartbeats) and another worker took over | Expected under partitions/GC pauses — fencing working as designed. If frequent, raise `heartbeatIntervalMs` headroom or investigate worker pauses. |
+| `EventSequenceConflictError` | Two workers appended to the same run | Indicates a fencing gap — confirm `runnerOptionsFactory: createFencedRunnerOptions` is wired and the queue is `DrizzleWorkflowQueue`. |
+| `EventLogCorruptionError` on recovery | A sequence gap (lost append) in the event log | The worker auto-falls-back to the latest snapshot when it's ahead; if not, inspect for lost DB writes. |

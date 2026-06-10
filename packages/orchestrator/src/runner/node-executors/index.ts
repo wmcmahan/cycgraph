@@ -25,3 +25,9 @@ export {
   executeReflectionNode,
   MemoryWriterMissingError,
 } from './reflection.js';
+export {
+  NODE_EXECUTORS,
+  SUPPORTED_NODE_TYPES,
+  getNodeExecutor,
+  type NodeExecutor,
+} from './registry.js';

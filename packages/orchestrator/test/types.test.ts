@@ -21,6 +21,10 @@ import {
   GraphEdgeSchema,
   FailurePolicySchema,
   NodeTypeSchema,
+  EvolutionConfigSchema,
+  VotingConfigSchema,
+  MapReduceConfigSchema,
+  SupervisorConfigSchema,
 } from '../src/types/graph.js';
 
 describe('Type Validation (Zod Schemas)', () => {
@@ -465,7 +469,9 @@ describe('Type Validation (Zod Schemas)', () => {
 
       const parsed = GraphNodeSchema.parse(minimalNode);
 
-      expect(parsed.read_keys).toEqual(['*']);
+      // read_keys defaults to [] (least privilege) — nodes see only
+      // goal/constraints unless they explicitly opt into memory keys.
+      expect(parsed.read_keys).toEqual([]);
       expect(parsed.write_keys).toEqual([]);
       expect(parsed.requires_compensation).toBe(false);
       expect(parsed.failure_policy).toBeDefined();
@@ -544,5 +550,43 @@ describe('Type Validation (Zod Schemas)', () => {
 
       expect(parsed.id).toBe('my-custom-id');
     });
+  });
+});
+
+describe('Resource bounds (DoS guards)', () => {
+  test('evolution population_size and max_generations are capped', () => {
+    const base = { candidate_agent_id: 'gen' };
+    expect(EvolutionConfigSchema.safeParse({ ...base, population_size: 100 }).success).toBe(true);
+    expect(EvolutionConfigSchema.safeParse({ ...base, population_size: 100_000 }).success).toBe(false);
+    expect(EvolutionConfigSchema.safeParse({ ...base, max_generations: 100 }).success).toBe(true);
+    expect(EvolutionConfigSchema.safeParse({ ...base, max_generations: 100_000 }).success).toBe(false);
+  });
+
+  test('evolution max_concurrency is capped at 50', () => {
+    const base = { candidate_agent_id: 'gen' };
+    expect(EvolutionConfigSchema.safeParse({ ...base, max_concurrency: 50 }).success).toBe(true);
+    expect(EvolutionConfigSchema.safeParse({ ...base, max_concurrency: 51 }).success).toBe(false);
+  });
+
+  test('voting voter_agent_ids is capped at 50', () => {
+    const ok = Array.from({ length: 50 }, (_, i) => `v${i}`);
+    const tooMany = Array.from({ length: 51 }, (_, i) => `v${i}`);
+    expect(VotingConfigSchema.safeParse({ voter_agent_ids: ok }).success).toBe(true);
+    expect(VotingConfigSchema.safeParse({ voter_agent_ids: tooMany }).success).toBe(false);
+  });
+
+  test('map-reduce max_concurrency is capped at 50', () => {
+    expect(MapReduceConfigSchema.safeParse({ worker_node_id: 'w', max_concurrency: 50 }).success).toBe(true);
+    expect(MapReduceConfigSchema.safeParse({ worker_node_id: 'w', max_concurrency: 100_000 }).success).toBe(false);
+  });
+
+  test('supervisor max_iterations is capped at 1000', () => {
+    const base = { managed_nodes: ['a'] };
+    expect(SupervisorConfigSchema.safeParse({ ...base, max_iterations: 1000 }).success).toBe(true);
+    expect(SupervisorConfigSchema.safeParse({ ...base, max_iterations: 1_000_001 }).success).toBe(false);
+  });
+
+  test('fan-out knobs reject non-integers', () => {
+    expect(EvolutionConfigSchema.safeParse({ candidate_agent_id: 'g', population_size: 5.5 }).success).toBe(false);
   });
 });

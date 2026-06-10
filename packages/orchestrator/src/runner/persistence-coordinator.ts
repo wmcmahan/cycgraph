@@ -26,6 +26,8 @@ import type { WorkflowState } from '../types/state.js';
 import type { EventLogWriter } from '../db/event-log.js';
 import type { StreamEvent } from './stream-events.js';
 import type { StateDeltaTracker, StatePatch } from '../persistence/delta-tracker.js';
+import { StaleClaimError } from '../persistence/errors.js';
+import { PersistenceUnavailableError } from '../db/persistence-health.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('runner.persistence-coordinator');
@@ -92,10 +94,18 @@ export class PersistenceCoordinator {
       try {
         if (this.deps.deltaTracker && this.deps.persistDeltaFn) {
           const delta = this.deps.deltaTracker.computeDelta(state);
-          if (delta.type === 'full') {
-            await this.deps.persistStateFn(state);
-          } else {
-            await this.deps.persistDeltaFn(delta.patch);
+          try {
+            if (delta.type === 'full') {
+              await this.deps.persistStateFn(state);
+            } else {
+              await this.deps.persistDeltaFn(delta.patch);
+            }
+          } catch (writeError) {
+            // The delta already advanced the tracker baseline optimistically;
+            // undo it so the next computeDelta re-diffs against the last
+            // durably persisted state (no lost patches on transient failure).
+            this.deps.deltaTracker.rollback();
+            throw writeError;
           }
         } else {
           await this.deps.persistStateFn(state);
@@ -116,6 +126,14 @@ export class PersistenceCoordinator {
           });
         }
       } catch (error) {
+        // A stale claim is not a transient persistence failure — another
+        // worker owns this run and every future write will be rejected too.
+        // Abort immediately instead of burning two more strikes (and two
+        // more node executions' worth of tokens).
+        if (error instanceof StaleClaimError) {
+          throw error;
+        }
+
         this.persistFailures++;
         logger.error('state_persist_failed', error, {
           run_id: state.run_id,
@@ -123,7 +141,7 @@ export class PersistenceCoordinator {
         });
 
         if (this.persistFailures >= MAX_PERSIST_FAILURES) {
-          throw new Error(
+          throw new PersistenceUnavailableError(
             `Persistence unavailable after ${this.persistFailures} consecutive failures. ` +
             `Halting workflow to prevent data loss.`,
           );

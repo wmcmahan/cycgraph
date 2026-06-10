@@ -17,11 +17,11 @@
 import { bench, describe } from 'vitest';
 import {
   rootReducer,
-  internalReducer,
   createWorkflowState,
   type Action,
   type WorkflowState,
 } from '@cycgraph/orchestrator';
+import { internalReducer } from '@cycgraph/orchestrator/internal';
 
 function freshState(): WorkflowState {
   return createWorkflowState({

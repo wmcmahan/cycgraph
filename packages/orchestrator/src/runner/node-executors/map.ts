@@ -17,6 +17,7 @@ import { ensureSaveToMemory } from './agent.js';
 import { NodeConfigError, UnsupportedNodeTypeError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { combineAbortSignals } from '../../utils/abort.js';
 
 const logger = createLogger('runner.node.map');
 
@@ -39,6 +40,7 @@ export async function executeWorkerWithStateView(
   stateView: StateView,
   attempt: number,
   ctx: NodeExecutorContext,
+  taskSignal?: AbortSignal,
 ): Promise<Action> {
   switch (node.type) {
     case 'agent': {
@@ -47,9 +49,12 @@ export async function executeWorkerWithStateView(
       const agentConfig = await ctx.deps.loadAgent(agent_id);
       const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), agent_id);
       const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, node.id) : undefined;
+      // Combine the workflow signal with the per-task timeout signal so a
+      // task_timeout_ms actually aborts the worker's LLM call.
+      const abortSignal = combineAbortSignals(ctx.abortSignal, taskSignal);
       return ctx.deps.executeAgent(agent_id, stateView, tools, attempt, {
         node_id: node.id,
-        abortSignal: ctx.abortSignal,
+        abortSignal,
         onToken,
         drainTaintEntries: ctx.deps.drainTaintEntries,
         ...(node.default_write_key ? { default_write_key: node.default_write_key } : {}),
@@ -160,7 +165,7 @@ export async function executeMapNode(
 
   const results = await executeParallel(
     tasks,
-    async (task) => executeWorkerWithStateView(task.node, task.stateView, 1, ctx),
+    async (task, taskSignal) => executeWorkerWithStateView(task.node, task.stateView, 1, ctx, taskSignal),
     { max_concurrency: config.max_concurrency, error_strategy: config.error_strategy, task_timeout_ms: config.task_timeout_ms },
   );
 

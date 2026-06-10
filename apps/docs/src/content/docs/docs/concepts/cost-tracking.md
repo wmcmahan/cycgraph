@@ -7,10 +7,16 @@ Every workflow run tracks token consumption and estimated cost in USD. Budgets c
 
 ## How costs are tracked
 
-Each time an agent node completes an LLM call, the action metadata includes a `token_usage` breakdown (`inputTokens`, `outputTokens`, `totalTokens`). The reducer accumulates these into two fields on `WorkflowState`:
+Each time a node completes an LLM call, the action metadata includes a `token_usage` breakdown (`inputTokens`, `outputTokens`, `totalTokens`). The reducer accumulates these into two fields on `WorkflowState`:
 
 - **`total_tokens_used`** — cumulative tokens across all LLM calls in the run
 - **`total_cost_usd`** — cumulative estimated cost, calculated using the pricing table
+
+Every LLM call is accounted for, not just successful agent nodes:
+
+- **Supervisor routing calls** attach `token_usage` + `model` to their handoff/completion actions, so supervisor loops count toward all budgets.
+- **Failed attempts** are counted too — the agent executor attaches best-effort `partialUsage` to its errors, and the runner records it, so a node that retries N times can't hide the tokens it burned on the failed tries.
+- **Composite nodes** (evolution, voting, map, annealing) aggregate the token usage of every internal call into their returned action.
 
 Cost is calculated per-model using `calculateCost()`:
 
@@ -65,6 +71,12 @@ registry.register({
   },
 });
 ```
+
+### Per-node budget
+
+Any node can carry its own `budget: { max_tokens?, max_cost_usd? }`. The runner enforces it after the node completes (breaching either cap throws `NodeBudgetExceededError`).
+
+For **composite nodes** that loop internally (evolution generations, annealing iterations), the post-completion check alone would let the whole population × generations spend happen before the cap is consulted. These nodes now also run an incremental budget guard *between* iterations: once accumulated token/cost spend crosses the node's `budget` or the remaining workflow budget, the loop stops early instead of running every remaining generation. Evolution surfaces a `{nodeId}_budget_stopped` flag in its output envelope. (The runner's hard `NodeBudgetExceededError` still fires if the aggregate exceeded the cap — the guard bounds the overspend, it doesn't suppress the error.)
 
 ## Budget threshold alerts
 

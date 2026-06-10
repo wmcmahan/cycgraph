@@ -18,6 +18,7 @@ import { createLogger } from '../../utils/logger.js';
 import type { NodeExecutorContext } from './context.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { checkCompositeBudget, logCompositeBudgetStop } from './budget-guard.js';
 
 const logger = createLogger('runner.node.annealing');
 
@@ -56,8 +57,26 @@ export async function executeAnnealingLoop(
   let bestAction: Action | null = null;
   let bestScore = -1;
   let totalTokens = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let observedModel: string | undefined;
 
   for (let iter = 0; iter < config.max_iterations; iter++) {
+    // Incremental budget guard: stop before issuing another iteration's LLM
+    // calls once accumulated spend crosses a node/workflow cap (the runner
+    // only checks budgets after the whole annealing loop otherwise).
+    if (iter > 0) {
+      const decision = checkCompositeBudget(
+        node,
+        { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, totalTokens, model: observedModel },
+        ctx,
+      );
+      if (decision.stop) {
+        logCompositeBudgetStop(node.id, decision);
+        break;
+      }
+    }
+
     // Linear temperature interpolation: initial → final
     const progress = config.max_iterations > 1 ? iter / (config.max_iterations - 1) : 1;
     const temperature = config.initial_temperature +
@@ -109,8 +128,14 @@ export async function executeAnnealingLoop(
       }
     }
 
-    const actionTokens = action.metadata.token_usage?.totalTokens ?? 0;
+    const actionUsage = action.metadata.token_usage;
+    const actionTokens = actionUsage?.totalTokens ?? 0;
     totalTokens += actionTokens + evalTokens;
+    totalInputTokens += actionUsage?.inputTokens ?? 0;
+    totalOutputTokens += actionUsage?.outputTokens ?? 0;
+    if (!observedModel && typeof action.metadata.model === 'string') {
+      observedModel = action.metadata.model;
+    }
 
     logger.info('annealing_iteration', {
       node_id: node.id,
@@ -156,7 +181,7 @@ export async function executeAnnealingLoop(
 
   result.metadata = {
     ...result.metadata,
-    token_usage: { totalTokens },
+    token_usage: { totalTokens, inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
   };
 
   return result;

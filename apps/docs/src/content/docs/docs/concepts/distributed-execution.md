@@ -95,7 +95,7 @@ await worker.stop();  // Graceful shutdown
 | `queue` | *(required)* | `WorkflowQueue` to poll for jobs. |
 | `persistence` | *(required)* | `PersistenceProvider` for loading graphs and saving state. |
 | `eventLog` | *(required)* | `EventLogWriter` for durable execution and crash recovery. |
-| `runnerOptionsFactory` | — | Factory for per-job `GraphRunnerOptions` (toolResolver, modelResolver, etc.). |
+| `runnerOptionsFactory` | — | Factory for per-job `GraphRunnerOptions` (toolResolver, modelResolver, etc.). Factory-provided options **override** the worker defaults — this is how per-job fenced `persistStateFn`/`eventLog` writers are wired in (see [Run fencing](#run-fencing)). |
 | `concurrency` | `1` | Maximum concurrent jobs per worker. |
 | `pollIntervalMs` | `1000` | Polling interval in milliseconds. |
 | `heartbeatIntervalMs` | `60000` | Heartbeat interval in milliseconds. |
@@ -113,6 +113,7 @@ The worker extends `EventEmitter` and emits:
 | `job:failed` | `{ jobId, runId, error }` | Job failed (nacked, will retry). |
 | `job:released` | `{ jobId, runId }` | Job released for HITL pause. |
 | `job:dead_letter` | `{ jobId, runId, error }` | Job exhausted all retries. |
+| `job:claim_lost` | `{ jobId, runId }` | This worker's claim was fenced off — another worker owns the run now. The job's queue state is left untouched. |
 | `worker:started` | `{ workerId }` | Worker poll loop has started. |
 | `worker:stopped` | `{ workerId }` | Worker has shut down. |
 
@@ -120,12 +121,59 @@ The worker extends `EventEmitter` and emits:
 
 When a worker crashes (or its process is killed), its in-flight jobs eventually expire via the visibility timeout. The reclaim timer on any running worker detects these expired jobs and returns them to `waiting`.
 
-When another worker picks up the job, it checks the event log:
+When another worker picks up the job, it reconciles **both** recovery artifacts — the event log and the latest state snapshot — since either can be ahead of the other (an event append can fail while the snapshot commits, and vice versa):
 
 1. If events exist for the run → `GraphRunner.recover()` replays them to reconstruct state
-2. If no events → fresh start with the job's `initial_state`
+2. If the latest snapshot reflects **more progress** than the replayed state (lost appends) → the worker resumes from the snapshot instead, avoiding re-execution of nodes whose side effects already happened
+3. If no events but a snapshot exists → resume from the snapshot
+4. If neither → fresh start with the job's `initial_state`
 
-This means even `start` jobs are safely recoverable — if a worker crashes mid-execution, the next worker seamlessly continues from the last event.
+Replay also validates that the event log is **gap-free** (contiguous sequence ids); a gap means an append was lost, and recovery refuses with `EventLogCorruptionError` rather than silently dropping a state transition. Resumed runs use the unified idempotency keys (`node_id:iteration`, anchored by the snapshot's event-log high-water mark) to skip re-executing a node whose action was already applied before the crash.
+
+This means even `start` jobs are safely recoverable — if a worker crashes mid-execution, the next worker seamlessly continues from the most advanced consistent state.
+
+## Run fencing
+
+A visibility timeout alone cannot stop a *paused-but-alive* worker: a long GC pause or network partition can cause missed heartbeats, the job gets reclaimed, and the original worker wakes up and keeps writing — interleaving with the new claimant (split-brain).
+
+Fencing closes this hole with a **claim epoch**:
+
+1. Every `dequeue()` bumps the run's claim epoch and stamps it on the returned job (`job.claim_epoch`)
+2. Per-job **fenced** persistence/event-log writers carry the epoch on every write
+3. The storage adapter rejects writes whose epoch is older than the run's current epoch with `StaleClaimError`
+4. The runner treats `StaleClaimError` as immediately fatal (no retry, no strike-counting) and the worker emits `job:claim_lost` without touching the job — it no longer owns it
+
+With `@cycgraph/orchestrator-postgres`, wire fencing via `createFencedRunnerOptions`:
+
+```typescript
+import {
+  DrizzleWorkflowQueue,
+  DrizzlePersistenceProvider,
+  DrizzleEventLogWriter,
+  createFencedRunnerOptions,
+} from '@cycgraph/orchestrator-postgres';
+
+const worker = new WorkflowWorker({
+  queue: new DrizzleWorkflowQueue(),
+  persistence: new DrizzlePersistenceProvider(),
+  eventLog: new DrizzleEventLogWriter(),
+  // Per-job fenced writers — factory results override the worker defaults.
+  runnerOptionsFactory: (job) => createFencedRunnerOptions(job),
+});
+```
+
+`InMemoryWorkflowQueue` stamps claim epochs with the same semantics, so fenced behavior is testable without a database.
+
+## Graceful shutdown
+
+`worker.stop()`:
+
+1. Requests `shutdown()` on all active runners (finish the current node, persist, pause)
+2. Waits up to `shutdownGracePeriodMs` for in-flight work
+3. **Hard-cancels** runners that outlive the grace period (`cancel()` aborts in-flight LLM calls) — the worker never lets go of a job while its runner is still writing
+4. Leaves unfinished jobs `active` in the queue: their visibility timeout expires and `reclaimExpired()` returns them to `waiting` for another worker — the same path as crash recovery
+
+Jobs interrupted by shutdown are **not** released to `paused` (that status is reserved for HITL and requires an explicit `resume` job) and **not** acked — only terminal workflow statuses (`completed`, `failed`, `cancelled`, `timeout`) ack a job.
 
 ## Human-in-the-Loop with workers
 
@@ -192,8 +240,9 @@ setQueueDepthProvider(async () => {
 | Implementation | Package | Use Case |
 |---------------|---------|----------|
 | `InMemoryWorkflowQueue` | `@cycgraph/orchestrator` | Testing, single-process deployments |
+| `DrizzleWorkflowQueue` | `@cycgraph/orchestrator-postgres` | Production multi-process / multi-host deployments. Atomic claims via `FOR UPDATE SKIP LOCKED`, fencing epochs on every claim, backed by the `workflow_jobs` table. |
 
-For multi-process / multi-host deployments, implement the `WorkflowQueue` interface yourself against your queue of choice — Postgres (`FOR UPDATE SKIP LOCKED`), Redis (RPOPLPUSH or Streams), SQS, etc. The interface is intentionally narrow so backend choice stays a project decision.
+Both implementations stamp `claim_epoch` on dequeued jobs, so fencing-aware code behaves identically against either. You can also implement the `WorkflowQueue` interface against another backend (Redis Streams, SQS, etc.) — the interface is intentionally narrow so backend choice stays a project decision.
 
 ## Next steps
 

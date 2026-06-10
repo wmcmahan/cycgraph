@@ -86,7 +86,10 @@ vi.mock('../src/utils/taint', () => ({
 // ─── Imports (after mocks) ──────────────────────────────────────────
 
 import { GraphRunner } from '../src/runner/graph-runner.js';
-import { InMemoryEventLogWriter } from '../src/db/event-log.js';
+import { InMemoryEventLogWriter, EventSequenceConflictError } from '../src/db/event-log.js';
+import { REPLAY_VERSION } from '../src/reducers/index.js';
+import { hydrateWorkflowState } from '../src/types/state.js';
+import { executeAgent } from '../src/agent/agent-executor/executor.js';
 import type { Graph, GraphNode, GraphEdge } from '../src/types/graph.js';
 import type { WorkflowState } from '../src/types/state.js';
 
@@ -332,6 +335,159 @@ describe('Durable Execution — Event Sourcing', () => {
     });
   });
 
+  describe('Event log integrity', () => {
+    test('recovery throws EventLogCorruptionError on a sequence gap', async () => {
+      const eventLog = new InMemoryEventLogWriter();
+      const graph: Graph = {
+        id: uuidv4(),
+        name: 'gap-detect',
+        nodes: [makeNode('a'), makeNode('b'), makeNode('c')],
+        edges: [makeEdge('a', 'b'), makeEdge('b', 'c')],
+        start_node: 'a',
+        end_nodes: ['c'],
+      };
+      const state = makeState({ workflow_id: graph.id });
+
+      const runner = new GraphRunner(graph, state, { eventLog });
+      await runner.run();
+
+      // Simulate a lost append: remove an event from the middle of the log.
+      const events = eventLog.getEventsForRun(state.run_id);
+      expect(events.length).toBeGreaterThan(4);
+      events.splice(3, 1);
+
+      await expect(
+        GraphRunner.recover(graph, state.run_id, eventLog),
+      ).rejects.toThrow(/corrupted or incomplete/);
+    });
+
+    test('append rejects duplicate (run_id, sequence_id) with EventSequenceConflictError', async () => {
+      const eventLog = new InMemoryEventLogWriter();
+      const runId = uuidv4();
+
+      await eventLog.append({ run_id: runId, sequence_id: 0, event_type: 'workflow_started' });
+      await expect(
+        eventLog.append({ run_id: runId, sequence_id: 0, event_type: 'node_started', node_id: 'x' }),
+      ).rejects.toBeInstanceOf(EventSequenceConflictError);
+    });
+
+    test('run halts after three consecutive failed event-log flushes', async () => {
+      // Event log whose appends always fail (e.g. DB down) but isn't a Noop —
+      // the runner must halt instead of silently losing its durable history.
+      const failingLog = new InMemoryEventLogWriter();
+      failingLog.append = async () => {
+        throw new Error('db down');
+      };
+
+      const graph: Graph = {
+        id: uuidv4(),
+        name: 'flush-halt',
+        nodes: [makeNode('a'), makeNode('b'), makeNode('c'), makeNode('d')],
+        edges: [makeEdge('a', 'b'), makeEdge('b', 'c'), makeEdge('c', 'd')],
+        start_node: 'a',
+        end_nodes: ['d'],
+      };
+      const state = makeState({ workflow_id: graph.id });
+
+      const runner = new GraphRunner(graph, state, { eventLog: failingLog });
+      await expect(runner.run()).rejects.toThrow(/Event log unavailable/);
+    });
+
+    test('a sequence conflict during execution is fatal (split-brain guard)', async () => {
+      const eventLog = new InMemoryEventLogWriter();
+      const graph: Graph = {
+        id: uuidv4(),
+        name: 'conflict-fatal',
+        nodes: [makeNode('a'), makeNode('b'), makeNode('c')],
+        edges: [makeEdge('a', 'b'), makeEdge('b', 'c')],
+        start_node: 'a',
+        end_nodes: ['c'],
+      };
+      const state = makeState({ workflow_id: graph.id });
+
+      // Simulate a second writer racing on the same run: pre-claim a
+      // sequence id this runner will try to use.
+      await eventLog.append({ run_id: state.run_id, sequence_id: 4, event_type: 'node_started', node_id: 'intruder' });
+
+      const runner = new GraphRunner(graph, state, { eventLog });
+      await expect(runner.run()).rejects.toThrow(/another writer/);
+    });
+  });
+
+  describe('Idempotency — crash-window resume', () => {
+    /**
+     * Simulate a crash in the post-reduce/pre-advance window: the snapshot
+     * persisted right after node a's action contains the action's effects
+     * while current_node still points at a. Resuming that snapshot must NOT
+     * re-execute a (no duplicate LLM spend, no double-applied action).
+     */
+    async function runAndCaptureSnapshots() {
+      const eventLog = new InMemoryEventLogWriter();
+      const snapshots: WorkflowState[] = [];
+      const graph: Graph = {
+        id: uuidv4(),
+        name: 'crash-window',
+        nodes: [makeNode('a'), makeNode('b')],
+        edges: [makeEdge('a', 'b')],
+        start_node: 'a',
+        end_nodes: ['b'],
+      };
+      const state = makeState({ workflow_id: graph.id });
+
+      const runner = new GraphRunner(graph, state, {
+        eventLog,
+        persistStateFn: async (s) => {
+          // Simulate real storage: JSON round-trip like a jsonb column.
+          snapshots.push(JSON.parse(JSON.stringify(s)));
+        },
+      });
+      await runner.run();
+      return { eventLog, snapshots, graph, state };
+    }
+
+    test('resume after post-reduce/pre-advance crash skips the applied node', async () => {
+      const { eventLog, snapshots, graph } = await runAndCaptureSnapshots();
+
+      // The post-a-action, pre-advance snapshot: a's output is in memory but
+      // current_node hasn't moved yet.
+      const crashSnapshot = snapshots.find(
+        s => s.current_node === 'a' && (s.memory as Record<string, unknown>).a_result === 'done',
+      );
+      expect(crashSnapshot).toBeDefined();
+
+      const callsBefore = vi.mocked(executeAgent).mock.calls.length;
+      const resumed = new GraphRunner(graph, hydrateWorkflowState(crashSnapshot), { eventLog });
+      const result = await resumed.run();
+
+      expect(result.status).toBe('completed');
+      expect(result.memory.a_result).toBe('done');
+      expect(result.memory.b_result).toBe('done');
+
+      // Only node b executed on resume — a's action was already applied.
+      const resumeCalls = vi.mocked(executeAgent).mock.calls.slice(callsBefore);
+      expect(resumeCalls.map(c => c[0])).toEqual(['b']);
+    });
+
+    test('resume from a pre-action snapshot re-executes the node (at-least-once)', async () => {
+      const { eventLog, snapshots, graph } = await runAndCaptureSnapshots();
+
+      // The earliest snapshot: _init applied, node a not yet executed.
+      const preActionSnapshot = snapshots.find(
+        s => s.current_node === 'a' && (s.memory as Record<string, unknown>).a_result === undefined,
+      );
+      expect(preActionSnapshot).toBeDefined();
+
+      const callsBefore = vi.mocked(executeAgent).mock.calls.length;
+      const resumed = new GraphRunner(graph, hydrateWorkflowState(preActionSnapshot), { eventLog });
+      const result = await resumed.run();
+
+      expect(result.status).toBe('completed');
+      // a's effects were NOT in the snapshot, so a must re-execute.
+      const resumeCalls = vi.mocked(executeAgent).mock.calls.slice(callsBefore);
+      expect(resumeCalls.map(c => c[0])).toEqual(['a', 'b']);
+    });
+  });
+
   describe('InMemoryEventLogWriter', () => {
     test('should store and retrieve events in sequence_id order', async () => {
       const eventLog = new InMemoryEventLogWriter();
@@ -463,6 +619,67 @@ describe('Durable Execution — Event Sourcing', () => {
       // loadEventsAfter should also return only 4,5
       const after = await eventLog.loadEventsAfter(runId, 3);
       expect(after.map(e => e.sequence_id)).toEqual([4, 5]);
+    });
+
+    test('workflow_started event carries the reducer replay version', async () => {
+      const eventLog = new InMemoryEventLogWriter();
+      const graph: Graph = {
+        id: uuidv4(),
+        name: 'versioned',
+        nodes: [makeNode('only')],
+        edges: [],
+        start_node: 'only',
+        end_nodes: ['only'],
+      };
+      const state = makeState({ workflow_id: graph.id });
+
+      const runner = new GraphRunner(graph, state, { eventLog });
+      await runner.run();
+
+      const started = eventLog
+        .getEventsForRun(state.run_id)
+        .find(e => e.event_type === 'workflow_started');
+      expect(started?.internal_payload?.replay_version).toBe(REPLAY_VERSION);
+    });
+
+    test('applyHumanResponse appends resume_from_human to the event log', async () => {
+      const eventLog = new InMemoryEventLogWriter();
+      const graph: Graph = {
+        id: uuidv4(),
+        name: 'hitl',
+        nodes: [makeNode('gate'), makeNode('after')],
+        edges: [makeEdge('gate', 'after')],
+        start_node: 'gate',
+        end_nodes: ['after'],
+      };
+      const state = makeState({
+        workflow_id: graph.id,
+        status: 'waiting',
+        waiting_for: 'human_approval',
+        current_node: 'gate',
+        visited_nodes: ['gate'],
+        memory: { _pending_approval: { node_id: 'gate' } },
+      });
+
+      const runner = new GraphRunner(graph, state, { eventLog });
+      runner.applyHumanResponse({ decision: 'approved', data: { note: 'lgtm' } });
+      // The resume events are deferred until execution — they land once the
+      // resume path has advanced sequenceId past the run's existing log.
+      await runner.run();
+
+      const events = eventLog.getEventsForRun(state.run_id);
+      const resume = events.find(
+        e => e.event_type === 'action_dispatched' && e.action?.type === 'resume_from_human',
+      );
+      expect(resume).toBeDefined();
+
+      // The human decision must precede the _advance so replay applies them
+      // in the same order as the live run.
+      const advance = events.find(
+        e => e.event_type === 'internal_dispatched' && e.internal_type === '_advance',
+      );
+      expect(advance).toBeDefined();
+      expect(resume!.sequence_id).toBeLessThan(advance!.sequence_id);
     });
 
     test('compactEvents() on fresh runner (no events) returns 0', async () => {

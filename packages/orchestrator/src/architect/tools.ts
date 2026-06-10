@@ -15,6 +15,8 @@
 
 import { z } from 'zod';
 import { generateWorkflow } from './index.js';
+import { GraphSchema } from '../types/graph.js';
+import { validateGraph } from '../validation/graph-validator.js';
 
 /**
  * Tool definition used by the agent executor.
@@ -91,6 +93,16 @@ export const architectToolDefinitions: Record<string, ToolDefinition> = {
 export interface ArchitectToolDeps {
   saveGraph: (graph: Graph) => Promise<void>;
   loadGraph: (graphId: string) => Promise<Graph | null>;
+  /**
+   * Optional publish gate. When provided, `architect_publish_workflow`
+   * calls it AFTER the graph passes schema + referential validation but
+   * BEFORE `saveGraph`. Return `false` (or a string reason) to deny the
+   * publish — e.g. to require human approval, check a privileged
+   * credential, or apply policy. Without it, any agent holding the
+   * `architect_publish_workflow` tool can publish executable graphs, so
+   * gating is strongly recommended for untrusted/agent-driven callers.
+   */
+  canPublish?: (graph: Graph) => Promise<boolean | string> | boolean | string;
 }
 
 let _deps: ArchitectToolDeps | null = null;
@@ -175,7 +187,34 @@ async function handlePublishWorkflow(args: Record<string, unknown>) {
   }
 
   const { graph, overwrite } = PublishWorkflowArgsSchema.parse(args);
-  const typedGraph = graph as unknown as Graph;
+
+  // SECURITY: never persist an unvalidated graph. The tool accepts an
+  // arbitrary object the agent constructs, so a prompt-injected or buggy
+  // agent could otherwise publish an executable graph with wildcard
+  // read_keys, unbounded fan-out, or arbitrary tool wiring. Structurally
+  // validate (GraphSchema) AND check referential integrity (validateGraph)
+  // before it can ever reach saveGraph / the Workflow API.
+  const parsed = GraphSchema.safeParse(graph);
+  if (!parsed.success) {
+    logger.warn('tool_publish_rejected_schema', {
+      issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).slice(0, 10),
+    });
+    return {
+      error: 'Graph failed schema validation and was not published.',
+      validation_errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+    };
+  }
+  const typedGraph = parsed.data;
+
+  const referential = validateGraph(typedGraph);
+  if (!referential.valid) {
+    logger.warn('tool_publish_rejected_referential', { errors: referential.errors });
+    return {
+      error: 'Graph failed referential validation and was not published.',
+      validation_errors: referential.errors,
+      graph_id: typedGraph.id,
+    };
+  }
 
   const existing = await _deps.loadGraph(typedGraph.id);
   if (existing && !overwrite) {
@@ -183,6 +222,20 @@ async function handlePublishWorkflow(args: Record<string, unknown>) {
       error: `Graph "${typedGraph.id}" already exists. Set overwrite to true to update it.`,
       graph_id: typedGraph.id,
     };
+  }
+
+  // Optional host-controlled gate (human approval, privileged credential, policy).
+  if (_deps.canPublish) {
+    const decision = await _deps.canPublish(typedGraph);
+    if (decision !== true) {
+      logger.warn('tool_publish_denied_by_gate', { graph_id: typedGraph.id });
+      return {
+        error: typeof decision === 'string'
+          ? `Publish denied: ${decision}`
+          : 'Publish denied by host policy.',
+        graph_id: typedGraph.id,
+      };
+    }
   }
 
   await _deps.saveGraph(typedGraph);

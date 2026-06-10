@@ -1,0 +1,3 @@
+CREATE INDEX "idx_workflow_runs_created_at_desc" ON "workflow_runs" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "idx_workflow_runs_completed_not_archived" ON "workflow_runs" USING btree ("completed_at") WHERE archived_at IS NULL;--> statement-breakpoint
+CREATE INDEX "idx_workflow_states_archived_at" ON "workflow_states" USING btree ("archived_at") WHERE archived_at IS NOT NULL;

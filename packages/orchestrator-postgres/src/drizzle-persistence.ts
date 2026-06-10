@@ -19,6 +19,7 @@ import type {
 } from '@cycgraph/orchestrator';
 import type { Graph } from '@cycgraph/orchestrator';
 import type { WorkflowState } from '@cycgraph/orchestrator';
+import { hydrateWorkflowState, StaleClaimError } from '@cycgraph/orchestrator';
 
 type WorkflowStatus = 'pending' | 'scheduled' | 'running' | 'waiting' | 'retrying' | 'completed' | 'failed' | 'cancelled' | 'timeout';
 
@@ -73,7 +74,28 @@ export function toWorkflowStateJson(state: WorkflowState): WorkflowStateJson {
 
 // ─── DrizzlePersistenceProvider ──────────────────────────────────────
 
+/** Fencing claim carried by a fenced provider/writer (see DrizzleWorkflowQueue). */
+export interface RunClaim {
+  run_id: string;
+  epoch: number;
+}
+
+export interface DrizzlePersistenceProviderOptions {
+  /**
+   * When set, every state write for `fencing.run_id` verifies (inside the
+   * write transaction, under `FOR UPDATE`) that the run's `claim_epoch`
+   * still equals `fencing.epoch`, throwing {@link StaleClaimError} when
+   * another worker has since claimed the run.
+   */
+  fencing?: RunClaim;
+}
+
 export class DrizzlePersistenceProvider implements PersistenceProvider {
+  private readonly fencing?: RunClaim;
+
+  constructor(options?: DrizzlePersistenceProviderOptions) {
+    this.fencing = options?.fencing;
+  }
 
   // ── Graph Operations ──
 
@@ -189,6 +211,8 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     // produces the next correct version.
     await retryOnTransient(() =>
       db.transaction(async (tx) => {
+        await this.assertClaim(tx, state.run_id);
+
         const maxVersionResult = await tx
           .select({ maxVersion: sql<number>`COALESCE(MAX(${workflow_states.version}), 0)` })
           .from(workflow_states)
@@ -208,6 +232,30 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     );
   }
 
+  /**
+   * Fencing check: verify (under `FOR UPDATE`, so the check is atomic with
+   * the enclosing write) that this provider's claim epoch is still the
+   * run's current epoch. No-ops when fencing is not configured or the
+   * write targets a different run.
+   *
+   * @throws {StaleClaimError} When another worker has claimed the run.
+   */
+  private async assertClaim(
+    tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    runId: string,
+  ): Promise<void> {
+    if (!this.fencing || this.fencing.run_id !== runId) return;
+    const rows = await tx
+      .select({ claim_epoch: workflow_runs.claim_epoch })
+      .from(workflow_runs)
+      .where(eq(workflow_runs.id, runId))
+      .for('update');
+    const current = rows[0]?.claim_epoch;
+    if (current !== undefined && current !== this.fencing.epoch) {
+      throw new StaleClaimError(runId, this.fencing.epoch, current);
+    }
+  }
+
   async loadLatestWorkflowState(run_id: string): Promise<WorkflowState | null> {
     const result = await db
       .select()
@@ -217,7 +265,10 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
       .limit(1);
 
     const state = result[0]?.state ?? null;
-    return state as unknown as WorkflowState | null;
+    if (state === null) return null;
+    // jsonb loses Date types — hydrate (migrate + parse + coerce dates)
+    // instead of casting, so resumed runs get real Date fields back.
+    return hydrateWorkflowState(state);
   }
 
   async loadWorkflowStateHistory(
@@ -265,6 +316,8 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     // (`onConflictDoUpdate`); the state insert is what races.
     await retryOnTransient(() =>
       db.transaction(async (tx) => {
+        await this.assertClaim(tx, state.run_id);
+
         // Save workflow run
         const isTerminal = TERMINAL_STATUSES.includes(state.status);
         const status = state.status as WorkflowStatus;

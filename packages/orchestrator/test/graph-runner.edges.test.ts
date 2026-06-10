@@ -353,29 +353,34 @@ describe('GraphRunner — Conditional Edge Routing', () => {
 });
 
 describe('GraphRunner — No Matching Edge', () => {
-  /**
-   * ALL edges are conditional and NONE match. The runner should NOT hang or loop
-   * forever — it should complete gracefully because getNextNode returns null.
-   */
-  test('should complete when no conditional edge matches and no fallback exists', async () => {
-    const graph: Graph = {
-      id: uuidv4(), name: 'Dead End', description: '',
-      nodes: [
-        makeNode({ id: 'start', type: 'agent', agent_id: 'decider-A' }),
-        makeNode({ id: 'unreachable', type: 'agent', agent_id: 'handler' }),
-      ],
-      edges: [
-        // Condition will never match because decision is 'A', not 'Z'
-        { id: 'e1', source: 'start', target: 'unreachable', condition: { type: 'conditional', condition: "$.memory.decision == 'Z'" } },
-      ],
-      start_node: 'start',
-      end_nodes: ['unreachable'],
-    };
+  const deadEndGraph = (): Graph => ({
+    id: uuidv4(), name: 'Dead End', description: '',
+    nodes: [
+      makeNode({ id: 'start', type: 'agent', agent_id: 'decider-A' }),
+      makeNode({ id: 'unreachable', type: 'agent', agent_id: 'handler' }),
+    ],
+    edges: [
+      // Condition never matches → 'start' (a non-end node) dead-ends.
+      { id: 'e1', source: 'start', target: 'unreachable', condition: { type: 'conditional', condition: "$.memory.decision == 'Z'" } },
+    ],
+    start_node: 'start',
+    end_nodes: ['unreachable'],
+  });
 
-    const runner = new GraphRunner(graph, createState());
+  /**
+   * A non-end node whose only edge condition never matches is a dead-end.
+   * The runner must FAIL LOUD (not silently report "completed" having
+   * executed only half the graph — the bug this guards against).
+   */
+  test('fails loud when no edge matches at a non-end node', async () => {
+    const runner = new GraphRunner(deadEndGraph(), createState());
+    await expect(runner.run()).rejects.toThrow(/no outgoing edge/);
+  });
+
+  test('allow_implicit_completion restores legacy silent completion', async () => {
+    const runner = new GraphRunner(deadEndGraph(), createState(), { allow_implicit_completion: true });
     const final = await runner.run();
 
-    // Should complete (no matching edge = done), not hang
     expect(final.status).toBe('completed');
     expect(final.visited_nodes).toEqual(['start']);
     expect(final.visited_nodes).not.toContain('unreachable');

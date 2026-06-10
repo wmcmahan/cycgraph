@@ -9,7 +9,7 @@
  */
 
 import type { GraphNode } from '../../types/graph.js';
-import type { Action, StateView } from '../../types/state.js';
+import type { Action, StateView, TaintMetadata } from '../../types/state.js';
 import type { TaintedToolResultShape } from './context.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger.js';
@@ -59,15 +59,38 @@ export async function executeToolNode(
   }
   const raw = await toolDef.execute(stateView.memory);
 
-  // Check if result carries taint metadata (external MCP tool)
-  const isTaintedResult = raw && typeof raw === 'object' && 'taint' in raw && 'result' in raw;
-  const resultValue = isTaintedResult ? (raw as TaintedToolResultShape).result : raw;
   const resultKey = `${node.id}_result`;
 
+  // Two taint shapes are possible:
+  // 1. The result itself carries { result, taint } (explicit wrapper).
+  // 2. The MCPConnectionManager accumulated taint during execute() — drain
+  //    it from this resolution's collector. This is the common case for real
+  //    MCP tools; without it, standalone tool nodes wrote external data to
+  //    memory UNTAINTED, defeating downstream taint-aware routing/warnings.
+  const isTaintedResult = raw && typeof raw === 'object' && 'taint' in raw && 'result' in raw;
+  const resultValue = isTaintedResult ? (raw as TaintedToolResultShape).result : raw;
+
   const updates: Record<string, unknown> = { [resultKey]: resultValue };
+
+  let taint: TaintMetadata | undefined;
   if (isTaintedResult) {
+    taint = (raw as TaintedToolResultShape).taint as unknown as TaintMetadata;
+  } else {
+    const drained = ctx.deps.drainTaintEntries?.(resolvedTools);
+    if (drained && drained.size > 0) {
+      const [, firstEntry] = drained.entries().next().value as [string, TaintMetadata];
+      taint = {
+        source: 'mcp_tool',
+        tool_name: [...new Set([...drained.values()].map((e) => e.tool_name).filter(Boolean))].join(',') || tool_id,
+        server_id: firstEntry.server_id,
+        created_at: new Date().toISOString(),
+      };
+    }
+  }
+
+  if (taint) {
     const registry = ctx.deps.getTaintRegistry(ctx.state.memory);
-    registry[resultKey] = (raw as TaintedToolResultShape).taint;
+    registry[resultKey] = taint;
     updates['_taint_registry'] = registry;
   }
 

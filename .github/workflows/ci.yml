@@ -48,14 +48,35 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=packages/orchestrator
 
-      - name: Run orchestrator tests
-        run: npx vitest run
+      # --coverage enforces the thresholds in vitest.config.ts (a regression
+      # ratchet on src/runner and src/agent); a coverage drop fails the job.
+      - name: Run orchestrator tests (with coverage thresholds)
+        run: npx vitest run --coverage
         working-directory: packages/orchestrator
 
   test-orchestrator-postgres:
     name: Test Orchestrator Postgres
     runs-on: ubuntu-latest
     needs: lint-and-build
+    # Real Postgres (with pgvector) so the Drizzle adapter, durable event log,
+    # and the SKIP-LOCKED queue + fencing tests actually run instead of skipping.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: mcai
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # Wait until the server accepts connections before the job's steps run.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcai
     steps:
       - uses: actions/checkout@v4
 
@@ -65,10 +86,23 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run build --workspace=packages/orchestrator
+      # orchestrator + memory are workspace deps the adapter and its tests import.
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory
 
-      - name: Run orchestrator-postgres unit tests
-        run: npx vitest run --passWithNoTests
+      # The pgvector image ships the extension but a `services:` container does
+      # NOT auto-run init.sql (no volume mount), and no migration creates the
+      # extension — so create it here before migrating. `psql` is preinstalled
+      # on the GitHub ubuntu runner.
+      - name: Enable pgvector extension
+        run: psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+
+      - name: Apply migrations
+        run: npm run migrate --workspace=packages/orchestrator-postgres
+
+      # No --passWithNoTests: with DATABASE_URL set, the 66 previously-skipped
+      # integration tests must run (and pass), not silently no-op.
+      - name: Run orchestrator-postgres tests
+        run: npx vitest run
         working-directory: packages/orchestrator-postgres
 
   test-memory:

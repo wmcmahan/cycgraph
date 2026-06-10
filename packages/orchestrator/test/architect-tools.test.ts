@@ -30,16 +30,28 @@ vi.mock('../src/architect/index.js', () => ({
 
 // ─── Fixtures ────────────────────────────────────────────────────────
 
+// A structurally + referentially valid minimal graph: one agent node that
+// is both the start and the only end node. Publishing now validates, so
+// fixtures must be real graphs.
 function makeGraph(overrides: Partial<Graph> = {}): Graph {
   return {
     id: 'graph-1',
     name: 'Test Graph',
-    nodes: [],
+    description: 'A test graph',
+    nodes: [
+      {
+        id: 'start',
+        type: 'agent',
+        agent_id: 'agent-1',
+        read_keys: ['goal'],
+        write_keys: ['result'],
+      },
+    ],
     edges: [],
     start_node: 'start',
-    metadata: {},
+    end_nodes: ['start'],
     ...overrides,
-  } as Graph;
+  } as unknown as Graph;
 }
 
 function makeDeps(overrides: Partial<ArchitectToolDeps> = {}): ArchitectToolDeps {
@@ -131,9 +143,71 @@ describe('executeArchitectTool', () => {
         graph,
       });
 
-      expect(deps.saveGraph).toHaveBeenCalledWith(graph);
+      // saveGraph receives the schema-parsed graph (defaults filled in),
+      // not the raw input — assert on identity, not deep equality.
+      expect(deps.saveGraph).toHaveBeenCalledTimes(1);
+      expect((deps.saveGraph as ReturnType<typeof vi.fn>).mock.calls[0][0].id).toBe('graph-1');
       expect(result).toHaveProperty('status', 'published');
       expect(result).toHaveProperty('graph_id', 'graph-1');
+    });
+
+    it('rejects a graph that fails schema validation (does not persist)', async () => {
+      const deps = makeDeps();
+      initArchitectTools(deps);
+
+      // Missing required fields (description, end_nodes) + empty nodes.
+      const result = await executeArchitectTool('architect_publish_workflow', {
+        graph: { id: 'bad', name: 'Bad', nodes: [], edges: [], start_node: 'x' },
+      });
+
+      expect(result).toHaveProperty('error');
+      expect(result).toHaveProperty('validation_errors');
+      expect(deps.saveGraph).not.toHaveBeenCalled();
+    });
+
+    it('rejects a graph that fails referential validation (start_node missing)', async () => {
+      const deps = makeDeps();
+      initArchitectTools(deps);
+
+      const result = await executeArchitectTool('architect_publish_workflow', {
+        graph: {
+          id: 'bad-ref',
+          name: 'Bad Ref',
+          description: 'dangling start',
+          nodes: [{ id: 'a', type: 'agent', agent_id: 'x', read_keys: ['goal'], write_keys: ['r'] }],
+          edges: [],
+          start_node: 'does-not-exist',
+          end_nodes: ['a'],
+        },
+      });
+
+      expect(result).toHaveProperty('error');
+      expect(deps.saveGraph).not.toHaveBeenCalled();
+    });
+
+    it('honors the canPublish gate — denies and does not persist', async () => {
+      const deps = makeDeps({ canPublish: () => 'human approval required' });
+      initArchitectTools(deps);
+
+      const result = await executeArchitectTool('architect_publish_workflow', {
+        graph: makeGraph(),
+      });
+
+      expect(result).toHaveProperty('error');
+      expect((result as { error: string }).error).toContain('human approval required');
+      expect(deps.saveGraph).not.toHaveBeenCalled();
+    });
+
+    it('honors the canPublish gate — allows and persists', async () => {
+      const deps = makeDeps({ canPublish: () => true });
+      initArchitectTools(deps);
+
+      const result = await executeArchitectTool('architect_publish_workflow', {
+        graph: makeGraph(),
+      });
+
+      expect(result).toHaveProperty('status', 'published');
+      expect(deps.saveGraph).toHaveBeenCalledTimes(1);
     });
 
     it('returns error when graph exists and overwrite is false', async () => {

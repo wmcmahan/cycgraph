@@ -316,6 +316,43 @@ describe('Subgraph Execution', () => {
     await expect(runner.run()).rejects.toThrow(/[Cc]ycle/);
   });
 
+  it('enforces a maximum subgraph nesting depth', async () => {
+    // A chain of DISTINCT subgraphs passes cycle detection but would recurse
+    // without bound — the depth cap must reject it. Seed the parent state
+    // with a deep _subgraph_stack to simulate having already nested 32 deep.
+    const parentGraph: Graph = {
+      id: 'deep-parent',
+      name: 'deep',
+      description: 'deeply nested',
+      nodes: [
+        {
+          id: 'sub-node',
+          type: 'subgraph',
+          subgraph_config: {
+            subgraph_id: 'child-graph',
+            input_mapping: {},
+            output_mapping: {},
+            max_iterations: 50,
+          },
+          read_keys: ['*'],
+          write_keys: ['*'],
+          failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+          requires_compensation: false,
+        },
+      ],
+      edges: [],
+      start_node: 'sub-node',
+      end_nodes: ['sub-node'],
+    };
+
+    const deepStack = Array.from({ length: 32 }, (_, i) => `g${i}`);
+    const state = createTestState({ memory: { _subgraph_stack: deepStack } });
+    const loadGraphFn = vi.fn().mockResolvedValue(createToolGraph('child-graph'));
+    const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
+
+    await expect(runner.run()).rejects.toThrow(/depth/i);
+  });
+
   it('throws when subgraph graph is not found', async () => {
     const parentGraph: Graph = {
       id: 'parent-graph',

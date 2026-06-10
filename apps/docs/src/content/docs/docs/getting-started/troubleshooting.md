@@ -43,6 +43,12 @@ const RESEARCHER_ID = registry.register({ /* config */ });
 configureAgentFactory(registry);   // ← required
 ```
 
+This **fails closed**: when a registry is configured but the `agent_id` isn't in it (a typo, a deleted agent, a stale graph), the factory throws rather than substituting a generic default agent. That's deliberate — the old silent fallback let workflows run to "completed" with deny-all garbage output and real token spend. If you genuinely want the permissive fallback (dev/test), opt in:
+
+```typescript
+configureAgentFactory(registry, { allowDefaultFallback: true });
+```
+
 ### `UnsupportedProviderError: Provider "X" is not registered`
 
 `provider` on your agent config doesn't match a registered provider. Anthropic and OpenAI are built in via `createProviderRegistry()`; everything else needs explicit registration (`registerOllamaProvider`, custom factory).
@@ -97,9 +103,13 @@ A single node breached its `budget` cap. Unlike `BudgetExceededError`, this one 
 
 Wall-clock cap (`state.max_execution_time_ms`, default 5min) reached. Either raise it or break the work into smaller subgraphs.
 
+### `NoMatchingEdgeError: node "X" has no outgoing edge whose condition matched`
+
+Execution reached a node that **isn't** a declared end node, yet none of its outgoing edges' conditions evaluated `true` — a dead-end. The usual cause is a filtrex condition that's always false (a typo'd key name, a comparison against a value that's never written). This used to silently complete the workflow having run only part of the graph; it now fails loud. Fix the edge condition, add the node to `end_nodes` if it really is terminal, or — for the legacy silent-completion behavior — set `allow_implicit_completion: true` on `GraphRunnerOptions`.
+
 ### `MemoryWriterMissingError: Reflection node "X" requires a memoryWriter`
 
-A graph contains a `reflection` node but `GraphRunnerOptions.memoryWriter` is unset. Wire one up — see [Reflection pattern](/docs/patterns/reflection/).
+A graph contains a `reflection` node but `GraphRunnerOptions.memoryWriter` is unset. This is caught by a **pre-flight wiring check** at the start of `run()`, so it fails before any node executes rather than mid-run. Wire one up — see [Reflection pattern](/docs/patterns/reflection/). The same pre-flight check fails the run if a node declares MCP tool sources but no `toolResolver` is configured.
 
 ### `MCPServerNotFoundError: MCP server "X" not registered`
 

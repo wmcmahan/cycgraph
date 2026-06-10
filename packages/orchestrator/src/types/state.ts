@@ -66,15 +66,24 @@ export type WaitingReason = z.infer<typeof WaitingReasonSchema>;
  * persisted after every reducer dispatch and used for crash recovery.
  */
 export const WorkflowStateSchema = z.object({
+  // ── Schema versioning ──
+  /**
+   * Version of this state shape. Bumped when WorkflowState evolves in a way
+   * that requires migration of persisted snapshots/checkpoints. Loaded states
+   * pass through {@link hydrateWorkflowState}, which migrates older versions
+   * forward before parsing.
+   */
+  state_schema_version: z.number().int().positive().default(1),
+
   // ── Core metadata ──
   /** Graph definition ID. */
   workflow_id: z.string().uuid(),
   /** Unique run identifier (auto-generated if omitted). */
   run_id: z.string().uuid().default(() => crypto.randomUUID()),
   /** When this run was created (defaults to now). */
-  created_at: z.date().default(() => new Date()),
+  created_at: z.coerce.date().default(() => new Date()),
   /** Last state mutation timestamp (defaults to now). */
-  updated_at: z.date().default(() => new Date()),
+  updated_at: z.coerce.date().default(() => new Date()),
 
   // ── User input ──
   /** High-level objective for this workflow run. */
@@ -83,6 +92,14 @@ export const WorkflowStateSchema = z.object({
   constraints: z.array(z.string()).default([]),
 
   // ── Control flow ──
+  /**
+   * Event-log high-water mark at the moment this snapshot was persisted —
+   * the highest sequence_id whose event was flushed before the snapshot
+   * committed. Runner-internal bookkeeping: lets resume logic decide
+   * whether an `action_dispatched` event's effects are already contained
+   * in this snapshot (sequence_id <= mark) or still pending re-execution.
+   */
+  _last_event_sequence_id: z.number().int().optional(),
   /** Current lifecycle status (defaults to 'pending'). */
   status: WorkflowStatusSchema.default('pending'),
   /** Node currently being executed. */
@@ -102,13 +119,13 @@ export const WorkflowStateSchema = z.object({
   /** Why the workflow is paused (set when status is `waiting`). */
   waiting_for: WaitingReasonSchema.optional(),
   /** When the workflow entered the `waiting` state. */
-  waiting_since: z.date().optional(),
+  waiting_since: z.coerce.date().optional(),
   /** Deadline after which the wait times out. */
-  waiting_timeout_at: z.date().optional(),
+  waiting_timeout_at: z.coerce.date().optional(),
 
   // ── Execution timeouts ──
   /** When `run()` was first invoked. */
-  started_at: z.date().optional(),
+  started_at: z.coerce.date().optional(),
   /** Wall-clock timeout for the entire run (default: 1 hour). */
   max_execution_time_ms: z.number().default(3_600_000),
 
@@ -153,7 +170,7 @@ export const WorkflowStateSchema = z.object({
     delegated_to: z.string(),
     reasoning: z.string(),
     iteration: z.number(),
-    timestamp: z.date(),
+    timestamp: z.coerce.date(),
   })).default([]),
 
   // ── Memory drop audit log ──
@@ -169,7 +186,7 @@ export const WorkflowStateSchema = z.object({
     reason: z.enum(['oversized', 'non_serializable']),
     bytes: z.number().optional(),
     node_id: z.string().optional(),
-    timestamp: z.date(),
+    timestamp: z.coerce.date(),
   })).default([]),
 });
 
@@ -197,6 +214,73 @@ export type WorkflowStateInput = z.input<typeof WorkflowStateSchema>;
  */
 export function createWorkflowState(input: WorkflowStateInput): WorkflowState {
   return WorkflowStateSchema.parse(input);
+}
+
+// ─── State Hydration (load-boundary parsing + migration) ───────────
+
+/** Current WorkflowState schema version. Bump together with a migration entry. */
+export const CURRENT_STATE_SCHEMA_VERSION = 1;
+
+/**
+ * Ordered migrations applied to raw persisted state before parsing.
+ *
+ * Each entry upgrades a state from `from` to `from + 1`. When the schema
+ * evolves, bump {@link CURRENT_STATE_SCHEMA_VERSION} and append a migration
+ * here — `hydrateWorkflowState` chains them so any historical snapshot loads.
+ */
+const STATE_MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {
+  // Example shape for a future v1 → v2 migration:
+  // 1: (raw) => ({ ...raw, new_required_field: defaultValue, state_schema_version: 2 }),
+};
+
+/**
+ * Hydrate a persisted WorkflowState at a load boundary.
+ *
+ * Persisted snapshots round-trip through JSON/jsonb, which turns every `Date`
+ * into a string — comparing `new Date() >= waiting_timeout_at` against a
+ * string silently never fires, and `.toISOString()` crashes. Every code path
+ * that loads state from storage (checkpoints, snapshots, recovery) MUST pass
+ * it through this function, which:
+ *
+ * 1. Runs any pending schema migrations (versions older than
+ *    {@link CURRENT_STATE_SCHEMA_VERSION}).
+ * 2. Parses with {@link WorkflowStateSchema}, coercing temporal fields back
+ *    to `Date` and failing loudly on structurally invalid state.
+ *
+ * @throws {z.ZodError} If the state is invalid after migration — a corrupt
+ *   snapshot must never silently enter the execution loop.
+ */
+export function hydrateWorkflowState(raw: unknown): WorkflowState {
+  if (raw === null || typeof raw !== 'object') {
+    throw new Error('Cannot hydrate workflow state: value is not an object');
+  }
+
+  let candidate = raw as Record<string, unknown>;
+  // States persisted before versioning carry no marker — treat as v1.
+  let version = typeof candidate.state_schema_version === 'number'
+    ? candidate.state_schema_version
+    : 1;
+
+  while (version < CURRENT_STATE_SCHEMA_VERSION) {
+    const migrate = STATE_MIGRATIONS[version];
+    if (!migrate) {
+      throw new Error(
+        `Cannot hydrate workflow state: no migration registered for schema version ${version} ` +
+        `(current: ${CURRENT_STATE_SCHEMA_VERSION})`,
+      );
+    }
+    candidate = migrate(candidate);
+    version++;
+  }
+
+  if (version > CURRENT_STATE_SCHEMA_VERSION) {
+    throw new Error(
+      `Cannot hydrate workflow state: snapshot schema version ${version} is newer than ` +
+      `this engine's ${CURRENT_STATE_SCHEMA_VERSION}. Upgrade the engine before resuming this run.`,
+    );
+  }
+
+  return WorkflowStateSchema.parse({ ...candidate, state_schema_version: version });
 }
 
 // ─── State View ─────────────────────────────────────────────────────
@@ -394,8 +478,8 @@ export const ActionSchema = z.object({
     node_id: z.string(),
     /** Agent that produced this action (if agent node). */
     agent_id: z.string().optional(),
-    /** When the action was created. */
-    timestamp: z.date(),
+    /** When the action was created. Coerced — actions round-trip through jsonb. */
+    timestamp: z.coerce.date(),
     /** Retry attempt number (1-based). */
     attempt: z.number().default(1),
     /** Node execution duration in milliseconds. */

@@ -32,6 +32,7 @@ export const ARCHITECT_SYSTEM_PROMPT = `You are a Workflow Architect. You design
 6. Edge IDs should be sequential (e.g., "e1", "e2", "e3").
 7. Agent nodes need an agent_id. Use descriptive IDs like "research-agent", "writer-agent".
 8. Set appropriate write_keys for each node (what state keys it will produce).
+9. Set read_keys to ONLY the memory keys each node actually needs (least privilege). "goal" and "constraints" are always available without listing them. A node should read the specific write_keys of upstream nodes it depends on — e.g. a writer that consumes research output uses "read_keys": ["notes"]. Avoid ["*"] (full memory access); it defeats state slicing and triggers a validation warning. Only use ["*"] when a node genuinely needs to see all prior outputs (e.g. a final summarizer).
 
 ## Modification Mode
 When given an EXISTING graph and a modification request:
@@ -45,8 +46,8 @@ When given an EXISTING graph and a modification request:
 {
   "name": "Research & Write",
   "nodes": [
-    { "id": "research", "type": "agent", "agent_id": "research-agent", "read_keys": ["*"], "write_keys": ["notes"] },
-    { "id": "writer", "type": "agent", "agent_id": "writer-agent", "read_keys": ["*"], "write_keys": ["draft"] }
+    { "id": "research", "type": "agent", "agent_id": "research-agent", "read_keys": [], "write_keys": ["notes"] },
+    { "id": "writer", "type": "agent", "agent_id": "writer-agent", "read_keys": ["notes"], "write_keys": ["draft"] }
   ],
   "edges": [
     { "id": "e1", "source": "research", "target": "writer", "condition": { "type": "always" } }
@@ -59,9 +60,9 @@ When given an EXISTING graph and a modification request:
 {
   "name": "Content Pipeline",
   "nodes": [
-    { "id": "supervisor", "type": "supervisor", "supervisor_config": { "agent_id": "router-agent", "managed_nodes": ["research", "writer"], "max_iterations": 10 }, "read_keys": ["*"], "write_keys": [] },
-    { "id": "research", "type": "agent", "agent_id": "research-agent", "read_keys": ["*"], "write_keys": ["research_results"] },
-    { "id": "writer", "type": "agent", "agent_id": "writer-agent", "read_keys": ["*"], "write_keys": ["draft"] }
+    { "id": "supervisor", "type": "supervisor", "supervisor_config": { "agent_id": "router-agent", "managed_nodes": ["research", "writer"], "max_iterations": 10 }, "read_keys": ["research_results", "draft"], "write_keys": [] },
+    { "id": "research", "type": "agent", "agent_id": "research-agent", "read_keys": [], "write_keys": ["research_results"] },
+    { "id": "writer", "type": "agent", "agent_id": "writer-agent", "read_keys": ["research_results"], "write_keys": ["draft"] }
   ],
   "edges": [
     { "id": "e1", "source": "supervisor", "target": "research", "condition": { "type": "always" } },

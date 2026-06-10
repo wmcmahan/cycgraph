@@ -31,3 +31,9 @@ export { DrizzleAgentRegistry } from './drizzle-agent-registry.js';
 export { DrizzleMCPServerRegistry } from './drizzle-mcp-registry.js';
 export { DrizzleMemoryStore } from './drizzle-memory-store.js';
 export { DrizzleMemoryIndex } from './drizzle-memory-index.js';
+export { DrizzleWorkflowQueue } from './drizzle-queue.js';
+export type { DrizzlePersistenceProviderOptions, RunClaim } from './drizzle-persistence.js';
+export type { DrizzleEventLogWriterOptions } from './drizzle-event-log.js';
+
+// Run fencing
+export { createFencedRunnerOptions } from './fencing.js';

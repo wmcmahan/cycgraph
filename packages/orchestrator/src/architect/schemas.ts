@@ -44,7 +44,7 @@ const LLMSupervisorConfigSchema = z.object({
   /** Node IDs this supervisor may delegate work to. */
   managed_nodes: z.array(z.string()),
   /** Maximum routing iterations before auto-completing. */
-  max_iterations: z.number().default(10),
+  max_iterations: z.number().int().min(1).max(1000).default(10),
   /** Optional expression that triggers early completion. */
   completion_condition: z.string().optional(),
 });
@@ -59,7 +59,7 @@ const LLMGraphNodeSchema = z.object({
   tool_id: z.string().optional().describe('Tool ID (for tool nodes)'),
   supervisor_config: LLMSupervisorConfigSchema.optional()
     .describe('Required for supervisor nodes'),
-  read_keys: z.array(z.string()).default(['*']).describe('State keys this node can read'),
+  read_keys: z.array(z.string()).default([]).describe('Memory keys this node may read (least-privilege: list only what the node needs; goal/constraints are always available). Avoid ["*"].'),
   write_keys: z.array(z.string()).default([]).describe('State keys this node can write'),
   failure_policy: LLMFailurePolicySchema,
   requires_compensation: z.boolean().default(false),

@@ -373,7 +373,7 @@ The `EventLogWriter` interface abstracts the event store with three implementati
 
 | Method | Signature | Purpose |
 |--------|-----------|---------|
-| `append()` | `(event: NewWorkflowEvent) => Promise<void>` | Append an event to the log |
+| `append()` | `(event: NewWorkflowEvent) => Promise<void>` | Append an event. **Rejects** a duplicate `(run_id, sequence_id)` with `EventSequenceConflictError` (split-brain guard) — implementations must not silently drop or double-store |
 | `loadEvents()` | `(run_id: string) => Promise<WorkflowEvent[]>` | Load all events for a run (ordered by sequence_id) |
 | `loadEventsAfter()` | `(run_id, afterSeqId) => Promise<WorkflowEvent[]>` | Load events after a checkpoint |
 | `getLatestSequenceId()` | `(run_id: string) => Promise<number>` | Get the highest sequence_id (-1 if none) |
@@ -430,11 +430,15 @@ The `EventLogWriter` interface abstracts the event store with three implementati
 ```mermaid
 graph TD
     E["Error"] --> PUE["PersistenceUnavailableError"]
+    E --> ESC["EventSequenceConflictError"]
+    E --> SCE["StaleClaimError"]
 ```
 
 | Error Class | Source | Retryable? | Handling |
 |-------------|--------|-----------|----------|
-| `PersistenceUnavailableError` | `persistWorkflow()` | No — sustained outage | Thrown after 3+ consecutive failures. Halts the workflow to prevent data loss. Includes last success timestamp for diagnostics. |
+| `PersistenceUnavailableError` | `persistWorkflow()` / `PersistenceCoordinator` | No — sustained outage | Thrown after 3+ consecutive snapshot or event-log-flush failures. Halts the workflow to prevent data loss. Includes last success timestamp for diagnostics. |
+| `EventSequenceConflictError` | `EventLogWriter.append()` | No — split-brain | A duplicate `(run_id, sequence_id)` append; another writer owns the run. Immediately fatal to the runner. |
+| `StaleClaimError` | Fenced writers (`persistence/errors.ts`) | No — split-brain | A write carried an outdated `claim_epoch`; the run was reclaimed by another worker. Immediately fatal; the worker emits `job:claim_lost`. |
 
 **Error message format:**
 ```

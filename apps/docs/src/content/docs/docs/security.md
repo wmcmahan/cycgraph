@@ -31,7 +31,9 @@ const WRITER_ID = registry.register({
 
 At runtime, the engine creates a **state view** — a filtered projection of `WorkflowState.memory` containing only the keys listed in `read_keys`. An agent configured with `read_keys: ['goal', 'research_notes']` receives `undefined` for every other key, including `db_credentials`, `api_keys`, or any other sensitive data in state.
 
-The wildcard `read_keys: ['*']` grants access to all non-internal memory keys. Internal keys (prefixed with `_`, such as `_taint_registry`) are always excluded from state views.
+**Secure by default:** `read_keys` and `write_keys` both default to `[]`. A node that omits `read_keys` sees only `goal` and `constraints` — no memory keys — so state slicing protects you without opt-in. A node consuming an upstream output must declare it explicitly (`read_keys: ['research_notes']`).
+
+The wildcard `read_keys: ['*']` grants access to all non-internal memory keys; `validateGraph` warns on it because it defeats slicing. Internal keys (prefixed with `_`, such as `_taint_registry`) are always excluded from state views, and `_taint_registry` is additionally append-only through reducers — a node cannot clear or weaken taint via a crafted memory write.
 
 ### Dot-notation nested key filtering
 
@@ -86,11 +88,11 @@ External data is the most dangerous attack vector. cycgraph automatically tracks
 
 **How it works:**
 
-1. **Flagging** — All MCP tool results are automatically wrapped with taint metadata (source type, tool name, server ID, timestamp) via `wrapToolWithTaint()`.
+1. **Flagging** — All MCP tool results are automatically wrapped with taint metadata (source type, tool name, server ID, timestamp) via `wrapToolWithTaint()`. Both `agent` nodes and standalone `tool` nodes taint their MCP output.
 2. **Propagation** — When an agent reads tainted input keys and writes output, `propagateDerivedTaint()` marks the outputs as `derived`-tainted, preserving the chain of custody.
 3. **Inspection** — Downstream nodes can call `isTainted(memory, key)` or `getTaintInfo(memory, key)` to check provenance before trusting inputs.
 
-Taint metadata is stored in `memory._taint_registry` (a protected internal key invisible to agents).
+Taint metadata is stored in `memory._taint_registry` — an internal key that is invisible to agents (stripped from every state view), **append-only** through reducers (a crafted memory write cannot clear or weaken taint), and accumulated per-execution so concurrent voting/evolution/map sub-runs never cross-attribute provenance.
 
 ### Strict taint mode
 
@@ -215,12 +217,35 @@ When `allowed_agents` is set, the `MCPConnectionManager` validates the requestin
 
 - **stdio** — Only allowlisted commands (`npx`, `node`, `python3`, `python`, `uvx`). No arbitrary shell execution.
 - **http/sse** — URLs stored in the registry, never in agent configs. Secrets stay server-side.
+- **SSRF guard** — http/sse URLs are blocked from resolving to private, loopback, link-local, or cloud-metadata addresses (`169.254.169.254`, `127.0.0.1`, RFC1918, `[::1]`, `fc00::/7`, …). Set `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true` to allow them for local development.
+
+### Registry validation at the trust boundary
+
+`saveServer` and `loadServer` re-validate every entry through `MCPServerEntrySchema` on **both** write and read — not just at compile time. The stdio allowlist and SSRF guard are therefore enforced even against a JS caller, an `any` cast, a direct SQL write, or a migration. An entry with a disallowed command or a private-IP URL is rejected before it can ever be spawned or connected.
 
 ### Automatic taint wrapping
 
 All MCP tool results are wrapped with taint metadata before being returned to agents, ensuring every piece of external data is tracked from the moment it enters the system.
 
 See [Tools & MCP](/docs/concepts/tools-and-mcp/) for the full MCP integration guide.
+
+## Workflow Architect publish gate
+
+The Architect can generate executable graphs from natural language, but `architect_publish_workflow` never persists an unvalidated graph: it runs `GraphSchema.parse` + `validateGraph` first, so a prompt-injected or buggy agent cannot publish a graph with wildcard reads, unbounded fan-out, or arbitrary tool wiring. Wire `ArchitectToolDeps.canPublish` to additionally require human approval or a privileged credential before any publish reaches the registry:
+
+```typescript
+initArchitectTools({
+  saveGraph, loadGraph,
+  canPublish: async (graph) => {
+    // return true to allow, or a string reason to deny
+    return (await isApprovedByHuman(graph.id)) || 'human approval required';
+  },
+});
+```
+
+## Resource bounds (DoS guards)
+
+Every fan-out and iteration knob is capped at the schema level so a hand-written or generated graph can't trigger a fan-out bomb: `population_size ≤ 100`, `max_generations ≤ 100`, `max_concurrency ≤ 50`, `voter_agent_ids ≤ 50`, supervisor/annealing `max_iterations ≤ 1000`. Subgraph nesting is capped at depth 32, and subgraphs inherit the parent's guardrails (tool resolver, fact sanitizer, memory writer, model resolver) rather than running with reduced guarantees.
 
 ## Supervisor routing validation
 

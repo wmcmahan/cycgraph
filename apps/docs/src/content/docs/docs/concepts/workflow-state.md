@@ -76,9 +76,18 @@ const state = createWorkflowState({
 | `created_at` | `Date` | now | When this run was created. |
 | `updated_at` | `Date` | now | Last state mutation timestamp. |
 
+### Persistence bookkeeping (runner-managed)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `state_schema_version` | `number` | `1` | Schema version of this state shape. Loaded snapshots pass through `hydrateWorkflowState()`, which migrates older versions forward and refuses snapshots from a newer engine. |
+| `_last_event_sequence_id` | `number` | — | Event-log high-water mark at the moment the snapshot was persisted. Resume logic uses it to decide whether a logged action's effects are already inside the snapshot (crash-window idempotency). |
+
+These fields are managed by the runner — don't set them by hand. All temporal fields use coercing schemas (`z.coerce.date()`), so states loaded from JSON/jsonb storage hydrate back to real `Date` objects.
+
 ### Status lifecycle
 
-The workflow status transitions denote the lifecycle of a workflow. All terminal states (`completed`, `failed`, `cancelled`, `timeout`) are final.
+The workflow status transitions denote the lifecycle of a workflow. The terminal states (`completed`, `failed`, `cancelled`, `timeout`) are final: a transition guard **enforces** that a terminal run can never return to an active status, so a stray `set_status` (or a replayed `_init` on a recovered run) can't resurrect a dead run. The one terminal→terminal move that is allowed is saga rollback, which moves a `failed`/`timeout` run to `cancelled` after its compensations run.
 
 ```mermaid
 stateDiagram-v2
@@ -93,7 +102,11 @@ stateDiagram-v2
     retrying --> failed
     running --> cancelled
     running --> timeout
+    failed --> cancelled: saga rollback
+    timeout --> cancelled: saga rollback
 ```
+
+The guard is exposed as `canTransitionStatus(from, to)` / `isTerminalStatus(status)` / `TERMINAL_STATUSES` from `@cycgraph/orchestrator` if you need to check legality yourself.
 
 ---
 

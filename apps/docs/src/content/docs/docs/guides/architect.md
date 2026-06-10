@@ -98,8 +98,19 @@ initArchitectTools({
 
 For production, swap in `DrizzlePersistenceProvider` from `@cycgraph/orchestrator-postgres` — the callback signatures are identical.
 
+`architect_publish_workflow` always validates the graph (`GraphSchema.parse` + `validateGraph`) before it reaches `saveGraph`, so an agent cannot publish a malformed or unsafe graph. For agent-driven publishing you should also gate it: provide a `canPublish` callback that returns `true` to allow, or a string reason to deny (e.g. require human approval or check a privileged credential).
+
+```typescript
+initArchitectTools({
+  saveGraph: async (graph) => persistence.saveGraph(graph),
+  loadGraph: async (id) => persistence.loadGraph(id),
+  canPublish: async (graph) =>
+    (await isApprovedByHuman(graph.id)) || 'human approval required',
+});
+```
+
 :::note
-The draft tool works without initialization — it only generates graphs in memory. The publish and get tools will throw `ArchitectError` if called before `initArchitectTools()`.
+The draft tool works without initialization — it only generates graphs in memory. The publish and get tools will throw `ArchitectError` if called before `initArchitectTools()`. A graph that fails schema or referential validation is returned as an error result (not persisted), and a `canPublish` denial returns an error result too.
 :::
 
 ### Step 2: Register an agent with Architect tools

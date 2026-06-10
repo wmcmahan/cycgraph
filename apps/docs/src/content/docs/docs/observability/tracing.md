@@ -53,11 +53,9 @@ workflow.run
 └── node.execute.tool
 ```
 
-Each `node.execute.*` span captures the node ID and type. Child spans add execution-specific detail.
+Each `node.execute.*` span captures the node ID, type, and run ID. Child spans add execution-specific detail. The `workflow.run` root span wraps the entire run, and `node.execute.*` spans fire on **both** the streaming and non-streaming paths.
 
-:::note
-When using `runner.stream()`, node-level spans are skipped to avoid interfering with real-time token delivery. Use event listeners (`node:start`, `node:complete`) for streaming observability instead.
-:::
+Every log line emitted during a run also carries `run_id` and `graph_id` automatically (via async-local-storage correlation), so you can grep one run's logs across the agent executor, MCP, and persistence layers without threading IDs through your own code. Under `runner.stream()`, the root `workflow.run` span is established by `run()`; if you drive `stream()` directly and want a root span, wrap your consumption loop in your own span — node-level spans and `run_id` log correlation are present either way.
 
 ## Span attributes
 

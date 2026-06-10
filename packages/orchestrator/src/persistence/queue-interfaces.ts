@@ -62,6 +62,13 @@ export const WorkflowJobSchema = z.object({
   last_heartbeat_at: z.date().nullable().default(null),
   /** Error message from the last failed attempt. */
   last_error: z.string().nullable().default(null),
+  /**
+   * Fencing token for this claim. Incremented on the run every time a
+   * worker claims a job for it — fenced persistence/event-log writers
+   * reject writes carrying a stale epoch, so a paused-but-alive worker
+   * whose job was reclaimed cannot clobber the new claimant's writes.
+   */
+  claim_epoch: z.number().int().optional(),
 });
 
 export type WorkflowJob = z.infer<typeof WorkflowJobSchema>;

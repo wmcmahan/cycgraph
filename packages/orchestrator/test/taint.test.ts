@@ -324,3 +324,75 @@ describe('Supervisor — Taint Warnings', () => {
     expect(systemPrompt).not.toContain('[TAINTED]');
   });
 });
+
+describe('Supervisor — budget accounting', () => {
+  beforeEach(() => {
+    vi.mocked(generateText).mockReset();
+  });
+
+  const cleanStateView = (memory: Record<string, unknown> = {}) => ({
+    workflow_id: uuidv4(),
+    run_id: uuidv4(),
+    goal: 'route',
+    constraints: [],
+    memory,
+  });
+
+  const supervisorNode = (overrides = {}) => makeNode({
+    id: 'sup',
+    type: 'supervisor',
+    supervisor_config: { agent_id: 'router-agent', managed_nodes: ['worker-1'], max_iterations: 10 },
+    ...overrides,
+  });
+
+  test('handoff action carries token_usage and model for budget tracking', async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      output: { next_node: 'worker-1', reasoning: 'go' },
+      usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+    } as any);
+
+    const action = await executeSupervisor(supervisorNode(), cleanStateView(), [], 1);
+
+    expect(action.type).toBe('handoff');
+    expect(action.metadata.token_usage).toEqual({ inputTokens: 120, outputTokens: 30, totalTokens: 150 });
+    expect(action.metadata.model).toBeTruthy();
+  });
+
+  test('completion action carries token_usage', async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      output: { next_node: '__done__', reasoning: 'done' },
+      usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 },
+    } as any);
+
+    const action = await executeSupervisor(supervisorNode(), cleanStateView(), [], 1);
+
+    expect(action.type).toBe('set_status');
+    expect(action.metadata.token_usage).toEqual({ inputTokens: 80, outputTokens: 20, totalTokens: 100 });
+  });
+
+  test('totalTokens is derived when the provider omits it', async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      output: { next_node: '__done__', reasoning: 'done' },
+      usage: { inputTokens: 70, outputTokens: 30 }, // no totalTokens
+    } as any);
+
+    const action = await executeSupervisor(supervisorNode(), cleanStateView(), [], 1);
+    expect(action.metadata.token_usage?.totalTokens).toBe(100);
+  });
+
+  test('supervisor prompt memory is byte-capped (no quadratic growth)', async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      output: { next_node: '__done__', reasoning: 'done' },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    } as any);
+
+    // A memory value far larger than MAX_MEMORY_PROMPT_BYTES (50KB).
+    const huge = 'x'.repeat(500_000);
+    await executeSupervisor(supervisorNode(), cleanStateView({ blob: huge }), [], 1);
+
+    const systemPrompt = vi.mocked(generateText).mock.calls[0][0].system as string;
+    expect(systemPrompt).toContain('[truncated');
+    // The prompt must be far smaller than the raw 500KB memory.
+    expect(systemPrompt.length).toBeLessThan(200_000);
+  });
+});

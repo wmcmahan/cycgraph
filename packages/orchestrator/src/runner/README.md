@@ -165,14 +165,15 @@ sequenceDiagram
     loop while shouldContinue()
         GR->>GR: checkTimeout()
         GR->>GR: getCurrentNode()
+        GR->>GR: idempotency check (skip node if already applied)
         GR->>NE: executeNodeWithTimeout(node)
         NE-->>GR: Action
         GR->>GR: ActionSchema.safeParse(action)
         GR->>GR: validateAction(action, node.write_keys)
-        GR->>GR: idempotency check
         GR->>R: rootReducer(state, action)
+        GR->>GR: idempotency.add(node, iteration)
         GR->>GR: track token usage
-        GR->>P: persistState()
+        GR->>P: persistState() [flush event log, then snapshot]
         GR->>GR: increment iteration_count
         GR->>GR: check max_iterations
         GR->>GR: check end_nodes
@@ -191,12 +192,12 @@ sequenceDiagram
 | **Validation** | `validateGraph()` checks node refs, edge targets, duplicates | Throws immediately; state set to `failed` |
 | **Init** | `_init` dispatched; resume detection via `visited_nodes.length > 0` | N/A |
 | **Node Execute** | Per-node timeout wraps retry loop which wraps executor dispatch | `executeNodeWithRetry` handles retries; timeout wraps everything |
+| **Idempotency** | `${node.id}:${iteration_count}` checked against `executedActions` **before** execution | Already applied (crash-window resume) → node skipped, routing only |
 | **Action Validate** | Zod schema + `write_keys` permission check | Invalid/unauthorized → throws, state set to `failed` |
-| **Idempotency** | `${node.id}:${iteration_count}` key checked against `executedActions` | Duplicate → skipped with warning log |
-| **Reduce** | `rootReducer(state, action)` applies state mutation | Reducer errors propagate up |
+| **Reduce** | `rootReducer(state, action)`, then `idempotency.add()` | Reducer errors propagate up |
 | **Budget Check** | Compare `total_tokens_used` against `max_token_budget` | Throws `BudgetExceededError` |
 | **Advance** | `getNextNode()` evaluates edge conditions | No matching edge → workflow completes |
-| **Persist** | `persistStateFn(state)` called after every step | Persistence errors logged but don't stop execution |
+| **Persist** | Flush event-log appends, then `persistStateFn(state)` | 3 consecutive failures → halt (`PersistenceUnavailableError`); conflict/stale-claim → immediately fatal |
 
 ### State Transitions (via `dispatchInternal`)
 
@@ -462,11 +463,13 @@ The runner **never** mutates `this.state` directly (except `iteration_count++`).
 
 ### Idempotency
 
-Each action gets a deterministic key: `${node.id}:${iteration_count}`. If a key appears in `executedActions`, the action is skipped. On resume, previously completed iteration keys are reconstructed from `visited_nodes`.
+Each node execution gets a deterministic key: `${node.id}:${iteration_count}` (iteration at execution time, pre-increment). The key is checked **before** executing the node and added to `executedActions` **after** the reducer applies, so the marker means "this node's effects are in state". If the key is already present on entry — meaning a crash happened in the post-reduce/pre-advance window and the snapshot we resumed from already contains the action — the runner skips the node and performs only the routing the crash interrupted (no duplicate LLM call, no double-applied action).
+
+On resume from a snapshot, `IdempotencyTracker.rebuildFromEventLog()` decides whether the current node's action was already applied using the snapshot's `_last_event_sequence_id` high-water mark: it scans events up to that mark for the last `action_dispatched` and whether an `_advance`/`_increment_iteration` followed it. Snapshots without a high-water mark (pre-versioning, or hand-built) get no marker — the current node re-executes (safe at-least-once). Full event-log replay (`recover()`) adds keys for every replayed action directly.
 
 ### Persistence
 
-`persistStateFn` is called after every step (init, action apply, advance, complete, fail). Persistence errors are **logged but never thrown** — a transient DB failure should not kill a running workflow.
+`persistStateFn` is called after every step (init, action apply, advance, complete, fail), preceded by an **event-log flush barrier** — outstanding appends are awaited before the snapshot commits. Both paths follow a **3-strike rule**: a single transient failure is logged and tolerated, but three consecutive failures throw (`PersistenceUnavailableError` for snapshots) to halt the workflow rather than diverge silently. `EventSequenceConflictError` and `StaleClaimError` are immediately fatal (another writer owns the run) and bypass the strike budget.
 
 ---
 
@@ -554,6 +557,10 @@ Tasks are chunked into batches of `max_concurrency`. Batches are executed sequen
 
 The runner supports **event sourcing** for crash-recoverable workflow execution. When an `EventLogWriter` is provided, every significant state transition is recorded as an immutable event. On crash, `GraphRunner.recover()` replays these events through the same pure reducers to reconstruct the exact pre-crash state — **zero LLM calls during replay**.
 
+Replay is **deterministic**: reducers derive every timestamp (`started_at`, `updated_at`, approval deadlines) from the stored action's `metadata.timestamp` rather than the wall clock, so replaying a log always reproduces the same state. The `workflow_started` event carries a `REPLAY_VERSION` stamp so recovery can warn when a log was written under different reducer semantics. Recovery also validates that the loaded events are **gap-free** (contiguous `sequence_id`s) and throws `EventLogCorruptionError` on a gap — a lost append must not be silently replayed around.
+
+Appends are not fire-and-forget: each `persistState()` awaits all outstanding appends as a flush barrier before the snapshot commits, so a durable snapshot's event history is always complete. Duplicate `(run_id, sequence_id)` appends are rejected (`EventSequenceConflictError`) rather than dropped.
+
 ### Architecture
 
 ```mermaid
@@ -574,8 +581,10 @@ graph TD
 |------------|---------------|-------------|
 | `workflow_started` | After `_init` dispatch | Marker (no payload) |
 | `node_started` | Before `executeNodeWithTimeout()` | `node_id` |
-| `action_dispatched` | After `rootReducer(state, action)` | Full `Action` JSON |
+| `action_dispatched` | After `rootReducer(state, action)`; also for `resume_from_human` in `applyHumanResponse()` | Full `Action` JSON |
 | `internal_dispatched` | Every `dispatchInternal()` call | `internal_type`, `internal_payload` |
+
+`workflow_started` carries `{ replay_version }` in its payload; `applyHumanResponse()` logs its `resume_from_human` action before the `_advance` so resumed runs replay the human decision in the right order.
 
 ### Recovery Flow
 

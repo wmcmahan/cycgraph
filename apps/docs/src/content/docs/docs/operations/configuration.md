@@ -47,8 +47,17 @@ Passed to `new GraphRunner(graph, state, options)`. Source: `runner/graph-runner
 | `contextCompressor` | `ContextCompressor` | none | Compress memory before prompt injection |
 | `memoryRetriever` | `MemoryRetriever` | none | Pull facts from the hierarchical memory graph. Only fires for nodes that declare a `memory_query` directive. |
 | `memoryWriter` | `MemoryWriter` | none | Persist facts produced by `reflection` nodes. Required for reflection nodes to function. |
-| `factSanitizer` | `FactSanitizer` | none | Pre-write hook applied to every reflection fact. Return `null` to drop, or a modified fact to substitute. Errors are absorbed and the original fact passes through. |
+| `factSanitizer` | `FactSanitizer` | none | Pre-write hook applied to every reflection fact. Return `null` to drop, or a modified fact to substitute. **Fails closed**: a thrown sanitizer drops the fact (see `factSanitizerFailMode`). |
+| `factSanitizerFailMode` | `'drop' \| 'pass'` | `'drop'` | What to do when `factSanitizer` throws. `'drop'` (default) discards the fact so unredacted PII is never persisted; `'pass'` writes the original fact (fail open). |
+| `rateLimiter` | `RateLimiter` | none | Awaited before every LLM call (agent / supervisor / evaluator) to pace a run inside a provider's budget. The implementation may delay (throttle) or throw (hard ceiling — surfaces as the node's error, follows its `failure_policy`). Abortable; propagated into subgraphs. |
+| `compaction_interval` | `number` | `1000` | Events between automatic event-log compactions (checkpoint + delete-behind, recovery-safe) when an `eventLog` is wired. **Defaults on** so a long run can't grow the log unbounded; set `0` to retain full history and compact manually via `compactEvents()`. |
+| `persistDeltaFn` | `(patch: StatePatch) => Promise<void>` | none | Differential persistence — when set with `persistStateFn`, the runner sends patches here and full snapshots to `persistStateFn`. A failed write rolls back the delta baseline so no patch is lost. |
 | `middleware` | `RunnerMiddleware[]` | `[]` | `beforeNodeExecute` / `afterReduce` hooks |
+| `allow_implicit_completion` | `boolean` | `false` | When a non-end node has no outgoing edge whose condition matches, the runner fails the run with `NoMatchingEdgeError` (a dead-end is almost always a routing bug). Set `true` to restore the legacy behavior of silently completing the workflow at that node. |
+
+A pre-flight wiring check runs at the start of every `run()`: a graph containing a `reflection` node with no `memoryWriter`, or a node declaring MCP tool sources with no `toolResolver`, fails immediately (before any node executes) instead of mid-run. A `memory_query` directive with no `memoryRetriever` logs a warning.
+
+The agent factory **fails closed** on an unknown `agent_id` (throws `AgentNotFoundError`). Opt into the legacy default-agent fallback with `configureAgentFactory(registry, { allowDefaultFallback: true })` — see [Agents](/docs/concepts/agents/#runtime-execution).
 
 ## `MCPConnectionManager` options
 
@@ -58,6 +67,7 @@ Source: `mcp/connection-manager.ts`.
 | --- | --- | --- | --- |
 | `cache_ttl_ms` | `number` | `300000` (5 min) | TTL for cached tool manifests. `0` disables. |
 | `default_tool_timeout_ms` | `number` | `30000` (30s) | Per-tool execution timeout. Overridable per-server via `MCPServerEntry.tool_timeout_ms`. |
+| `default_max_concurrent_calls` | `number` | `0` (unlimited) | Default cap on concurrent tool calls **per MCP server**. Overridable per-server via `MCPServerEntry.max_concurrent_calls`. A FIFO semaphore bounds in-flight calls so a wide fan-out (evolution / voting / map candidates all hitting one server) can't overwhelm it. |
 | `tool_circuit_breaker` | `ToolCircuitBreakerOptions \| null` | enabled with defaults | Per-tool breaker. Pass `null` to disable entirely. |
 
 ### `ToolCircuitBreakerOptions`

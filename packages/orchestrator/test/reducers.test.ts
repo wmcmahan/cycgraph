@@ -5,6 +5,7 @@ import {
   setStatusReducer,
   gotoNodeReducer,
   handoffReducer,
+  requestHumanInputReducer,
   internalReducer,
   rootReducer,
   validateAction,
@@ -653,5 +654,106 @@ describe('Reducers', () => {
       const newState = updateMemoryReducer(state, action);
       expect(newState.memory.key).toBe(normalValue);
     });
+  });
+});
+
+describe('Replay determinism — reducers derive time from action metadata', () => {
+  const makeState = (): WorkflowState => ({
+    workflow_id: uuidv4(),
+    run_id: uuidv4(),
+    created_at: new Date('2026-01-01T00:00:00Z'),
+    updated_at: new Date('2026-01-01T00:00:00Z'),
+    goal: 'Test goal',
+    constraints: [],
+    status: 'pending',
+    iteration_count: 0,
+    retry_count: 0,
+    max_retries: 3,
+    memory: {},
+    visited_nodes: [],
+    max_iterations: 50,
+    compensation_stack: [],
+    max_execution_time_ms: 3600000,
+    total_tokens_used: 0,
+    total_cost_usd: 0,
+    _cost_alert_thresholds_fired: [],
+    supervisor_history: [],
+    memory_drops: [],
+  });
+
+  const FIXED_TS = new Date('2026-03-15T12:00:00.000Z');
+
+  const makeAction = (type: Action['type'], payload: Record<string, unknown>, timestamp: Date | string = FIXED_TS): Action => ({
+    id: uuidv4(),
+    idempotency_key: uuidv4(),
+    type,
+    payload,
+    metadata: { node_id: 'test-node', timestamp: timestamp as Date, attempt: 1 },
+  });
+
+  test('request_human_input reproduces the original approval deadline on replay', () => {
+    const action = makeAction('request_human_input', {
+      timeout_ms: 60_000,
+      pending_approval: { node_id: 'gate' },
+    });
+
+    // Replaying the same stored action at any later wall-clock time must
+    // produce the same deadline the live run computed.
+    const replayed = requestHumanInputReducer(makeState(), action);
+    expect(replayed.waiting_since).toEqual(FIXED_TS);
+    expect(replayed.waiting_timeout_at).toEqual(new Date(FIXED_TS.getTime() + 60_000));
+  });
+
+  test('request_human_input tolerates string timestamps from JSON round-trips', () => {
+    const action = makeAction(
+      'request_human_input',
+      { timeout_ms: 60_000, pending_approval: {} },
+      FIXED_TS.toISOString(),
+    );
+
+    const replayed = requestHumanInputReducer(makeState(), action);
+    expect(replayed.waiting_timeout_at).toEqual(new Date(FIXED_TS.getTime() + 60_000));
+  });
+
+  test('_init derives started_at from the action timestamp, not wall clock', () => {
+    const action = makeAction('_init' as Action['type'], { start_node: 'a' });
+    const next = internalReducer(makeState(), action);
+    expect(next.started_at).toEqual(FIXED_TS);
+    expect(next.updated_at).toEqual(FIXED_TS);
+  });
+
+  test('public reducers stamp updated_at from the action timestamp', () => {
+    const updated = updateMemoryReducer(
+      makeState(),
+      makeAction('update_memory', { updates: { k: 'v' } }),
+    );
+    expect(updated.updated_at).toEqual(FIXED_TS);
+
+    const handed = handoffReducer(
+      makeState(),
+      makeAction('handoff', { node_id: 'b', supervisor_id: 's', reasoning: 'r' }),
+    );
+    expect(handed.updated_at).toEqual(FIXED_TS);
+    expect(handed.supervisor_history[0].timestamp).toEqual(FIXED_TS);
+  });
+
+  test('replaying the same action sequence twice yields identical timestamps', () => {
+    const actions: Action[] = [
+      makeAction('_init' as Action['type'], { start_node: 'a' }, new Date('2026-03-15T12:00:00Z')),
+      makeAction('update_memory', { updates: { x: 1 } }, new Date('2026-03-15T12:00:05Z')),
+      makeAction('_advance' as Action['type'], { node_id: 'b' }, new Date('2026-03-15T12:00:06Z')),
+    ];
+
+    const replay = () =>
+      actions.reduce(
+        (s, a) => (a.type.startsWith('_') ? internalReducer(s, a) : rootReducer(s, a)),
+        makeState(),
+      );
+
+    const first = replay();
+    const second = replay();
+    expect(second.started_at).toEqual(first.started_at);
+    expect(second.updated_at).toEqual(first.updated_at);
+    expect(second.updated_at).toEqual(new Date('2026-03-15T12:00:06Z'));
   });
 });

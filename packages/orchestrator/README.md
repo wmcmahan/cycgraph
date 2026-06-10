@@ -32,7 +32,7 @@ Define multi-step agent workflows declaratively, run them with durable execution
 - **Streaming** — `stream()` async generator with real-time token deltas, tool-call events, and typed lifecycle events.
 - **MCP-native tools** — built-in default servers (web search, fetch), tool manifest caching, per-tool circuit breakers.
 - **Observability** — 17 lifecycle events, OpenTelemetry spans, Prometheus metrics, per-agent + per-workflow token / cost tracking.
-- **Distributed execution** — `WorkflowWorker` for multi-process deployments with crash recovery.
+- **Distributed execution** — `WorkflowWorker` + durable job queue for multi-process deployments, with crash recovery and run fencing (a reclaimed worker can't clobber the new owner).
 
 ## Install
 

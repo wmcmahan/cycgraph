@@ -15,12 +15,14 @@ import type { GraphNode } from '../../types/graph.js';
 import type { Graph } from '../../types/graph.js';
 import type { WorkflowState, Action, StateView, TaintMetadata } from '../../types/state.js';
 import type { ToolSource } from '../../types/tools.js';
+import type { ToolResolver } from '../../mcp/connection-manager.js';
 import type { ModelResolver, ModelResolutionResult, ModelTier } from '../../agent/model-resolver.js';
 import type { ContextCompressor, ContextCompressionMetrics } from '../../agent/context-compressor.js';
 import type { MemoryRetriever } from '../../agent/memory-retriever.js';
 import type { MemoryWriter } from '../../agent/memory-writer.js';
 import type { FactSanitizer } from '../../agent/fact-sanitizer.js';
 import type { FitnessFunction } from '../../agent/fitness-function.js';
+import type { RateLimiter } from '../../agent/rate-limiter.js';
 
 /**
  * Raw tool definition — description + parameters without an execute function.
@@ -89,7 +91,7 @@ export interface ExecutorDependencies {
       onToken?: (token: string) => void;
       onToolCall?: (event: { toolName: string; toolCallId: string; args: unknown }) => void;
       onToolCallComplete?: (event: { toolName: string; toolCallId: string; durationMs: number; success: boolean; error?: string }) => void;
-      drainTaintEntries?: () => Map<string, TaintMetadata>;
+      drainTaintEntries?: (tools?: Record<string, unknown>) => Map<string, TaintMetadata>;
       /** Override the model from agent config (used by budget-aware model resolution). */
       model_override?: string;
       /** Context compressor for memory serialization in prompts. */
@@ -171,8 +173,12 @@ export interface ExecutorDependencies {
   /** Get the taint registry from workflow memory. */
   getTaintRegistry: (memory: Record<string, unknown>) => Record<string, unknown>;
 
-  /** Drain accumulated MCP taint entries after agent execution. */
-  drainTaintEntries?: () => Map<string, TaintMetadata>;
+  /**
+   * Drain accumulated MCP taint entries after agent execution. Pass the
+   * toolset from the paired `resolveTools()` call to drain only that
+   * execution's entries (race-free under concurrent sub-executions).
+   */
+  drainTaintEntries?: (tools?: Record<string, unknown>) => Map<string, TaintMetadata>;
 }
 
 /**
@@ -188,6 +194,12 @@ export interface NodeExecutorContext {
   graph: Graph;
   /** Load a graph by ID (needed by the subgraph executor). */
   loadGraphFn?: (graphId: string) => Promise<Graph | null>;
+  /**
+   * The tool resolver instance (from GraphRunnerOptions). Exposed so the
+   * subgraph executor can propagate it into the child runner — otherwise a
+   * subgraph would silently run with built-in tools only.
+   */
+  toolResolver?: ToolResolver;
   /** Create a filtered state view for a node. */
   createStateView: (node: GraphNode) => StateView;
   /** Injected runtime dependencies. */
@@ -202,8 +214,12 @@ export interface NodeExecutorContext {
   memoryWriter?: MemoryWriter;
   /** Optional pre-write hook applied to reflection facts (from GraphRunnerOptions). */
   factSanitizer?: FactSanitizer;
+  /** What to do when factSanitizer throws: 'drop' (fail closed) or 'pass'. */
+  factSanitizerFailMode?: 'drop' | 'pass';
   /** Optional deterministic fitness evaluator for evolution nodes (from GraphRunnerOptions). */
   fitnessFunction?: FitnessFunction;
+  /** Optional rate-limiting hook awaited before every LLM call (from GraphRunnerOptions). */
+  rateLimiter?: RateLimiter;
   /** Callback fired when context compression runs on a prompt's memory section. */
   onContextCompressed?: (event: { tokensIn: number; tokensOut: number; reductionPercent: number; durationMs: number }, nodeId: string) => void;
   /** Remaining workflow budget in USD, or `undefined` if unlimited (static snapshot — prefer getRemainingBudgetUsd). */

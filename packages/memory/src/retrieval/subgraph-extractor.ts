@@ -12,6 +12,14 @@ import type { Relationship } from '../schemas/relationship.js';
 import type { MemoryStore } from '../interfaces/memory-store.js';
 import { isValidAt } from './temporal-filter.js';
 
+/**
+ * Default cap on entities visited by a single subgraph extraction. A densely
+ * connected graph can expand the frontier near-exponentially per hop; without
+ * a ceiling one retrieval can pull thousands of entities (and as many
+ * relationship queries) into a prompt. Bounds work and prompt size.
+ */
+export const DEFAULT_MAX_SUBGRAPH_ENTITIES = 500;
+
 export interface SubgraphOptions {
   /** Maximum BFS hops from seed entities (default: 2). */
   max_hops?: number;
@@ -19,6 +27,12 @@ export interface SubgraphOptions {
   valid_at?: Date;
   /** Include invalidated relationships (default: false). */
   include_invalidated?: boolean;
+  /**
+   * Hard cap on the number of entities visited (and therefore on relationship
+   * fan-out). Once reached, the BFS stops expanding. Defaults to
+   * {@link DEFAULT_MAX_SUBGRAPH_ENTITIES}.
+   */
+  max_entities?: number;
 }
 
 export interface SubgraphResult {
@@ -38,7 +52,12 @@ export async function extractSubgraph(
   seedEntityIds: string[],
   opts: SubgraphOptions = {},
 ): Promise<SubgraphResult> {
-  const { max_hops = 2, valid_at, include_invalidated = false } = opts;
+  const {
+    max_hops = 2,
+    valid_at,
+    include_invalidated = false,
+    max_entities = DEFAULT_MAX_SUBGRAPH_ENTITIES,
+  } = opts;
 
   const visitedEntities = new Set<string>();
   const collectedRelationships = new Map<string, Relationship>();
@@ -49,6 +68,9 @@ export async function extractSubgraph(
 
     for (const entityId of frontier) {
       if (visitedEntities.has(entityId)) continue;
+      // Stop expanding once the entity budget is reached — the frontier can
+      // grow near-exponentially in a dense graph.
+      if (visitedEntities.size >= max_entities) break;
       visitedEntities.add(entityId);
 
       if (hop < max_hops) {
@@ -71,15 +93,14 @@ export async function extractSubgraph(
       }
     }
 
+    if (visitedEntities.size >= max_entities) break;
     frontier = nextFrontier;
   }
 
-  // Fetch full entity records for all visited IDs
-  const entities: Entity[] = [];
-  for (const id of visitedEntities) {
-    const entity = await store.getEntity(id);
-    if (entity) entities.push(entity);
-  }
+  // Batch-fetch full entity records for all visited IDs (one query instead of
+  // one round-trip per entity).
+  const entitiesMap = await store.getEntities([...visitedEntities]);
+  const entities = [...entitiesMap.values()];
 
   return {
     entities,

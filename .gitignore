@@ -6,6 +6,8 @@ dist
 *.log
 .DS_Store
 drizzle
+!/packages/orchestrator-postgres/drizzle/
+!/packages/orchestrator-postgres/drizzle/**
 docker-compose.override.yml
 .vercel
 .agents/

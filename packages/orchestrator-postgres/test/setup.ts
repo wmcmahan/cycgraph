@@ -7,6 +7,7 @@
  * Tests are skipped automatically when DATABASE_URL is not set.
  */
 
+import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { getDb, closeDb } from '../src/connection.js';
 import {
@@ -15,6 +16,7 @@ import {
   workflow_states,
   workflow_events,
   workflow_checkpoints,
+  workflow_jobs,
   agents,
   memory_entity_facts,
   memory_facts,
@@ -35,6 +37,7 @@ const TRUNCATABLE_TABLES = [
   memory_themes,
   memory_entities,
   // Engine tables
+  workflow_jobs,
   workflow_checkpoints,
   workflow_events,
   workflow_states,
@@ -87,6 +90,28 @@ async function truncateAllTables(): Promise<void> {
   for (const table of TRUNCATABLE_TABLES) {
     await db.delete(table);
   }
+}
+
+/**
+ * Insert a minimal `graphs` + `workflow_runs` row so a `run_id` satisfies the
+ * `workflow_events` / `workflow_states` / `workflow_checkpoints` foreign keys.
+ *
+ * In production the queue creates the run row before any events are appended;
+ * unit tests of the event log / persistence must replicate that. Idempotent
+ * (safe to call once per run id). Returns the seeded run id.
+ */
+export async function seedRun(runId: string): Promise<string> {
+  const db = await getDb();
+  const graphId = randomUUID();
+  await db
+    .insert(graphs)
+    .values({ id: graphId, name: 'test-graph', definition: { nodes: [], edges: [] } as never })
+    .onConflictDoNothing();
+  await db
+    .insert(workflow_runs)
+    .values({ id: runId, graph_id: graphId, status: 'running' })
+    .onConflictDoNothing();
+  return runId;
 }
 
 export { getDb, closeDb };
