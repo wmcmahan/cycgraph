@@ -11,6 +11,7 @@
   },
   "changesets": [
     "beta-2-runner-refactor",
+    "evolution-fitness-function",
     "guardrails-pair",
     "reflection-compound-learning"
   ]

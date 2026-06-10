@@ -1,5 +1,12 @@
 # @cycgraph/orchestrator-postgres
 
+## 1.0.0-beta.4
+
+### Patch Changes
+
+- Updated dependencies [2812c0e]
+  - @cycgraph/orchestrator@0.1.0-beta.4
+
 ## 1.0.0-beta.3
 
 ### Patch Changes
