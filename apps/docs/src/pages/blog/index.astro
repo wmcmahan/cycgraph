@@ -1,0 +1,55 @@
+---
+import { getCollection } from 'astro:content';
+import SiteLayout from '../../layouts/SiteLayout.astro';
+import PostCard from '../../components/blog/PostCard.astro';
+import TagPill from '../../components/blog/TagPill.astro';
+
+const posts = (await getCollection('blog'))
+  .filter((p) => !p.data.draft)
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+
+const allTags = [...new Set(posts.flatMap((p) => p.data.tags))].sort();
+---
+
+<SiteLayout
+  title="Blog — cycgraph"
+  description="Design notes, pattern deep-dives, and lessons from running agentic orchestration in production."
+>
+  <section class="mx-auto max-w-6xl px-6 pb-12 pt-16 lg:pt-24">
+    <div class="flex items-center gap-3 font-mono text-xs uppercase tracking-[0.25em] text-signal">
+      <span class="h-px w-8 bg-signal/60"></span>
+      Field notes
+    </div>
+    <h1 class="mt-5 max-w-3xl font-display text-5xl leading-[1.02] tracking-tight text-ink sm:text-6xl">
+      The cycgraph blog.
+    </h1>
+    <p class="mt-5 max-w-xl text-lg leading-relaxed text-muted">
+      Design notes, pattern deep-dives, and what we learn running multi-agent
+      systems in production. Subscribe via <a href="/rss.xml" class="text-signal underline underline-offset-4">RSS</a>.
+    </p>
+
+    {
+      allTags.length > 0 && (
+        <div class="mt-9 flex flex-wrap gap-2">
+          {allTags.map((t) => (
+            <TagPill tag={t} />
+          ))}
+        </div>
+      )
+    }
+  </section>
+
+  <section class="mx-auto max-w-6xl px-6 pb-24">
+    {
+      posts.length === 0 ? (
+        <p class="font-mono text-sm text-muted">No posts yet — check back soon.</p>
+      ) : (
+        <div class="grid gap-5 sm:grid-cols-2">
+          {posts.map((post, i) => (
+            <PostCard post={post} featured={i === 0} />
+          ))}
+        </div>
+      )
+    }
+  </section>
+</SiteLayout>

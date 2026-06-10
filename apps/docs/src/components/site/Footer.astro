@@ -1,0 +1,79 @@
+---
+import Logo from './Logo.astro';
+
+const year = 2026;
+const cols = [
+  {
+    head: 'Product',
+    links: [
+      { label: 'Documentation', href: '/docs/' },
+      { label: 'Quick Start', href: '/docs/getting-started/quick-start/' },
+      { label: 'Workflow Patterns', href: '/docs/patterns/supervisor/' },
+      { label: 'Architect', href: '/docs/guides/architect/' },
+    ],
+  },
+  {
+    head: 'Resources',
+    links: [
+      { label: 'Blog', href: '/blog/' },
+      { label: 'RSS Feed', href: '/rss.xml' },
+      { label: 'Security', href: '/docs/security/' },
+      { label: 'Deployment', href: '/docs/operations/deployment/' },
+    ],
+  },
+  {
+    head: 'Source',
+    links: [
+      { label: 'GitHub', href: 'https://github.com/wmcmahan/mc-ai' },
+      { label: '@cycgraph/orchestrator', href: 'https://www.npmjs.com/package/@cycgraph/orchestrator' },
+    ],
+  },
+];
+---
+
+<footer class="relative mt-32 border-t border-canvas-line/70">
+  <div class="mx-auto max-w-6xl px-6 py-16">
+    <div class="grid gap-12 md:grid-cols-[1.4fr_repeat(3,1fr)]">
+      <div>
+        <div class="flex items-center gap-2.5">
+          <Logo class="h-6 w-6" />
+          <span class="font-mono text-sm font-bold tracking-[0.18em] text-ink">CYCGRAPH</span>
+          <span class="rounded-full border border-cyan/30 bg-cyan/10 px-1.5 py-px font-mono text-[0.58rem] font-bold uppercase tracking-wider text-cyan">
+            beta
+          </span>
+        </div>
+        <p class="mt-4 max-w-xs text-sm leading-relaxed text-muted">
+          Agentic orchestration on a Cyclic State Graph. Build multi-agent
+          workflows that loop, branch, recover, and evolve.
+        </p>
+      </div>
+
+      {
+        cols.map((col) => (
+          <div>
+            <h3 class="font-mono text-[0.7rem] uppercase tracking-widest text-faint">
+              {col.head}
+            </h3>
+            <ul class="mt-4 space-y-2.5">
+              {col.links.map((l) => (
+                <li>
+                  <a
+                    href={l.href}
+                    class="text-sm text-muted transition-colors hover:text-signal"
+                  >
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="mt-14 flex flex-col gap-3 border-t border-canvas-line/70 pt-6 font-mono text-[0.7rem] uppercase tracking-widest text-faint sm:flex-row sm:items-center sm:justify-between">
+      <span>© {year} cycgraph · Apache-2.0</span>
+      <span>cycgraph · built on a cyclic state graph</span>
+    </div>
+  </div>
+</footer>

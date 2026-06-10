@@ -1,0 +1,100 @@
+---
+import SiteLayout from './SiteLayout.astro';
+import TagPill from '../components/blog/TagPill.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  date: Date;
+  author: string;
+  tags: string[];
+}
+
+const { title, description, date, author, tags } = Astro.props;
+const dateStr = date.toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+
+const url = new URL(Astro.url.pathname, Astro.site).href;
+const siteUrl = new URL('/', Astro.site).href;
+const published = date.toISOString();
+
+const jsonLd = [
+  {
+    '@type': 'BlogPosting',
+    headline: title,
+    description,
+    datePublished: published,
+    dateModified: published,
+    author: { '@type': 'Person', name: author },
+    publisher: { '@type': 'Organization', name: 'cycgraph', url: siteUrl },
+    mainEntityOfPage: { '@type': 'WebPage', '@id': url },
+    image: new URL('/og-default.png', Astro.site).href,
+    keywords: tags.join(', '),
+  },
+  {
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Blog', item: `${siteUrl}blog/` },
+      { '@type': 'ListItem', position: 2, name: title, item: url },
+    ],
+  },
+];
+---
+
+<SiteLayout
+  title={`${title} — cycgraph Blog`}
+  description={description}
+  type="article"
+  publishedTime={published}
+  modifiedTime={published}
+  author={author}
+  jsonLd={jsonLd}
+>
+  <article class="mx-auto max-w-3xl px-6 pb-12 pt-16 lg:pt-20">
+    <a
+      href="/blog/"
+      class="inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-muted transition-colors hover:text-signal"
+    >
+      ← Blog
+    </a>
+
+    <div class="mt-8 flex items-center gap-3 font-mono text-[0.7rem] uppercase tracking-widest text-faint">
+      <time datetime={date.toISOString()}>{dateStr}</time>
+      <span class="h-1 w-1 rounded-full bg-faint"></span>
+      <span>{author}</span>
+    </div>
+
+    <h1 class="mt-5 font-display text-4xl leading-[1.05] tracking-tight text-ink sm:text-5xl">
+      {title}
+    </h1>
+    <p class="mt-5 text-lg leading-relaxed text-muted">{description}</p>
+
+    {
+      tags.length > 0 && (
+        <div class="mt-6 flex flex-wrap gap-2">
+          {tags.map((t) => (
+            <TagPill tag={t} />
+          ))}
+        </div>
+      )
+    }
+
+    <div class="mt-10 h-px w-full bg-canvas-line/70"></div>
+
+    <div class="prose-cycgraph mt-10">
+      <slot />
+    </div>
+
+    <div class="mt-16 border-t border-canvas-line/70 pt-8">
+      <a
+        href="/blog/"
+        class="font-mono text-xs uppercase tracking-widest text-muted transition-colors hover:text-signal"
+      >
+        ← Back to all posts
+      </a>
+    </div>
+  </article>
+</SiteLayout>

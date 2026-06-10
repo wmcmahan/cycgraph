@@ -1,0 +1,59 @@
+/*
+  cycgraph docs theme — aligns Starlight with the marketing site's
+  "Graph Canvas" look (indigo→cyan on a near-black canvas).
+
+  This overrides Starlight's OWN CSS custom properties only — it is NOT
+  Tailwind, so there is no Preflight reset and docs styling stays intact.
+  Loaded last via `customCss`, so it wins over Starlight defaults.
+
+  Starlight ships dark-first: `:root` holds dark tokens, `[data-theme='light']`
+  overrides for the light toggle.
+*/
+
+:root {
+  /* Typography — unify with the marketing site. */
+  --sl-font: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --sl-font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* Indigo accent ramp (dark theme). */
+  --sl-color-accent-low: #1b2150;
+  --sl-color-accent: #5b6cff;
+  --sl-color-accent-high: #c6ccff;
+
+  /* Near-black canvas, matching the marketing palette. */
+  --sl-color-bg: #090b11;
+  --sl-color-bg-nav: #0a0c13;
+  --sl-color-bg-sidebar: #0b0d15;
+  --sl-color-bg-inline-code: #0f111a;
+  --sl-color-bg-accent: #5b6cff;
+
+  /* Cool-tinted neutral ramp so surfaces read as one family. */
+  --sl-color-hairline: #161a24;
+  --sl-color-hairline-light: #1b1f2c;
+  --sl-color-hairline-shade: #11141d;
+  --sl-color-gray-7: #0f111a;
+  --sl-color-gray-6: #15182180;
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #dfe2ff;
+  --sl-color-accent: #4049d6;
+  --sl-color-accent-high: #1f2558;
+  --sl-color-bg-accent: #4049d6;
+}
+
+/* Cyan spark on hover — echoes the marketing two-tone without hurting
+   the default link legibility. */
+.sl-markdown-content a:hover {
+  color: #34e2e8;
+  text-decoration-color: #34e2e8;
+}
+
+/* Soft indigo bloom behind the page title, like the marketing hero. */
+.content-panel:first-of-type {
+  background-image: radial-gradient(
+    60% 8rem at 0% 0%,
+    rgba(91, 108, 255, 0.06),
+    transparent 70%
+  );
+}

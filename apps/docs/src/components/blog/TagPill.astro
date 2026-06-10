@@ -1,0 +1,19 @@
+---
+interface Props {
+  tag: string;
+  active?: boolean;
+}
+const { tag, active = false } = Astro.props;
+---
+
+<a
+  href={`/blog/tags/${tag}/`}
+  class:list={[
+    'inline-flex items-center rounded-full border px-3 py-1 font-mono text-[0.68rem] uppercase tracking-widest transition-colors',
+    active
+      ? 'border-signal bg-signal/10 text-signal'
+      : 'border-canvas-line text-muted hover:border-signal hover:text-signal',
+  ]}
+>
+  {tag}
+</a>

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://flattop.io/sitemap-index.xml

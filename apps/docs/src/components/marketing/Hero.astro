@@ -1,0 +1,137 @@
+---
+// Hero — editorial headline + an animated cyclic state graph.
+---
+
+<section class="grain relative overflow-hidden">
+  <div class="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 px-6 pb-24 pt-20 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:pb-32 lg:pt-28">
+    <!-- Left: copy -->
+    <div>
+      <div class="animate-rise flex items-center gap-3 font-mono text-xs uppercase tracking-[0.25em] text-signal" style="animation-delay: 0ms">
+        <span class="h-px w-8 bg-signal/60"></span>
+        Beyond the DAG
+      </div>
+
+      <h1 class="animate-rise mt-6 font-display text-5xl leading-[0.98] tracking-tight text-ink sm:text-6xl lg:text-7xl" style="animation-delay: 80ms">
+        Real work doesn't run<br />
+        in a straight line.<br />
+        <em class="bg-gradient-to-r from-signal to-cyan bg-clip-text italic text-transparent">It loops.</em>
+      </h1>
+
+      <p class="animate-rise mt-7 max-w-xl text-lg leading-relaxed text-muted" style="animation-delay: 160ms">
+        DAGs only go forward. cycgraph <span class="text-ink">loops back</span> —
+        agents retry on feedback, route on the fly, evolve in parallel, and pause
+        for a human mid-run. That's the <span class="text-ink">Cyclic State
+        Graph</span>: durable, auditable, zero-trust.
+      </p>
+
+      <div class="animate-rise mt-9 flex flex-wrap items-center gap-3" style="animation-delay: 240ms">
+        <a
+          href="/docs/getting-started/quick-start/"
+          class="group inline-flex items-center gap-2 rounded-lg bg-signal px-5 py-3 font-mono text-sm font-600 text-white transition-transform hover:-translate-y-0.5"
+          style="box-shadow: var(--shadow-glow)"
+        >
+          Quick Start
+          <span class="transition-transform group-hover:translate-x-0.5">→</span>
+        </a>
+        <a
+          href="/docs/concepts/overview/"
+          class="inline-flex items-center gap-2 rounded-lg border border-canvas-line px-5 py-3 font-mono text-sm text-ink transition-colors hover:border-signal hover:text-signal"
+        >
+          How it works
+        </a>
+      </div>
+
+      <div class="animate-rise mt-9 inline-flex items-center gap-3 rounded-lg border border-canvas-line bg-canvas-raised/60 px-4 py-2.5 font-mono text-sm" style="animation-delay: 320ms">
+        <span class="text-faint">$</span>
+        <span class="text-ink">npm install <span class="text-signal">@cycgraph/orchestrator</span></span>
+      </div>
+    </div>
+
+    <!-- Right: a real workflow — the self-correcting review loop from the
+         code sample below (draft → verify → route, looping on "needs work",
+         exiting to "ship" on "approved"). -->
+    <div class="animate-rise relative" style="animation-delay: 200ms">
+      <div class="relative aspect-square w-full max-w-md mx-auto">
+        <svg viewBox="0 0 400 400" class="h-full w-full" fill="none" aria-hidden="true">
+          <defs>
+            <radialGradient id="halo" cx="50%" cy="42%" r="55%">
+              <stop offset="0%" stop-color="#5b6cff" stop-opacity="0.16" />
+              <stop offset="100%" stop-color="#5b6cff" stop-opacity="0" />
+            </radialGradient>
+            <marker id="ah" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+              <path d="M0 0 L6 3 L0 6 Z" fill="#5b6cff" />
+            </marker>
+            <marker id="ah-cyan" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+              <path d="M0 0 L6 3 L0 6 Z" fill="#34e2e8" />
+            </marker>
+            <filter id="pulse-glow" x="-200%" y="-200%" width="500%" height="500%">
+              <feGaussianBlur stdDeviation="3.5" />
+            </filter>
+          </defs>
+
+          <circle cx="200" cy="200" r="168" fill="url(#halo)" />
+
+          <!-- structural flow edges (directed) -->
+          <g stroke="#2a3040" stroke-width="1.6">
+            <path d="M209 95 L309 238" marker-end="url(#ah)" />
+            <path d="M302 250 L111 250" marker-end="url(#ah)" />
+          </g>
+
+          <!-- the loop-back edge: highlighted + animated. THIS is the cycle. -->
+          <path
+            d="M104 237 L191 96"
+            stroke="#5b6cff"
+            stroke-width="1.7"
+            stroke-dasharray="6 7"
+            marker-end="url(#ah)"
+            style="animation: dash 24s linear infinite"
+          />
+
+          <!-- approved exit -->
+          <path d="M96 265 L96 337" stroke="#1f6f78" stroke-width="1.6" marker-end="url(#ah-cyan)" />
+
+          <!-- nodes: draft → verify → route (loop), ship = goal -->
+          <g>
+            <circle cx="200" cy="82" r="10" fill="#090b11" stroke="#5b6cff" stroke-width="2" />
+            <circle cx="318" cy="250" r="10" fill="#090b11" stroke="#5b6cff" stroke-width="2" />
+            <circle cx="96" cy="250" r="10" fill="#090b11" stroke="#5b6cff" stroke-width="2" />
+            <!-- ship: the goal the loop converges on -->
+            <circle cx="96" cy="352" r="12" fill="#0a1418" stroke="#34e2e8" stroke-width="2" />
+            <path d="M90 352 L95 357 L103 347" stroke="#34e2e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </g>
+
+          <!-- labels -->
+          <g style="font-family: var(--font-mono)" font-size="11.5" letter-spacing="0.5" fill="#6a7185">
+            <text x="200" y="60" text-anchor="middle">draft</text>
+            <text x="318" y="280" text-anchor="middle">verify</text>
+            <text x="78" y="248" text-anchor="end">route</text>
+            <text x="96" y="380" text-anchor="middle">ship</text>
+          </g>
+          <g style="font-family: var(--font-mono)" font-size="9.5" letter-spacing="0.5">
+            <text x="126" y="150" text-anchor="middle" fill="#8088ff">needs work</text>
+            <text x="108" y="302" text-anchor="start" fill="#34e2e8">approved</text>
+          </g>
+
+          <!-- traveling pulse: lives INSIDE the svg and rides the cycle via
+               animateMotion, so it sits exactly on the edges at any scale -->
+          <g>
+            <circle r="8" fill="#34e2e8" opacity="0.3" filter="url(#pulse-glow)" />
+            <circle r="5" fill="#34e2e8" opacity="0.55" />
+            <circle r="3" fill="#eafcff" />
+            <animateMotion
+              dur="5.5s"
+              repeatCount="indefinite"
+              calcMode="paced"
+              path="M200 82 L318 250 L96 250 Z"
+            />
+          </g>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- bottom hairline -->
+  <div class="mx-auto max-w-6xl px-6">
+    <div class="h-px w-full bg-canvas-line/70"></div>
+  </div>
+</section>

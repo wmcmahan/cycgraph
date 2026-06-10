@@ -1,0 +1,114 @@
+---
+const patterns = [
+  {
+    n: "01",
+    name: "Supervisor",
+    href: "/docs/patterns/supervisor/",
+    desc: "An LLM router delegates, reviews the result, and re-delegates until the work is done.",
+  },
+  {
+    n: "02",
+    name: "Evolution (DGM)",
+    href: "/docs/patterns/evolution/",
+    desc: "Population-based Darwinian selection: run N candidates, score them, breed the winner.",
+  },
+  {
+    n: "03",
+    name: "Reflection",
+    href: "/docs/patterns/reflection/",
+    desc: "Distill lessons from a run into atomic facts that future runs retrieve and reuse.",
+  },
+  {
+    n: "04",
+    name: "Self-Annealing",
+    href: "/docs/patterns/self-annealing/",
+    desc: "Iterative refinement on a cooling temperature schedule — explore, then converge.",
+  },
+  {
+    n: "05",
+    name: "Swarm",
+    href: "/docs/patterns/swarm/",
+    desc: "Parallel agents collaborating over one shared state blackboard.",
+  },
+  {
+    n: "06",
+    name: "Map-Reduce",
+    href: "/docs/patterns/map-reduce/",
+    desc: "Fan out across a workload, process in parallel, fan back in to a single result.",
+  },
+  {
+    n: "07",
+    name: "Human-in-the-Loop",
+    href: "/docs/patterns/human-in-the-loop/",
+    desc: "Pause for human input and resume from a durable checkpoint — hours or days later.",
+  },
+  {
+    n: "08",
+    name: "Voting / Consensus",
+    href: "/docs/patterns/voting/",
+    desc: "Sample many agents on the same task in parallel, then aggregate to a consensus answer.",
+  },
+  {
+    n: "09",
+    name: "Verifier",
+    href: "/docs/patterns/verifier/",
+    desc: "A quality gate — LLM judge, expression, or JSONPath assertion — that routes on pass/fail.",
+  },
+];
+---
+
+<section class="mx-auto max-w-6xl px-6 py-24 lg:py-32">
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <div
+        class="flex items-center gap-3 font-mono text-xs uppercase tracking-[0.25em] text-signal"
+      >
+        <span class="h-px w-8 bg-signal/60"></span>
+        Composable by design
+      </div>
+      <h2
+        class="mt-5 max-w-2xl font-display text-4xl leading-tight tracking-tight text-ink sm:text-5xl"
+      >
+        Nine patterns, built in. Twelve node types to <span
+          class="bg-gradient-to-r from-signal to-cyan bg-clip-text text-transparent"
+          >compose your own.</span
+        >
+      </h2>
+    </div>
+    <a
+      href="/docs/patterns/supervisor/"
+      class="shrink-0 font-mono text-xs uppercase tracking-widest text-muted transition-colors hover:text-signal"
+    >
+      All patterns ↗
+    </a>
+  </div>
+
+  <div
+    class="mt-14 grid gap-px overflow-hidden rounded-xl border border-canvas-line bg-canvas-line sm:grid-cols-2 lg:grid-cols-3"
+  >
+    {
+      patterns.map((p) => (
+        <a
+          href={p.href}
+          class="group relative flex flex-col bg-canvas p-7 transition-colors hover:bg-canvas-raised"
+        >
+          <div class="flex items-baseline justify-between">
+            <span class="font-mono text-sm text-faint transition-colors group-hover:text-signal">
+              {p.n}
+            </span>
+            <span class="font-mono text-xs text-canvas-line transition-colors group-hover:text-faint">
+              node
+            </span>
+          </div>
+          <h3 class="mt-6 font-display text-2xl tracking-tight text-ink">
+            {p.name}
+          </h3>
+          <p class="mt-3 text-sm leading-relaxed text-muted">{p.desc}</p>
+          <span class="mt-6 inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-faint transition-all group-hover:gap-2.5 group-hover:text-signal">
+            Read <span>→</span>
+          </span>
+        </a>
+      ))
+    }
+  </div>
+</section>

@@ -1,0 +1,181 @@
+---
+import { Code } from 'astro:components';
+
+// Custom Shiki theme matching the cycgraph palette: indigo keywords, cyan
+// strings, muted comments on the near-black code window.
+const cycgraphCodeTheme = {
+  name: 'cycgraph',
+  type: 'dark',
+  colors: {
+    'editor.background': '#07080b',
+    'editor.foreground': '#cfd3dd',
+  },
+  settings: [
+    { settings: { background: '#07080b', foreground: '#cfd3dd' } },
+    {
+      scope: ['comment', 'punctuation.definition.comment'],
+      settings: { foreground: '#5a6275', fontStyle: 'italic' },
+    },
+    {
+      scope: [
+        'keyword',
+        'keyword.control',
+        'keyword.control.import',
+        'keyword.control.flow',
+        'storage.type',
+        'storage.modifier',
+        'keyword.operator.new',
+      ],
+      settings: { foreground: '#8ea0ff' },
+    },
+    {
+      scope: [
+        'string',
+        'string.quoted.single',
+        'string.quoted.double',
+        'string.template',
+        'punctuation.definition.string',
+      ],
+      settings: { foreground: '#46d4dc' },
+    },
+    {
+      scope: ['constant.numeric', 'constant.language', 'constant.language.boolean'],
+      settings: { foreground: '#34e2e8' },
+    },
+    {
+      scope: ['entity.name.function', 'support.function', 'meta.function-call', 'entity.name.method'],
+      settings: { foreground: '#b3bcff' },
+    },
+    {
+      scope: ['entity.name.type', 'entity.name.class', 'support.type', 'support.class'],
+      settings: { foreground: '#c6ccff' },
+    },
+    {
+      scope: ['meta.object-literal.key', 'support.type.property-name', 'variable.object.property'],
+      settings: { foreground: '#8f97c4' },
+    },
+    {
+      scope: ['keyword.operator'],
+      settings: { foreground: '#8088a0' },
+    },
+    {
+      scope: [
+        'punctuation',
+        'meta.brace.round',
+        'meta.brace.square',
+        'meta.brace.curly',
+        'punctuation.separator',
+        'punctuation.terminator',
+      ],
+      settings: { foreground: '#6b7286' },
+    },
+    {
+      scope: ['variable', 'variable.other', 'variable.other.readwrite'],
+      settings: { foreground: '#d3d7e3' },
+    },
+  ],
+};
+
+const features = [
+  { k: 'Durable execution', v: 'Every action is persisted. Runs survive crashes and replay straight from the event log.' },
+  { k: 'Zero-trust', v: 'Agents see only their keys. External data is taint-tracked; MCP servers are allowlisted.' },
+  { k: 'Budget guardrails', v: 'Hard caps on tokens, cost, iterations, and wall-clock — enforced by the engine, not by you.' },
+  { k: 'Observability', v: 'OpenTelemetry traces, structured events, and token-level streaming, out of the box.' },
+];
+
+const code = `import {
+  GraphRunner,
+  createGraph,
+  createWorkflowState,
+} from '@cycgraph/orchestrator';
+
+// Agents are data, not classes.
+const graph = createGraph({
+  name: 'review-loop',
+  start_node: 'draft',
+  end_nodes: ['done'],
+  nodes: [
+    { id: 'draft',  type: 'agent',      agent_id: WRITER },
+    { id: 'critic', type: 'agent',      agent_id: REVIEWER },
+    { id: 'route',  type: 'supervisor', agent_id: LEAD },
+  ],
+  edges: [
+    { from: 'draft',  to: 'critic' },
+    { from: 'critic', to: 'route'  },
+    // the cycle: loop back until the critic is satisfied
+    { from: 'route',  to: 'draft', when: 'needs_work' },
+    { from: 'route',  to: 'done',  when: 'approved'   },
+  ],
+});
+
+const runner = new GraphRunner(
+  graph,
+  createWorkflowState({ workflow_id: 'r1', goal: 'Ship it' }),
+);
+
+for await (const event of runner.stream()) {
+  console.log(event.type);
+}`;
+---
+
+<section class="relative border-y border-canvas-line/70 bg-canvas-raised/40">
+  <div class="mx-auto grid max-w-6xl grid-cols-1 gap-12 px-6 py-24 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:py-32">
+    <!-- left: narrative + features -->
+    <div class="lg:sticky lg:top-24 lg:self-start">
+      <div class="flex items-center gap-3 font-mono text-xs uppercase tracking-[0.25em] text-signal">
+        <span class="h-px w-8 bg-signal/60"></span>
+        The edge that loops back
+      </div>
+      <h2 class="mt-5 font-display text-4xl leading-tight tracking-tight text-ink sm:text-5xl">
+        A loop is just one edge, pointing back.
+      </h2>
+      <p class="mt-5 max-w-md leading-relaxed text-muted">
+        Declare nodes, edges, and conditions as plain config — no subclasses,
+        no callback spaghetti. Point a single edge backward and you have a
+        loop. The runtime owns state, persistence, security, and streaming;
+        you just describe the shape.
+      </p>
+
+      <dl class="mt-10 space-y-px overflow-hidden rounded-xl border border-canvas-line bg-canvas-line">
+        {
+          features.map((f) => (
+            <div class="bg-canvas px-5 py-4">
+              <dt class="font-mono text-xs uppercase tracking-widest text-signal">{f.k}</dt>
+              <dd class="mt-1.5 text-sm leading-relaxed text-muted">{f.v}</dd>
+            </div>
+          ))
+        }
+      </dl>
+    </div>
+
+    <!-- right: code window (min-w-0 lets the <pre> scroll instead of widening the grid) -->
+    <div class="relative min-w-0">
+      <div class="overflow-hidden rounded-xl border border-canvas-line bg-[#07080b] shadow-2xl">
+        <div class="flex items-center gap-2 border-b border-canvas-line px-4 py-3">
+          <span class="h-3 w-3 rounded-full bg-[#2a2f3d]"></span>
+          <span class="h-3 w-3 rounded-full bg-[#2a2f3d]"></span>
+          <span class="h-3 w-3 rounded-full bg-signal/70"></span>
+          <span class="ml-3 font-mono text-xs text-faint">review-loop.ts</span>
+        </div>
+        <div class="code-window">
+          <Code code={code} lang="typescript" theme={cycgraphCodeTheme} />
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* Shiki renders its own <pre class="astro-code">; style it to fit the window. */
+  .code-window :global(pre.astro-code) {
+    margin: 0;
+    padding: 1.25rem 1.35rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.62;
+  }
+  .code-window :global(pre.astro-code code) {
+    font-family: inherit;
+  }
+</style>

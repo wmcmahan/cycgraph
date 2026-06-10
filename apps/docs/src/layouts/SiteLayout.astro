@@ -1,0 +1,119 @@
+---
+import '../styles/tailwind.css';
+import Nav from '../components/site/Nav.astro';
+import Footer from '../components/site/Footer.astro';
+
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+  type?: 'website' | 'article';
+  publishedTime?: string;
+  modifiedTime?: string;
+  author?: string;
+  noindex?: boolean;
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];
+}
+
+const {
+  title = 'cycgraph — Agentic orchestration that loops',
+  description = 'Production-grade agentic orchestration built on a Cyclic State Graph. Build multi-agent workflows that loop, branch, recover, and evolve.',
+  image = '/og-default.png',
+  type = 'website',
+  publishedTime,
+  modifiedTime,
+  author,
+  noindex = false,
+  jsonLd,
+} = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const siteUrl = new URL('/', Astro.site).href;
+const ogImage = new URL(image, Astro.site).href;
+
+// Site-wide structured data, present on every marketing/blog page.
+const baseGraph: Record<string, unknown>[] = [
+  {
+    '@type': 'WebSite',
+    '@id': `${siteUrl}#website`,
+    name: 'cycgraph',
+    url: siteUrl,
+    description,
+  },
+  {
+    '@type': 'SoftwareApplication',
+    name: 'cycgraph',
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'Node.js 22+',
+    description,
+    url: siteUrl,
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    sameAs: [
+      'https://github.com/wmcmahan/mc-ai',
+      'https://www.npmjs.com/package/@cycgraph/orchestrator',
+    ],
+  },
+];
+const pageGraph = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [...baseGraph, ...pageGraph],
+};
+---
+
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex,nofollow" />}
+    <meta name="theme-color" content="#090b11" />
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content="cycgraph" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={title} />
+    {type === 'article' && publishedTime && (
+      <meta property="article:published_time" content={publishedTime} />
+    )}
+    {type === 'article' && modifiedTime && (
+      <meta property="article:modified_time" content={modifiedTime} />
+    )}
+    {type === 'article' && author && <meta property="article:author" content={author} />}
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <link rel="alternate" type="application/rss+xml" title="cycgraph Blog" href="/rss.xml" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+
+    <script defer src="/_vercel/insights/script.js"></script>
+  </head>
+  <body class="bg-canvas-grid min-h-screen font-sans text-ink antialiased selection:bg-signal selection:text-canvas">
+    <Nav />
+    <main>
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>

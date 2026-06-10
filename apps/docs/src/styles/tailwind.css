@@ -1,0 +1,153 @@
+@import 'tailwindcss';
+
+/*
+  cycgraph marketing + blog design system — "The Graph Canvas".
+  Scoped to non-docs pages by import location (SiteLayout.astro only),
+  so Tailwind's Preflight never reaches Starlight under /docs.
+*/
+
+@theme {
+  --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
+  --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  --color-canvas: #090b11;
+  --color-canvas-raised: #0f111a;
+  --color-canvas-line: #1b1f2c;
+  --color-ink: #e7ecf4;
+  --color-muted: #9298a8;
+  --color-faint: #5a6072;
+  --color-signal: #5b6cff;
+  --color-signal-deep: #3e4fe6;
+  --color-cyan: #34e2e8;
+
+  --shadow-glow: 0 0 0 1px rgba(91, 108, 255, 0.18), 0 18px 60px -22px rgba(91, 108, 255, 0.25);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+/* ---- Atmosphere ---------------------------------------------------------- */
+
+/* Blueprint dot-grid canvas, with a soft signal bloom drifting at the top. */
+.bg-canvas-grid {
+  background-color: var(--color-canvas);
+  background-image:
+    radial-gradient(circle at 50% -10%, rgba(91, 108, 255, 0.08), transparent 55%),
+    radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px;
+  background-position: 0 0, 0 0;
+}
+
+/* Hairline blueprint rules. */
+.rule-x {
+  background-image: linear-gradient(var(--color-canvas-line) 1px, transparent 1px);
+  background-size: 100% 28px;
+}
+
+.grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- Motion -------------------------------------------------------------- */
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-travel {
+  0% { offset-distance: 0%; opacity: 0; }
+  8% { opacity: 1; }
+  92% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+@keyframes dash {
+  to { stroke-dashoffset: -1000; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.animate-rise {
+  opacity: 0;
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.blink { animation: blink 1.6s steps(2, jump-none) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise { animation: none; opacity: 1; }
+  .blink { animation: none; }
+}
+
+/* ---- Prose (blog body) --------------------------------------------------- */
+
+.prose-cycgraph {
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 1.075rem;
+  line-height: 1.75;
+}
+.prose-cycgraph h2 {
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  line-height: 1.15;
+  margin: 2.4rem 0 0.9rem;
+  letter-spacing: -0.01em;
+}
+.prose-cycgraph h3 {
+  font-family: var(--font-sans);
+  font-weight: 650;
+  font-size: 1.2rem;
+  margin: 1.8rem 0 0.6rem;
+}
+.prose-cycgraph p { margin: 1rem 0; color: #cfd3dd; }
+.prose-cycgraph a { color: var(--color-signal); text-decoration: underline; text-underline-offset: 3px; }
+.prose-cycgraph ul { margin: 1rem 0; padding-left: 1.1rem; list-style: none; }
+.prose-cycgraph li { position: relative; padding-left: 1.1rem; margin: 0.45rem 0; color: #cfd3dd; }
+.prose-cycgraph li::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0.7em;
+  width: 6px; height: 6px;
+  background: var(--color-signal);
+  transform: rotate(45deg);
+}
+.prose-cycgraph strong { color: var(--color-ink); font-weight: 650; }
+.prose-cycgraph code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--color-canvas-raised);
+  border: 1px solid var(--color-canvas-line);
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  color: var(--color-signal);
+}
+.prose-cycgraph pre {
+  font-family: var(--font-mono);
+  background: #07080b;
+  border: 1px solid var(--color-canvas-line);
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+.prose-cycgraph pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #cfd3dd;
+}

@@ -1,0 +1,55 @@
+---
+import { getCollection } from 'astro:content';
+import SiteLayout from '../../../layouts/SiteLayout.astro';
+import PostCard from '../../../components/blog/PostCard.astro';
+import TagPill from '../../../components/blog/TagPill.astro';
+
+export async function getStaticPaths() {
+  const posts = (await getCollection('blog')).filter((p) => !p.data.draft);
+  const tags = [...new Set(posts.flatMap((p) => p.data.tags))];
+
+  return tags.map((tag) => ({
+    params: { tag },
+    props: {
+      tag,
+      posts: posts
+        .filter((p) => p.data.tags.includes(tag))
+        .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf()),
+      allTags: tags.sort(),
+    },
+  }));
+}
+
+const { tag, posts, allTags } = Astro.props;
+---
+
+<SiteLayout
+  title={`#${tag} — cycgraph Blog`}
+  description={`Posts tagged ${tag} on the cycgraph blog.`}
+>
+  <section class="mx-auto max-w-6xl px-6 pb-12 pt-16 lg:pt-24">
+    <a
+      href="/blog/"
+      class="inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-muted transition-colors hover:text-signal"
+    >
+      ← All posts
+    </a>
+    <div class="mt-8 flex items-center gap-3 font-mono text-xs uppercase tracking-[0.25em] text-signal">
+      <span class="h-px w-8 bg-signal/60"></span>
+      Tagged
+    </div>
+    <h1 class="mt-5 font-display text-5xl tracking-tight text-ink sm:text-6xl">
+      {tag}
+    </h1>
+
+    <div class="mt-9 flex flex-wrap gap-2">
+      {allTags.map((t) => <TagPill tag={t} active={t === tag} />)}
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-6 pb-24">
+    <div class="grid gap-5 sm:grid-cols-2">
+      {posts.map((post) => <PostCard post={post} />)}
+    </div>
+  </section>
+</SiteLayout>

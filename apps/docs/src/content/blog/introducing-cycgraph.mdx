@@ -1,0 +1,66 @@
+---
+title: "Introducing cycgraph: orchestration that loops"
+description: "Why we built an agentic orchestration engine on a Cyclic State Graph instead of yet another DAG — and what that unlocks for multi-agent systems."
+date: 2026-06-09
+author: "Will McMahan"
+tags: ["announcements", "architecture"]
+---
+
+Most agent frameworks model workflows as a DAG: agent A calls B calls C, and the
+graph only ever flows forward. That's fine for a linear pipeline. It falls apart
+the moment your workflow needs to *loop* — retry on a failed validation, let a
+supervisor re-route work, evolve a population of candidates over many generations,
+or pause for a human and resume hours later.
+
+**cycgraph** is built on a **Cyclic State Graph**. Nodes can loop, revisit prior
+nodes, and make routing decisions by reading from a shared state "blackboard."
+Every transition is auditable, every run is durable, and every agent sees only the
+slice of state it's permitted to.
+
+## What that unlocks
+
+Nine workflow patterns ship in the box, each a first-class node type:
+
+- **Supervisor** — an LLM router that delegates, reviews, and re-delegates until done.
+- **Evolution (DGM)** — population-based Darwinian selection: run N candidates, score them, breed the winner.
+- **Reflection** — distill lessons from a run into atomic facts that future runs retrieve.
+- **Self-Annealing** — iterative refinement with a cooling temperature schedule.
+- **Swarm** — parallel agents collaborating over shared state.
+- **Voting / Consensus** — sample many agents on one task, then aggregate to a consensus.
+- **Verifier** — a quality gate that routes the workflow on pass/fail.
+- **Map-Reduce** — fan out, process, fan in.
+- **Human-in-the-Loop** — pause, collect input, resume from a durable checkpoint.
+
+And twelve node-type primitives in total — add router, synthesizer, and subgraph to compose patterns of your own.
+
+## A two-node workflow
+
+```bash
+npm install @cycgraph/orchestrator
+```
+
+```ts
+import { GraphRunner, createGraph, createWorkflowState } from '@cycgraph/orchestrator';
+
+const graph = createGraph({
+  name: 'research-and-write',
+  start_node: 'researcher',
+  end_nodes: ['writer'],
+  nodes: [
+    { id: 'researcher', type: 'agent', agent_id: RESEARCHER_ID, write_keys: ['notes'] },
+    { id: 'writer', type: 'agent', agent_id: WRITER_ID, read_keys: ['notes'] },
+  ],
+  edges: [{ from: 'researcher', to: 'writer' }],
+});
+
+const runner = new GraphRunner(graph, createWorkflowState({ workflow_id: 'demo', goal: 'Explain CSGs' }));
+await runner.run();
+```
+
+That's the smallest possible graph. The interesting part is what happens when you
+add an edge that points *backward* — see the [Quick Start](/docs/getting-started/quick-start/)
+to build your first looping workflow, or the [pattern guides](/docs/patterns/supervisor/)
+for runnable examples of each.
+
+We'll use this blog to share design notes, pattern deep-dives, and what we learn
+running these systems in production. Subscribe via [RSS](/rss.xml).

@@ -1,0 +1,33 @@
+---
+// cycgraph mark — the cyclic-graph glyph from the favicon, as inline SVG so it
+// stays crisp at any size and renders in the live brand colors.
+interface Props {
+  class?: string;
+}
+const { class: className = 'h-7 w-7' } = Astro.props;
+---
+
+<svg
+  class={className}
+  viewBox="0 0 32 32"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+  aria-hidden="true"
+>
+  <rect x="0.7" y="0.7" width="30.6" height="30.6" rx="8" fill="#0d0f17" stroke="#23283a" />
+  <!-- cyclic edges -->
+  <path d="M16 7 L25 16 L16 25 L7 16 Z" stroke="#2a3142" stroke-width="1.3" />
+  <path
+    d="M16 7 L25 16 L16 25 L7 16 Z"
+    stroke="#5b6cff"
+    stroke-width="1.3"
+    stroke-dasharray="2.6 3"
+    opacity="0.75"
+  />
+  <!-- nodes: three indigo + one cyan accent, cyan core -->
+  <circle cx="16" cy="7" r="2.4" fill="#0d0f17" stroke="#5b6cff" stroke-width="1.5" />
+  <circle cx="25" cy="16" r="2.4" fill="#0d0f17" stroke="#34e2e8" stroke-width="1.5" />
+  <circle cx="16" cy="25" r="2.4" fill="#0d0f17" stroke="#5b6cff" stroke-width="1.5" />
+  <circle cx="7" cy="16" r="2.4" fill="#0d0f17" stroke="#5b6cff" stroke-width="1.5" />
+  <circle cx="16" cy="16" r="2.3" fill="#34e2e8" />
+</svg>
