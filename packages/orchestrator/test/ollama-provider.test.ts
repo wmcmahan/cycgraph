@@ -153,7 +153,7 @@ describe('registerOllamaProvider', () => {
       models: ['gpt-4o'],
     });
     registry.register('anthropic', (id) => stubModel(id), {
-      models: ['claude-sonnet-4-20250514'],
+      models: ['claude-sonnet-4-6'],
     });
 
     const { factory } = createMockFactory();
@@ -165,7 +165,7 @@ describe('registerOllamaProvider', () => {
 
     // Each provider infers correctly
     expect(registry.inferProvider('gpt-4o')).toBe('openai');
-    expect(registry.inferProvider('claude-sonnet-4-20250514')).toBe('anthropic');
+    expect(registry.inferProvider('claude-sonnet-4-6')).toBe('anthropic');
     expect(registry.inferProvider('qwen2.5:7b')).toBe('ollama');
   });
 });

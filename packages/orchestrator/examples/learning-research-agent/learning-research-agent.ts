@@ -129,7 +129,7 @@ const registry = new InMemoryAgentRegistry();
 const RESEARCHER_ID = registry.register({
   name: 'Research Agent',
   description: 'Gathers concise research notes on a topic',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a research specialist.',

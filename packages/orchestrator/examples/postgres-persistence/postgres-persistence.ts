@@ -81,7 +81,7 @@ async function ensureAgentsRegistered() {
   const RESEARCHER_ID = await agentRegistry.register({
     name: 'PG Research Agent',
     description: 'Researches topics (Postgres-persisted)',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     provider: 'anthropic',
     system_prompt: [
       'You are a research specialist.',
@@ -99,7 +99,7 @@ async function ensureAgentsRegistered() {
   const WRITER_ID = await agentRegistry.register({
     name: 'PG Writer Agent',
     description: 'Writes articles from research (Postgres-persisted)',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     provider: 'anthropic',
     system_prompt: [
       'You are a professional writer.',

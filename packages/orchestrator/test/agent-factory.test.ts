@@ -73,7 +73,7 @@ describe('AgentFactory', () => {
       const config = factory.getDefaultConfig('test-agent');
       expect(config.id).toBe('test-agent');
       expect(config.name).toBe('test-agent');
-      expect(config.model).toBe('claude-sonnet-4-20250514');
+      expect(config.model).toBe('claude-sonnet-4-6');
       expect(config.provider).toBe('anthropic');
       expect(config.temperature).toBe(0.7);
       expect(config.maxSteps).toBe(10);
@@ -139,7 +139,7 @@ describe('AgentFactory', () => {
       factory.setAllowDefaultFallback(true);
       const config = await factory.loadAgent(TEST_UUID);
       expect(config.id).toBe(TEST_UUID);
-      expect(config.model).toBe('claude-sonnet-4-20250514');
+      expect(config.model).toBe('claude-sonnet-4-6');
       expect(config.read_keys).toEqual([]);
       expect(config.write_keys).toEqual([]);
     });
@@ -149,7 +149,7 @@ describe('AgentFactory', () => {
         id: TEST_UUID,
         name: 'Test Agent',
         description: 'test',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         provider: 'anthropic',
         system_prompt: 'You are helpful',
         temperature: 0.5,
@@ -167,7 +167,7 @@ describe('AgentFactory', () => {
         id: TEST_UUID,
         name: 'Test Agent',
         description: 'test',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         provider: 'anthropic',
         system_prompt: 'You are helpful',
         temperature: 0.5,
@@ -225,7 +225,7 @@ describe('AgentFactory', () => {
       const noDbFactory = new AgentFactory();
       const config = await noDbFactory.loadAgent(TEST_UUID);
       expect(config.id).toBe(TEST_UUID);
-      expect(config.model).toBe('claude-sonnet-4-20250514');
+      expect(config.model).toBe('claude-sonnet-4-6');
     });
   });
 

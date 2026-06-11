@@ -14,7 +14,7 @@ npx tsx packages/evals/scripts/record-goldens.ts --suite <suite> [flags]
 | Flag | Default | What it does |
 |---|---|---|
 | `--suite` | `orchestrator` | Which suite to record |
-| `--model` | `claude-sonnet-4-20250514` | Recording model (orchestrator only) |
+| `--model` | `claude-sonnet-4-6` | Recording model (orchestrator only) |
 | `--samples` | `3` | Samples per trajectory for stability checking |
 | `--commit` | (off — dry run) | Actually overwrite the SQLite dataset |
 | `--plan-only` | off | Print the routing table and exit; no SUT invocations |
@@ -27,7 +27,7 @@ npx tsx packages/evals/scripts/record-goldens.ts --suite <suite> [flags]
 ```bash
 $ npx tsx scripts/record-goldens.ts --suite orchestrator --plan-only
 
-[record-goldens] suite=orchestrator model=claude-sonnet-4-20250514 ...
+[record-goldens] suite=orchestrator model=claude-sonnet-4-6 ...
   [1/18] PLAN   e503a104 Single-node: research TypeScript history — graph=single-agent tool=web_search
   [2/18] PLAN   0c9fbbc0 Single-node: summarize document — graph=single-agent tool=web_search
   ...

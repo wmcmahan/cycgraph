@@ -53,7 +53,7 @@ export const AgentConfigSchema = z.object({
 
   // ── AI SDK Core Properties ──
 
-  /** Model identifier (e.g. `'claude-sonnet-4-20250514'`, `'gpt-4-turbo'`). */
+  /** Model identifier (e.g. `'claude-sonnet-4-6'`, `'gpt-4-turbo'`). */
   model: z.string(),
   /** LLM provider — determines which AI SDK factory is used. */
   provider: z.string(),

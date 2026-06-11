@@ -27,6 +27,7 @@ Define multi-step agent workflows declaratively, run them with durable execution
 - **Cyclic graph engine** — loops, retries, conditional routing via [filtrex](https://github.com/joewalnes/filtrex), nested subgraphs, parallel fan-out/fan-in.
 - **12 node types** — `agent`, `tool`, `router`, `supervisor`, `approval`, `map`, `synthesizer`, `voting`, `subgraph`, `evolution`, `verifier`, `reflection`.
 - **Compound learning across runs** — `reflection` node distills run output into atomic facts; future runs retrieve them via `memory_query` on any agent node.
+- **Eval-gated learning (verified lessons)** — the runner records which facts were injected into each run (`getInjectedFactIds(finalState)`); pair with `@cycgraph/memory`'s outcome ledger and retention gate to promote lessons that verifiably lift outcomes and evict the ones that hurt.
 - **Production-safety primitives** — per-node `budget` (token + cost caps), `factSanitizer` for PII redaction, taint tracking on external data, zero-trust `read_keys` / `write_keys`, prompt-injection guards.
 - **Durable execution** — event-sourced replay, atomic state snapshots, saga compensation, auto-compaction.
 - **Streaming** — `stream()` async generator with real-time token deltas, tool-call events, and typed lifecycle events.

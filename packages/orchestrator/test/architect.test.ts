@@ -10,7 +10,7 @@ vi.mock('ai', () => ({
 vi.mock('../src/agent/agent-factory/index', () => ({
   agentFactory: {
     loadAgent: vi.fn(),
-    getModel: vi.fn(() => ({ provider: 'anthropic', modelId: 'claude-sonnet-4-20250514' })),
+    getModel: vi.fn(() => ({ provider: 'anthropic', modelId: 'claude-sonnet-4-6' })),
   },
 }));
 
@@ -183,7 +183,7 @@ describe('generateWorkflow', () => {
     vi.clearAllMocks();
     (agentFactory.loadAgent as any).mockResolvedValue({
       id: 'architect-agent',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       provider: 'anthropic',
     });
   });

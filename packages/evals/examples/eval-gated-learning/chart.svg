@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420" font-family="ui-sans-serif, system-ui, sans-serif">
+  <rect width="720" height="420" fill="white"/>
+  <text x="56" y="28" font-size="15" font-weight="600" fill="#222">Poisoned memory, self-healing workflow</text>
+  <text x="56" y="44" font-size="12" fill="#777">red dots = poisoned lessons were in the prompt; the retention gate evicts them on outcome evidence alone</text>
+  <line x1="56" y1="364" x2="688" y2="364" stroke="#e5e5e5"/><text x="48" y="368" text-anchor="end" font-size="11" fill="#888">0.00</text>
+  <line x1="56" y1="287" x2="688" y2="287" stroke="#e5e5e5"/><text x="48" y="291" text-anchor="end" font-size="11" fill="#888">0.25</text>
+  <line x1="56" y1="210" x2="688" y2="210" stroke="#e5e5e5"/><text x="48" y="214" text-anchor="end" font-size="11" fill="#888">0.50</text>
+  <line x1="56" y1="133" x2="688" y2="133" stroke="#e5e5e5"/><text x="48" y="137" text-anchor="end" font-size="11" fill="#888">0.75</text>
+  <line x1="56" y1="56" x2="688" y2="56" stroke="#e5e5e5"/><text x="48" y="60" text-anchor="end" font-size="11" fill="#888">1.00</text>
+  <text x="56.0" y="384" text-anchor="middle" font-size="11" fill="#888">run 1</text>
+  <text x="119.2" y="384" text-anchor="middle" font-size="11" fill="#888">run 2</text>
+  <text x="182.4" y="384" text-anchor="middle" font-size="11" fill="#888">run 3</text>
+  <text x="245.6" y="384" text-anchor="middle" font-size="11" fill="#888">run 4</text>
+  <text x="308.8" y="384" text-anchor="middle" font-size="11" fill="#888">run 5</text>
+  <text x="372.0" y="384" text-anchor="middle" font-size="11" fill="#888">run 6</text>
+  <text x="435.2" y="384" text-anchor="middle" font-size="11" fill="#888">run 7</text>
+  <text x="498.4" y="384" text-anchor="middle" font-size="11" fill="#888">run 8</text>
+  <text x="561.6" y="384" text-anchor="middle" font-size="11" fill="#888">run 9</text>
+  <text x="624.8" y="384" text-anchor="middle" font-size="11" fill="#888">run 10</text>
+  <text x="688.0" y="384" text-anchor="middle" font-size="11" fill="#888">run 11</text>
+  <polyline points="56.0,364.0 119.2,119.7 182.4,107.8 245.6,287.5 308.8,119.7 372.0,94.0 435.2,94.0 498.4,107.8 561.6,107.8 624.8,133.5 688.0,235.7" fill="none" stroke="#059669" stroke-width="2.5"/>
+  <circle cx="56.0" cy="364.0" r="4" fill="#059669"/><text x="56.0" y="354.0" text-anchor="middle" font-size="11" fill="#444">0.00</text>
+  <circle cx="119.2" cy="119.7" r="4" fill="#059669"/><text x="119.2" y="109.7" text-anchor="middle" font-size="11" fill="#444">0.79</text>
+  <circle cx="182.4" cy="107.8" r="4" fill="#059669"/><text x="182.4" y="97.8" text-anchor="middle" font-size="11" fill="#444">0.83</text>
+  <circle cx="245.6" cy="287.5" r="4" fill="#dc2626"/><text x="245.6" y="277.5" text-anchor="middle" font-size="11" fill="#444">0.25</text>
+  <circle cx="308.8" cy="119.7" r="4" fill="#dc2626"/><text x="308.8" y="109.7" text-anchor="middle" font-size="11" fill="#444">0.79</text>
+  <circle cx="372.0" cy="94.0" r="4" fill="#059669"/><text x="372.0" y="84.0" text-anchor="middle" font-size="11" fill="#444">0.88</text>
+  <circle cx="435.2" cy="94.0" r="4" fill="#059669"/><text x="435.2" y="84.0" text-anchor="middle" font-size="11" fill="#444">0.88</text>
+  <circle cx="498.4" cy="107.8" r="4" fill="#059669"/><text x="498.4" y="97.8" text-anchor="middle" font-size="11" fill="#444">0.83</text>
+  <circle cx="561.6" cy="107.8" r="4" fill="#059669"/><text x="561.6" y="97.8" text-anchor="middle" font-size="11" fill="#444">0.83</text>
+  <circle cx="624.8" cy="133.5" r="4" fill="#059669"/><text x="624.8" y="123.5" text-anchor="middle" font-size="11" fill="#444">0.75</text>
+  <circle cx="688.0" cy="235.7" r="4" fill="#059669"/><text x="688.0" y="225.7" text-anchor="middle" font-size="11" fill="#444">0.42</text>
+  <line x1="277.2" y1="56" x2="277.2" y2="364" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4,4"/><text x="283.2" y="70" font-size="11" fill="#dc2626">poison injected</text>
+  <line x1="403.6" y1="56" x2="403.6" y2="364" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="4,4"/><text x="409.6" y="70" font-size="11" fill="#2563eb">gate evicts poison</text>
+</svg>

@@ -8,6 +8,7 @@ import type { NodeExecutorContext } from './context.js';
 import { ensureSaveToMemory } from './agent.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { LESSON_PROVENANCE_KEY } from '../../utils/lesson-provenance.js';
 import { combineAbortSignals } from '../../utils/abort.js';
 
 const logger = createLogger('runner.node.voting');
@@ -98,11 +99,18 @@ export async function executeVotingNode(
     { max_concurrency: config.voter_agent_ids.length, error_strategy: 'best_effort', task_timeout_ms: config.task_timeout_ms },
   );
 
-  // Extract votes from action payloads
+  // Extract votes from action payloads. Lesson provenance recorded by each
+  // voter is forwarded into the merged action — without this, facts injected
+  // into voters' prompts would never be attributable to the run's outcome.
   const votes: Array<{ agent_id: string; vote: unknown }> = [];
+  const lessonProvenance: Record<string, unknown> = {};
   for (const result of results) {
     if (!result.success || !result.action) continue;
     const updates = result.action.payload.updates as Record<string, unknown>;
+    const voterProvenance = updates[LESSON_PROVENANCE_KEY];
+    if (voterProvenance && typeof voterProvenance === 'object' && !Array.isArray(voterProvenance)) {
+      Object.assign(lessonProvenance, voterProvenance);
+    }
     const vote = updates[config.vote_key] ?? updates['agent_response'];
     const agentIdx = result.task_index;
     votes.push({
@@ -215,6 +223,9 @@ export async function executeVotingNode(
       updates: {
         [`${node.id}_consensus`]: consensus,
         [`${node.id}_votes`]: votes,
+        ...(Object.keys(lessonProvenance).length > 0
+          ? { [LESSON_PROVENANCE_KEY]: lessonProvenance }
+          : {}),
       },
       total_tokens: finalTotalTokens,
     },

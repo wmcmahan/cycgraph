@@ -69,7 +69,7 @@ const registry = new InMemoryAgentRegistry();
 
 const WRITER_ID = registry.register({
   name: 'Candidate Writer',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a creative writer.',
@@ -85,7 +85,7 @@ const WRITER_ID = registry.register({
 
 const EVALUATOR_ID = registry.register({
   name: 'Fitness Evaluator',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'Evaluate the poem strictly on its metrical structure and emotional impact.',

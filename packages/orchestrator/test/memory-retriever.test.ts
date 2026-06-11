@@ -102,10 +102,10 @@ describe('MemoryRetriever function contract', () => {
       entities: [],
       themes: [],
     });
-    await retriever({ text: 'query' }, { maxFacts: 5, model: 'claude-sonnet-4-20250514' });
+    await retriever({ text: 'query' }, { maxFacts: 5, model: 'claude-sonnet-4-6' });
     expect(retriever).toHaveBeenCalledWith(
       { text: 'query' },
-      { maxFacts: 5, model: 'claude-sonnet-4-20250514' },
+      { maxFacts: 5, model: 'claude-sonnet-4-6' },
     );
   });
 });

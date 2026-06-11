@@ -45,6 +45,7 @@ This is the second structural difference. In cycgraph these are engine-enforced,
 | Human-in-the-loop | ✅ pause/resume surviving restarts | ✅ interrupts |
 | Cross-run memory | ✅ temporal knowledge graph, **automatic reflection → retrieval loop** | ✅ `Store` API — loop is yours to build |
 | Measured learning benchmark | ✅ [reproducible, in-repo](https://github.com/wmcmahan/cycgraph/tree/main/packages/evals/examples/compound-learning-benchmark) | — |
+| Eval-gated lesson retention | ✅ lessons promoted/evicted on run-outcome evidence ([adversarial demo](https://github.com/wmcmahan/cycgraph/tree/main/packages/evals/examples/eval-gated-learning)) | — |
 | Per-node cost/token budgets | ✅ engine-enforced | manual (callbacks) |
 | Taint tracking on external data | ✅ | — |
 | Least-privilege state access | ✅ `read_keys`/`write_keys`, default deny | shared state, reducer-gated writes |

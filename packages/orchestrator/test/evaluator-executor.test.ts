@@ -18,7 +18,7 @@ vi.mock('../src/agent/agent-factory/index.js', () => ({
     loadAgent: vi.fn().mockResolvedValue({
       id: 'eval-1',
       name: 'Quality Evaluator',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       provider: 'anthropic',
       system: 'You are an expert evaluator.',
       temperature: 0.3,
@@ -27,7 +27,7 @@ vi.mock('../src/agent/agent-factory/index.js', () => ({
       read_keys: ['*'],
       write_keys: [],
     }),
-    getModel: vi.fn().mockReturnValue({ provider: 'anthropic', modelId: 'claude-sonnet-4-20250514' }),
+    getModel: vi.fn().mockReturnValue({ provider: 'anthropic', modelId: 'claude-sonnet-4-6' }),
   },
 }));
 
@@ -52,7 +52,7 @@ function makeEvaluatorConfig(overrides: Partial<AgentConfig> = {}): AgentConfig 
   return {
     id: 'evaluator-1',
     name: 'Quality Evaluator',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     provider: 'anthropic',
     system: 'You are an expert evaluator.',
     temperature: 0.3,

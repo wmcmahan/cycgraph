@@ -176,6 +176,54 @@ describe('Voting/Consensus', () => {
     );
   });
 
+  test('forwards lesson provenance from every voter into the merged action', async () => {
+    voterResponses = { 'voter-a': 'A', 'voter-b': 'A', 'voter-c': 'B' };
+
+    const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+    const origMock = (executeAgent as any).getMockImplementation();
+    (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number) => {
+      const voteKey = stateView.memory._vote_key || 'vote';
+      return {
+        id: uuidv4(),
+        idempotency_key: uuidv4(),
+        type: 'update_memory',
+        payload: {
+          updates: {
+            [voteKey]: voterResponses[agentId],
+            _lesson_provenance: {
+              [`entry-${agentId}`]: {
+                node_id: `vote-node_voter_${agentId}`,
+                agent_id: agentId,
+                fact_ids: [`fact-${agentId}`],
+                retrieved_at: '2026-06-11T10:00:00.000Z',
+              },
+            },
+          },
+        },
+        metadata: {
+          node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt,
+          token_usage: { totalTokens: 25 },
+        },
+      };
+    });
+
+    try {
+      const graph = createVotingGraph();
+      const state = createState();
+      const finalState = await new GraphRunner(graph, state).run();
+
+      expect(finalState.status).toBe('completed');
+      const registry = finalState.memory['_lesson_provenance'] as Record<string, any>;
+      expect(Object.keys(registry).sort()).toEqual(['entry-voter-a', 'entry-voter-b', 'entry-voter-c']);
+      expect(registry['entry-voter-b'].fact_ids).toEqual(['fact-voter-b']);
+      // Provenance never leaks into the consensus/vote outputs.
+      const votes = finalState.memory['vote-node_votes'] as Array<{ vote: unknown }>;
+      expect(votes.every((v) => typeof v.vote === 'string')).toBe(true);
+    } finally {
+      (executeAgent as any).mockImplementation(origMock);
+    }
+  });
+
   test('should fail when quorum not met', async () => {
     // Make one voter fail
     const { executeAgent } = await import('../src/agent/agent-executor/executor.js');

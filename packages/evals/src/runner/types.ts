@@ -44,7 +44,7 @@ export interface EvalRunConfig {
   /**
    * Model name passed to the orchestrator SUT. Ignored for memory and
    * context-engine suites (those are deterministic library calls).
-   * Defaults to `claude-sonnet-4-20250514` — the same model the
+   * Defaults to `claude-sonnet-4-6` — the same model the
    * recording script uses.
    */
   sutModel?: string;

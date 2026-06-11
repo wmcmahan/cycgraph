@@ -551,7 +551,7 @@ function runGraphSerializerEval(): TestCaseResults {
 
 function runModelFormatSelectionEval(): TestCaseResults {
   const gemmaSelection = selectFormat('gemma-2-9b');
-  const claudeSelection = selectFormat('claude-sonnet-4-20250514');
+  const claudeSelection = selectFormat('claude-sonnet-4-6');
 
   const gemmaUsesJson = gemmaSelection.useCompactJson ? 1 : 0;
   const claudeUsesCustom = claudeSelection.useCompactJson ? 0 : 1;

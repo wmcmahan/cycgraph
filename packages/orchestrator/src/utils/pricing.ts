@@ -39,6 +39,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   'o1-mini': { inputPerMToken: 1.10, outputPerMToken: 4.40 },
   'o3-mini': { inputPerMToken: 1.10, outputPerMToken: 4.40 },
   // Anthropic Claude
+  'claude-opus-4-8': { inputPerMToken: 5.00, outputPerMToken: 25.00 },
   'claude-opus-4-20250514': { inputPerMToken: 15.00, outputPerMToken: 75.00 },
   'claude-sonnet-4-20250514': { inputPerMToken: 3.00, outputPerMToken: 15.00 },
   'claude-sonnet-4-6': { inputPerMToken: 3.00, outputPerMToken: 15.00 },

@@ -26,7 +26,7 @@ export interface BranchingGraphOptions {
   /** Trajectory input — describes the branching predicate. */
   input: string;
 
-  /** Model name (default: `'claude-sonnet-4-20250514'`). */
+  /** Model name (default: `'claude-sonnet-4-6'`). */
   model?: string;
 
   /** Provider name (default: `'anthropic'`). */
@@ -73,7 +73,7 @@ export function buildBranchingGraph(
   const agentId = registry.register({
     name: 'Branching Agent (SUT)',
     description: 'Emits a structured routing decision for a conditional goal',
-    model: opts.model ?? 'claude-sonnet-4-20250514',
+    model: opts.model ?? 'claude-sonnet-4-6',
     provider: opts.provider ?? 'anthropic',
     system_prompt: BRANCHING_PROMPT,
     temperature: 0.1,

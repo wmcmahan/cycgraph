@@ -47,7 +47,7 @@ describe('createOptimizedPipeline', () => {
     it('maximum with model adds format-selector', () => {
       const { stageNames } = createOptimizedPipeline({
         preset: 'maximum',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
       });
       expect(stageNames).toContain('format-selector');
     });

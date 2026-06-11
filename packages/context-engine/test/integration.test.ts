@@ -142,7 +142,7 @@ describe('Integration: Full Pipeline', () => {
 
   it('handles model-specific token counting', () => {
     const segments = [makeMemorySegment('mem', fullWorkflowMemory)];
-    const resultClaude = pipeline.compress({ segments, budget, model: 'claude-sonnet-4-20250514' });
+    const resultClaude = pipeline.compress({ segments, budget, model: 'claude-sonnet-4-6' });
     const resultGpt = pipeline.compress({ segments, budget, model: 'gpt-4o' });
 
     // Different models should report different token counts due to different ratios

@@ -11,8 +11,17 @@
 
 /** Result of a memory retrieval call. */
 export interface MemoryRetrievalResult {
-  /** Relevant facts with their validity timestamps. */
-  facts: Array<{ content: string; validFrom: Date }>;
+  /**
+   * Relevant facts with their validity timestamps.
+   *
+   * `id` is optional but load-bearing for eval-gated learning: when
+   * present it is recorded in the run's lesson provenance registry
+   * (`memory._lesson_provenance`) so run outcomes can be attributed to
+   * the facts that were injected. Adapters backed by `@cycgraph/memory`
+   * should pass `SemanticFact.id` through — an adapter that strips ids
+   * silently disables outcome attribution.
+   */
+  facts: Array<{ content: string; validFrom: Date; id?: string }>;
   /** Entities referenced by the facts. */
   entities: Array<{ name: string; type: string }>;
   /** High-level themes the facts belong to. */

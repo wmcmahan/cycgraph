@@ -83,6 +83,7 @@ A workflow that changes its own behavior needs harder rails than one that doesn'
 - **Zero-trust state slicing** — `read_keys` / `write_keys` default to `[]`; every node sees only what it declares. The engine rejects undeclared writes.
 - **Taint tracking** — every string from an external MCP tool is flagged in an append-only registry and propagates through derived values; strict mode rejects tainted data in routing conditions.
 - **Fact sanitization** — a `factSanitizer` hook screens every reflection fact before it persists (PII redaction, policy filtering); fails closed by default.
+- **Eval-gated retention (verified lessons)** — lessons enter on trial and are kept only if runs that used them verifiably scored better; harmful ones are evicted on outcome evidence alone. In the [adversarial demo](./packages/evals/examples/eval-gated-learning/), three deliberately poisoned lessons cratered a run and the gate evicted all three two runs later — no human touched the store.
 - **Human-in-the-loop gates** — pause for approval and resume hours later from the exact checkpoint, surviving process restarts.
 - **MCP server registry** — stdio transports restricted to an allowlist, http/sse URLs SSRF-guarded, schemas re-validated on every read/write.
 

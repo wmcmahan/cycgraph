@@ -10,7 +10,7 @@ describe('resolveModelProfile', () => {
   });
 
   it('resolves Claude profile', () => {
-    const profile = resolveModelProfile('claude-sonnet-4-20250514');
+    const profile = resolveModelProfile('claude-sonnet-4-6');
     expect(profile?.family).toBe('claude');
     expect(profile?.maxContextTokens).toBe(200_000);
   });

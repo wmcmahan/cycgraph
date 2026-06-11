@@ -204,7 +204,7 @@ Returns a cached or newly-created `LanguageModel` instance.
 |-----------|------|---------|
 | `config` | `AgentConfig` | Agent config containing `provider` and `model` fields |
 
-**Cache key:** `"{provider}:{model}"` (e.g. `"anthropic:claude-sonnet-4-20250514"`)
+**Cache key:** `"{provider}:{model}"` (e.g. `"anthropic:claude-sonnet-4-6"`)
 
 **Model creation** delegates to `createModel()`, which switches on `config.provider`:
 - `openai` → `createOpenAI({ apiKey: process.env.OPENAI_API_KEY })(config.model)`
@@ -228,7 +228,7 @@ Heuristic fallback when DB row lacks an explicit `provider` field.
 #### `getDefaultConfig(agent_id: string): AgentConfig`
 
 Generates a minimal, deny-all fallback config:
-- Model: `claude-sonnet-4-20250514`
+- Model: `claude-sonnet-4-6`
 - Temperature: `0.7`
 - `read_keys: []`, `write_keys: []` — **intentionally restrictive** to prevent uncontrolled writes
 
@@ -635,7 +635,7 @@ All constants are configurable via environment variables with sensible defaults:
 | `MAX_AGENT_CONFIG_CACHE_SIZE` | `MAX_AGENT_CONFIG_CACHE_SIZE` | 100 | Max entries in config and model caches |
 | `DEFAULT_AGENT_TIMEOUT_MS` | `AGENT_TIMEOUT_MS` | 120,000 (2 min) | Timeout for a single `streamText()` call |
 | `MAX_MEMORY_PROMPT_BYTES` | `MAX_MEMORY_PROMPT_BYTES` | 51,200 (50 KB) | Max serialized memory injected into system prompt |
-| `DEFAULT_AGENT_MODEL` | — | `claude-sonnet-4-20250514` | Default model for fallback configs |
+| `DEFAULT_AGENT_MODEL` | — | `claude-sonnet-4-6` | Default model for fallback configs |
 | `DEFAULT_AGENT_PROVIDER` | — | `anthropic` | Default provider for fallback configs |
 | `DEFAULT_AGENT_TEMPERATURE` | — | `0.7` | Default temperature |
 | `DEFAULT_AGENT_MAX_STEPS` | — | `10` | Default max tool-use steps |
@@ -653,7 +653,7 @@ Zod-validated configuration schema. Agents are **pure config objects**, not clas
   id: string,
   name: string,
   description?: string,
-  model: string,                          // e.g. 'claude-sonnet-4-20250514'
+  model: string,                          // e.g. 'claude-sonnet-4-6'
   provider: 'openai' | 'anthropic',
   system: string,                         // System prompt — the "soul" of the agent
   temperature: number,                    // 0.0–1.0, default 0.7

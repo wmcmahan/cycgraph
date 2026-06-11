@@ -122,7 +122,7 @@ const registry = new InMemoryAgentRegistry();
 
 const ARCHITECT_AGENT_ID = registry.register({
   name: 'Workflow Designer',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt:
     'You design and manage automation workflows. ' +

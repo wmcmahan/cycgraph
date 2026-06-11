@@ -9,7 +9,7 @@
  *
  * Usage:
  *   npx tsx scripts/record-goldens.ts --suite orchestrator
- *   npx tsx scripts/record-goldens.ts --suite orchestrator --model claude-sonnet-4-20250514 --samples 3
+ *   npx tsx scripts/record-goldens.ts --suite orchestrator --model claude-sonnet-4-6 --samples 3
  *   npx tsx scripts/record-goldens.ts --suite orchestrator --commit
  *
  * Requires ANTHROPIC_API_KEY for any model under the `claude-*` family.
@@ -49,7 +49,7 @@ function parseCliArgs(): CliArgs {
   const { values } = parseArgs({
     options: {
       suite: { type: 'string', short: 's', default: 'orchestrator' },
-      model: { type: 'string', short: 'm', default: 'claude-sonnet-4-20250514' },
+      model: { type: 'string', short: 'm', default: 'claude-sonnet-4-6' },
       samples: { type: 'string', default: '3' },
       commit: { type: 'boolean', default: false },
       'plan-only': { type: 'boolean', default: false },

@@ -43,7 +43,7 @@ const registry = new InMemoryAgentRegistry();
 const SPLITTER_ID = registry.register({
   name: 'Splitter Agent',
   description: 'Decomposes a broad topic into focused sub-topics for parallel research',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a topic decomposition specialist.',
@@ -65,7 +65,7 @@ const SPLITTER_ID = registry.register({
 const RESEARCHER_ID = registry.register({
   name: 'Researcher Agent',
   description: 'Investigates a specific sub-topic and produces research notes',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a research specialist focused on a single sub-topic.',
@@ -85,7 +85,7 @@ const RESEARCHER_ID = registry.register({
 const SYNTHESIZER_ID = registry.register({
   name: 'Synthesizer Agent',
   description: 'Merges parallel research results into a unified summary',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a synthesis specialist.',

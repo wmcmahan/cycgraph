@@ -75,7 +75,7 @@ const agentRegistry = new InMemoryAgentRegistry();
 const RESEARCHER_ID = agentRegistry.register({
   name: 'Web Research Agent',
   description: 'Researches topics using web search and URL fetching',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a research agent with access to web search and URL fetching.',
@@ -99,7 +99,7 @@ const RESEARCHER_ID = agentRegistry.register({
 const WRITER_ID = agentRegistry.register({
   name: 'Summary Writer',
   description: 'Writes concise summaries from research notes',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a writer. Using the research notes, produce a clear, well-structured summary.',

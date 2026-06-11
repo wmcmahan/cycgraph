@@ -31,7 +31,7 @@ import type {
 function makeConfig(overrides?: Partial<AgentConfig>): AgentConfig {
   return {
     name: 'test-agent',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     provider: 'anthropic',
     system: 'You are a test agent.',
     temperature: 0.7,
@@ -171,7 +171,7 @@ vi.mock('../src/agent/agent-factory', () => ({
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent',
       name: 'Test',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       provider: 'anthropic',
       system: 'You are a test agent.',
       temperature: 0.7,
@@ -197,6 +197,7 @@ vi.mock('../src/utils/tracing', () => ({
 import { GraphRunner } from '../src/runner/graph-runner.js';
 import type { Graph } from '../src/types/graph.js';
 import { createTestState, makeNode } from './helpers/factories.js';
+import { getLessonProvenance, getInjectedFactIds } from '../src/utils/lesson-provenance.js';
 
 function makeAgentGraph(memory_query: Graph['nodes'][number]['memory_query']): Graph {
   return {
@@ -320,5 +321,68 @@ describe('GraphRunner — memoryRetriever + memory_query', () => {
     expect(memoryRetriever).toHaveBeenCalledTimes(1);
     const sysPrompt = streamTextMock.mock.calls[0][0].system as string;
     expect(sysPrompt).not.toContain('## Relevant Memory');
+  });
+});
+
+// ─── Lesson provenance: retrieved fact ids → _lesson_provenance ─────
+
+describe('GraphRunner — lesson provenance recording', () => {
+  beforeEach(() => {
+    streamTextMock.mockReset();
+  });
+
+  it('records injected fact ids in _lesson_provenance when the retriever supplies them', async () => {
+    stubStreamText('done');
+
+    const memoryRetriever: MemoryRetriever = vi.fn(async () => ({
+      facts: [
+        { content: 'Prefer primary sources.', validFrom: new Date(), id: 'fact-1' },
+        { content: 'Quantify claims.', validFrom: new Date(), id: 'fact-2' },
+        // No id — not attributable, must be skipped without error.
+        { content: 'Legacy lesson.', validFrom: new Date() },
+      ],
+      entities: [],
+      themes: [],
+    }));
+
+    const graph = makeAgentGraph({ tags: ['graph:research-v1'] });
+    const state = createTestState({ goal: 'Research X', memory: {} });
+
+    const finalState = await new GraphRunner(graph, state, { memoryRetriever }).run();
+
+    expect(finalState.status).toBe('completed');
+    const entries = getLessonProvenance(finalState);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].node_id).toBe('researcher');
+    expect(entries[0].fact_ids).toEqual(['fact-1', 'fact-2']);
+    expect(getInjectedFactIds(finalState)).toEqual(['fact-1', 'fact-2']);
+  });
+
+  it('records no provenance when retrieved facts carry no ids', async () => {
+    stubStreamText('done');
+
+    const memoryRetriever: MemoryRetriever = vi.fn(async () => ({
+      facts: [{ content: 'Prefer primary sources.', validFrom: new Date() }],
+      entities: [],
+      themes: [],
+    }));
+
+    const graph = makeAgentGraph({ tags: ['graph:research-v1'] });
+    const state = createTestState({ goal: 'Research X', memory: {} });
+
+    const finalState = await new GraphRunner(graph, state, { memoryRetriever }).run();
+
+    expect(getLessonProvenance(finalState)).toEqual([]);
+    expect('_lesson_provenance' in finalState.memory).toBe(false);
+  });
+
+  it('records no provenance when there is no retriever or no memory_query', async () => {
+    stubStreamText('done');
+
+    const graph = makeAgentGraph(undefined);
+    const state = createTestState({ goal: 'Research X', memory: {} });
+
+    const finalState = await new GraphRunner(graph, state, {}).run();
+    expect(getLessonProvenance(finalState)).toEqual([]);
   });
 });

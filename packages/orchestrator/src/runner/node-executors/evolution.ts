@@ -18,6 +18,7 @@ import { NodeConfigError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
 import { ensureSaveToMemory } from './agent.js';
 import { resolveModelForAgent } from './resolve-model.js';
+import { LESSON_PROVENANCE_KEY } from '../../utils/lesson-provenance.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
 import { checkCompositeBudget, logCompositeBudgetStop } from './budget-guard.js';
 import { combineAbortSignals } from '../../utils/abort.js';
@@ -141,6 +142,10 @@ export async function executeEvolutionNode(
   const fitnessHistory: number[] = [];
   let finalPopulation: ScoredCandidate[] = [];
   let generationsRun = 0;
+  // Lesson provenance forwarded from every candidate across all generations.
+  // Losers count too: a fact retrieved into a losing candidate's prompt was
+  // still trialled by this run.
+  const lessonProvenance: Record<string, unknown> = {};
 
   // Elitism: the top `elite_count` candidates of each generation are carried
   // UNCHANGED into the next generation's pool — not re-generated and not
@@ -243,7 +248,14 @@ export async function executeEvolutionNode(
     for (const result of results) {
       if (!result.success || !result.action) continue;
 
-      const candidateOutput = result.action.payload.updates;
+      // Strip the provenance registry from candidate output so the fitness
+      // judge never sees registry noise and the winner blob stays clean;
+      // union it into the node-level accumulator instead.
+      const { [LESSON_PROVENANCE_KEY]: candidateProvenance, ...candidateOutput } =
+        result.action.payload.updates as Record<string, unknown>;
+      if (candidateProvenance && typeof candidateProvenance === 'object' && !Array.isArray(candidateProvenance)) {
+        Object.assign(lessonProvenance, candidateProvenance);
+      }
       const usage = result.action.metadata.token_usage;
       const actionInputTokens = usage?.inputTokens ?? 0;
       const actionOutputTokens = usage?.outputTokens ?? 0;
@@ -407,6 +419,9 @@ export async function executeEvolutionNode(
           ...(c.is_elite ? { is_elite: true } : {}),
         })),
         [`${node.id}_budget_stopped`]: budgetStopped,
+        ...(Object.keys(lessonProvenance).length > 0
+          ? { [LESSON_PROVENANCE_KEY]: lessonProvenance }
+          : {}),
       },
       total_tokens: totalTokens,
     },

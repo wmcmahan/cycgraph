@@ -31,8 +31,9 @@ import type { StateView, Action } from '../../types/state.js';
 import { createLogger } from '../../utils/logger.js';
 import { getTracer, withSpan } from '../../utils/tracing.js';
 import { v4 as uuidv4 } from 'uuid';
-import type { TaintMetadata } from '../../types/state.js';
+import type { TaintMetadata, LessonProvenanceEntry } from '../../types/state.js';
 import { getTaintRegistry, propagateDerivedTaint } from '../../utils/taint.js';
+import { LESSON_PROVENANCE_KEY } from '../../utils/lesson-provenance.js';
 import { buildSystemPrompt, buildTaskPrompt } from './prompts.js';
 import { DEFAULT_AGENT_TIMEOUT_MS } from '../constants.js';
 import { extractMemoryUpdates } from './memory.js';
@@ -376,6 +377,27 @@ export async function executeAgent(
         const existingRegistry = getTaintRegistry(stateView.memory);
         memoryUpdates['_taint_registry'] = { ...existingRegistry, ...taintUpdates };
       }
+    }
+
+    // Record lesson provenance: which retrieved facts were injected into
+    // this prompt. Minted here (action-creation time) so replay reproduces
+    // the entry verbatim — same discipline as TaintMetadata.created_at.
+    // Only facts whose retriever supplied an `id` are attributable.
+    // Added AFTER the taint block so the registry key never counts as an
+    // agent output for taint propagation, and recorded even when the agent
+    // wrote nothing beyond the fallback key.
+    const injectedFactIds = (retrievedMemory?.facts ?? [])
+      .map((f) => f.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (injectedFactIds.length > 0) {
+      memoryUpdates[LESSON_PROVENANCE_KEY] = {
+        [uuidv4()]: {
+          node_id: options?.node_id ?? agent_id,
+          agent_id,
+          fact_ids: injectedFactIds,
+          retrieved_at: new Date().toISOString(),
+        } satisfies LessonProvenanceEntry,
+      };
     }
 
     // Collect tool execution metadata separately — not stored in memory

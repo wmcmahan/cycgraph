@@ -218,7 +218,7 @@ export interface AgentRegistryEntry {
   name: string;
   /** Optional description of the agent's purpose. */
   description: string | null;
-  /** LLM model identifier (e.g. `"claude-sonnet-4-20250514"`). */
+  /** LLM model identifier (e.g. `"claude-sonnet-4-6"`). */
   model: string;
   /** LLM provider (`"openai"` | `"anthropic"` | `"groq"`). */
   provider: string;

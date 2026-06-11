@@ -51,7 +51,7 @@ vi.mock('../src/agent/agent-factory', () => ({
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent',
       name: 'Test',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       provider: 'anthropic',
       system: 'You are a test agent.',
       temperature: 0.7,
@@ -139,7 +139,7 @@ describe('per-node budget', () => {
   });
 
   it('throws NodeBudgetExceededError when max_cost_usd is breached', async () => {
-    // claude-sonnet-4-20250514: $3 input / $15 output per 1M tokens.
+    // claude-sonnet-4-6: $3 input / $15 output per 1M tokens.
     // 200k input + 200k output = $0.60 + $3.00 = $3.60 — exceeds 0.50 cap.
     stubStreamText('done', { inputTokens: 200_000, outputTokens: 200_000, totalTokens: 400_000 });
 

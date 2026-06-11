@@ -53,7 +53,7 @@ const registry = new InMemoryAgentRegistry();
 
 const RESEARCHER_ID = registry.register({
   name: 'Researcher Agent',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a research specialist focused on a single sub-topic.',
@@ -68,7 +68,7 @@ const RESEARCHER_ID = registry.register({
 
 const SYNTHESIZER_ID = registry.register({
   name: 'Synthesizer Agent',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a synthesis specialist.',
@@ -144,4 +144,4 @@ When the map node launches your parallel workers, it intercepts their memory vie
 Pair the right LLM tier with the right node.
 
 - **The worker (Map)** fans out potentially hundreds of tasks simultaneously, so it should use the fastest, cheapest model available (e.g. `claude-haiku-4-5-20251001` or `gpt-4o-mini`). Workers do focused, narrow work — complex reasoning is rarely required.
-- **The synthesizer (Reduce)** receives the full array of outputs and *does* need heavy reasoning to deduplicate and find patterns across fragments. Use a frontier model (e.g. `claude-sonnet-4-20250514` or `gpt-4o`).
+- **The synthesizer (Reduce)** receives the full array of outputs and *does* need heavy reasoning to deduplicate and find patterns across fragments. Use a frontier model (e.g. `claude-sonnet-4-6` or `gpt-4o`).

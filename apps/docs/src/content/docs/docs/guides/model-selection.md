@@ -16,8 +16,8 @@ cycgraph can dynamically choose which LLM model to use for each agent at runtime
 
 | Tier | Use Case | Example Models |
 |------|----------|---------------|
-| `high` | Complex reasoning, planning, code generation | `claude-opus-4-20250514`, `o3` |
-| `medium` | General-purpose tasks, summarization | `claude-sonnet-4-20250514`, `gpt-4o` |
+| `high` | Complex reasoning, planning, code generation | `claude-opus-4-8`, `o3` |
+| `medium` | General-purpose tasks, summarization | `claude-sonnet-4-6`, `gpt-4o` |
 | `low` | Simple formatting, extraction, classification | `claude-haiku-4-5-20251001`, `gpt-4o-mini` |
 
 ## Setting up a tier map
@@ -29,8 +29,8 @@ import { defaultModelResolver } from '@cycgraph/orchestrator';
 import type { ModelTierMap } from '@cycgraph/orchestrator';
 
 const tierMap: ModelTierMap = {
-  high:   { anthropic: 'claude-opus-4-20250514',    openai: 'o3' },
-  medium: { anthropic: 'claude-sonnet-4-20250514',  openai: 'gpt-4o' },
+  high:   { anthropic: 'claude-opus-4-8',    openai: 'o3' },
+  medium: { anthropic: 'claude-sonnet-4-6',  openai: 'gpt-4o' },
   low:    { anthropic: 'claude-haiku-4-5-20251001', openai: 'gpt-4o-mini' },
 };
 
@@ -46,7 +46,7 @@ Set `model_preference` on the agent config. The `model` field still serves as th
 ```typescript
 const researcherId = registry.register({
   name: 'Researcher',
-  model: 'claude-sonnet-4-20250514',      // fallback
+  model: 'claude-sonnet-4-6',      // fallback
   model_preference: 'high',                // prefers high-tier when budget allows
   provider: 'anthropic',
   system_prompt: 'You are a research specialist...',
@@ -184,8 +184,8 @@ configureProviderRegistry(providers);
 
 // 2. Define the tier map
 const tierMap: ModelTierMap = {
-  high:   { anthropic: 'claude-opus-4-20250514' },
-  medium: { anthropic: 'claude-sonnet-4-20250514' },
+  high:   { anthropic: 'claude-opus-4-8' },
+  medium: { anthropic: 'claude-sonnet-4-6' },
   low:    { anthropic: 'claude-haiku-4-5-20251001' },
 };
 
@@ -194,7 +194,7 @@ const registry = new InMemoryAgentRegistry();
 
 const researcherId = registry.register({
   name: 'Researcher',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   model_preference: 'high',
   provider: 'anthropic',
   system_prompt: 'You research topics thoroughly.',
@@ -204,7 +204,7 @@ const researcherId = registry.register({
 
 const writerId = registry.register({
   name: 'Writer',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   model_preference: 'medium',
   provider: 'anthropic',
   system_prompt: 'You write clear, concise summaries.',

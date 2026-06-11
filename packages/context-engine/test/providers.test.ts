@@ -10,7 +10,7 @@ import {
 describe('resolveTokenRatio', () => {
   it('returns model-specific ratio for known prefixes', () => {
     expect(resolveTokenRatio('gpt-4o-2024-05-13')).toBe(3.5);
-    expect(resolveTokenRatio('claude-sonnet-4-20250514')).toBe(3.8);
+    expect(resolveTokenRatio('claude-sonnet-4-6')).toBe(3.8);
     expect(resolveTokenRatio('llama-3.1-70b')).toBe(3.6);
     expect(resolveTokenRatio('deepseek-v3')).toBe(3.6);
     expect(resolveTokenRatio('gemini-2.0-flash')).toBe(3.7);
@@ -37,7 +37,7 @@ describe('DefaultTokenCounter', () => {
   it('counts tokens using model-family ratio', () => {
     const text = 'Hello, world!'; // 13 chars
     // Claude ratio: 3.8 → ceil(13/3.8) = 4
-    expect(counter.countTokens(text, 'claude-sonnet-4-20250514')).toBe(4);
+    expect(counter.countTokens(text, 'claude-sonnet-4-6')).toBe(4);
     // GPT-4o ratio: 3.5 → ceil(13/3.5) = 4
     expect(counter.countTokens(text, 'gpt-4o')).toBe(4);
   });
@@ -54,7 +54,7 @@ describe('DefaultTokenCounter', () => {
 
   it('handles long text proportionally', () => {
     const text = 'a'.repeat(10000);
-    const tokens = counter.countTokens(text, 'claude-sonnet-4-20250514');
+    const tokens = counter.countTokens(text, 'claude-sonnet-4-6');
     // 10000 / 3.8 ≈ 2632
     expect(tokens).toBe(Math.ceil(10000 / 3.8));
   });

@@ -26,8 +26,8 @@ vi.mock('../src/utils/logger.js', () => ({
 // ─── Shared Fixtures ──────────────────────────────────────────────
 
 const TIER_MAP: ModelTierMap = {
-  high:   { anthropic: 'claude-opus-4-20250514',    openai: 'o3' },
-  medium: { anthropic: 'claude-sonnet-4-20250514',  openai: 'gpt-4o' },
+  high:   { anthropic: 'claude-opus-4-8',    openai: 'o3' },
+  medium: { anthropic: 'claude-sonnet-4-6',  openai: 'gpt-4o' },
   low:    { anthropic: 'claude-haiku-4-5-20251001', openai: 'gpt-4o-mini' },
 };
 
@@ -113,7 +113,7 @@ function makeDeps(overrides: Partial<ExecutorDependencies> = {}): ExecutorDepend
       tools: [],
       write_keys: [],
       provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
     }),
     getTaintRegistry: vi.fn().mockReturnValue({}),
     ...overrides,
@@ -143,7 +143,7 @@ describe('executeAgentNode — model resolution', () => {
         tools: [],
         write_keys: [],
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         model_preference: 'high',
       }),
     });
@@ -164,7 +164,7 @@ describe('executeAgentNode — model resolution', () => {
       expect.any(Object),
       1,
       expect.objectContaining({
-        model_override: 'claude-opus-4-20250514',
+        model_override: 'claude-opus-4-8',
       }),
     );
   });
@@ -175,7 +175,7 @@ describe('executeAgentNode — model resolution', () => {
         tools: [],
         write_keys: [],
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         // no model_preference
       }),
     });
@@ -200,7 +200,7 @@ describe('executeAgentNode — model resolution', () => {
         tools: [],
         write_keys: [],
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         model_preference: 'high',
       }),
     });
@@ -222,7 +222,7 @@ describe('executeAgentNode — model resolution', () => {
         tools: [],
         write_keys: [],
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         model_preference: 'high',
       }),
     });
@@ -243,7 +243,7 @@ describe('executeAgentNode — model resolution', () => {
         tools: [],
         write_keys: [],
         provider: 'anthropic',
-        model: 'claude-opus-4-20250514',
+        model: 'claude-opus-4-8',
         model_preference: 'high',
       }),
     });
@@ -260,7 +260,7 @@ describe('executeAgentNode — model resolution', () => {
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
     // Should have been downgraded from opus to sonnet or haiku
     expect(callArgs.model_override).toBeDefined();
-    expect(callArgs.model_override).not.toBe('claude-opus-4-20250514');
+    expect(callArgs.model_override).not.toBe('claude-opus-4-8');
   });
 
   it('fires onModelResolved callback when resolution occurs', async () => {
@@ -269,7 +269,7 @@ describe('executeAgentNode — model resolution', () => {
         tools: [],
         write_keys: [],
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         model_preference: 'medium',
       }),
     });
@@ -288,10 +288,10 @@ describe('executeAgentNode — model resolution', () => {
     expect(onModelResolved).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: 'agent-1',
-        originalModel: 'claude-sonnet-4-20250514',
+        originalModel: 'claude-sonnet-4-6',
         resolution: expect.objectContaining({
           reason: 'preferred',
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
         }),
       }),
       'node-1',
@@ -341,7 +341,7 @@ describe('executeAgentNode — model resolution', () => {
         tools: [],
         write_keys: [],
         provider: 'anthropic',
-        model: 'claude-opus-4-20250514',
+        model: 'claude-opus-4-8',
         model_preference: 'high',
       }),
     });
@@ -360,7 +360,7 @@ describe('executeAgentNode — model resolution', () => {
     // regardless of memory.budget_usd value
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
     expect(callArgs.model_override).toBeDefined();
-    expect(callArgs.model_override).not.toBe('claude-opus-4-20250514');
+    expect(callArgs.model_override).not.toBe('claude-opus-4-8');
   });
 });
 
@@ -373,7 +373,7 @@ describe('executeSupervisorNode — model resolution', () => {
         tools: [],
         write_keys: [],
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         model_preference: 'medium',
       }),
     });
@@ -400,7 +400,7 @@ describe('executeSupervisorNode — model resolution', () => {
       expect.any(Array),
       1,
       expect.objectContaining({
-        model_override: 'claude-sonnet-4-20250514',
+        model_override: 'claude-sonnet-4-6',
       }),
     );
   });
@@ -411,7 +411,7 @@ describe('executeSupervisorNode — model resolution', () => {
         tools: [],
         write_keys: [],
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         // no model_preference
       }),
     });

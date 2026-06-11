@@ -117,7 +117,7 @@ describe('ProviderRegistry', () => {
         models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'o1-preview', 'o1-mini', 'o3', 'o3-mini', 'o4-mini'],
       });
       registry.register('anthropic', () => stubModel('x'), {
-        models: ['claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
+        models: ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
       });
     });
 
@@ -130,7 +130,7 @@ describe('ProviderRegistry', () => {
     });
 
     it('infers anthropic from known claude model', () => {
-      expect(registry.inferProvider('claude-sonnet-4-20250514')).toBe('anthropic');
+      expect(registry.inferProvider('claude-sonnet-4-6')).toBe('anthropic');
     });
 
     it('returns default provider for unknown models', () => {
@@ -230,7 +230,7 @@ describe('registerBuiltInProviders', () => {
   it('resolves models when API keys are set', () => {
     registerBuiltInProviders(registry);
     expect(registry.resolveModel('openai', 'gpt-4')).toBeDefined();
-    expect(registry.resolveModel('anthropic', 'claude-sonnet-4-20250514')).toBeDefined();
+    expect(registry.resolveModel('anthropic', 'claude-sonnet-4-6')).toBeDefined();
   });
 
   it('throws when OPENAI_API_KEY is missing', () => {
@@ -243,7 +243,7 @@ describe('registerBuiltInProviders', () => {
   it('throws when ANTHROPIC_API_KEY is missing', () => {
     delete process.env.ANTHROPIC_API_KEY;
     registerBuiltInProviders(registry);
-    expect(() => registry.resolveModel('anthropic', 'claude-sonnet-4-20250514'))
+    expect(() => registry.resolveModel('anthropic', 'claude-sonnet-4-6'))
       .toThrow('ANTHROPIC_API_KEY environment variable is not set');
   });
 });

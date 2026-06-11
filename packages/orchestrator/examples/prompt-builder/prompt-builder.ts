@@ -50,7 +50,7 @@ const registry = new InMemoryAgentRegistry();
 const PROMPT_BUILDER_ID = registry.register({
   name: 'Prompt Builder Agent',
   description: 'Transforms vague user goals into structured, actionable instructions',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a prompt engineering specialist. Your job is to take a raw user goal and transform it into structured, actionable instructions that a team of AI agents can execute effectively.',
@@ -90,7 +90,7 @@ const PROMPT_BUILDER_ID = registry.register({
 const PROMPT_CRITIC_ID = registry.register({
   name: 'Prompt Critic Agent',
   description: 'Evaluates the quality of structured prompt instructions and provides feedback',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a prompt quality evaluator. Your job is to assess whether structured instructions are clear, specific, and actionable enough for a team of AI agents to execute.',
@@ -129,7 +129,7 @@ const PROMPT_CRITIC_ID = registry.register({
 const SUPERVISOR_ID = registry.register({
   name: 'Supervisor Agent',
   description: 'Routes tasks between specialist agents using the structured plan',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a project supervisor coordinating a team of specialists.',
@@ -156,7 +156,7 @@ const SUPERVISOR_ID = registry.register({
 const RESEARCHER_ID = registry.register({
   name: 'Research Agent',
   description: 'Gathers background information guided by the structured plan',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a research specialist.',
@@ -176,7 +176,7 @@ const RESEARCHER_ID = registry.register({
 const WRITER_ID = registry.register({
   name: 'Writer Agent',
   description: 'Produces a draft article guided by the structured plan',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a professional writer.',
@@ -197,7 +197,7 @@ const WRITER_ID = registry.register({
 const EDITOR_ID = registry.register({
   name: 'Editor Agent',
   description: 'Polishes a draft using the quality criteria as a checklist',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a meticulous editor.',

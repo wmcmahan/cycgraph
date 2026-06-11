@@ -21,7 +21,7 @@ vi.mock('../src/agent/agent-factory/index.js', () => ({
     loadAgent: vi.fn().mockResolvedValue({
       id: 'sup-agent',
       name: 'Supervisor',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       provider: 'anthropic',
       system: 'You are a supervisor.',
       temperature: 0.5,
@@ -30,7 +30,7 @@ vi.mock('../src/agent/agent-factory/index.js', () => ({
       read_keys: ['*'],
       write_keys: ['*'],
     }),
-    getModel: vi.fn().mockReturnValue({ provider: 'anthropic', modelId: 'claude-sonnet-4-20250514' }),
+    getModel: vi.fn().mockReturnValue({ provider: 'anthropic', modelId: 'claude-sonnet-4-6' }),
   },
 }));
 

@@ -29,7 +29,7 @@ export interface SupervisorGraphOptions {
   /** Trajectory input — seeded as the workflow goal. */
   input: string;
 
-  /** Model name shared by all four agents (default: `'claude-sonnet-4-20250514'`). */
+  /** Model name shared by all four agents (default: `'claude-sonnet-4-6'`). */
   model?: string;
 
   /** Provider name (default: `'anthropic'`). */
@@ -57,7 +57,7 @@ export interface SupervisorGraphArtifacts {
   outputKey: string;
 }
 
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_PROVIDER = 'anthropic';
 const DEFAULT_MAX_ITERATIONS = 8;
 const DEFAULT_TIMEOUT_MS = 300_000;

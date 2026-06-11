@@ -11,8 +11,8 @@ import type { ModelTier, ModelTierMap, ModelResolver } from '../src/agent/model-
 // ─── Shared Test Fixtures ─────────────────────────────────────────
 
 const TIER_MAP: ModelTierMap = {
-  high:   { anthropic: 'claude-opus-4-20250514',    openai: 'o3' },
-  medium: { anthropic: 'claude-sonnet-4-20250514',  openai: 'gpt-4o' },
+  high:   { anthropic: 'claude-opus-4-8',    openai: 'o3' },
+  medium: { anthropic: 'claude-sonnet-4-6',  openai: 'gpt-4o' },
   low:    { anthropic: 'claude-haiku-4-5-20251001', openai: 'gpt-4o-mini' },
 };
 
@@ -63,7 +63,7 @@ describe('ESTIMATED_TOKENS_PER_CALL', () => {
 
 describe('estimateCallCost', () => {
   it('returns a positive number for known models', () => {
-    const cost = estimateCallCost('claude-sonnet-4-20250514', 'medium');
+    const cost = estimateCallCost('claude-sonnet-4-6', 'medium');
     expect(cost).toBeGreaterThan(0);
   });
 
@@ -74,22 +74,22 @@ describe('estimateCallCost', () => {
   });
 
   it('higher tiers produce higher cost estimates for the same model', () => {
-    const highCost = estimateCallCost('claude-sonnet-4-20250514', 'high');
-    const lowCost = estimateCallCost('claude-sonnet-4-20250514', 'low');
+    const highCost = estimateCallCost('claude-sonnet-4-6', 'high');
+    const lowCost = estimateCallCost('claude-sonnet-4-6', 'low');
     expect(highCost).toBeGreaterThan(lowCost);
   });
 
   it('accounts for Anthropic thinking budget tokens', () => {
-    const withoutThinking = estimateCallCost('claude-sonnet-4-20250514', 'medium');
-    const withThinking = estimateCallCost('claude-sonnet-4-20250514', 'medium', {
+    const withoutThinking = estimateCallCost('claude-sonnet-4-6', 'medium');
+    const withThinking = estimateCallCost('claude-sonnet-4-6', 'medium', {
       anthropic: { thinking: { type: 'enabled', budgetTokens: 12000 } },
     });
     expect(withThinking).toBeGreaterThan(withoutThinking);
   });
 
   it('ignores providerOptions without thinking config', () => {
-    const base = estimateCallCost('claude-sonnet-4-20250514', 'medium');
-    const withEmptyOpts = estimateCallCost('claude-sonnet-4-20250514', 'medium', {
+    const base = estimateCallCost('claude-sonnet-4-6', 'medium');
+    const withEmptyOpts = estimateCallCost('claude-sonnet-4-6', 'medium', {
       anthropic: {},
     });
     expect(withEmptyOpts).toBe(base);
@@ -111,7 +111,7 @@ describe('defaultModelResolver', () => {
     const result = resolver('high', 'anthropic', undefined);
     expect(result).toEqual({
       reason: 'preferred',
-      model: 'claude-opus-4-20250514',
+      model: 'claude-opus-4-8',
       tier: 'high',
     });
   });
@@ -123,8 +123,8 @@ describe('defaultModelResolver', () => {
 
   it('returns null for provider not in the requested tier', () => {
     const partialMap: ModelTierMap = {
-      high:   { anthropic: 'claude-opus-4-20250514' },
-      medium: { anthropic: 'claude-sonnet-4-20250514' },
+      high:   { anthropic: 'claude-opus-4-8' },
+      medium: { anthropic: 'claude-sonnet-4-6' },
       low:    { anthropic: 'claude-haiku-4-5-20251001' },
     };
     const partialResolver = defaultModelResolver(partialMap);
@@ -139,7 +139,7 @@ describe('defaultModelResolver', () => {
     const result = resolver('high', 'anthropic', 100);
     expect(result).toEqual({
       reason: 'preferred',
-      model: 'claude-opus-4-20250514',
+      model: 'claude-opus-4-8',
       tier: 'high',
     });
   });
@@ -153,7 +153,7 @@ describe('defaultModelResolver', () => {
     if (result!.reason === 'budget_downgrade') {
       expect(result!.original_tier).toBe('high');
       expect(result!.resolved_tier).toBe('medium');
-      expect(result!.model).toBe('claude-sonnet-4-20250514');
+      expect(result!.model).toBe('claude-sonnet-4-6');
     } else {
       // Could also be budget_critical depending on cost estimate
       expect(result!.reason).toBe('budget_critical');
@@ -201,7 +201,7 @@ describe('defaultModelResolver', () => {
 
     expect(anthropicResult).not.toBeNull();
     expect(openaiResult).not.toBeNull();
-    expect(anthropicResult!.model).toBe('claude-sonnet-4-20250514');
+    expect(anthropicResult!.model).toBe('claude-sonnet-4-6');
     expect(openaiResult!.model).toBe('gpt-4o');
   });
 

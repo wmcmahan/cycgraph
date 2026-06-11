@@ -100,6 +100,9 @@ export { retrieveMemory } from './retrieval/hierarchical-retriever.js';
 export { isValidAt, isChangedSince, filterValid } from './retrieval/temporal-filter.js';
 export type { TemporalRecord, TemporalFilterOptions } from './retrieval/temporal-filter.js';
 
+export { retrieveGatedLessons } from './retrieval/gated-lesson-retriever.js';
+export type { GatedLessonOptions } from './retrieval/gated-lesson-retriever.js';
+
 // ─── Consolidation ───────────────────────────────────────────────
 
 export { MemoryConsolidator } from './consolidation/memory-consolidator.js';
@@ -107,6 +110,12 @@ export type { ConsolidationOptions, ConsolidationReport, AutoConsolidationThresh
 
 export { ConflictDetector } from './consolidation/conflict-detector.js';
 export type { ConflictDetectorOptions, Conflict, ConflictResolutionPolicy, ConflictResolutionReport } from './consolidation/conflict-detector.js';
+
+export { InMemoryOutcomeLedger, RunOutcomeSchema } from './consolidation/outcome-ledger.js';
+export type { OutcomeLedger, RunOutcome, FactStats, OutcomeBaseline } from './consolidation/outcome-ledger.js';
+
+export { evaluateRetention, RetentionPolicySchema } from './consolidation/retention-gate.js';
+export type { RetentionPolicy, RetentionReport, EvictionReason } from './consolidation/retention-gate.js';
 
 // ─── Utilities ─────────────────────────────────────────────────────
 

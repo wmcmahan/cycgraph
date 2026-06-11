@@ -121,7 +121,7 @@ describe('GraphRunner — Integration Tests', () => {
     const researcherId = registry.register({
       name: 'Researcher',
       description: 'Finds information',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       provider: 'anthropic',
       system_prompt: 'You are a researcher. Find facts and save them.',
       temperature: 0.5,
@@ -133,7 +133,7 @@ describe('GraphRunner — Integration Tests', () => {
     const writerId = registry.register({
       name: 'Writer',
       description: 'Writes content from research',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       provider: 'anthropic',
       system_prompt: 'You are a writer. Use research findings to write content.',
       temperature: 0.7,
@@ -199,7 +199,7 @@ describe('GraphRunner — Integration Tests', () => {
     const agentId = registry.register({
       name: 'Solo Agent',
       description: null,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       provider: 'anthropic',
       system_prompt: 'You are a helpful assistant.',
       temperature: 0.7,
@@ -237,7 +237,7 @@ describe('GraphRunner — Integration Tests', () => {
       registry.register({
         name,
         description: null,
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         provider: 'anthropic',
         system_prompt: `You are a ${name}.`,
         temperature: 0.7,

@@ -61,7 +61,7 @@ const result = pipeline.compress({
     { id: 'history', content: chatHistory, role: 'history', priority: 3 },
   ],
   budget: { maxTokens: 4096, outputReserve: 1024 },
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
 });
 
 console.log(`${result.metrics.reductionPercent.toFixed(1)}% reduction`);

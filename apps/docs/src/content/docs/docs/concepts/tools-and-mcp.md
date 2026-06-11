@@ -19,7 +19,7 @@ const agentRegistry = new InMemoryAgentRegistry();
 
 const RESEARCH_AGENT = agentRegistry.register({
   name: 'Research Specialist',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: 'You are a research specialist...',
   tools: [
@@ -37,7 +37,7 @@ The `save_to_memory` tool is **opt-in**. The orchestrator automatically captures
 // Single-key agent — no save_to_memory needed
 const WRITER = agentRegistry.register({
   name: 'Writer',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: 'You write clear summaries.',
   tools: [],

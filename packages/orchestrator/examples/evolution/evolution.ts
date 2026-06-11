@@ -115,7 +115,7 @@ const registry = new InMemoryAgentRegistry();
 const CANDIDATE_ID = registry.register({
   name: 'Tagline Writer',
   description: 'Writes and refines a tagline toward an exact length/word spec',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You write a single product tagline that must hit this spec exactly:',

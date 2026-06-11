@@ -39,7 +39,7 @@ export interface SingleAgentGraphOptions {
   /** Memory key the agent writes its response to (default: `'response'`). */
   outputKey?: string;
 
-  /** Model name for the agent (default: `'claude-sonnet-4-20250514'`). */
+  /** Model name for the agent (default: `'claude-sonnet-4-6'`). */
   model?: string;
 
   /** Provider name (default: `'anthropic'`). */
@@ -90,7 +90,7 @@ export function buildSingleAgentGraph(
   const agentId = registry.register({
     name: 'Single-Agent SUT',
     description: 'Generic agent for single-node trajectory recording',
-    model: opts.model ?? 'claude-sonnet-4-20250514',
+    model: opts.model ?? 'claude-sonnet-4-6',
     provider: opts.provider ?? 'anthropic',
     system_prompt: opts.systemPrompt ?? DEFAULT_PROMPT,
     temperature: 0.2,

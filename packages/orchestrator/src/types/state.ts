@@ -526,3 +526,33 @@ export interface TaintMetadata {
 
 /** Taint registry stored at `memory._taint_registry`. */
 export type TaintRegistry = Record<string, TaintMetadata>;
+
+// ─── Lesson Provenance ──────────────────────────────────────────────
+
+/**
+ * One retrieval event: the memory facts that were injected into a
+ * node's prompt via its `memory_query` directive.
+ *
+ * Recorded in `memory._lesson_provenance` so that, after the run, a
+ * caller can attribute the run's outcome score to the lessons that
+ * participated in it (eval-gated learning — see `@cycgraph/memory`'s
+ * `OutcomeLedger` / `evaluateRetention`).
+ */
+export interface LessonProvenanceEntry {
+  /** Node whose prompt received the facts. */
+  node_id: string;
+  /** Agent that executed the node. */
+  agent_id?: string;
+  /** IDs of the injected facts (only facts whose retriever supplied an id). */
+  fact_ids: string[];
+  /** ISO 8601 timestamp (string for JSON serialization). */
+  retrieved_at: string;
+}
+
+/**
+ * Lesson provenance registry stored at `memory._lesson_provenance`,
+ * keyed by a per-entry UUID so concurrent sibling executions
+ * (voting / evolution / map) merge without collisions — same shape
+ * discipline as the taint registry.
+ */
+export type LessonProvenanceRegistry = Record<string, LessonProvenanceEntry>;

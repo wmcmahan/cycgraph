@@ -43,7 +43,7 @@ const registry = new InMemoryAgentRegistry();
 const SECURITY_VOTER_ID = registry.register({
   name: 'Security Reviewer',
   description: 'Reviews proposals from a security perspective',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a security expert reviewing a technical proposal.',
@@ -63,7 +63,7 @@ const SECURITY_VOTER_ID = registry.register({
 const PERFORMANCE_VOTER_ID = registry.register({
   name: 'Performance Reviewer',
   description: 'Reviews proposals from a performance perspective',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a performance engineer reviewing a technical proposal.',
@@ -82,7 +82,7 @@ const PERFORMANCE_VOTER_ID = registry.register({
 const ARCHITECTURE_VOTER_ID = registry.register({
   name: 'Architecture Reviewer',
   description: 'Reviews proposals from an architecture perspective',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a software architect reviewing a technical proposal.',

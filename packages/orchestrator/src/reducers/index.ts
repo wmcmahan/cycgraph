@@ -34,6 +34,11 @@ import {
   MAX_VISITED_NODES,
   MAX_MEMORY_DROPS,
 } from '../runtime-config.js';
+import {
+  LESSON_PROVENANCE_KEY,
+  trimLessonProvenance,
+} from '../utils/lesson-provenance.js';
+import type { LessonProvenanceRegistry } from '../types/state.js';
 import { canTransitionStatus } from './status-transitions.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -191,6 +196,15 @@ function mergeMemory(
     const prev = (existing[TAINT_REGISTRY_KEY] ?? {}) as Record<string, unknown>;
     const incoming = (updates[TAINT_REGISTRY_KEY] ?? {}) as Record<string, unknown>;
     merged[TAINT_REGISTRY_KEY] = { ...prev, ...incoming };
+  }
+  // Lesson provenance gets the same append-only treatment: entries are
+  // evidence for eval-gated retention, so a crafted clear must not erase
+  // them. The trim is pure and deterministic (replay-safe); its cap lives
+  // at MAX_LESSON_PROVENANCE_ENTRIES — see the REPLAY WARNING there.
+  if (LESSON_PROVENANCE_KEY in updates || LESSON_PROVENANCE_KEY in existing) {
+    const prev = (existing[LESSON_PROVENANCE_KEY] ?? {}) as LessonProvenanceRegistry;
+    const incoming = (updates[LESSON_PROVENANCE_KEY] ?? {}) as LessonProvenanceRegistry;
+    merged[LESSON_PROVENANCE_KEY] = trimLessonProvenance({ ...prev, ...incoming });
   }
   return merged;
 }

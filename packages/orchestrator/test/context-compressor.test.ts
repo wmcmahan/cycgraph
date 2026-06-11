@@ -18,7 +18,7 @@ import type { StateView, WorkflowState } from '../src/types/state.js';
 function makeConfig(overrides?: Partial<AgentConfig>): AgentConfig {
   return {
     name: 'test-agent',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     provider: 'anthropic',
     system: 'You are a test agent.',
     temperature: 0.7,

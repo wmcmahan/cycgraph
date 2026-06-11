@@ -18,7 +18,7 @@ Agents never see the full `WorkflowState`. Each agent and node declares explicit
 ```typescript
 const WRITER_ID = registry.register({
   name: 'Writer',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: '...',
   tools: [],
@@ -42,7 +42,7 @@ State slicing supports **dot-notation paths** for fine-grained access to nested 
 ```typescript
 const WRITER_ID = registry.register({
   name: 'Writer',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: '...',
   tools: [],

@@ -107,7 +107,7 @@ describe('GoldenTrajectorySchema', () => {
       ...validTrajectory,
       source: 'recorded',
       recordedAt: '2026-06-08T12:00:00Z',
-      recordedModel: 'claude-sonnet-4-20250514',
+      recordedModel: 'claude-sonnet-4-6',
       recordedCommit: '9dcaa0f',
     });
     expect(result.success).toBe(true);

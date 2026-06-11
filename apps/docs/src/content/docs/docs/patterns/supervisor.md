@@ -36,7 +36,7 @@ The agent powering the supervisor should be instructed to act as a manager. It e
 ```typescript
 const SUPERVISOR_ID = registry.register({
   name: 'Supervisor Agent',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a project supervisor coordinating a team of specialists to produce a high-quality article.',

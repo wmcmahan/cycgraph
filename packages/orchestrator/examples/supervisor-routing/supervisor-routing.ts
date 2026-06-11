@@ -42,7 +42,7 @@ const registry = new InMemoryAgentRegistry();
 const SUPERVISOR_ID = registry.register({
   name: 'Supervisor Agent',
   description: 'Routes tasks between specialist agents to produce a polished article',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a project supervisor coordinating a team of specialists to produce a high-quality article.',
@@ -63,7 +63,7 @@ const SUPERVISOR_ID = registry.register({
 const RESEARCHER_ID = registry.register({
   name: 'Research Agent',
   description: 'Gathers background information on a topic',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a research specialist.',
@@ -83,7 +83,7 @@ const RESEARCHER_ID = registry.register({
 const WRITER_ID = registry.register({
   name: 'Writer Agent',
   description: 'Produces a draft article from research notes',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a professional writer.',
@@ -102,7 +102,7 @@ const WRITER_ID = registry.register({
 const EDITOR_ID = registry.register({
   name: 'Editor Agent',
   description: 'Polishes a draft into a final article',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a meticulous editor.',

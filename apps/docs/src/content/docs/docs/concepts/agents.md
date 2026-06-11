@@ -12,7 +12,7 @@ cycgraph treats agents as **configuration, not code**. There are no base classes
 | `id` | `string` (UUID) | auto-generated | Unique identifier, returned by `registry.register()`. |
 | `name` | `string` | *required* | Human-readable name used in UI and traces. |
 | `description` | `string` | — | Used by supervisor nodes to route work to this agent. |
-| `model` | `string` | *required* | Model ID (e.g. `'claude-sonnet-4-20250514'`, `'gpt-4o'`). |
+| `model` | `string` | *required* | Model ID (e.g. `'claude-sonnet-4-6'`, `'gpt-4o'`). |
 | `provider` | `string` | *required* | Provider mapped in `ProviderRegistry` (e.g. `'anthropic'`). |
 | `system_prompt` | `string` | *required* | The persona, instructions, and rules for the LLM. |
 | `temperature` | `number` | `0.7` | Value between 0.0 (deterministic) and 1.0 (creative). |
@@ -34,7 +34,7 @@ const registry = new InMemoryAgentRegistry();
 // register() auto-generates the UUID and returns it
 const researcherId = registry.register({
   name: 'Researcher',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: 'You are a research specialist...',
   temperature: 0.5,
@@ -71,7 +71,7 @@ Instead of hardcoding a model, agents can declare a capability tier via `model_p
 ```typescript
 const writerId = registry.register({
   name: 'Writer',
-  model: 'claude-sonnet-4-20250514',      // fallback if no resolver configured
+  model: 'claude-sonnet-4-6',      // fallback if no resolver configured
   model_preference: 'medium',              // resolved at runtime based on budget
   provider: 'anthropic',
   system_prompt: 'You write clear summaries.',

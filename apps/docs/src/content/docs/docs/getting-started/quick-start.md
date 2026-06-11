@@ -54,7 +54,7 @@ async function main() {
 
   const writerId = registry.register({
     name: 'Research Writer',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     provider: 'anthropic',
     system_prompt: 'You are an expert technical writer. Produce a concise summary of the goal.',
     temperature: 0.7,

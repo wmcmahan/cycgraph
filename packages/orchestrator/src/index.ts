@@ -213,6 +213,12 @@ export {
   setQueueDepthProvider,
 } from './utils/metrics.js';
 export { markTainted, isTainted, getTaintRegistry, getTaintInfo, propagateDerivedTaint } from './utils/taint.js';
+export {
+  getLessonProvenance,
+  getInjectedFactIds,
+  getLessonProvenanceRegistry,
+} from './utils/lesson-provenance.js';
+export type { LessonProvenanceEntry, LessonProvenanceRegistry } from './types/state.js';
 
 // ─── Eval Framework ─────────────────────────────────────────────────
 

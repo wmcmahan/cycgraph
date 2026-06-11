@@ -34,7 +34,7 @@ import { computeStageMetrics, aggregateMetrics } from './metrics.js';
  * const result = pipeline.compress({
  *   segments: [{ id: 'mem', content: jsonString, role: 'memory', priority: 1 }],
  *   budget: { maxTokens: 4096, outputReserve: 512 },
- *   model: 'claude-sonnet-4-20250514',
+ *   model: 'claude-sonnet-4-6',
  * });
  * ```
  */

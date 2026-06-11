@@ -21,7 +21,7 @@ const registry = new InMemoryAgentRegistry();
 
 const RESEARCHER_ID = registry.register({
   name: 'Research Agent',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: 'You are a research specialist. Investigate the topic and produce thorough research notes.',
   temperature: 0.5,
@@ -32,7 +32,7 @@ const RESEARCHER_ID = registry.register({
 
 const WRITER_ID = registry.register({
   name: 'Writer Agent',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: 'You are a writer. Read the research notes from memory and produce a clear, engaging summary.',
   temperature: 0.7,

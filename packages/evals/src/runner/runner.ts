@@ -101,7 +101,7 @@ export async function runEvals(config: EvalRunConfig): Promise<EvalResult> {
       provider,
       suiteNames: suitesToLoad,
       samples,
-      model: config.sutModel ?? 'claude-sonnet-4-20250514',
+      model: config.sutModel ?? 'claude-sonnet-4-6',
     });
     semanticResults = sut.results;
     flakyTests = sut.flakyTests;

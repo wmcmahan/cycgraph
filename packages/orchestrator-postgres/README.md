@@ -64,7 +64,7 @@ const agentRegistry = new DrizzleAgentRegistry();
 
 const WRITER_ID = await agentRegistry.register({
   name: 'Writer',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: 'You are a writer.',
   tools: [],

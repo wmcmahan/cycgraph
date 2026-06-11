@@ -48,7 +48,7 @@ const registry = new InMemoryAgentRegistry();
 
 const RESEARCHER_ID = registry.register({
   name: 'Research Expert',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You specialize in fetching information and summarizing facts.',
@@ -63,7 +63,7 @@ const RESEARCHER_ID = registry.register({
 
 const MATH_ID = registry.register({
   name: 'Math Expert',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt:
     'You specialize in arithmetic and logic. Receive data, calculate the result, and hand off to the Python Writer if scripting is needed.',
@@ -74,7 +74,7 @@ const MATH_ID = registry.register({
 
 const PYTHON_WRITER_ID = registry.register({
   name: 'Python Writer',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt:
     'You write and execute Python scripts to process data. You do not search the web.',

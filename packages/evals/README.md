@@ -85,7 +85,7 @@ The first run with `--baseline` creates `golden/baselines/main-latest.json`. Sub
 | `--deterministic-only` | flag | false | Skip the semantic track entirely (library checks only) |
 | `--baseline` | flag | false | Compare against persisted baseline; persist on pass |
 | `--baseline-noise-floor` | float | 5.0 | Min pp delta to count as a regression |
-| `--sut-model` | string | `claude-sonnet-4-20250514` | Model for the orchestrator SUT |
+| `--sut-model` | string | `claude-sonnet-4-6` | Model for the orchestrator SUT |
 | `--commit` | string | (auto) | Short git SHA stamped onto a new baseline snapshot |
 
 ### Exit codes

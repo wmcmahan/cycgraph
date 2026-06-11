@@ -50,7 +50,7 @@ const registry = new InMemoryAgentRegistry();
 const EXTRACTOR_ID = registry.register({
   name: 'Purchase Order Extractor',
   description: 'Extracts a structured purchase order from a noisy customer email',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a strict data extraction agent.',
@@ -73,7 +73,7 @@ const EXTRACTOR_ID = registry.register({
 const FIXER_ID = registry.register({
   name: 'Purchase Order Fixer',
   description: 'Re-extracts a purchase order using verifier feedback',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a data correction agent.',

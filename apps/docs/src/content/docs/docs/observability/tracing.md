@@ -76,7 +76,7 @@ Every log line emitted during a run also carries `run_id` and `graph_id` automat
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `agent.id` | string | Agent UUID |
-| `agent.model` | string | Model ID (e.g. `claude-sonnet-4-20250514`) |
+| `agent.model` | string | Model ID (e.g. `claude-sonnet-4-6`) |
 | `agent.provider` | string | Provider name (e.g. `anthropic`) |
 | `agent.attempt` | number | Retry attempt (1 = first try) |
 | `agent.duration_ms` | number | LLM call duration |

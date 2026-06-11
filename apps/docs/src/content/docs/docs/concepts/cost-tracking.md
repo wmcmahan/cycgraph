@@ -23,7 +23,7 @@ Cost is calculated per-model using `calculateCost()`:
 ```typescript
 import { calculateCost, MODEL_PRICING } from '@cycgraph/orchestrator';
 
-const cost = calculateCost('claude-sonnet-4-20250514', inputTokens, outputTokens);
+const cost = calculateCost('claude-sonnet-4-6', inputTokens, outputTokens);
 // Uses: ($3.00 / 1M input) + ($15.00 / 1M output)
 ```
 
@@ -62,7 +62,7 @@ Individual agents can have their own cost cap via `permissions.budget_usd`:
 ```typescript
 registry.register({
   name: 'Expensive Agent',
-  model: 'claude-opus-4-20250514',
+  model: 'claude-opus-4-8',
   // ...
   permissions: {
     read_keys: ['*'],
@@ -126,7 +126,7 @@ for await (const event of runner.stream()) {
 }
 ```
 
-This means a workflow with `budget_usd: 0.50` might start by using `claude-opus-4-20250514` for early tasks, then automatically switch to `claude-sonnet-4-20250514` or `claude-haiku-4-5-20251001` as the budget depletes — without any manual intervention.
+This means a workflow with `budget_usd: 0.50` might start by using `claude-opus-4-8` for early tasks, then automatically switch to `claude-sonnet-4-6` or `claude-haiku-4-5-20251001` as the budget depletes — without any manual intervention.
 
 See [Budget-Aware Model Selection](/docs/guides/model-selection/) for the full setup guide.
 

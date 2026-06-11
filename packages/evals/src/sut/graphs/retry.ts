@@ -37,7 +37,7 @@ export interface RetryGraphOptions {
    */
   toolName?: string;
 
-  /** Model name (default: `'claude-sonnet-4-20250514'`). */
+  /** Model name (default: `'claude-sonnet-4-6'`). */
   model?: string;
 
   /** Provider name (default: `'anthropic'`). */
@@ -82,7 +82,7 @@ export function buildRetryGraph(opts: RetryGraphOptions): RetryGraphArtifacts {
   const agentId = registry.register({
     name: 'Retry Agent (SUT)',
     description: 'Handles an unreliable resource and narrates the outcome',
-    model: opts.model ?? 'claude-sonnet-4-20250514',
+    model: opts.model ?? 'claude-sonnet-4-6',
     provider: opts.provider ?? 'anthropic',
     system_prompt: [
       'You are tasked with completing the goal using the tools available to you.',

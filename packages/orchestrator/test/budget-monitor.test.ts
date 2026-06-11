@@ -56,7 +56,7 @@ describe('BudgetMonitor.calculateActionCost', () => {
       idempotency_key: 'a',
       type: 'update_memory',
       payload: { updates: {} },
-      metadata: { node_id: 'n', timestamp: new Date(), attempt: 1, model: 'claude-sonnet-4-20250514' },
+      metadata: { node_id: 'n', timestamp: new Date(), attempt: 1, model: 'claude-sonnet-4-6' },
     };
     const cost = monitor.calculateActionCost(1000, 500, action);
     // Pure delegation to calculateCost — just assert it returned a number

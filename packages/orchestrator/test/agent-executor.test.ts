@@ -12,7 +12,7 @@ vi.mock('ai', () => ({
 vi.mock('../src/agent/agent-factory/index', () => ({
   agentFactory: {
     loadAgent: vi.fn(),
-    getModel: vi.fn(() => ({ provider: 'anthropic', modelId: 'claude-sonnet-4-20250514' })),
+    getModel: vi.fn(() => ({ provider: 'anthropic', modelId: 'claude-sonnet-4-6' })),
   },
 }));
 
@@ -57,7 +57,7 @@ function makeAgentConfig(overrides: Record<string, unknown> = {}) {
     id: 'test-agent',
     name: 'Test Agent',
     description: 'A test agent',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     provider: 'anthropic' as const,
     system: 'You are a test agent.',
     temperature: 0.7,

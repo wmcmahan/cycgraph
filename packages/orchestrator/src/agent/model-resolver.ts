@@ -62,8 +62,8 @@ export type ModelResolutionReason = z.infer<typeof ModelResolutionReasonSchema>;
  * @example
  * ```typescript
  * const tierMap: ModelTierMap = {
- *   high:   { anthropic: 'claude-opus-4-20250514',    openai: 'o3' },
- *   medium: { anthropic: 'claude-sonnet-4-20250514',  openai: 'gpt-4o' },
+ *   high:   { anthropic: 'claude-opus-4-8',    openai: 'o3' },
+ *   medium: { anthropic: 'claude-sonnet-4-6',  openai: 'gpt-4o' },
  *   low:    { anthropic: 'claude-haiku-4-5-20251001', openai: 'gpt-4o-mini' },
  * };
  * ```

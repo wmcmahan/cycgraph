@@ -42,7 +42,7 @@ const registry = new InMemoryAgentRegistry();
 const WRITER_ID = registry.register({
   name: 'Writer Agent',
   description: 'Writes or refines a draft based on feedback',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a skilled writer.',
@@ -63,7 +63,7 @@ const WRITER_ID = registry.register({
 const EVALUATOR_ID = registry.register({
   name: 'Evaluator Agent',
   description: 'Scores a draft on quality and provides feedback',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a writing evaluator.',
@@ -88,7 +88,7 @@ const EVALUATOR_ID = registry.register({
 const PUBLISHER_ID = registry.register({
   name: 'Publisher Agent',
   description: 'Produces the final polished version',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a publishing editor.',

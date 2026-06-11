@@ -75,7 +75,7 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
 vi.mock('../src/agent/agent-factory/index', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
-      id: 'test-agent', name: 'Test', model: 'claude-sonnet-4-20250514', provider: 'anthropic',
+      id: 'test-agent', name: 'Test', model: 'claude-sonnet-4-6', provider: 'anthropic',
       system: 'test', temperature: 0.7, maxSteps: 10, tools: [],
       read_keys: ['*'], write_keys: ['*'],
     }),

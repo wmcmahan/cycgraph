@@ -93,7 +93,9 @@ const memoryRetriever = async (query, options) => {
   });
 
   return {
-    facts: result.facts.map(f => ({ content: f.content, validFrom: f.valid_from })),
+    // `id` passthrough feeds lesson provenance (eval-gated learning);
+    // omitting it silently disables outcome attribution.
+    facts: result.facts.map(f => ({ content: f.content, validFrom: f.valid_from, id: f.id })),
     entities: result.entities.map(e => ({ name: e.name, type: e.entity_type })),
     themes: result.themes.map(t => ({ label: t.label })),
   };
@@ -279,6 +281,48 @@ for (const detail of resolution.details.filter(d => d.action === 'skipped')) {
   console.log(`Conflict: ${detail.conflict.factA.content} vs ${detail.conflict.factB.content}`);
 }
 ```
+
+### Eval-gated retention
+
+Keep a lesson only if runs that used it verifiably scored better. New lessons carry a `candidate` tag; the orchestrator records which facts were injected into each run (`getInjectedFactIds(finalState)`); you attribute each run's outcome score to those facts; and a retention gate promotes or evicts on the accumulated evidence:
+
+```typescript
+import {
+  InMemoryOutcomeLedger,
+  evaluateRetention,
+  retrieveGatedLessons,
+} from '@cycgraph/memory';
+import { getInjectedFactIds } from '@cycgraph/orchestrator';
+
+const ledger = new InMemoryOutcomeLedger();
+
+// In your memoryRetriever adapter — verified-first with exploration slots.
+// The `id` passthrough on each fact is what makes attribution work.
+const facts = await retrieveGatedLessons(store, {
+  tags: ['lesson', 'graph:my-graph-v1'],
+  max_facts: 10,
+  candidate_slots: 2,
+  rest_after_trials: 3,  // = min_trials: bench fully-trialled candidates so their baseline can form
+  ledger,                // in-progress-first — trial cohorts graduate instead of churning
+});
+
+// After each scored run:
+await ledger.recordOutcome({
+  run_id: finalState.run_id,
+  score,                                    // your metric, normalised to [0,1]
+  fact_ids: getInjectedFactIds(finalState),
+});
+
+// Periodically (e.g. every N runs):
+const gate = await evaluateRetention(store, ledger, {
+  min_trials: 3,
+  promote_margin: 0.05,   // → tag rewritten candidate → verified
+  evict_margin: 0.05,     // → invalidated_by: 'eval-gate:harmful'
+  max_trials: 10,         // → invalidated_by: 'eval-gate:no_lift'
+});
+```
+
+See the [Reflection pattern](/docs/patterns/reflection/#eval-gated-retention-verified-lessons) for the full lifecycle and foot-guns, and `packages/evals/examples/eval-gated-learning/` for a runnable demo where deliberately poisoned lessons are evicted on outcome evidence alone.
 
 ## Production deployment
 

@@ -18,7 +18,7 @@ describe('selectFormat', () => {
   });
 
   it('returns auto-detect for capable models', () => {
-    const result = selectFormat('claude-sonnet-4-20250514');
+    const result = selectFormat('claude-sonnet-4-6');
     expect(result.useCompactJson).toBe(false);
   });
 
@@ -28,7 +28,7 @@ describe('selectFormat', () => {
   });
 
   it('respects forceJson override', () => {
-    const result = selectFormat('claude-sonnet-4-20250514', { forceJson: true });
+    const result = selectFormat('claude-sonnet-4-6', { forceJson: true });
     expect(result.useCompactJson).toBe(true);
     expect(result.dataShape).toBe('json');
   });
@@ -61,7 +61,7 @@ describe('createFormatSelectorStage', () => {
     const context = {
       tokenCounter: counter,
       budget: { maxTokens: 4096, outputReserve: 0 } as BudgetConfig,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
     };
 
     const result = stage.execute(segments, context);

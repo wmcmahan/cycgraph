@@ -23,7 +23,7 @@ export {
 // ─── Default Agent Config ───────────────────────────────────────────────
 
 /** Default LLM model identifier when none is specified. */
-export const DEFAULT_AGENT_MODEL = 'claude-sonnet-4-20250514';
+export const DEFAULT_AGENT_MODEL = 'claude-sonnet-4-6';
 
 /** Default LLM provider. */
 export const DEFAULT_AGENT_PROVIDER = 'anthropic';
@@ -48,8 +48,9 @@ export const OPENAI_MODELS = [
 
 /** Known Anthropic model identifiers for provider inference and validation. */
 export const ANTHROPIC_MODELS = [
+  'claude-opus-4-8', 'claude-sonnet-4-6',
+  // Deprecated by Anthropic (retire 2026-06-15) — kept so existing configs still validate
   'claude-opus-4-20250514', 'claude-sonnet-4-20250514',
-  'claude-sonnet-4-6',
   'claude-haiku-4-5-20251001',
   'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022',
   'claude-3-opus-20240229',

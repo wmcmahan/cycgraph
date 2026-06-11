@@ -268,6 +268,88 @@ const memoryIndex = new DrizzleMemoryIndex(db);
 
 The Postgres schema has a `tags jsonb` column on `memory_facts` (migration `0013_add_fact_tags`) and uses tag intersection for retrieval.
 
-## Runnable example
+## Eval-gated retention (verified lessons)
 
-See `packages/orchestrator/examples/learning-research-agent/` for the full demo: a research workflow that runs twice on related goals and prints a side-by-side comparison of lessons injected / extracted / tokens / cost / duration. Run with `ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/learning-research-agent/learning-research-agent.ts`.
+By default every reflection fact persists forever. Eval-gating closes the loop: a lesson is **kept only if runs that used it verifiably scored better**.
+
+The lifecycle is tag-driven:
+
+```
+candidate ──(runs with it beat the baseline)──▶ verified
+    │
+    ├──(runs with it score worse)──▶ invalidated 'eval-gate:harmful'
+    └──(max_trials, no lift)───────▶ invalidated 'eval-gate:no_lift'
+```
+
+Three pieces wire it together:
+
+**1. Tag new lessons as candidates** — purely a config change:
+
+```typescript
+reflection_config: {
+  source_keys: ['critique'],
+  extractor: { type: 'rule_based', min_sentence_length: 25 },
+  tags: ['lesson', 'graph:my-graph-v1', 'candidate'],  // ← on trial
+}
+```
+
+**2. Pass fact IDs through your retriever and attribute outcomes** — the runner records which facts were injected into each run's prompts (`memory._lesson_provenance`). After scoring the run however you like (evals harness, business KPI, LLM judge), feed the ledger:
+
+```typescript
+import { getInjectedFactIds } from '@cycgraph/orchestrator';
+import { InMemoryOutcomeLedger, retrieveGatedLessons } from '@cycgraph/memory';
+
+const ledger = new InMemoryOutcomeLedger();
+
+// Retriever: verified-first, with exploration slots so candidates accrue trials.
+// Passing `id` through is what makes attribution work — see the foot-gun below.
+const memoryRetriever: MemoryRetriever = async (query) => {
+  const facts = await retrieveGatedLessons(store, {
+    tags: query.tags ?? ['lesson'],
+    max_facts: 10,
+    candidate_slots: 2,
+    rest_after_trials: 3,  // = min_trials: bench fully-trialled candidates so their baseline can form
+    ledger,                // in-progress-first — trial cohorts graduate instead of churning
+  });
+  return {
+    facts: facts.map((f) => ({ content: f.content, validFrom: f.valid_from, id: f.id })),
+    entities: [],
+    themes: [],
+  };
+};
+
+const finalState = await runner.run();
+const score = await scoreRunSomehow(finalState);  // your metric, normalised to [0,1]
+await ledger.recordOutcome({
+  run_id: finalState.run_id,
+  score,
+  fact_ids: getInjectedFactIds(finalState),
+});
+```
+
+**3. Run the gate periodically:**
+
+```typescript
+import { evaluateRetention } from '@cycgraph/memory';
+
+const report = await evaluateRetention(store, ledger, {
+  min_trials: 3,        // evidence required before any decision
+  promote_margin: 0.05, // lift over leave-one-out baseline → verified
+  evict_margin: 0.05,   // drop below baseline → evicted as harmful
+  max_trials: 10,       // still no lift by then → evicted as useless
+});
+// report.promoted / report.evicted / report.held
+```
+
+Eviction is a soft delete (`invalidated_by`), recoverable via `findFacts({ include_invalidated: true })`. The lift heuristic is correlational — facts are co-injected and run difficulty varies — so `min_trials` and the margins are the guardrails, not a causal proof.
+
+**Foot-guns:**
+
+- A retriever adapter that strips `id` from facts records no provenance — gating silently degrades to today's keep-everything behaviour.
+- `candidate_slots: 0` means candidates are never retrieved, never accrue trials, and are held forever.
+- Supervisor-node retrieval is not provenance-tracked in v1 (its actions carry no memory updates).
+
+## Runnable examples
+
+- `packages/orchestrator/examples/learning-research-agent/` — the basic loop: a research workflow that runs twice on related goals and prints a side-by-side comparison of lessons injected / extracted / tokens / cost / duration.
+- `packages/evals/examples/eval-gated-learning/` — the full gated loop, adversarially tested: three poisoned lessons are seeded into the store mid-experiment and the retention gate evicts them on outcome evidence alone, with a fitness chart showing the dip and recovery.

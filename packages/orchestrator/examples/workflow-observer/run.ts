@@ -60,7 +60,7 @@ const agentRegistry = new InMemoryAgentRegistry();
 const TARGET_SUPERVISOR_ID = agentRegistry.register({
   name: 'Target Supervisor',
   description: 'Routes between researcher and writer',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You supervise a research-and-write workflow with two team members:',
@@ -81,7 +81,7 @@ const TARGET_SUPERVISOR_ID = agentRegistry.register({
 const TARGET_RESEARCHER_ID = agentRegistry.register({
   name: 'Researcher',
   description: 'Produces research notes on a topic using existing knowledge',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a research specialist. Produce detailed research notes on the topic in the goal.',
@@ -96,7 +96,7 @@ const TARGET_RESEARCHER_ID = agentRegistry.register({
 const TARGET_WRITER_ID = agentRegistry.register({
   name: 'Writer',
   description: 'Writes a polished summary from research notes',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are a writer. Read the research_notes and produce a concise, polished summary.',
@@ -112,7 +112,7 @@ const TARGET_WRITER_ID = agentRegistry.register({
 const OBSERVER_SUPERVISOR_ID = agentRegistry.register({
   name: 'Observer Supervisor',
   description: 'Routes between triage specialist agents',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You are an observer supervisor triaging a completed workflow run.',
@@ -134,7 +134,7 @@ const OBSERVER_SUPERVISOR_ID = agentRegistry.register({
 const TOKEN_ANALYST_ID = agentRegistry.register({
   name: 'Token Analyst',
   description: 'Analyzes token usage patterns for waste or anomalies',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You analyze token usage from a completed workflow run.',
@@ -161,7 +161,7 @@ const TOKEN_ANALYST_ID = agentRegistry.register({
 const STALL_DETECTOR_ID = agentRegistry.register({
   name: 'Stall Detector',
   description: 'Detects routing loops, stalls, or anomalous patterns',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You detect stalls and routing anomalies in a completed workflow run.',
@@ -188,7 +188,7 @@ const STALL_DETECTOR_ID = agentRegistry.register({
 const ERROR_CLASSIFIER_ID = agentRegistry.register({
   name: 'Error Classifier',
   description: 'Classifies errors from the workflow run',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You classify errors from a completed workflow run.',
@@ -217,7 +217,7 @@ const ERROR_CLASSIFIER_ID = agentRegistry.register({
 const REPORT_WRITER_ID = agentRegistry.register({
   name: 'Triage Report Writer',
   description: 'Synthesizes triage findings into a structured report',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   provider: 'anthropic',
   system_prompt: [
     'You synthesize triage findings into a final structured report.',
