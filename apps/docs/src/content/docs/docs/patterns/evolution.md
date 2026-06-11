@@ -139,6 +139,12 @@ Each candidate receives the previous generation's winner automatically in its st
 
 > "If `_evolution_parent` is provided, use it as a starting point. The parent scored `_evolution_parent_fitness`—aim to do better. Current generation: `_evolution_generation`."
 
+The evaluator's critique of the parent is also injected as `_evolution_parent_reasoning` — feed it to your candidate prompt so each generation fixes the *specific* gaps the judge named, rather than mutating blindly.
+
+### Elitism
+
+`elite_count` (default `1`) carries the top N candidates of each generation forward **unchanged** — not re-generated, not re-scored. This guarantees the best-so-far can never be lost to a noisy generation, so `${nodeId}_fitness_history` is monotonic (it climbs or holds, never dips), and it saves the LLM calls those slots would have cost (each generation after the first issues `population_size - elite_count` candidate calls). Set `elite_count: 0` to breed every candidate fresh instead.
+
 ### Cost considerations
 
 Evolution executes many LLM calls. With a population size of 5 and max generations of 10, you trigger up to 50 candidate executions plus 50 evaluations — easily 100x the cost of a single-shot generation.

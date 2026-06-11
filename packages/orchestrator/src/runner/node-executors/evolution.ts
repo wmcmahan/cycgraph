@@ -92,6 +92,8 @@ interface ScoredCandidate {
   reasoning: string;
   /** Total tokens consumed (generation + evaluation). */
   tokens_used: number;
+  /** True if this candidate was carried forward unchanged from a prior generation (elitism). */
+  is_elite?: boolean;
 }
 
 /**
@@ -140,6 +142,15 @@ export async function executeEvolutionNode(
   let finalPopulation: ScoredCandidate[] = [];
   let generationsRun = 0;
 
+  // Elitism: the top `elite_count` candidates of each generation are carried
+  // UNCHANGED into the next generation's pool — not re-generated and not
+  // re-scored. This guarantees the best-so-far can never be lost to a noisy
+  // generation, so per-generation best fitness is monotonic non-decreasing
+  // (and it saves the LLM calls those slots would have cost). Clamped to leave
+  // at least one fresh candidate per generation; `elite_count: 0` disables it.
+  const eliteCount = Math.min(config.elite_count, config.population_size - 1);
+  let elites: ScoredCandidate[] = [];
+
   let budgetStopped = false;
   for (let gen = 0; gen < config.max_generations; gen++) {
     if (ctx.abortSignal?.aborted) break;
@@ -168,10 +179,11 @@ export async function executeEvolutionNode(
     const temperature = config.initial_temperature +
       (config.final_temperature - config.initial_temperature) * progress;
 
-    // Create parallel tasks for candidate generation. The parent node's
-    // `memory_query` propagates so every candidate sees the same
-    // retrieved memory in its prompt.
-    const tasks: ParallelTask[] = Array.from({ length: config.population_size }, (_, idx) => ({
+    // Generate enough fresh candidates to fill the population alongside the
+    // carried-forward elites (none in gen 0). The parent node's `memory_query`
+    // propagates so every candidate sees the same retrieved memory in its prompt.
+    const freshCount = config.population_size - elites.length;
+    const tasks: ParallelTask[] = Array.from({ length: freshCount }, (_, idx) => ({
       node: {
         id: `${node.id}_gen${gen}_candidate${idx}`,
         type: 'agent' as const,
@@ -279,13 +291,13 @@ export async function executeEvolutionNode(
       };
     });
 
-    const candidates: ScoredCandidate[] = [];
+    const freshCandidates: ScoredCandidate[] = [];
     for (const r of scored) {
       // Evaluator currently reports only totalTokens; attribute conservatively
       // to output so the cost path still computes a non-zero figure.
       totalTokens += r.evalTokens;
       totalOutputTokens += r.evalTokens;
-      candidates.push({
+      freshCandidates.push({
         index: r.index,
         output: r.output,
         fitness: r.fitness,
@@ -294,7 +306,12 @@ export async function executeEvolutionNode(
       });
     }
 
-    // Handle all-failed generation
+    // The generation's pool = freshly generated candidates + carried-forward
+    // elites (already scored in a prior generation, so they cost nothing here).
+    const candidates: ScoredCandidate[] = [...freshCandidates, ...elites];
+
+    // Handle all-failed generation (no fresh candidates AND no elites to fall
+    // back on — i.e. generation 0 produced nothing).
     if (candidates.length === 0) {
       if (config.error_strategy === 'fail_fast') {
         throw new NodeConfigError(node.id, 'evolution', `candidates (all failed in generation ${gen})`);
@@ -311,6 +328,13 @@ export async function executeEvolutionNode(
     // Sort by fitness descending
     candidates.sort((a, b) => b.fitness - a.fitness);
     finalPopulation = candidates;
+
+    // Carry the top `eliteCount` of this pool into the next generation
+    // unchanged. Because they re-enter next round's pool, next round's best is
+    // guaranteed ≥ this round's best → the fitness curve never dips.
+    elites = eliteCount > 0
+      ? candidates.slice(0, eliteCount).map((c) => ({ ...c, is_elite: true }))
+      : [];
 
     const genBestFitness = candidates[0].fitness;
     fitnessHistory.push(genBestFitness);
@@ -380,6 +404,7 @@ export async function executeEvolutionNode(
           fitness: c.fitness,
           reasoning: c.reasoning,
           tokens_used: c.tokens_used,
+          ...(c.is_elite ? { is_elite: true } : {}),
         })),
         [`${node.id}_budget_stopped`]: budgetStopped,
       },

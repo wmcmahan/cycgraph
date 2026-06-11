@@ -685,4 +685,94 @@ describe('Evolution (DGM) Node', () => {
       expect(mockEvaluateQuality).not.toHaveBeenCalled();
     });
   });
+
+  // ── Elitism ────────────────────────────────────────────────────
+  // The top `elite_count` candidates carry forward unchanged, so the best can
+  // never be lost to a worse generation (monotonic fitness) and aren't
+  // re-generated (fewer LLM calls).
+
+  describe('Elitism (elite_count)', () => {
+    // Generation 0 candidates are good; every later generation is strictly worse.
+    // Without elitism the per-generation best would crash from 0.8 to 0.2.
+    const decliningFitness = () =>
+      vi.fn(async (output: any) => ({
+        score: (output.generation ?? 0) === 0 ? 0.8 : 0.2,
+        reasoning: `gen ${output.generation}`,
+      }));
+
+    test('best fitness is monotonic non-decreasing even when later generations are worse', async () => {
+      const graph = createEvolutionGraph({
+        population_size: 3,
+        elite_count: 1,
+        max_generations: 3,
+        fitness_threshold: 0.99,   // never reached → run all generations
+        stagnation_generations: 10, // don't stop on plateau
+        evaluator_agent_id: undefined,
+      });
+      const runner = new GraphRunner(graph, createState(), { fitnessFunction: decliningFitness() });
+      const finalState = await runner.run();
+
+      const history = finalState.memory['evo-node_fitness_history'] as number[];
+      expect(history.length).toBe(3);
+      // The elite preserves gen 0's 0.8 — the curve holds rather than dropping to 0.2.
+      for (let i = 1; i < history.length; i++) {
+        expect(history[i]).toBeGreaterThanOrEqual(history[i - 1]);
+      }
+      expect(history[0]).toBeCloseTo(0.8, 5);
+      expect(history[1]).toBeCloseTo(0.8, 5);
+      expect(finalState.memory['evo-node_winner_fitness']).toBeCloseTo(0.8, 5);
+    });
+
+    test('carried-forward elites are not re-generated (fewer candidate calls)', async () => {
+      setupDefaultAgentMock(); // resets candidateCallCount
+      const graph = createEvolutionGraph({
+        population_size: 3,
+        elite_count: 1,
+        max_generations: 3,
+        fitness_threshold: 0.99,
+        stagnation_generations: 10,
+        evaluator_agent_id: undefined,
+      });
+      const runner = new GraphRunner(graph, createState(), { fitnessFunction: decliningFitness() });
+      await runner.run();
+
+      // Gen 0 generates 3; gens 1 and 2 generate only 2 (the 3rd slot is the
+      // carried elite) → 3 + 2 + 2 = 7, vs 9 without elitism.
+      expect(candidateCallCount).toBe(7);
+    });
+
+    test('marks the surviving candidate as an elite in the population summary', async () => {
+      const graph = createEvolutionGraph({
+        population_size: 3,
+        elite_count: 1,
+        max_generations: 2,
+        fitness_threshold: 0.99,
+        stagnation_generations: 10,
+        evaluator_agent_id: undefined,
+      });
+      const runner = new GraphRunner(graph, createState(), { fitnessFunction: decliningFitness() });
+      const finalState = await runner.run();
+
+      const population = finalState.memory['evo-node_population'] as Array<{ is_elite?: boolean }>;
+      expect(population.some((c) => c.is_elite === true)).toBe(true);
+    });
+
+    test('elite_count: 0 disables elitism (best may drop on a worse generation)', async () => {
+      const graph = createEvolutionGraph({
+        population_size: 3,
+        elite_count: 0,
+        max_generations: 2,
+        fitness_threshold: 0.99,
+        stagnation_generations: 10,
+        evaluator_agent_id: undefined,
+      });
+      const runner = new GraphRunner(graph, createState(), { fitnessFunction: decliningFitness() });
+      const finalState = await runner.run();
+
+      const history = finalState.memory['evo-node_fitness_history'] as number[];
+      // No elite carried → generation 1's pool is all the worse candidates.
+      expect(history[0]).toBeCloseTo(0.8, 5);
+      expect(history[1]).toBeCloseTo(0.2, 5);
+    });
+  });
 });
