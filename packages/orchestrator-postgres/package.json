@@ -15,12 +15,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wmcmahan/mc-ai.git",
+    "url": "git+https://github.com/wmcmahan/cycgraph.git",
     "directory": "packages/orchestrator-postgres"
   },
-  "homepage": "https://github.com/wmcmahan/mc-ai/tree/main/packages/orchestrator-postgres#readme",
+  "homepage": "https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator-postgres#readme",
   "bugs": {
-    "url": "https://github.com/wmcmahan/mc-ai/issues"
+    "url": "https://github.com/wmcmahan/cycgraph/issues"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

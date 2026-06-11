@@ -3,7 +3,7 @@ title: Your First Workflow
 description: Build a complete workflow step-by-step using the research-and-write pattern.
 ---
 
-This guide walks you through building a **linear 2-node workflow**: a Researcher agent gathers notes, then a Writer agent produces a polished summary. We'll build this programmatically, exactly as it's done in the [research-and-write example](https://github.com/wmcmahan/mc-ai/tree/main/packages/orchestrator/examples/research-and-write).
+This guide walks you through building a **linear 2-node workflow**: a Researcher agent gathers notes, then a Writer agent produces a polished summary. We'll build this programmatically, exactly as it's done in the [research-and-write example](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/research-and-write).
 
 ## Step 1: Register agents
 

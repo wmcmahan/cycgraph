@@ -35,7 +35,7 @@ flowchart TB
 
 This example demonstrates a self-annealing loop where a Writer drafts content, an Evaluator scores it, and the loop repeats until the score hits `0.8` or higher, before passing the approved draft to a Publisher. 
 
-See the [full runnable code](https://github.com/wmcmahan/mc-ai/tree/main/packages/orchestrator/examples/eval-loop/eval-loop.ts).
+See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/eval-loop/eval-loop.ts).
 
 ### 1. The Agents
 

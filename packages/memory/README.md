@@ -198,8 +198,8 @@ Custom extractors: implement the `SemanticExtractor` interface (one method, `ext
 
 ## Contributing
 
-Issues and PRs welcome on [GitHub](https://github.com/wmcmahan/mc-ai). See [CONTRIBUTING.md](https://github.com/wmcmahan/mc-ai/blob/main/CONTRIBUTING.md).
+Issues and PRs welcome on [GitHub](https://github.com/wmcmahan/cycgraph). See [CONTRIBUTING.md](https://github.com/wmcmahan/cycgraph/blob/main/CONTRIBUTING.md).
 
 ## License
 
-[Apache 2.0](https://github.com/wmcmahan/mc-ai/blob/main/LICENSE).
+[Apache 2.0](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE).

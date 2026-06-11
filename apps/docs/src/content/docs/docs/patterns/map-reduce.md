@@ -40,7 +40,7 @@ flowchart TB
 
 This example demonstrates a map-reduce pipeline where a Splitter breaks a broad topic into sub-topics, a Map node executes parallel Researchers for each sub-topic, and a Synthesizer merges the results. 
 
-See the [full runnable code](https://github.com/wmcmahan/mc-ai/tree/main/packages/orchestrator/examples/map-reduce/map-reduce.ts).
+See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/map-reduce/map-reduce.ts).
 
 ### 1. The Worker and Synthesizer Agents
 

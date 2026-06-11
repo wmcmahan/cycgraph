@@ -5,12 +5,12 @@
 **The core engine of cycgraph — a TypeScript agent orchestrator built on a Cyclic State Graph.**
 
 [![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
-[![CI](https://github.com/wmcmahan/mc-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/wmcmahan/mc-ai/actions/workflows/ci.yml)
+[![CI](https://github.com/wmcmahan/cycgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/wmcmahan/cycgraph/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io)
 
-[📚 Documentation](https://flattop.io) &nbsp;·&nbsp; [🧪 Examples](./examples/) &nbsp;·&nbsp; [🪞 Compound Learning Demo](./examples/learning-research-agent/) &nbsp;·&nbsp; [🐛 Issues](https://github.com/wmcmahan/mc-ai/issues)
+[📚 Documentation](https://flattop.io) &nbsp;·&nbsp; [🧪 Examples](./examples/) &nbsp;·&nbsp; [🪞 Compound Learning Demo](./examples/learning-research-agent/) &nbsp;·&nbsp; [🐛 Issues](https://github.com/wmcmahan/cycgraph/issues)
 
 </div>
 
@@ -163,8 +163,8 @@ ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/research-and-write/research-and-wr
 
 ## Contributing
 
-Issues and PRs welcome on [GitHub](https://github.com/wmcmahan/mc-ai). See [CONTRIBUTING.md](https://github.com/wmcmahan/mc-ai/blob/main/CONTRIBUTING.md) for development setup and the architecture decisions worth knowing before opening a PR.
+Issues and PRs welcome on [GitHub](https://github.com/wmcmahan/cycgraph). See [CONTRIBUTING.md](https://github.com/wmcmahan/cycgraph/blob/main/CONTRIBUTING.md) for development setup and the architecture decisions worth knowing before opening a PR.
 
 ## License
 
-[Apache 2.0](https://github.com/wmcmahan/mc-ai/blob/main/LICENSE).
+[Apache 2.0](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE).

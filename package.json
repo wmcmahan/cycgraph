@@ -1,12 +1,12 @@
 {
-  "name": "flattop",
+  "name": "cycgraph",
   "version": "1.0.0",
   "private": true,
   "license": "Apache-2.0",
   "author": "Will McMahan",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wmcmahan/mc-ai.git"
+    "url": "git+https://github.com/wmcmahan/cycgraph.git"
   },
   "workspaces": [
     "packages/*"

@@ -15,12 +15,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wmcmahan/mc-ai.git",
+    "url": "git+https://github.com/wmcmahan/cycgraph.git",
     "directory": "packages/orchestrator"
   },
-  "homepage": "https://github.com/wmcmahan/mc-ai/tree/main/packages/orchestrator#readme",
+  "homepage": "https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator#readme",
   "bugs": {
-    "url": "https://github.com/wmcmahan/mc-ai/issues"
+    "url": "https://github.com/wmcmahan/cycgraph/issues"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -70,6 +70,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@grpc/grpc-js": "^1.14.4",
     "@types/node": "^25.3.5",
     "@types/uuid": "^11.0.0",
     "@vitest/coverage-v8": "^4.1.5",

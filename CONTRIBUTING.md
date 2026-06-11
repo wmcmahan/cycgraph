@@ -20,7 +20,7 @@ By submitting a contribution, you agree that your work will be licensed under th
 
 ```bash
 # Clone the repository
-git clone https://github.com/wmcmahan/mc-ai.git
+git clone https://github.com/wmcmahan/cycgraph.git
 cd mc-ai
 npm install
 
@@ -87,7 +87,7 @@ packages/orchestrator-postgres/   Database layer with Drizzle ORM (@cycgraph/orc
 
 ## What to Work On
 
-- Check [open issues](https://github.com/wmcmahan/mc-ai/issues) for bugs and feature requests
+- Check [open issues](https://github.com/wmcmahan/cycgraph/issues) for bugs and feature requests
 - Issues labeled `good first issue` are a great starting point
 - If you want to work on something larger, open an issue first to discuss the approach
 

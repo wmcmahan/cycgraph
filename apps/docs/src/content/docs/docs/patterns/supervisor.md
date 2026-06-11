@@ -27,7 +27,7 @@ flowchart TB
 
 ## Implementation example
 
-This example demonstrates a supervisor routing between three specialists: a researcher, a writer, and an editor. See the [full runnable code](https://github.com/wmcmahan/mc-ai/tree/main/packages/orchestrator/examples/supervisor-routing/supervisor-routing.ts).
+This example demonstrates a supervisor routing between three specialists: a researcher, a writer, and an editor. See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/supervisor-routing/supervisor-routing.ts).
 
 ### 1. The Supervisor prompt
 

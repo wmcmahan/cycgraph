@@ -3,12 +3,12 @@
 # cycgraph
 
 [![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?label=%40cycgraph%2Forchestrator&color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
-[![CI](https://github.com/wmcmahan/mc-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/wmcmahan/mc-ai/actions/workflows/ci.yml)
+[![CI](https://github.com/wmcmahan/cycgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/wmcmahan/cycgraph/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io)
 
-[📚 Documentation](https://flattop.io) &nbsp;·&nbsp; [🧪 Examples](./packages/orchestrator/examples/) &nbsp;·&nbsp; [🪞 Compound Learning Demo](./packages/orchestrator/examples/learning-research-agent/) &nbsp;·&nbsp; [🐛 Issues](https://github.com/wmcmahan/mc-ai/issues)
+[📚 Documentation](https://flattop.io) &nbsp;·&nbsp; [🧪 Examples](./packages/orchestrator/examples/) &nbsp;·&nbsp; [🪞 Compound Learning Demo](./packages/orchestrator/examples/learning-research-agent/) &nbsp;·&nbsp; [🐛 Issues](https://github.com/wmcmahan/cycgraph/issues)
 
 </div>
 
@@ -117,7 +117,7 @@ npm install @cycgraph/orchestrator
 **Try a runnable example first (no project needed):**
 
 ```bash
-git clone https://github.com/wmcmahan/mc-ai.git && cd mc-ai && npm install
+git clone https://github.com/wmcmahan/cycgraph.git && cd mc-ai && npm install
 ANTHROPIC_API_KEY=sk-ant-... npx tsx packages/orchestrator/examples/research-and-write/research-and-write.ts
 ```
 

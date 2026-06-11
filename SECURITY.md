@@ -21,7 +21,7 @@ Pre-release versions (`-beta`, `-alpha`) receive fixes on a best-effort basis on
 
 Report privately via either channel:
 
-- GitHub Security Advisory: <https://github.com/wmcmahan/mc-ai/security/advisories/new> (preferred)
+- GitHub Security Advisory: <https://github.com/wmcmahan/cycgraph/security/advisories/new> (preferred)
 - Email: `mcmahanwill@gmail.com` with subject prefix `[cycgraph security]`
 
 Please include:

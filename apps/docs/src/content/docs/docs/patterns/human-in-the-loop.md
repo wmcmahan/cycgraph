@@ -34,7 +34,7 @@ flowchart TB
 
 This example demonstrates a classic approval gate: A Writer agent drafts an article, execution pauses for a human to review the draft, and then upon approval, a Publisher agent finalizes it.
 
-See the [full runnable code](https://github.com/wmcmahan/mc-ai/tree/main/packages/orchestrator/examples/human-in-the-loop/human-in-the-loop.ts).
+See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/human-in-the-loop/human-in-the-loop.ts).
 
 ### 1. The Approval Node
 

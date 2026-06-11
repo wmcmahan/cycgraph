@@ -173,7 +173,7 @@ Each tool call gets its own span via the MCP layer's `wrapToolWithTaint` — sea
 
 ## Security checklist before going live
 
-See [SECURITY.md](https://github.com/wmcmahan/mc-ai/blob/main/SECURITY.md) for the full list. Quick version:
+See [SECURITY.md](https://github.com/wmcmahan/cycgraph/blob/main/SECURITY.md) for the full list. Quick version:
 
 - [ ] MCP servers run in isolated containers — no host filesystem mounts
 - [ ] Every workflow has both `max_token_budget` and `budget_usd` set

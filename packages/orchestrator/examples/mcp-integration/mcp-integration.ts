@@ -170,7 +170,7 @@ async function main() {
 
   const state = createWorkflowState({
     workflow_id: graph.id,
-    goal: 'Research the Gitlab website (https://github.com/wmcmahan/mc-ai) and give me summary of the site.',
+    goal: 'Research the Gitlab website (https://github.com/wmcmahan/cycgraph) and give me summary of the site.',
     constraints: ['Keep the summary under 300 words', 'Include specific facts and sources'],
     max_execution_time_ms: 120_000,
   });
