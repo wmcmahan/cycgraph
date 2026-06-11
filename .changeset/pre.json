@@ -18,6 +18,7 @@
     "evolution-fitness-function",
     "fail-loud-phase-4",
     "guardrails-pair",
+    "otel-bump-protobufjs",
     "perf-and-scale-phase-5",
     "reflection-compound-learning",
     "security-phase-2",
