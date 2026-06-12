@@ -26,7 +26,7 @@ cycgraph is a TypeScript orchestration engine where workflows **learn from their
 
 Same model, same five topics, same order. The solid line is a `research → critique → reflect` workflow whose researcher retrieves accumulated lessons before every run; the dashed line is the identical researcher with the loop disabled. Fitness is scored *outside* the workflow — half deterministic rubric checks, half a multi-sample LLM judge — and the agents never see the rubric or their scores. In our first recorded run the learning workflow went **0.00 → 1.00 in five runs** while the control averaged 0.18. Reproduce it for under $1: [`packages/evals/examples/compound-learning-benchmark`](./packages/evals/examples/compound-learning-benchmark/).
 
-> **Status:** `0.1.0-beta`. The API is stabilising; minor versions may still introduce breaking changes until 1.0. Core primitives (graph engine, durable execution, memory, MCP integration) are covered by 2,100+ tests and exercised by the runnable examples.
+> **Status:** `0.2.0` — first stable release. Semver applies (0.x rules: breaking changes only arrive with a minor bump). Core primitives (graph engine, durable execution, memory, eval-gated learning, MCP integration) are covered by 2,400+ tests and exercised by the runnable examples.
 
 ## How the learning loop works
 

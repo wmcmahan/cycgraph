@@ -11,7 +11,7 @@ If your first cycgraph workflow doesn't behave the way you expect, this page lis
 
 ```
 npm warn EBADENGINE Unsupported engine {
-  package: '@cycgraph/orchestrator@0.1.0-beta.X',
+  package: '@cycgraph/orchestrator@0.2.0',
   required: { node: '>=24.0.0' },
   current: { node: 'v22.x.x' }
 }

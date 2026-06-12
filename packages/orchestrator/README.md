@@ -16,7 +16,7 @@
 
 ---
 
-> **Status:** `0.1.0-beta`. The API is stabilising; minor versions may still introduce breaking changes until 1.0. Core primitives (graph engine, durable execution, memory, MCP integration) are covered by 2,100+ tests and exercised by the runnable examples.
+> **Status:** `0.2.0` — first stable release. Semver applies (0.x rules: breaking changes only arrive with a minor bump). Core primitives (graph engine, durable execution, memory, eval-gated learning, MCP integration) are covered by 2,400+ tests and exercised by the runnable examples.
 
 Define multi-step agent workflows declaratively, run them with durable execution, and let them **distill what they learned** into a persistent knowledge store that future runs retrieve automatically. Cyclic loops, dynamic supervisors, population-based evolution, and human-in-the-loop gates ship as first-class node types, not framework extensions.
 

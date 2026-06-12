@@ -1,7 +1,7 @@
 {
   "name": "@cycgraph/memory",
-  "version": "0.1.0-beta.6",
-  "description": "Temporal and hierarchical memory for LLM agents — knowledge graph, episode segmentation, semantic deduplication, and efficient retrieval. Powers compound learning in @cycgraph/orchestrator.",
+  "version": "0.2.0",
+  "description": "Temporal and hierarchical memory for LLM agents \u2014 knowledge graph, episode segmentation, semantic deduplication, and efficient retrieval. Powers compound learning in @cycgraph/orchestrator.",
   "keywords": [
     "memory",
     "knowledge-graph",
