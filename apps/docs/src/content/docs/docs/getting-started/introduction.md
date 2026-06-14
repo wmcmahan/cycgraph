@@ -3,7 +3,9 @@ title: Introduction
 description: What cycgraph is, why it exists, and how it differs from other orchestration frameworks.
 ---
 
-cycgraph is an **agentic orchestration engine** built on a Cyclic State Graph architecture. It enables building complex, fault-tolerant, multi-step AI workflows.
+cycgraph is a **self-improving** agentic orchestration engine built on a Cyclic State Graph architecture. It builds complex, fault-tolerant, multi-step AI workflows that **learn from their own runs** — distilling lessons from each run into memory that future runs retrieve automatically, and keeping only the lessons that verifiably help.
+
+![Self-healing memory in motion: lessons accumulate, three poisoned lessons crater the fitness line, the eval-gate evicts them, and the workflow recovers](/self-healing-memory.gif)
 
 ## Why use cycgraph?
 

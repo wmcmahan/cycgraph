@@ -6,6 +6,10 @@ author: "Will McMahan"
 tags: ["findings", "memory", "agents"]
 ---
 
+<img src="/self-healing-memory.gif" alt="The self-healing loop in motion: lessons accumulate in memory, three poisoned lessons are injected and crater the fitness line, the eval-gate evicts them, and the workflow recovers" width="760" style="max-width:100%;height:auto;border:1px solid #1b1f2c;border-radius:10px;" />
+
+<p style="color:#777;font-size:0.85em;margin-top:0.5em;">An illustration of the loop — lessons accumulate, three poisoned lessons crater the run, the eval-gate evicts them, fitness recovers. The actual measured run, with real numbers, is further down.</p>
+
 cycgraph workflows learn across runs. A `reflection` node distills each run into
 atomic lessons; a memory store persists them; the next run retrieves them into its
 prompts. Over a handful of runs a research agent that started out writing rambling,
