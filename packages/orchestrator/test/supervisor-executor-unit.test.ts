@@ -342,6 +342,68 @@ describe('SupervisorExecutor', () => {
       expect(memoryRetriever).toHaveBeenCalledTimes(1);
     });
 
+    it('mints lesson_provenance on the handoff action from retrieved fact ids', async () => {
+      const { generateText } = await import('ai');
+      (generateText as ReturnType<typeof vi.fn>).mockResolvedValue({
+        output: { next_node: 'worker-a', reasoning: 'route there' },
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      });
+      const memoryRetriever = vi.fn().mockResolvedValue({
+        facts: [
+          { content: 'Lesson one.', validFrom: new Date(), id: 'fact-1' },
+          { content: 'Lesson two.', validFrom: new Date(), id: 'fact-2' },
+        ],
+        entities: [],
+        themes: [],
+      });
+
+      const action = await executeSupervisor(makeNode(), makeStateView(), [], 1, {
+        memoryRetriever,
+        memory_query: { tags: ['lesson'] },
+      });
+
+      expect(action.type).toBe('handoff');
+      const registry = action.payload.lesson_provenance as Record<string, { node_id: string; fact_ids: string[] }>;
+      expect(registry).toBeDefined();
+      const entries = Object.values(registry);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].fact_ids).toEqual(['fact-1', 'fact-2']);
+      expect(entries[0].node_id).toBe('supervisor-1');
+    });
+
+    it('mints lesson_provenance on the completion (set_status) action', async () => {
+      // beforeEach mocks generateText to return __done__ → completion path.
+      const memoryRetriever = vi.fn().mockResolvedValue({
+        facts: [{ content: 'A lesson.', validFrom: new Date(), id: 'fact-9' }],
+        entities: [],
+        themes: [],
+      });
+
+      const action = await executeSupervisor(makeNode(), makeStateView(), [], 1, {
+        memoryRetriever,
+        memory_query: { tags: ['lesson'] },
+      });
+
+      expect(action.type).toBe('set_status');
+      const registry = action.payload.lesson_provenance as Record<string, { fact_ids: string[] }>;
+      expect(Object.values(registry)[0].fact_ids).toEqual(['fact-9']);
+    });
+
+    it('omits lesson_provenance when retrieved facts have no ids (unattributable)', async () => {
+      const memoryRetriever = vi.fn().mockResolvedValue({
+        facts: [{ content: 'No id, not attributable.', validFrom: new Date() }],
+        entities: [],
+        themes: [],
+      });
+
+      const action = await executeSupervisor(makeNode(), makeStateView(), [], 1, {
+        memoryRetriever,
+        memory_query: { tags: ['lesson'] },
+      });
+
+      expect(action.payload.lesson_provenance).toBeUndefined();
+    });
+
     it('flows retrieved facts into the system prompt passed to generateText', async () => {
       const memoryRetriever = vi.fn().mockResolvedValue({
         facts: [{ content: 'Prior lesson about routing.', validFrom: new Date() }],

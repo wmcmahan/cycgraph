@@ -92,6 +92,28 @@ export function getInjectedFactIds(state: WorkflowState): string[] {
 }
 
 /**
+ * Merge an incoming provenance registry into a memory object,
+ * append-only and trimmed — the same discipline `mergeMemory` applies to
+ * `update_memory` actions, exposed for reducers (handoff / set_status)
+ * whose actions carry provenance outside the memory-updates channel.
+ *
+ * Pure and deterministic (the incoming entries are minted at
+ * action-creation time, so replay re-applies identical values). Returns
+ * the input memory unchanged when there is nothing to merge.
+ */
+export function mergeLessonProvenanceIntoMemory(
+  memory: Record<string, unknown>,
+  incoming: LessonProvenanceRegistry | undefined,
+): Record<string, unknown> {
+  if (!incoming || Object.keys(incoming).length === 0) return memory;
+  const prev = getLessonProvenanceRegistry(memory);
+  return {
+    ...memory,
+    [LESSON_PROVENANCE_KEY]: trimLessonProvenance({ ...prev, ...incoming }),
+  };
+}
+
+/**
  * Keep the newest `MAX_LESSON_PROVENANCE_ENTRIES` entries. Pure and
  * fully deterministic (see total order above) — safe inside reducers.
  * Returns the input object unchanged when under the cap.

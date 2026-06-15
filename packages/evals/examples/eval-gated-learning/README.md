@@ -46,6 +46,25 @@ ANTHROPIC_API_KEY=sk-ant-... npx tsx packages/evals/examples/eval-gated-learning
 fact IDs, every gate report) and `chart.svg` (fitness per run; red dots
 mark runs that had poison in the prompt).
 
+**It self-verifies.** After the run it prints an `Assertions` block and
+**exits non-zero** if the mechanism didn't behave as claimed — every poison
+lesson evicted on trial evidence, fitness recovered after eviction, genuine
+lessons promoted. A broken run fails loudly instead of printing a happy
+summary, so you can gate a script on its exit code. The same invariants
+live in [`verdict.ts`](./verdict.ts) (`computeVerdict`).
+
+## Reproducible proof (no API key, runs in CI)
+
+The live run is real but non-deterministic and costs money, so it can't
+gate CI. The *gate* half of it is locked by a deterministic test —
+[`packages/evals/test/eval-gated-learning-gate.test.ts`](../../test/eval-gated-learning-gate.test.ts) —
+which drives the **same real `@cycgraph/memory` gate, ledger, and store**
+with fixed synthetic outcomes (poison runs score low, genuine runs score
+high). It asserts the poison is evicted and the genuine lessons promoted,
+in <1s, on every push. (Provenance attribution from prompts — the other
+half — is unit-tested in `@cycgraph/orchestrator`'s lesson-provenance
+suite.) Run it with `npm test --workspace=packages/evals`.
+
 ## What a real run looks like
 
 From the committed `results.json` (your numbers will vary — this is a
@@ -71,10 +90,13 @@ and eviction is a soft delete — recoverable via
 This demo pins `decision_rule: 'margin'` — the fast point-estimate rule —
 because its narrative fits in 11 runs with 2-trial cohorts, and the poison
 effect is enormous. The production default is `'inference'`: a Welch test
-with false-discovery and sequential (peeking) control. We re-ran this exact
-demo under the inference rule and it **held everything**: a 2-vs-2
-comparison has ~1 degree of freedom, and the gate correctly refuses to
-rule on that little evidence, no matter how big the observed lift.
+with false-discovery and sequential (peeking) control. Under the inference
+rule this evidence **holds everything**: a 2-vs-2 comparison has ~1 degree
+of freedom, and the gate correctly refuses to rule on that little evidence,
+no matter how big the observed lift. That's not a claim to take on faith —
+the deterministic test above asserts it directly: fed identical thin
+evidence, the margin rule evicts all 3 poison while the inference rule
+evicts **0** and holds all 5 candidates.
 
 That's the trade in one sentence: the margin rule decides fast and is
 trigger-happy on noise; the inference rule is statistically honest and

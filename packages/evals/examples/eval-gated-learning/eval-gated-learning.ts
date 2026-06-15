@@ -61,6 +61,8 @@ import type { RubricMetric, SemanticJudgeContext } from '@cycgraph/evals';
 import { generateText } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 
+import { computeVerdict, formatVerdict } from './verdict.js';
+
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -588,6 +590,20 @@ async function main() {
     (poisonEvictedAfterRun !== null ? ` (all gone after run ${poisonEvictedAfterRun})` : ''));
   console.log(`  lessons promoted to verified: ${verifiedCount}`);
 
+  // ── Assertions ──
+  // The demo self-verifies: if the mechanism didn't actually evict the
+  // poison and recover, the script FAILS (exit 1) instead of printing a
+  // happy summary. Same invariants the deterministic CI test locks.
+  const verdict = computeVerdict({
+    records,
+    poisonIds,
+    poisonEvicted,
+    poisonEvictedAfterRun,
+    verifiedCount,
+  });
+  console.log('\n═══ Assertions ═══');
+  console.log(formatVerdict(verdict));
+
   const results = {
     worker_model: WORKER_MODEL,
     judge_model: JUDGE_MODEL,
@@ -606,6 +622,8 @@ async function main() {
       poison_evicted_after_run: poisonEvictedAfterRun,
       poison_evicted: poisonEvicted,
       verified_lessons: verifiedCount,
+      verdict_passed: verdict.passed,
+      verdict_checks: verdict.checks,
     },
   };
 
@@ -613,6 +631,13 @@ async function main() {
   writeFileSync(join(OUT_DIR, 'chart.svg'), svgChart(records, poisonEvictedAfterRun));
   console.log(`\nWrote ${join(OUT_DIR, 'results.json')}`);
   console.log(`Wrote ${join(OUT_DIR, 'chart.svg')}`);
+
+  // Fail loudly so a broken run can't masquerade as a passing one (and so
+  // anyone scripting this example gets a non-zero exit to gate on).
+  if (!verdict.passed) {
+    console.error('\nDemo assertions FAILED — the eviction/recovery mechanism did not behave as claimed.');
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {

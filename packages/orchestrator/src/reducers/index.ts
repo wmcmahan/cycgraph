@@ -37,6 +37,7 @@ import {
 import {
   LESSON_PROVENANCE_KEY,
   trimLessonProvenance,
+  mergeLessonProvenanceIntoMemory,
 } from '../utils/lesson-provenance.js';
 import type { LessonProvenanceRegistry } from '../types/state.js';
 import { canTransitionStatus } from './status-transitions.js';
@@ -240,10 +241,19 @@ export const updateMemoryReducer: Reducer = (state, action) => {
 export const setStatusReducer: Reducer = (state, action) => {
   if (action.type !== 'set_status') return state;
 
-  const { status } = SetStatusPayloadSchema.parse(action.payload);
+  const { status, lesson_provenance } = SetStatusPayloadSchema.parse(action.payload);
 
   // Guarded: a terminal run can't be moved back to an active status.
-  return transitionStatus(state, status, action);
+  const transitioned = transitionStatus(state, status, action);
+
+  // A supervisor's completion action carries the provenance of facts
+  // injected into its routing prompt — merge it append-only so supervisor
+  // retrieval is attributable to the run's outcome, same as agent nodes.
+  if (!lesson_provenance) return transitioned;
+  return {
+    ...transitioned,
+    memory: mergeLessonProvenanceIntoMemory(transitioned.memory, lesson_provenance),
+  };
 };
 
 /**
@@ -274,7 +284,7 @@ export const gotoNodeReducer: Reducer = (state, action) => {
 export const handoffReducer: Reducer = (state, action) => {
   if (action.type !== 'handoff') return state;
 
-  const { node_id, supervisor_id, reasoning } = HandoffPayloadSchema.parse(action.payload);
+  const { node_id, supervisor_id, reasoning, lesson_provenance } = HandoffPayloadSchema.parse(action.payload);
 
   const newHistory = [
     ...state.supervisor_history,
@@ -294,6 +304,9 @@ export const handoffReducer: Reducer = (state, action) => {
     supervisor_history: newHistory.length > MAX_SUPERVISOR_HISTORY
       ? newHistory.slice(-MAX_SUPERVISOR_HISTORY)
       : newHistory,
+    // Carry the supervisor's injected-fact provenance, append-only, so the
+    // facts that shaped this routing decision are attributable to the run.
+    memory: mergeLessonProvenanceIntoMemory(state.memory, lesson_provenance),
     updated_at: timeOf(action),
   };
 };

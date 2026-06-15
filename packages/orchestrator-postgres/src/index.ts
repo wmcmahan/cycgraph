@@ -32,6 +32,8 @@ export { DrizzleMCPServerRegistry } from './drizzle-mcp-registry.js';
 export { DrizzleMemoryStore } from './drizzle-memory-store.js';
 export { DrizzleMemoryIndex } from './drizzle-memory-index.js';
 export { DrizzleWorkflowQueue } from './drizzle-queue.js';
+export { DrizzleOutcomeLedger } from './drizzle-outcome-ledger.js';
+export type { GateDecisionFilter, FitnessTrendPoint } from './drizzle-outcome-ledger.js';
 export type { DrizzlePersistenceProviderOptions, RunClaim } from './drizzle-persistence.js';
 export type { DrizzleEventLogWriterOptions } from './drizzle-event-log.js';
 

@@ -20,7 +20,7 @@ import { generateText, Output } from 'ai';
 import { z } from 'zod';
 import { agentFactory } from '../agent-factory/index.js';
 import type { GraphNode } from '../../types/graph.js';
-import type { StateView, Action, WorkflowState } from '../../types/state.js';
+import type { StateView, Action, WorkflowState, LessonProvenanceRegistry } from '../../types/state.js';
 import { createLogger } from '../../utils/logger.js';
 import { getTracer, withSpan } from '../../utils/tracing.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -149,6 +149,27 @@ export async function executeSupervisor(
       retrievedMemory,
     });
 
+    // Lesson provenance: record which retrieved facts were injected into
+    // this routing prompt, so the run's outcome is attributable to them —
+    // the same contract agent nodes honour (see agent-executor). Minted
+    // here (action-creation time) and carried on the returned handoff /
+    // completion action; the reducer merges it append-only. Only facts
+    // whose retriever supplied an `id` are attributable.
+    const injectedFactIds = (retrievedMemory?.facts ?? [])
+      .map((f) => f.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const lessonProvenance: LessonProvenanceRegistry | undefined =
+      injectedFactIds.length > 0
+        ? {
+            [uuidv4()]: {
+              node_id: node.id,
+              agent_id: supervisorAgentId,
+              fact_ids: injectedFactIds,
+              retrieved_at: new Date().toISOString(),
+            },
+          }
+        : undefined;
+
     logger.info('routing', {
       supervisor_id: node.id,
       agent_id: supervisorAgentId,
@@ -200,7 +221,7 @@ export async function executeSupervisor(
 
     // Handle completion
     if (decision.next_node === SUPERVISOR_DONE) {
-      return createCompletionAction(node.id, attempt, duration, decision.reasoning, supervisorIterations, tokenUsage, effectiveConfig.model);
+      return createCompletionAction(node.id, attempt, duration, decision.reasoning, supervisorIterations, tokenUsage, effectiveConfig.model, lessonProvenance);
     }
 
     // Validate routing against managed_nodes allowlist
@@ -218,7 +239,7 @@ export async function executeSupervisor(
     span.setAttribute('supervisor.input_tokens', usage?.inputTokens ?? 0);
     span.setAttribute('supervisor.output_tokens', usage?.outputTokens ?? 0);
 
-    return createHandoffAction(node, supervisorAgentId, attempt, duration, decision, supervisorIterations, tokenUsage, effectiveConfig.model);
+    return createHandoffAction(node, supervisorAgentId, attempt, duration, decision, supervisorIterations, tokenUsage, effectiveConfig.model, lessonProvenance);
   });
 }
 
@@ -248,6 +269,7 @@ function createHandoffAction(
   iteration: number,
   tokenUsage?: SupervisorTokenUsage,
   model?: string,
+  lessonProvenance?: LessonProvenanceRegistry,
 ): Action {
   return {
     id: uuidv4(),
@@ -257,6 +279,7 @@ function createHandoffAction(
       node_id: decision.next_node,
       supervisor_id: node.id,
       reasoning: decision.reasoning,
+      ...(lessonProvenance ? { lesson_provenance: lessonProvenance } : {}),
     },
     metadata: {
       node_id: node.id,
@@ -288,6 +311,7 @@ function createCompletionAction(
   iteration: number,
   tokenUsage?: SupervisorTokenUsage,
   model?: string,
+  lessonProvenance?: LessonProvenanceRegistry,
 ): Action {
   return {
     id: uuidv4(),
@@ -296,6 +320,7 @@ function createCompletionAction(
     payload: {
       status: 'completed',
       supervisor_completion_reason: reasoning,
+      ...(lessonProvenance ? { lesson_provenance: lessonProvenance } : {}),
     },
     metadata: {
       node_id: supervisorId,

@@ -184,6 +184,8 @@ const lessons = await retrieveGatedLessons(store, {
 
 Lifecycle: facts tagged `candidate` (add it via `reflection_config.tags`) → trials accumulate in the ledger → `verified` or soft-evicted (`invalidated_by`, recoverable via `include_invalidated: true`). The lift heuristic is correlational, not causal — `min_trials` and the margins are the guardrails; tune them to your run volume.
 
+> **In production, swap one line:** `InMemoryOutcomeLedger` forgets every trial on restart, so the gate can never reach the sample sizes its operating-characteristics curves require. Use [`DrizzleOutcomeLedger`](https://www.npmjs.com/package/@cycgraph/orchestrator-postgres) from `@cycgraph/orchestrator-postgres` instead — same `OutcomeLedger` interface, durable evidence, plus a gate-decision audit log. Identical to the `DrizzleMemoryStore` swap above.
+
 The gate's default `decision_rule: 'inference'` is a Welch-style test with Benjamini–Hochberg FDR control and alpha-spending across doubling baseline brackets (so gating every run doesn't inflate false positives — the peeking problem). Every decision carries an `evidence` object. And because none of the guarantees are universal, the package ships its own validator: `gateOperatingCharacteristics()` drives the real pipeline with lessons of known effect and tells you the detection/false-positive rates for **your** policy in under a second — measured on the shipped defaults: ±0.3 effects decided 94–100%, null effects falsely decided 0–2%, sub-resolution effects retired rather than guessed.
 
 ## Standalone or as cycgraph's memory layer

@@ -24,6 +24,9 @@ import {
   memory_episodes,
   memory_themes,
   memory_entities,
+  run_outcomes,
+  run_outcome_facts,
+  gate_decisions,
 } from '../src/schema.js';
 import { beforeAll, afterAll, beforeEach } from 'vitest';
 
@@ -36,6 +39,10 @@ const TRUNCATABLE_TABLES = [
   memory_episodes,
   memory_themes,
   memory_entities,
+  // Eval-gated learning ledger (facts before outcomes for FK order)
+  gate_decisions,
+  run_outcome_facts,
+  run_outcomes,
   // Engine tables
   workflow_jobs,
   workflow_checkpoints,

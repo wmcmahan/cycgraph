@@ -332,8 +332,30 @@ export const UpdateMemoryPayloadSchema = z.object({
 });
 export type UpdateMemoryPayload = z.infer<typeof UpdateMemoryPayloadSchema>;
 
+/**
+ * One lesson-provenance entry on an action payload: the facts injected
+ * into a node's prompt via its `memory_query`. Mirrors the
+ * {@link LessonProvenanceEntry} interface below; defined here as a Zod
+ * schema so payload `.parse()` validates (and does not strip) it.
+ */
+export const LessonProvenanceEntrySchema = z.object({
+  node_id: z.string(),
+  agent_id: z.string().optional(),
+  fact_ids: z.array(z.string()),
+  retrieved_at: z.string(),
+});
+/** Registry of provenance entries keyed by per-entry UUID. */
+export const LessonProvenanceRegistrySchema = z.record(z.string(), LessonProvenanceEntrySchema);
+
 export const SetStatusPayloadSchema = z.object({
   status: WorkflowStatusSchema,
+  /**
+   * Lesson provenance minted when a supervisor's `set_status` (completion)
+   * action was produced — facts injected into the routing prompt. Merged
+   * append-only into `memory._lesson_provenance` by `setStatusReducer` so
+   * supervisor retrieval is attributable to run outcomes, same as agent nodes.
+   */
+  lesson_provenance: LessonProvenanceRegistrySchema.optional(),
 });
 export type SetStatusPayload = z.infer<typeof SetStatusPayloadSchema>;
 
@@ -346,6 +368,13 @@ export const HandoffPayloadSchema = z.object({
   node_id: z.string(),
   supervisor_id: z.string(),
   reasoning: z.string(),
+  /**
+   * Lesson provenance minted when this handoff was produced — facts
+   * injected into the supervisor's routing prompt. Merged append-only into
+   * `memory._lesson_provenance` by `handoffReducer` so supervisor retrieval
+   * is attributable to run outcomes, same as agent nodes.
+   */
+  lesson_provenance: LessonProvenanceRegistrySchema.optional(),
 });
 export type HandoffPayload = z.infer<typeof HandoffPayloadSchema>;
 

@@ -116,6 +116,35 @@ const result = await retrieveMemory(store, index, {
 });
 ```
 
+### Durable eval-gated learning ledger
+
+| Class | Implements | Purpose |
+|-------|-----------|---------|
+| `DrizzleOutcomeLedger` | `OutcomeLedger` | Run-outcome evidence that survives restarts, so the retention gate can accumulate the trials it needs to resolve real effects — plus a gate-decision audit log for observability |
+
+The in-memory `OutcomeLedger` forgets every trial on restart, so eval-gating can never cross the sample-size threshold its own [operating-characteristics](https://www.npmjs.com/package/@cycgraph/memory) curves prove it needs. The Drizzle ledger is a one-line swap that makes the learning durable. Per-fact stats and the leave-one-out baseline are computed by SQL (`var_samp` reproduces the in-memory `(n−1)` variance exactly), so the gate behaves identically — just over real accumulated history.
+
+```typescript
+import { DrizzleOutcomeLedger } from '@cycgraph/orchestrator-postgres';
+import { evaluateRetention, getInjectedFactIds } from '@cycgraph/memory';
+
+const ledger = new DrizzleOutcomeLedger(); // ← was InMemoryOutcomeLedger
+
+// After each scored run (provenance from the orchestrator):
+await ledger.recordOutcome({ run_id, score, fact_ids: getInjectedFactIds(finalState) });
+
+// Periodically: gate, then persist the decisions for audit.
+const report = await evaluateRetention(store, ledger, policy);
+await ledger.recordGateDecisions(report);
+
+// Observability — what did the self-improving system decide, and why?
+await ledger.listGateDecisions({ decision: 'evicted', limit: 20 }); // recent evictions + evidence
+await ledger.getLessonHistory(factId);                               // one lesson's full lifecycle
+await ledger.getFitnessTrend({ limit: 100 });                        // run scores over time
+```
+
+> The decision log is **append-only** — re-running the gate records the history, it doesn't overwrite. The `OutcomeLedger` methods (`recordOutcome` / `getFactStats` / `getBaseline` / `listFactStats`) match `InMemoryOutcomeLedger` exactly, so anywhere the gate or retriever takes an `OutcomeLedger`, the durable one drops in.
+
 ## Schema overview
 
 Defined in [`src/schema.ts`](./src/schema.ts) and managed via Drizzle migrations in [`drizzle/`](./drizzle/).

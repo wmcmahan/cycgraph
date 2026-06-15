@@ -366,7 +366,7 @@ Tuning fields on `RetentionPolicySchema`: `decision_rule` (`'inference'` | `'mar
 
 - A retriever adapter that strips `id` from facts records no provenance — gating silently degrades to today's keep-everything behaviour.
 - `candidate_slots: 0` means candidates are never retrieved, never accrue trials, and are held forever.
-- Supervisor-node retrieval is not provenance-tracked in v1 (its actions carry no memory updates).
+- Supervisor-node retrieval **is** provenance-tracked: the supervisor carries a `_lesson_provenance` entry on its `handoff`/`set_status` action and the matching reducer merges it append-only, so facts injected into a routing prompt are attributable to the run's outcome just like agent nodes.
 
 ## Runnable examples
 

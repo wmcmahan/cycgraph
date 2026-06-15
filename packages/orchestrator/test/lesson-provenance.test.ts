@@ -9,7 +9,7 @@
  */
 import { describe, test, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { updateMemoryReducer, mergeParallelResultsReducer, rootReducer } from '../src/reducers/index.js';
+import { updateMemoryReducer, mergeParallelResultsReducer, handoffReducer, setStatusReducer, rootReducer } from '../src/reducers/index.js';
 import {
   LESSON_PROVENANCE_KEY,
   MAX_LESSON_PROVENANCE_ENTRIES,
@@ -139,6 +139,94 @@ describe('lesson provenance reducer merge', () => {
       [uuidv4()]: entry('n', ['f1'], '2026-06-11T10:00:00.000Z'),
     };
     expect(trimLessonProvenance(registry)).toBe(registry);
+  });
+});
+
+describe('supervisor-action provenance merge (handoff / set_status)', () => {
+  const makeHandoff = (prov?: Record<string, unknown>): Action => ({
+    id: uuidv4(),
+    idempotency_key: uuidv4(),
+    type: 'handoff',
+    payload: {
+      node_id: 'worker-a',
+      supervisor_id: 'sup',
+      reasoning: 'route to worker-a',
+      ...(prov ? { lesson_provenance: prov } : {}),
+    },
+    metadata: { node_id: 'sup', timestamp: new Date(), attempt: 1 },
+  });
+
+  const makeComplete = (prov?: Record<string, unknown>): Action => ({
+    id: uuidv4(),
+    idempotency_key: uuidv4(),
+    type: 'set_status',
+    payload: {
+      status: 'completed',
+      ...(prov ? { lesson_provenance: prov } : {}),
+    },
+    metadata: { node_id: 'sup', timestamp: new Date(), attempt: 1 },
+  });
+
+  test('handoffReducer merges supervisor provenance append-only, and still routes', () => {
+    const state = createBaseState();
+    const keyA = uuidv4();
+    const keyB = uuidv4();
+    const s1 = updateMemoryReducer(state, makeUpdateAction({
+      [LESSON_PROVENANCE_KEY]: { [keyA]: entry('agent', ['f1'], '2026-06-11T10:00:00.000Z') },
+    }));
+    const s2 = handoffReducer(s1, makeHandoff({
+      [keyB]: entry('sup', ['f2'], '2026-06-11T10:01:00.000Z'),
+    }));
+
+    expect(Object.keys(getLessonProvenanceRegistry(s2.memory)).sort()).toEqual([keyA, keyB].sort());
+    expect(getInjectedFactIds(s2)).toEqual(['f1', 'f2']);
+    // The routing side-effects still happen.
+    expect(s2.current_node).toBe('worker-a');
+    expect(s2.supervisor_history.at(-1)?.delegated_to).toBe('worker-a');
+  });
+
+  test('setStatusReducer merges supervisor provenance and still completes', () => {
+    const state = createBaseState();
+    const key = uuidv4();
+    const s = setStatusReducer(state, makeComplete({
+      [key]: entry('sup', ['f9'], '2026-06-11T10:00:00.000Z'),
+    }));
+
+    expect(s.status).toBe('completed');
+    expect(getInjectedFactIds(s)).toEqual(['f9']);
+  });
+
+  test('a handoff without provenance leaves the registry untouched', () => {
+    const state = createBaseState();
+    const key = uuidv4();
+    const s1 = updateMemoryReducer(state, makeUpdateAction({
+      [LESSON_PROVENANCE_KEY]: { [key]: entry('agent', ['f1'], '2026-06-11T10:00:00.000Z') },
+    }));
+    const s2 = handoffReducer(s1, makeHandoff());
+    expect(Object.keys(getLessonProvenanceRegistry(s2.memory))).toEqual([key]);
+  });
+
+  test('a crafted empty registry on a supervisor action cannot clear existing entries', () => {
+    const state = createBaseState();
+    const key = uuidv4();
+    const s1 = updateMemoryReducer(state, makeUpdateAction({
+      [LESSON_PROVENANCE_KEY]: { [key]: entry('agent', ['f1'], '2026-06-11T10:00:00.000Z') },
+    }));
+    const s2 = handoffReducer(s1, makeHandoff({}));
+    const s3 = setStatusReducer(s2, makeComplete({}));
+    expect(Object.keys(getLessonProvenanceRegistry(s3.memory))).toEqual([key]);
+  });
+
+  test('replay is deterministic across mixed agent + supervisor actions', () => {
+    const keyA = uuidv4();
+    const keyB = uuidv4();
+    const actions: Action[] = [
+      makeUpdateAction({ [LESSON_PROVENANCE_KEY]: { [keyA]: entry('agent', ['f1'], '2026-06-11T10:00:00.000Z') } }),
+      makeHandoff({ [keyB]: entry('sup', ['f2'], '2026-06-11T10:01:00.000Z') }),
+    ];
+    const fold = () => actions.reduce((s, a) => rootReducer(s, a), createBaseState());
+    expect(getLessonProvenanceRegistry(fold().memory)).toEqual(getLessonProvenanceRegistry(fold().memory));
+    expect(getInjectedFactIds(fold())).toEqual(['f1', 'f2']);
   });
 });
 

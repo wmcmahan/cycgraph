@@ -17,6 +17,7 @@ import {
   jsonb,
   vector,
   real,
+  doublePrecision,
   integer,
   numeric,
   index,
@@ -369,6 +370,59 @@ export const memory_entity_facts = pgTable('memory_entity_facts', {
   index('idx_mef_entity').on(table.entity_id),
 ]);
 
+// ─── Eval-Gated Learning: durable OutcomeLedger ─────────────────────────
+//
+// Durable backing for @cycgraph/memory's OutcomeLedger. `run_outcomes`
+// holds one scored workflow run; `run_outcome_facts` is the run→fact join
+// (the durable provenance link). Per-fact stats and the leave-one-out
+// baseline are computed by SQL aggregation (count / avg / var_samp) — no
+// materialised stats — so they reproduce InMemoryOutcomeLedger exactly.
+
+/** JSONB shape for a gate decision's statistical evidence (= RetentionEvidence). */
+export interface RetentionEvidenceJson {
+  lift: number;
+  se: number;
+  df: number;
+  p_promote: number;
+  p_evict: number;
+  trials: number;
+  baseline_runs: number;
+  alpha_bracket?: number;
+}
+
+export const run_outcomes = pgTable('run_outcomes', {
+  // text, not uuid: the OutcomeLedger contract types run_id as a non-empty
+  // string. In practice it's the workflow run UUID, but we don't enforce it.
+  run_id: text('run_id').primaryKey(),
+  score: doublePrecision('score').notNull(),
+  recorded_at: timestamp('recorded_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('idx_run_outcomes_recorded_at').on(table.recorded_at),
+]);
+
+export const run_outcome_facts = pgTable('run_outcome_facts', {
+  run_id: text('run_id').notNull().references(() => run_outcomes.run_id, { onDelete: 'cascade' }),
+  fact_id: text('fact_id').notNull(),
+}, (table) => [
+  // Composite PK enforces the within-run dedup invariant for free.
+  primaryKey({ columns: [table.run_id, table.fact_id] }),
+  index('idx_run_outcome_facts_fact').on(table.fact_id),
+]);
+
+export const gate_decisions = pgTable('gate_decisions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  fact_id: text('fact_id').notNull(),
+  decision: text('decision', { enum: ['promoted', 'evicted', 'held'] }).notNull(),
+  reason: text('reason'), // EvictionReason, or null for promoted/held
+  evidence: jsonb('evidence').$type<RetentionEvidenceJson>(),
+  trials: integer('trials'),
+  gated_at: timestamp('gated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('idx_gate_decisions_fact').on(table.fact_id),
+  index('idx_gate_decisions_gated_at').on(table.gated_at),
+  index('idx_gate_decisions_decision').on(table.decision),
+]);
+
 // ─── Inferred Types ─────────────────────────────────────────────────────
 
 export type Graph = typeof graphs.$inferSelect;
@@ -398,3 +452,8 @@ export type MemoryEpisodeRow = typeof memory_episodes.$inferSelect;
 export type MemoryThemeRow = typeof memory_themes.$inferSelect;
 export type MemoryFactRow = typeof memory_facts.$inferSelect;
 export type MemoryEntityFactRow = typeof memory_entity_facts.$inferSelect;
+export type RunOutcomeRow = typeof run_outcomes.$inferSelect;
+export type NewRunOutcomeRow = typeof run_outcomes.$inferInsert;
+export type RunOutcomeFactRow = typeof run_outcome_facts.$inferSelect;
+export type GateDecisionRow = typeof gate_decisions.$inferSelect;
+export type NewGateDecisionRow = typeof gate_decisions.$inferInsert;
