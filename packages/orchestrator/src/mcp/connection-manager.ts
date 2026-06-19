@@ -27,6 +27,7 @@ import {
 import { Semaphore } from './semaphore.js';
 import type { MCPServerRegistry } from '../persistence/interfaces.js';
 import type { ToolSource, MCPServerEntry } from '../types/tools.js';
+import { isStdioMcpDisabled } from '../types/tools.js';
 import type { TaintMetadata } from '../types/state.js';
 
 const logger = createLogger('mcp.connections');
@@ -507,6 +508,14 @@ export class MCPConnectionManager implements ToolResolver {
 
     switch (config.type) {
       case 'stdio': {
+        // Defense-in-depth: never spawn a stdio process when the hosted lockdown
+        // is on, even if a stdio server row slipped past schema validation
+        // (e.g. persisted before the flag was set).
+        if (isStdioMcpDisabled()) {
+          throw new Error(
+            'stdio MCP transports are disabled in this deployment (MCP_STDIO_DISABLED). Use an http or sse transport.',
+          );
+        }
         const StdioTransportClass = await getStdioTransport();
         if (!StdioTransportClass) {
           throw new Error('Stdio transport requires @ai-sdk/mcp/mcp-stdio — is @ai-sdk/mcp installed?');

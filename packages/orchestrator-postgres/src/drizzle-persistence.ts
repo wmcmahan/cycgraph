@@ -8,8 +8,10 @@
 import { db } from './connection.js';
 import { graphs, workflow_runs, workflow_states, workflow_events } from './schema.js';
 import type { GraphDefinitionJson, WorkflowStateJson } from './schema.js';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { eq, desc, sql, and, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { retryOnTransient } from './retry.js';
+import { withTenant, type Tx, type TenantContext } from './tenancy.js';
 import type {
   PersistenceProvider,
   GraphRow,
@@ -80,6 +82,9 @@ export interface RunClaim {
   epoch: number;
 }
 
+/** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
+type Queryer = typeof db | Tx;
+
 export interface DrizzlePersistenceProviderOptions {
   /**
    * When set, every state write for `fencing.run_id` verifies (inside the
@@ -88,13 +93,45 @@ export interface DrizzlePersistenceProviderOptions {
    * another worker has since claimed the run.
    */
   fencing?: RunClaim;
+  /**
+   * Tenant this provider operates on behalf of. When set, every read/write is
+   * isolated to the tenant: inserts stamp `tenant_id`, reads/updates carry a
+   * `tenant_id` filter, and all work runs inside {@link withTenant} so RLS
+   * applies once enforced. When omitted, the provider is single-tenant
+   * (backward-compatible): inserts fall to the column default and no tenant
+   * filter is applied. The app-level filter — not RLS — is what isolates
+   * tenants during the expand→enforce window (RLS is not enabled yet).
+   */
+  tenant?: TenantContext;
 }
 
 export class DrizzlePersistenceProvider implements PersistenceProvider {
   private readonly fencing?: RunClaim;
+  private readonly tenant?: TenantContext;
 
   constructor(options?: DrizzlePersistenceProviderOptions) {
     this.fencing = options?.fencing;
+    this.tenant = options?.tenant;
+  }
+
+  /** The `{ tenant_id }` fragment to merge into an insert's values (empty when single-tenant). */
+  private get tenantValues(): { tenant_id: string } | Record<string, never> {
+    return this.tenant ? { tenant_id: this.tenant.tenant_id } : {};
+  }
+
+  /** A `tenant_id = <tenant>` condition, or `undefined` (ignored by `and()`) when single-tenant. */
+  private tenantEq(col: AnyPgColumn): SQL | undefined {
+    return this.tenant ? eq(col, this.tenant.tenant_id) : undefined;
+  }
+
+  /** Run a single read with a query handle — tenant-scoped (inside withTenant) or the shared db. */
+  private read<T>(fn: (q: Queryer) => Promise<T>): Promise<T> {
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : fn(db);
+  }
+
+  /** Run an atomic multi-statement write in one transaction — tenant-scoped or plain. */
+  private tx<T>(fn: (tx: Queryer) => Promise<T>): Promise<T> {
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : db.transaction(fn);
   }
 
   // ── Graph Operations ──
@@ -103,8 +140,9 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     const now = new Date();
     const definition = toGraphDefinitionJson(graph);
 
-    await db.insert(graphs).values({
+    await this.read((q) => q.insert(graphs).values({
       id: graph.id,
+      ...this.tenantValues,
       name: graph.name,
       description: graph.description,
       definition,
@@ -119,15 +157,15 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
         definition,
         updated_at: now,
       },
-    });
+    }));
   }
 
   async loadGraph(graph_id: string): Promise<Graph | null> {
-    const result = await db
+    const result = await this.read((q) => q
       .select()
       .from(graphs)
-      .where(eq(graphs.id, graph_id))
-      .limit(1);
+      .where(and(eq(graphs.id, graph_id), this.tenantEq(graphs.tenant_id)))
+      .limit(1));
 
     const definition = result[0]?.definition ?? null;
     return definition ? fromGraphDefinitionJson(definition) : null;
@@ -135,12 +173,13 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
 
   async listGraphs(opts: { limit?: number; offset?: number } = {}): Promise<GraphRow[]> {
     const { limit = 100, offset = 0 } = opts;
-    return db
+    return this.read((q) => q
       .select()
       .from(graphs)
+      .where(this.tenantEq(graphs.tenant_id))
       .orderBy(desc(graphs.updated_at))
       .limit(limit)
-      .offset(offset);
+      .offset(offset));
   }
 
   // ── Workflow Run Operations ──
@@ -149,8 +188,9 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     const isTerminal = TERMINAL_STATUSES.includes(state.status);
     const status = state.status as WorkflowStatus;
 
-    await db.insert(workflow_runs).values({
+    await this.read((q) => q.insert(workflow_runs).values({
       id: state.run_id,
+      ...this.tenantValues,
       graph_id: state.workflow_id,
       status,
       created_at: state.created_at ?? new Date(),
@@ -161,39 +201,40 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
         status,
         completed_at: isTerminal ? new Date() : null,
       },
-    });
+    }));
   }
 
   async loadWorkflowRun(run_id: string): Promise<WorkflowRunRow | null> {
-    const result = await db
+    const result = await this.read((q) => q
       .select()
       .from(workflow_runs)
-      .where(eq(workflow_runs.id, run_id))
-      .limit(1);
+      .where(and(eq(workflow_runs.id, run_id), this.tenantEq(workflow_runs.tenant_id)))
+      .limit(1));
 
     return result[0] ?? null;
   }
 
   async listWorkflowRuns(opts: { limit?: number; offset?: number } = {}): Promise<WorkflowRunRow[]> {
     const { limit = 100, offset = 0 } = opts;
-    return db
+    return this.read((q) => q
       .select()
       .from(workflow_runs)
+      .where(this.tenantEq(workflow_runs.tenant_id))
       .orderBy(desc(workflow_runs.created_at))
       .limit(limit)
-      .offset(offset);
+      .offset(offset));
   }
 
   async updateRunStatus(runId: string, status: string): Promise<number> {
     const isTerminal = TERMINAL_STATUSES.includes(status);
-    const result = await db
+    const result = await this.read((q) => q
       .update(workflow_runs)
       .set({
         status: status as WorkflowStatus,
         completed_at: isTerminal ? new Date() : null,
       })
-      .where(eq(workflow_runs.id, runId))
-      .returning({ id: workflow_runs.id });
+      .where(and(eq(workflow_runs.id, runId), this.tenantEq(workflow_runs.tenant_id)))
+      .returning({ id: workflow_runs.id }));
 
     return result.length;
   }
@@ -210,16 +251,17 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     // callers. `fn` is idempotent: re-reading MAX inside a fresh transaction
     // produces the next correct version.
     await retryOnTransient(() =>
-      db.transaction(async (tx) => {
+      this.tx(async (tx) => {
         await this.assertClaim(tx, state.run_id);
 
         const maxVersionResult = await tx
           .select({ maxVersion: sql<number>`COALESCE(MAX(${workflow_states.version}), 0)` })
           .from(workflow_states)
-          .where(eq(workflow_states.run_id, state.run_id));
+          .where(and(eq(workflow_states.run_id, state.run_id), this.tenantEq(workflow_states.tenant_id)));
         const nextVersion = (maxVersionResult[0]?.maxVersion ?? 0) + 1;
 
         await tx.insert(workflow_states).values({
+          ...this.tenantValues,
           run_id: state.run_id,
           version: nextVersion,
           state: stateJson,
@@ -241,14 +283,14 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
    * @throws {StaleClaimError} When another worker has claimed the run.
    */
   private async assertClaim(
-    tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    tx: Queryer,
     runId: string,
   ): Promise<void> {
     if (!this.fencing || this.fencing.run_id !== runId) return;
     const rows = await tx
       .select({ claim_epoch: workflow_runs.claim_epoch })
       .from(workflow_runs)
-      .where(eq(workflow_runs.id, runId))
+      .where(and(eq(workflow_runs.id, runId), this.tenantEq(workflow_runs.tenant_id)))
       .for('update');
     const current = rows[0]?.claim_epoch;
     if (current !== undefined && current !== this.fencing.epoch) {
@@ -257,12 +299,12 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
   }
 
   async loadLatestWorkflowState(run_id: string): Promise<WorkflowState | null> {
-    const result = await db
+    const result = await this.read((q) => q
       .select()
       .from(workflow_states)
-      .where(eq(workflow_states.run_id, run_id))
+      .where(and(eq(workflow_states.run_id, run_id), this.tenantEq(workflow_states.tenant_id)))
       .orderBy(desc(workflow_states.version))
-      .limit(1);
+      .limit(1));
 
     const state = result[0]?.state ?? null;
     if (state === null) return null;
@@ -276,7 +318,7 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     opts: { limit?: number; offset?: number } = {},
   ): Promise<{ version: number; status: string; current_node: string | null; created_at: Date; total_tokens_used: number | null }[]> {
     const { limit = 50, offset = 0 } = opts;
-    return db
+    return this.read((q) => q
       .select({
         version: workflow_states.version,
         status: workflow_states.status,
@@ -285,26 +327,27 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
         total_tokens_used: sql<number | null>`(${workflow_states.state}->>'total_tokens_used')::integer`,
       })
       .from(workflow_states)
-      .where(eq(workflow_states.run_id, run_id))
+      .where(and(eq(workflow_states.run_id, run_id), this.tenantEq(workflow_states.tenant_id)))
       .orderBy(workflow_states.version)
       .limit(limit)
-      .offset(offset);
+      .offset(offset));
   }
 
   async loadWorkflowStateAtVersion(
     run_id: string,
     version: number,
   ): Promise<IWorkflowStateJson | null> {
-    const result = await db
+    const result = await this.read((q) => q
       .select()
       .from(workflow_states)
       .where(
         and(
           eq(workflow_states.run_id, run_id),
           eq(workflow_states.version, version),
+          this.tenantEq(workflow_states.tenant_id),
         ),
       )
-      .limit(1);
+      .limit(1));
     return (result[0]?.state as unknown as IWorkflowStateJson) ?? null;
   }
 
@@ -315,7 +358,7 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     // unique-violation conflicts. The run update is idempotent
     // (`onConflictDoUpdate`); the state insert is what races.
     await retryOnTransient(() =>
-      db.transaction(async (tx) => {
+      this.tx(async (tx) => {
         await this.assertClaim(tx, state.run_id);
 
         // Save workflow run
@@ -324,6 +367,7 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
 
         await tx.insert(workflow_runs).values({
           id: state.run_id,
+          ...this.tenantValues,
           graph_id: state.workflow_id,
           status,
           created_at: state.created_at ?? new Date(),
@@ -341,10 +385,11 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
         const maxVersionResult = await tx
           .select({ maxVersion: sql<number>`COALESCE(MAX(${workflow_states.version}), 0)` })
           .from(workflow_states)
-          .where(eq(workflow_states.run_id, state.run_id));
+          .where(and(eq(workflow_states.run_id, state.run_id), this.tenantEq(workflow_states.tenant_id)));
         const nextVersion = (maxVersionResult[0]?.maxVersion ?? 0) + 1;
 
         await tx.insert(workflow_states).values({
+          ...this.tenantValues,
           run_id: state.run_id,
           version: nextVersion,
           state: stateJson,
@@ -360,11 +405,11 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
   // ── Event Queries ──
 
   async loadEvents(run_id: string): Promise<IWorkflowEventRow[]> {
-    const rows = await db
+    const rows = await this.read((q) => q
       .select()
       .from(workflow_events)
-      .where(eq(workflow_events.run_id, run_id))
-      .orderBy(workflow_events.sequence_id);
+      .where(and(eq(workflow_events.run_id, run_id), this.tenantEq(workflow_events.tenant_id)))
+      .orderBy(workflow_events.sequence_id));
     return rows;
   }
 }

@@ -109,8 +109,6 @@ export default defineConfig({
           items: [
             { label: 'Introduction', slug: 'docs/getting-started/introduction' },
             { label: 'Quick Start', slug: 'docs/getting-started/quick-start' },
-            { label: 'cycgraph vs LangGraph', slug: 'docs/getting-started/vs-langgraph' },
-            { label: 'Troubleshooting', slug: 'docs/getting-started/troubleshooting' },
           ],
         },
         {

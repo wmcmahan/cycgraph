@@ -4,13 +4,21 @@
  * Implements RetentionService using Drizzle ORM + PostgreSQL.
  */
 
-import { db } from './connection.js';
 import { workflow_runs, workflow_states } from './schema.js';
 import { and, lt, inArray, isNull, count } from 'drizzle-orm';
+import { withPlatform } from './tenancy.js';
 import type { RetentionService } from '@cycgraph/orchestrator';
 
+/**
+ * Data-lifecycle GC. This is **platform-plane**: it sweeps completed runs
+ * across ALL tenants, so every method runs under {@link withPlatform} (no
+ * tenant scope) by deliberate design — that is also where a BYPASSRLS
+ * connection will be selected once RLS is enforced, since an owner/app role
+ * subject to the policies could not see other tenants' rows to archive them.
+ */
 export class DrizzleRetentionService implements RetentionService {
   async archiveCompletedWorkflows(): Promise<number> {
+    return withPlatform(async (db) => {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const completedRuns = await db
@@ -40,9 +48,11 @@ export class DrizzleRetentionService implements RetentionService {
     });
 
     return completedRuns.length;
+    });
   }
 
   async deleteWarmData(): Promise<number> {
+    return withPlatform(async (db) => {
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const deleted = await db
@@ -51,6 +61,7 @@ export class DrizzleRetentionService implements RetentionService {
       .returning({ id: workflow_states.id });
 
     return deleted.length;
+    });
   }
 
   async getStorageStats(): Promise<{
@@ -58,6 +69,7 @@ export class DrizzleRetentionService implements RetentionService {
     warm_runs: number;
     cold_runs: number;
   }> {
+    return withPlatform(async (db) => {
     const hotRuns = await db
       .select({ count: count() })
       .from(workflow_runs)
@@ -76,5 +88,6 @@ export class DrizzleRetentionService implements RetentionService {
       warm_runs: warmRuns[0]?.count ?? 0,
       cold_runs: 0,
     };
+    });
   }
 }

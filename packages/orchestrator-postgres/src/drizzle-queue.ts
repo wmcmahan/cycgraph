@@ -29,6 +29,8 @@ export class DrizzleWorkflowQueue implements WorkflowQueue {
   async enqueue(input: EnqueueJobInput): Promise<string> {
     const rows = await db.insert(workflow_jobs).values({
       type: input.type,
+      // Opaque tenant tag; omitted (DB seed default) for single-tenant callers.
+      ...(input.tenant_id ? { tenant_id: input.tenant_id } : {}),
       run_id: input.run_id,
       graph_id: input.graph_id,
       initial_state: input.initial_state ?? null,
@@ -77,10 +79,15 @@ export class DrizzleWorkflowQueue implements WorkflowQueue {
 
       // Fencing: bump the run's claim epoch. Upsert handles fresh runs —
       // the graph row must already exist (graphs are saved before enqueue).
+      // Carry the job's tenant onto the run it creates so the run row lands in
+      // the correct tenant (the worker then executes under withTenant). Cross-
+      // tenant platform write: the queue runs as the bypass role, so the
+      // explicit tenant_id is honoured even once RLS is enforced.
       const epochRows = await tx
         .insert(workflow_runs)
         .values({
           id: job.run_id,
+          ...(job.tenant_id ? { tenant_id: job.tenant_id } : {}),
           graph_id: job.graph_id,
           status: 'pending',
           claim_epoch: 1,
@@ -193,6 +200,7 @@ function fromRow(row: WorkflowJobRow, claimEpoch?: number): WorkflowJob {
   return {
     id: row.id,
     type: row.type,
+    tenant_id: row.tenant_id,
     run_id: row.run_id,
     graph_id: row.graph_id,
     initial_state: row.initial_state ?? undefined,

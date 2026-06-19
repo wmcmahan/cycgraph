@@ -3,35 +3,48 @@ title: Agents
 description: How agents are defined, configured, and executed in cycgraph.
 ---
 
-cycgraph treats agents as **configuration, not code**. There are no base classes to extend, no framework to inherit from. An agent is a JSON object that the engine feeds into the runtime.
+Agents are simply configurations that describe how to use an LLM to perform a task. There are no base classes to extend, no framework to inherit from. These rules feed into the agent runtime.
 
-### Agent configuration
+### Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `id` | `string` (UUID) | auto-generated | Unique identifier, returned by `registry.register()`. |
-| `name` | `string` | *required* | Human-readable name used in UI and traces. |
+| `id` | `string` (UUID) | auto | Unique identifier |
+| `name` | `string` | *required* | Human-readable name |
 | `description` | `string` | — | Used by supervisor nodes to route work to this agent. |
-| `model` | `string` | *required* | Model ID (e.g. `'claude-sonnet-4-6'`, `'gpt-4o'`). |
-| `provider` | `string` | *required* | Provider mapped in `ProviderRegistry` (e.g. `'anthropic'`). |
-| `system_prompt` | `string` | *required* | The persona, instructions, and rules for the LLM. |
+| `model` | `string` | *required* | Model |
+| `provider` | `string` | *required* | Provider |
+| `system_prompt` | `string` | *required* | System prompt. |
 | `temperature` | `number` | `0.7` | Value between 0.0 (deterministic) and 1.0 (creative). |
 | `max_steps` | `number` | `10` | Safety limit for multi-step tool execution loops. |
-| `tools` | `ToolSource[]` | `[]` | MCP tools this agent can access (e.g. `[{ type: "mcp", server_id: "github" }]`). |
+| `tools` | `ToolSource[]` | `[]` | MCP tools |
 | `model_preference` | `ModelTier` | — | Capability tier (`'high'`, `'medium'`, `'low'`) for [budget-aware model selection](/docs/guides/model-selection/). When set and a resolver is configured, overrides `model` at runtime. |
-| `provider_options` | `object` | — | Provider-specific options passed to `generateText`/`streamText` (e.g. extended thinking). |
-| `permissions` | `object` | *required* | Zero-trust state permissions (`read_keys`, `write_keys`). |
+| `provider_options` | `object` | — | Provider-specific options |
+| `permissions` | `object` | *required* | Zero-trust state permissions |
 
 ## Agent registry
 
-The `AgentRegistry` is a lookup interface to load these configurations into the runtime. You can implement your own (e.g. reading from a database), but the framework provides `InMemoryAgentRegistry` (in `@cycgraph/orchestrator`) and `DrizzleAgentRegistry` (in `@cycgraph/orchestrator-postgres`).
+The Agent Registry is a lookup interface to load these configurations into the runtime.
+
+### Interface
+
+When implementing a custom registry or interacting with an existing one, the following methods are available:
+
+| Method | Parameters | Return Type | Description |
+|--------|------------|-------------|-------------|
+| `register` | `entry: AgentRegistryInput` | `string \| Promise<string>` | Register a new agent configuration and return its ID. |
+| `loadAgent` | `id: string` | `Promise<AgentRegistryEntry \| null>` | Load an agent configuration by its ID. |
+| `updateAgent` | `id: string, updates: Partial<AgentRegistryInput>` | `Promise<void>` | *(Optional)* Update an existing agent configuration. |
+| `listAgents` | `opts?: { limit?: number; offset?: number }` | `Promise<AgentRegistryEntry[]>` | *(Optional)* List registered agents with pagination support. |
+| `deleteAgent` | `id: string` | `Promise<boolean>` | *(Optional)* Delete an agent by its ID. |
+
+### Example
 
 ```typescript
 import { InMemoryAgentRegistry } from '@cycgraph/orchestrator';
 
 const registry = new InMemoryAgentRegistry();
 
-// register() auto-generates the UUID and returns it
 const researcherId = registry.register({
   name: 'Researcher',
   model: 'claude-sonnet-4-6',
@@ -47,23 +60,6 @@ const researcherId = registry.register({
 });
 ```
 
-## Runtime execution
-
-When an agent node runs, the **agent executor**:
-
-1. Loads the config from the `AgentRegistry` via the node's `agent_id`
-   - **Fails closed.** If the `agent_id` is not found in the configured registry, the executor throws `AgentNotFoundError` rather than substituting a generic default agent. A typo'd or deleted `agent_id` therefore surfaces as a loud failure instead of a workflow that "succeeds" with deny-all garbage output and real token spend. To opt into the legacy permissive fallback (dev/test only), call `configureAgentFactory(registry, { allowDefaultFallback: true })`. When **no** registry is configured at all (lightweight dev mode), the factory still falls back to a default config and warns on every call.
-2. Creates a **state view** — a precise slice of `WorkflowState.memory` based on `read_keys`
-3. Injects the goal, constraints, and state view into the prompt
-4. Streams the LLM execution via `ai` with the configured tools
-5. Captures the agent's text output and automatically routes it to the node's write key (or `default_write_key` if specified)
-6. Validates write permissions (rejecting writes to restricted keys)
-7. Packages the result into an action payload
-
-For agents that need to write structured data to **multiple** memory keys, declare `save_to_memory` explicitly in the agent's `tools` array. Single-key agents do not need it — the orchestrator handles output capture automatically.
-
-All external tool inputs are automatically flagged as **tainted**. The executor propagates this taint to any memory keys written by the agent, ensuring downstream nodes can track the origin of the data.
-
 ## Budget-aware model selection
 
 Instead of hardcoding a model, agents can declare a capability tier via `model_preference`. When a `ModelResolver` is configured on the `GraphRunner`, the engine resolves the tier to a concrete model at runtime — automatically downgrading to cheaper models when the workflow budget is running low.
@@ -71,12 +67,15 @@ Instead of hardcoding a model, agents can declare a capability tier via `model_p
 ```typescript
 const writerId = registry.register({
   name: 'Writer',
-  model: 'claude-sonnet-4-6',      // fallback if no resolver configured
-  model_preference: 'medium',              // resolved at runtime based on budget
+  model: 'claude-sonnet-4-6',
+  model_preference: 'medium',
   provider: 'anthropic',
   system_prompt: 'You write clear summaries.',
   tools: [],
-  permissions: { read_keys: ['notes'], write_keys: ['draft'] },
+  permissions: {
+    read_keys: ['notes'],
+    write_keys: ['draft']
+  },
 });
 ```
 

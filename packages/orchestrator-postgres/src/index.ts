@@ -19,6 +19,17 @@
 export { db, getDb, getPool, closeDb, getPoolMetrics } from './connection.js';
 export type { PoolMetrics } from './connection.js';
 
+// Tenancy — isolation primitive + shared constants
+export { withTenant, withPlatform } from './tenancy.js';
+export type { TenantContext, Tx } from './tenancy.js';
+export { TENANT_GUC, SEED_TENANT_ID } from './constants.js';
+
+// Control plane — per-request tenant scope + credential resolution
+export { createTenantScope, createPlatformScope } from './tenant-scope.js';
+export type { TenantScope, PlatformScope, CreateTenantScopeOptions } from './tenant-scope.js';
+export { hashApiKey, generateApiKey, InMemoryTenantResolver } from './tenant-resolver.js';
+export type { TenantResolver } from './tenant-resolver.js';
+
 // Schema + types
 export * from './schema.js';
 
@@ -36,6 +47,12 @@ export { DrizzleOutcomeLedger } from './drizzle-outcome-ledger.js';
 export type { GateDecisionFilter, FitnessTrendPoint } from './drizzle-outcome-ledger.js';
 export type { DrizzlePersistenceProviderOptions, RunClaim } from './drizzle-persistence.js';
 export type { DrizzleEventLogWriterOptions } from './drizzle-event-log.js';
+export type { DrizzleUsageRecorderOptions } from './drizzle-usage.js';
+export type { DrizzleAgentRegistryOptions } from './drizzle-agent-registry.js';
+export type { DrizzleMCPServerRegistryOptions } from './drizzle-mcp-registry.js';
+export type { DrizzleMemoryStoreOptions } from './drizzle-memory-store.js';
+export type { DrizzleMemoryIndexOptions } from './drizzle-memory-index.js';
+export type { DrizzleOutcomeLedgerOptions } from './drizzle-outcome-ledger.js';
 
 // Run fencing
 export { createFencedRunnerOptions } from './fencing.js';

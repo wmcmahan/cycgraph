@@ -22,16 +22,12 @@ const TAG = '[mcai/orchestrator-postgres]';
 
 let _pool: pg.Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
+let _appPool: pg.Pool | null = null;
+let _appDb: ReturnType<typeof drizzle> | null = null;
+let _platformPool: pg.Pool | null = null;
+let _platformDb: ReturnType<typeof drizzle> | null = null;
 
-async function createPoolWithRetry(): Promise<pg.Pool> {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error(
-      `${TAG} DATABASE_URL is not set. ` +
-      `Set it to a valid PostgreSQL connection string before starting the application.`
-    );
-  }
-
+async function createPoolWithRetry(connectionString: string): Promise<pg.Pool> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const pool = new Pool({
       connectionString,
@@ -75,8 +71,19 @@ async function createPoolWithRetry(): Promise<pg.Pool> {
   throw new Error(`${TAG} Failed to create database pool`);
 }
 
+function requireDatabaseUrl(): string {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      `${TAG} DATABASE_URL is not set. ` +
+      `Set it to a valid PostgreSQL connection string before starting the application.`
+    );
+  }
+  return connectionString;
+}
+
 export async function getPool(): Promise<pg.Pool> {
-  if (!_pool) _pool = await createPoolWithRetry();
+  if (!_pool) _pool = await createPoolWithRetry(requireDatabaseUrl());
   return _pool;
 }
 
@@ -85,7 +92,59 @@ export async function getDb(): Promise<ReturnType<typeof drizzle>> {
   return _db;
 }
 
+/**
+ * The tenant-plane ("app role") Drizzle instance — used by {@link withTenant}
+ * so RLS-subject queries run as a non-owner role once RLS is enforced.
+ *
+ * Backed by `APP_DATABASE_URL` (point it at a non-owner login role that has
+ * `cycgraph_app` membership). When `APP_DATABASE_URL` is unset it falls back to
+ * the owner {@link getDb} instance — so dev / single-tenant / CI keep working
+ * with one connection string (RLS, which the owner bypasses, simply doesn't
+ * engage; the adapters' app-level `tenant_id` filters still isolate).
+ */
+export async function getAppDb(): Promise<ReturnType<typeof drizzle>> {
+  const appUrl = process.env.APP_DATABASE_URL;
+  if (!appUrl) return getDb();
+  if (!_appDb) {
+    _appPool = await createPoolWithRetry(appUrl);
+    _appDb = drizzle(_appPool, { schema });
+    console.info(`${TAG} App-role (RLS-subject) connection established`);
+  }
+  return _appDb;
+}
+
+/**
+ * The platform-plane Drizzle instance — used by {@link withPlatform} for
+ * cross-tenant work (queue dequeue/reclaim, retention GC) that must bypass RLS.
+ *
+ * Backed by `PLATFORM_DATABASE_URL` (point it at the `cycgraph_admin` BYPASSRLS
+ * role from migration `0019`). When unset it falls back to the owner
+ * {@link getDb} instance — correct for dev / single-tenant and for a superuser
+ * owner (which bypasses RLS anyway). In production with `FORCE` RLS and a
+ * non-superuser owner, this MUST be set or platform sweeps would be filtered.
+ */
+export async function getPlatformDb(): Promise<ReturnType<typeof drizzle>> {
+  const platformUrl = process.env.PLATFORM_DATABASE_URL;
+  if (!platformUrl) return getDb();
+  if (!_platformDb) {
+    _platformPool = await createPoolWithRetry(platformUrl);
+    _platformDb = drizzle(_platformPool, { schema });
+    console.info(`${TAG} Platform-role (BYPASSRLS) connection established`);
+  }
+  return _platformDb;
+}
+
 export async function closeDb(): Promise<void> {
+  if (_platformPool) {
+    await _platformPool.end();
+    _platformPool = null;
+    _platformDb = null;
+  }
+  if (_appPool) {
+    await _appPool.end();
+    _appPool = null;
+    _appDb = null;
+  }
   if (_pool) {
     await _pool.end();
     _pool = null;

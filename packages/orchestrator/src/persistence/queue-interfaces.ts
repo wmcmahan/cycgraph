@@ -34,6 +34,14 @@ export const WorkflowJobSchema = z.object({
   id: z.string().uuid(),
   /** Whether this is a new run or a crash/HITL resume. */
   type: z.enum(['start', 'resume']),
+  /**
+   * Owning tenant (opaque metadata — the queue is cross-tenant platform
+   * infrastructure and never filters on this). Carried so a worker that
+   * claims the job can re-enter the tenant plane to execute the run.
+   * Optional: single-tenant deployments leave it unset (falls to the DB
+   * seed-tenant default).
+   */
+  tenant_id: z.string().uuid().optional(),
   /** Workflow run ID. */
   run_id: z.string().uuid(),
   /** Graph to load and execute. */
@@ -75,7 +83,7 @@ export type WorkflowJob = z.infer<typeof WorkflowJobSchema>;
 
 /** Input shape for enqueuing a new job. */
 export type EnqueueJobInput = Pick<WorkflowJob, 'type' | 'run_id' | 'graph_id'> &
-  Partial<Pick<WorkflowJob, 'initial_state' | 'human_response' | 'priority' | 'max_attempts' | 'visibility_timeout_ms'>>;
+  Partial<Pick<WorkflowJob, 'tenant_id' | 'initial_state' | 'human_response' | 'priority' | 'max_attempts' | 'visibility_timeout_ms'>>;
 
 // ─── Queue Interface ────────────────────────────────────────────────────
 

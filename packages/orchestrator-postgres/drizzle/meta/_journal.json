@@ -120,6 +120,27 @@
 			"when": 1781568000000,
 			"tag": "0016_add_outcome_ledger",
 			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "7",
+			"when": 1781654400000,
+			"tag": "0017_tenancy_expand",
+			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "7",
+			"when": 1781740800000,
+			"tag": "0018_tenancy_enforce",
+			"breakpoints": true
+		},
+		{
+			"idx": 19,
+			"version": "7",
+			"when": 1781827200000,
+			"tag": "0019_tenancy_force_rls",
+			"breakpoints": true
 		}
 	]
 }

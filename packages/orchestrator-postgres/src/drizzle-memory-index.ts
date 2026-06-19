@@ -7,8 +7,10 @@
  * @module @cycgraph/orchestrator-postgres/drizzle-memory-index
  */
 
-import { sql } from 'drizzle-orm';
+import { sql, and, eq, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { getDb } from './connection.js';
+import { withTenant, type Tx, type TenantContext } from './tenancy.js';
 import {
   memory_entities,
   memory_episodes,
@@ -101,17 +103,46 @@ function fromDbEpisode(row: typeof memory_episodes.$inferSelect): Episode {
 
 // ─── DrizzleMemoryIndex ──────────────────────────────────────────────
 
+/** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
+type Queryer = Awaited<ReturnType<typeof getDb>> | Tx;
+
+export interface DrizzleMemoryIndexOptions {
+  /**
+   * Tenant whose vectors this index searches. When set, every similarity
+   * search is filtered to the tenant — so a nearest-neighbour query can never
+   * return another tenant's facts/entities/themes/episodes. When omitted,
+   * single-tenant (seed default).
+   *
+   * SECURITY: this is the vector-search half of the lesson-isolation boundary
+   * (the keyword/tag half lives in DrizzleMemoryStore.findFacts).
+   */
+  tenant?: TenantContext;
+}
+
 export class DrizzleMemoryIndex implements MemoryIndex {
+  private readonly tenant?: TenantContext;
+
+  constructor(options?: DrizzleMemoryIndexOptions) {
+    this.tenant = options?.tenant;
+  }
+
+  private tenantEq(col: AnyPgColumn): SQL | undefined {
+    return this.tenant ? eq(col, this.tenant.tenant_id) : undefined;
+  }
+
+  private async read<T>(fn: (db: Queryer) => Promise<T>): Promise<T> {
+    const database = await getDb();
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : fn(database);
+  }
 
   async searchEntities(
     embedding: number[],
     opts: SearchOptions = {},
   ): Promise<ScoredResult<Entity>[]> {
     const { limit = 20, min_similarity = 0.5 } = opts;
-    const db = await getDb();
     const vectorStr = `[${embedding.join(',')}]`;
 
-    const rows = await db
+    const rows = await this.read((db) => db
       .select({
         id: memory_entities.id,
         name: memory_entities.name,
@@ -127,10 +158,13 @@ export class DrizzleMemoryIndex implements MemoryIndex {
       })
       .from(memory_entities)
       .where(
-        sql`${memory_entities.embedding} IS NOT NULL AND 1 - (${memory_entities.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+        and(
+          sql`${memory_entities.embedding} IS NOT NULL AND 1 - (${memory_entities.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+          this.tenantEq(memory_entities.tenant_id),
+        ),
       )
       .orderBy(sql`${memory_entities.embedding} <=> ${vectorStr}::vector`)
-      .limit(limit);
+      .limit(limit));
 
     return rows.map(({ score, ...row }) => ({
       item: fromDbEntity(row as typeof memory_entities.$inferSelect),
@@ -143,10 +177,9 @@ export class DrizzleMemoryIndex implements MemoryIndex {
     opts: SearchOptions = {},
   ): Promise<ScoredResult<SemanticFact>[]> {
     const { limit = 20, min_similarity = 0.5 } = opts;
-    const db = await getDb();
     const vectorStr = `[${embedding.join(',')}]`;
 
-    const rows = await db
+    const rows = await this.read((db) => db
       .select({
         id: memory_facts.id,
         content: memory_facts.content,
@@ -164,10 +197,13 @@ export class DrizzleMemoryIndex implements MemoryIndex {
       })
       .from(memory_facts)
       .where(
-        sql`${memory_facts.embedding} IS NOT NULL AND 1 - (${memory_facts.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+        and(
+          sql`${memory_facts.embedding} IS NOT NULL AND 1 - (${memory_facts.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+          this.tenantEq(memory_facts.tenant_id),
+        ),
       )
       .orderBy(sql`${memory_facts.embedding} <=> ${vectorStr}::vector`)
-      .limit(limit);
+      .limit(limit));
 
     return rows.map(({ score, ...row }) => ({
       item: fromDbFact(row as typeof memory_facts.$inferSelect),
@@ -180,10 +216,9 @@ export class DrizzleMemoryIndex implements MemoryIndex {
     opts: SearchOptions = {},
   ): Promise<ScoredResult<Theme>[]> {
     const { limit = 20, min_similarity = 0.5 } = opts;
-    const db = await getDb();
     const vectorStr = `[${embedding.join(',')}]`;
 
-    const rows = await db
+    const rows = await this.read((db) => db
       .select({
         id: memory_themes.id,
         label: memory_themes.label,
@@ -195,10 +230,13 @@ export class DrizzleMemoryIndex implements MemoryIndex {
       })
       .from(memory_themes)
       .where(
-        sql`${memory_themes.embedding} IS NOT NULL AND 1 - (${memory_themes.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+        and(
+          sql`${memory_themes.embedding} IS NOT NULL AND 1 - (${memory_themes.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+          this.tenantEq(memory_themes.tenant_id),
+        ),
       )
       .orderBy(sql`${memory_themes.embedding} <=> ${vectorStr}::vector`)
-      .limit(limit);
+      .limit(limit));
 
     return rows.map(({ score, ...row }) => ({
       item: fromDbTheme(row as typeof memory_themes.$inferSelect),
@@ -211,10 +249,9 @@ export class DrizzleMemoryIndex implements MemoryIndex {
     opts: SearchOptions = {},
   ): Promise<ScoredResult<Episode>[]> {
     const { limit = 20, min_similarity = 0.5 } = opts;
-    const db = await getDb();
     const vectorStr = `[${embedding.join(',')}]`;
 
-    const rows = await db
+    const rows = await this.read((db) => db
       .select({
         id: memory_episodes.id,
         topic: memory_episodes.topic,
@@ -228,10 +265,13 @@ export class DrizzleMemoryIndex implements MemoryIndex {
       })
       .from(memory_episodes)
       .where(
-        sql`${memory_episodes.embedding} IS NOT NULL AND 1 - (${memory_episodes.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+        and(
+          sql`${memory_episodes.embedding} IS NOT NULL AND 1 - (${memory_episodes.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+          this.tenantEq(memory_episodes.tenant_id),
+        ),
       )
       .orderBy(sql`${memory_episodes.embedding} <=> ${vectorStr}::vector`)
-      .limit(limit);
+      .limit(limit));
 
     return rows.map(({ score, ...row }) => ({
       item: fromDbEpisode(row as typeof memory_episodes.$inferSelect),

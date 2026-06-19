@@ -17,7 +17,9 @@ import {
   memory_entity_facts,
 } from './schema.js';
 import type { MemoryProvenanceJson } from './schema.js';
-import { eq, and, or, isNull, inArray, desc, sql } from 'drizzle-orm';
+import { eq, and, or, isNull, inArray, desc, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { withTenant, type Tx, type TenantContext } from './tenancy.js';
 import type {
   MemoryStore,
   EntityFilter,
@@ -206,15 +208,57 @@ function fromDbTheme(row: typeof memory_themes.$inferSelect): Theme {
 
 // ─── DrizzleMemoryStore ──────────────────────────────────────────────
 
+/** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
+type Queryer = Awaited<ReturnType<typeof getDb>> | Tx;
+
+export interface DrizzleMemoryStoreOptions {
+  /**
+   * Tenant whose knowledge graph this store reads and writes. When set, every
+   * read filters on `tenant_id` and every write stamps it — so one tenant's
+   * facts (including *verified lessons*) can never surface in another tenant's
+   * retrieval. When omitted, single-tenant (seed default).
+   *
+   * SECURITY: cross-tenant lesson leakage would let tenant A's learned
+   * behaviour steer tenant B's agents — this filter is the boundary that
+   * prevents it. The eval-gated-learning provenance/ledger path
+   * ([[project_tenancy_foundation]]) relies on it.
+   */
+  tenant?: TenantContext;
+}
+
 export class DrizzleMemoryStore implements MemoryStore {
+  private readonly tenant?: TenantContext;
+
+  constructor(options?: DrizzleMemoryStoreOptions) {
+    this.tenant = options?.tenant;
+  }
+
+  private get tenantValues(): { tenant_id: string } | Record<string, never> {
+    return this.tenant ? { tenant_id: this.tenant.tenant_id } : {};
+  }
+
+  private tenantEq(col: AnyPgColumn): SQL | undefined {
+    return this.tenant ? eq(col, this.tenant.tenant_id) : undefined;
+  }
+
+  /** Run a read/single-statement op — tenant-scoped (inside withTenant) or shared db. */
+  private async read<T>(fn: (db: Queryer) => Promise<T>): Promise<T> {
+    const database = await getDb();
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : fn(database);
+  }
+
+  /** Run an atomic multi-statement op in one transaction — tenant-scoped or plain. */
+  private async tx<T>(fn: (tx: Queryer) => Promise<T>): Promise<T> {
+    const database = await getDb();
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : database.transaction(fn);
+  }
 
   // ── Entity Operations ──
 
   async putEntity(entity: Entity): Promise<void> {
-    const db = await getDb();
     const values = toDbEntity(entity);
-    await db.insert(memory_entities)
-      .values(values)
+    await this.read((db) => db.insert(memory_entities)
+      .values({ ...this.tenantValues, ...values })
       .onConflictDoUpdate({
         target: memory_entities.id,
         set: {
@@ -227,53 +271,53 @@ export class DrizzleMemoryStore implements MemoryStore {
           invalidated_at: values.invalidated_at,
           superseded_by: values.superseded_by,
         },
-      });
+      }));
   }
 
   async getEntity(id: string): Promise<Entity | null> {
-    const db = await getDb();
-    const rows = await db.select().from(memory_entities)
-      .where(eq(memory_entities.id, id))
-      .limit(1);
+    const rows = await this.read((db) => db.select().from(memory_entities)
+      .where(and(eq(memory_entities.id, id), this.tenantEq(memory_entities.tenant_id)))
+      .limit(1));
     return rows.length > 0 ? fromDbEntity(rows[0]) : null;
   }
 
   async findEntities(filter: EntityFilter & PaginationOptions = {}): Promise<Entity[]> {
-    const db = await getDb();
-    const conditions = [];
+    return this.read(async (db) => {
+      const conditions = [];
 
-    if (filter.entity_type) {
-      conditions.push(eq(memory_entities.entity_type, filter.entity_type));
-    }
-    if (!filter.include_invalidated) {
-      conditions.push(isNull(memory_entities.invalidated_at));
-    }
+      if (filter.entity_type) {
+        conditions.push(eq(memory_entities.entity_type, filter.entity_type));
+      }
+      if (!filter.include_invalidated) {
+        conditions.push(isNull(memory_entities.invalidated_at));
+      }
+      const t = this.tenantEq(memory_entities.tenant_id);
+      if (t) conditions.push(t);
 
-    const query = db.select().from(memory_entities);
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+      const query = db.select().from(memory_entities);
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const rows = await (whereClause ? query.where(whereClause) : query)
-      .limit(filter.limit ?? 100)
-      .offset(filter.offset ?? 0);
+      const rows = await (whereClause ? query.where(whereClause) : query)
+        .limit(filter.limit ?? 100)
+        .offset(filter.offset ?? 0);
 
-    return rows.map(fromDbEntity);
+      return rows.map(fromDbEntity);
+    });
   }
 
   async deleteEntity(id: string): Promise<boolean> {
-    const db = await getDb();
-    const result = await db.delete(memory_entities)
-      .where(eq(memory_entities.id, id))
-      .returning({ id: memory_entities.id });
+    const result = await this.read((db) => db.delete(memory_entities)
+      .where(and(eq(memory_entities.id, id), this.tenantEq(memory_entities.tenant_id)))
+      .returning({ id: memory_entities.id }));
     return result.length > 0;
   }
 
   // ── Relationship Operations ──
 
   async putRelationship(relationship: Relationship): Promise<void> {
-    const db = await getDb();
     const values = toDbRelationship(relationship);
-    await db.insert(memory_relationships)
-      .values(values)
+    await this.read((db) => db.insert(memory_relationships)
+      .values({ ...this.tenantValues, ...values })
       .onConflictDoUpdate({
         target: memory_relationships.id,
         set: {
@@ -287,14 +331,13 @@ export class DrizzleMemoryStore implements MemoryStore {
           provenance: values.provenance,
           invalidated_by: values.invalidated_by,
         },
-      });
+      }));
   }
 
   async getRelationship(id: string): Promise<Relationship | null> {
-    const db = await getDb();
-    const rows = await db.select().from(memory_relationships)
-      .where(eq(memory_relationships.id, id))
-      .limit(1);
+    const rows = await this.read((db) => db.select().from(memory_relationships)
+      .where(and(eq(memory_relationships.id, id), this.tenantEq(memory_relationships.tenant_id)))
+      .limit(1));
     return rows.length > 0 ? fromDbRelationship(rows[0]) : null;
   }
 
@@ -302,51 +345,52 @@ export class DrizzleMemoryStore implements MemoryStore {
     entityId: string,
     filter: RelationshipFilter = {},
   ): Promise<Relationship[]> {
-    const db = await getDb();
-    const conditions = [];
+    return this.read(async (db) => {
+      const conditions = [];
 
-    const direction = filter.direction ?? 'both';
-    if (direction === 'outgoing') {
-      conditions.push(eq(memory_relationships.source_id, entityId));
-    } else if (direction === 'incoming') {
-      conditions.push(eq(memory_relationships.target_id, entityId));
-    } else {
-      conditions.push(
-        or(
-          eq(memory_relationships.source_id, entityId),
-          eq(memory_relationships.target_id, entityId),
-        )!,
-      );
-    }
+      const direction = filter.direction ?? 'both';
+      if (direction === 'outgoing') {
+        conditions.push(eq(memory_relationships.source_id, entityId));
+      } else if (direction === 'incoming') {
+        conditions.push(eq(memory_relationships.target_id, entityId));
+      } else {
+        conditions.push(
+          or(
+            eq(memory_relationships.source_id, entityId),
+            eq(memory_relationships.target_id, entityId),
+          )!,
+        );
+      }
 
-    if (filter.relation_type) {
-      conditions.push(eq(memory_relationships.relation_type, filter.relation_type));
-    }
-    if (!filter.include_invalidated) {
-      conditions.push(isNull(memory_relationships.invalidated_by));
-    }
+      if (filter.relation_type) {
+        conditions.push(eq(memory_relationships.relation_type, filter.relation_type));
+      }
+      if (!filter.include_invalidated) {
+        conditions.push(isNull(memory_relationships.invalidated_by));
+      }
+      const t = this.tenantEq(memory_relationships.tenant_id);
+      if (t) conditions.push(t);
 
-    const rows = await db.select().from(memory_relationships)
-      .where(and(...conditions));
+      const rows = await db.select().from(memory_relationships)
+        .where(and(...conditions));
 
-    return rows.map(fromDbRelationship);
+      return rows.map(fromDbRelationship);
+    });
   }
 
   async deleteRelationship(id: string): Promise<boolean> {
-    const db = await getDb();
-    const result = await db.delete(memory_relationships)
-      .where(eq(memory_relationships.id, id))
-      .returning({ id: memory_relationships.id });
+    const result = await this.read((db) => db.delete(memory_relationships)
+      .where(and(eq(memory_relationships.id, id), this.tenantEq(memory_relationships.tenant_id)))
+      .returning({ id: memory_relationships.id }));
     return result.length > 0;
   }
 
   // ── Episode Operations ──
 
   async putEpisode(episode: Episode): Promise<void> {
-    const db = await getDb();
     const values = toDbEpisode(episode);
-    await db.insert(memory_episodes)
-      .values(values)
+    await this.read((db) => db.insert(memory_episodes)
+      .values({ ...this.tenantValues, ...values })
       .onConflictDoUpdate({
         target: memory_episodes.id,
         set: {
@@ -358,42 +402,39 @@ export class DrizzleMemoryStore implements MemoryStore {
           fact_ids: values.fact_ids,
           provenance: values.provenance,
         },
-      });
+      }));
   }
 
   async getEpisode(id: string): Promise<Episode | null> {
-    const db = await getDb();
-    const rows = await db.select().from(memory_episodes)
-      .where(eq(memory_episodes.id, id))
-      .limit(1);
+    const rows = await this.read((db) => db.select().from(memory_episodes)
+      .where(and(eq(memory_episodes.id, id), this.tenantEq(memory_episodes.tenant_id)))
+      .limit(1));
     return rows.length > 0 ? fromDbEpisode(rows[0]) : null;
   }
 
   async listEpisodes(opts: PaginationOptions = {}): Promise<Episode[]> {
-    const db = await getDb();
-    const rows = await db.select().from(memory_episodes)
+    const rows = await this.read((db) => db.select().from(memory_episodes)
+      .where(this.tenantEq(memory_episodes.tenant_id))
       .orderBy(desc(memory_episodes.started_at))
       .limit(opts.limit ?? 100)
-      .offset(opts.offset ?? 0);
+      .offset(opts.offset ?? 0));
     return rows.map(fromDbEpisode);
   }
 
   async deleteEpisode(id: string): Promise<boolean> {
-    const db = await getDb();
-    const result = await db.delete(memory_episodes)
-      .where(eq(memory_episodes.id, id))
-      .returning({ id: memory_episodes.id });
+    const result = await this.read((db) => db.delete(memory_episodes)
+      .where(and(eq(memory_episodes.id, id), this.tenantEq(memory_episodes.tenant_id)))
+      .returning({ id: memory_episodes.id }));
     return result.length > 0;
   }
 
   // ── Semantic Fact Operations ──
 
   async putFact(fact: SemanticFact): Promise<void> {
-    const db = await getDb();
     const values = toDbFact(fact);
-    await db.transaction(async (tx) => {
+    await this.tx(async (tx) => {
       await tx.insert(memory_facts)
-        .values(values)
+        .values({ ...this.tenantValues, ...values })
         .onConflictDoUpdate({
           target: memory_facts.id,
           set: {
@@ -413,76 +454,86 @@ export class DrizzleMemoryStore implements MemoryStore {
 
       // Sync join table
       await tx.delete(memory_entity_facts)
-        .where(eq(memory_entity_facts.fact_id, fact.id));
+        .where(and(eq(memory_entity_facts.fact_id, fact.id), this.tenantEq(memory_entity_facts.tenant_id)));
 
       if (fact.entity_ids.length > 0) {
         await tx.insert(memory_entity_facts).values(
-          fact.entity_ids.map((eid: string) => ({ fact_id: fact.id, entity_id: eid })),
+          fact.entity_ids.map((eid: string) => ({ ...this.tenantValues, fact_id: fact.id, entity_id: eid })),
         );
       }
     });
   }
 
   async getFact(id: string): Promise<SemanticFact | null> {
-    const db = await getDb();
-    const rows = await db.select().from(memory_facts)
-      .where(eq(memory_facts.id, id))
-      .limit(1);
+    const rows = await this.read((db) => db.select().from(memory_facts)
+      .where(and(eq(memory_facts.id, id), this.tenantEq(memory_facts.tenant_id)))
+      .limit(1));
     return rows.length > 0 ? fromDbFact(rows[0]) : null;
   }
 
   async findFacts(filter: FactFilter & PaginationOptions = {}): Promise<SemanticFact[]> {
-    const db = await getDb();
-    const conditions = [];
+    return this.read(async (db) => {
+      const conditions = [];
 
-    if (!filter.include_invalidated) {
-      conditions.push(isNull(memory_facts.invalidated_by));
-    }
-    if (filter.theme_id) {
-      conditions.push(eq(memory_facts.theme_id, filter.theme_id));
-    }
-    if (filter.entity_id) {
-      const factIdsForEntity = db.select({ fact_id: memory_entity_facts.fact_id })
-        .from(memory_entity_facts)
-        .where(eq(memory_entity_facts.entity_id, filter.entity_id));
-      conditions.push(inArray(memory_facts.id, factIdsForEntity));
-    }
-    if (filter.tags && filter.tags.length > 0) {
-      // `tags ?| $1::text[]` — true if the jsonb `tags` array shares ANY element
-      // with the requested tags. Resolved via the GIN index on `tags`
-      // (migration 0015) instead of a client-side table scan. The tag list is
-      // bound as a single parameterized text[] (no string interpolation).
-      conditions.push(sql`${memory_facts.tags} ?| ${[...filter.tags]}::text[]`);
-    }
+      if (!filter.include_invalidated) {
+        conditions.push(isNull(memory_facts.invalidated_by));
+      }
+      if (filter.theme_id) {
+        conditions.push(eq(memory_facts.theme_id, filter.theme_id));
+      }
+      if (filter.entity_id) {
+        // Subquery is tenant-scoped too, so a shared entity id can't bridge tenants.
+        const factIdsForEntity = db.select({ fact_id: memory_entity_facts.fact_id })
+          .from(memory_entity_facts)
+          .where(and(eq(memory_entity_facts.entity_id, filter.entity_id), this.tenantEq(memory_entity_facts.tenant_id)));
+        conditions.push(inArray(memory_facts.id, factIdsForEntity));
+      }
+      if (filter.tags && filter.tags.length > 0) {
+        // `tags ?| array[...]` — true if the jsonb `tags` array shares ANY element
+        // with the requested tags. Resolved via the GIN index on `tags`
+        // (migration 0015) instead of a client-side table scan.
+        //
+        // Build an explicit ARRAY[$1, $2, …]::text[] of bound params. A bare
+        // `${tags}::text[]` does NOT work: drizzle spreads a JS array into
+        // `($1, $2)` placeholders (its IN-clause behaviour), which Postgres
+        // can't cast to text[] ("malformed array literal"). Each tag is bound
+        // individually here, so there is still no string interpolation.
+        conditions.push(
+          sql`${memory_facts.tags} ?| ARRAY[${sql.join(filter.tags.map((tag) => sql`${tag}`), sql`, `)}]::text[]`,
+        );
+      }
+      // Lesson-isolation boundary: tenant A's tagged facts must never match
+      // tenant B's retrieval. Always last so it ANDs with every other filter.
+      const t = this.tenantEq(memory_facts.tenant_id);
+      if (t) conditions.push(t);
 
-    const query = db.select().from(memory_facts);
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+      const query = db.select().from(memory_facts);
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    // Deterministic order so LIMIT/OFFSET pagination is stable across calls
-    // (newest facts first; id as a tiebreak for equal timestamps).
-    const rows = await (whereClause ? query.where(whereClause) : query)
-      .orderBy(desc(memory_facts.valid_from), memory_facts.id)
-      .limit(filter.limit ?? 100)
-      .offset(filter.offset ?? 0);
+      // Deterministic order so LIMIT/OFFSET pagination is stable across calls
+      // (newest facts first; id as a tiebreak for equal timestamps).
+      const rows = await (whereClause ? query.where(whereClause) : query)
+        .orderBy(desc(memory_facts.valid_from), memory_facts.id)
+        .limit(filter.limit ?? 100)
+        .offset(filter.offset ?? 0);
 
-    return rows.map(fromDbFact);
+      return rows.map(fromDbFact);
+    });
   }
 
   async deleteFact(id: string): Promise<boolean> {
-    const db = await getDb();
-    const result = await db.delete(memory_facts)
-      .where(eq(memory_facts.id, id))
-      .returning({ id: memory_facts.id });
+    const result = await this.read((db) => db.delete(memory_facts)
+      .where(and(eq(memory_facts.id, id), this.tenantEq(memory_facts.tenant_id)))
+      .returning({ id: memory_facts.id }));
     return result.length > 0;
   }
 
   // ── Theme Operations ──
 
   async putTheme(theme: Theme): Promise<void> {
-    const db = await getDb();
     const values = toDbTheme(theme);
-    await db.insert(memory_themes)
-      .values(values)
+    await this.read((db) => db.insert(memory_themes)
+      .values({ ...this.tenantValues, ...values })
       .onConflictDoUpdate({
         target: memory_themes.id,
         set: {
@@ -492,28 +543,26 @@ export class DrizzleMemoryStore implements MemoryStore {
           embedding: values.embedding,
           provenance: values.provenance,
         },
-      });
+      }));
   }
 
   async getTheme(id: string): Promise<Theme | null> {
-    const db = await getDb();
-    const rows = await db.select().from(memory_themes)
-      .where(eq(memory_themes.id, id))
-      .limit(1);
+    const rows = await this.read((db) => db.select().from(memory_themes)
+      .where(and(eq(memory_themes.id, id), this.tenantEq(memory_themes.tenant_id)))
+      .limit(1));
     return rows.length > 0 ? fromDbTheme(rows[0]) : null;
   }
 
   async listThemes(): Promise<Theme[]> {
-    const db = await getDb();
-    const rows = await db.select().from(memory_themes);
+    const rows = await this.read((db) => db.select().from(memory_themes)
+      .where(this.tenantEq(memory_themes.tenant_id)));
     return rows.map(fromDbTheme);
   }
 
   async deleteTheme(id: string): Promise<boolean> {
-    const db = await getDb();
-    const result = await db.delete(memory_themes)
-      .where(eq(memory_themes.id, id))
-      .returning({ id: memory_themes.id });
+    const result = await this.read((db) => db.delete(memory_themes)
+      .where(and(eq(memory_themes.id, id), this.tenantEq(memory_themes.tenant_id)))
+      .returning({ id: memory_themes.id }));
     return result.length > 0;
   }
 
@@ -521,9 +570,8 @@ export class DrizzleMemoryStore implements MemoryStore {
 
   async getEntities(ids: string[]): Promise<Map<string, Entity>> {
     if (ids.length === 0) return new Map();
-    const db = await getDb();
-    const rows = await db.select().from(memory_entities)
-      .where(inArray(memory_entities.id, ids));
+    const rows = await this.read((db) => db.select().from(memory_entities)
+      .where(and(inArray(memory_entities.id, ids), this.tenantEq(memory_entities.tenant_id))));
     const result = new Map<string, Entity>();
     for (const row of rows) {
       const entity = fromDbEntity(row);
@@ -534,9 +582,8 @@ export class DrizzleMemoryStore implements MemoryStore {
 
   async getFacts(ids: string[]): Promise<Map<string, SemanticFact>> {
     if (ids.length === 0) return new Map();
-    const db = await getDb();
-    const rows = await db.select().from(memory_facts)
-      .where(inArray(memory_facts.id, ids));
+    const rows = await this.read((db) => db.select().from(memory_facts)
+      .where(and(inArray(memory_facts.id, ids), this.tenantEq(memory_facts.tenant_id))));
     const result = new Map<string, SemanticFact>();
     for (const row of rows) {
       const fact = fromDbFact(row);
@@ -547,9 +594,8 @@ export class DrizzleMemoryStore implements MemoryStore {
 
   async getEpisodes(ids: string[]): Promise<Map<string, Episode>> {
     if (ids.length === 0) return new Map();
-    const db = await getDb();
-    const rows = await db.select().from(memory_episodes)
-      .where(inArray(memory_episodes.id, ids));
+    const rows = await this.read((db) => db.select().from(memory_episodes)
+      .where(and(inArray(memory_episodes.id, ids), this.tenantEq(memory_episodes.tenant_id))));
     const result = new Map<string, Episode>();
     for (const row of rows) {
       const episode = fromDbEpisode(row);
@@ -560,9 +606,8 @@ export class DrizzleMemoryStore implements MemoryStore {
 
   async getThemes(ids: string[]): Promise<Map<string, Theme>> {
     if (ids.length === 0) return new Map();
-    const db = await getDb();
-    const rows = await db.select().from(memory_themes)
-      .where(inArray(memory_themes.id, ids));
+    const rows = await this.read((db) => db.select().from(memory_themes)
+      .where(and(inArray(memory_themes.id, ids), this.tenantEq(memory_themes.tenant_id))));
     const result = new Map<string, Theme>();
     for (const row of rows) {
       const theme = fromDbTheme(row);
@@ -574,13 +619,15 @@ export class DrizzleMemoryStore implements MemoryStore {
   // ── Lifecycle ──
 
   async clear(): Promise<void> {
-    const db = await getDb();
-    // Delete in correct order for foreign keys
-    await db.delete(memory_entity_facts);
-    await db.delete(memory_facts);
-    await db.delete(memory_relationships);
-    await db.delete(memory_episodes);
-    await db.delete(memory_themes);
-    await db.delete(memory_entities);
+    // Tenant-scoped when a tenant is set (clears only this tenant's graph);
+    // unscoped clears everything (single-tenant / test reset). Order respects FKs.
+    await this.tx(async (db) => {
+      await db.delete(memory_entity_facts).where(this.tenantEq(memory_entity_facts.tenant_id));
+      await db.delete(memory_facts).where(this.tenantEq(memory_facts.tenant_id));
+      await db.delete(memory_relationships).where(this.tenantEq(memory_relationships.tenant_id));
+      await db.delete(memory_episodes).where(this.tenantEq(memory_episodes.tenant_id));
+      await db.delete(memory_themes).where(this.tenantEq(memory_themes.tenant_id));
+      await db.delete(memory_entities).where(this.tenantEq(memory_entities.tenant_id));
+    });
   }
 }

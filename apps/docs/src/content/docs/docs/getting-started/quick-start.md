@@ -1,36 +1,30 @@
 ---
 title: Quick Start
-description: Install cycgraph and run your first workflow in under 5 minutes.
+description: Install CYCGRAPH and run your first workflow in under 5 minutes.
 ---
 
-Install cycgraph, set up an LLM provider, and run a complete workflow with persistence.
-
-## 1. Installation
-
-cycgraph requires **Node.js 24+** (ES Modules).
-
-Install the core orchestrator package, and optionally the Postgres persistence package if you want durable database storage:
+The core package is for your workflows.
 
 ```bash
 npm install @cycgraph/orchestrator
+```
 
-# Optional PostgreSQL persistence adapter
+Optional Postgres persistence package for durable postgres storage
+
+```bash
 npm install @cycgraph/orchestrator-postgres
 ```
 
-## 2. API keys
+## API keys
 
-Set your provider key. This quick start uses Anthropic:
+Provider keys are set via environment variables. Both Anthropic and OpenAI are supported.
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-openai-..."
 ```
 
-## 3. Minimal workflow example
-
-A complete, standalone example: configure a provider, register an agent that writes a draft, define the graph, and run it with in-memory persistence.
-
-Create a file named `workflow.ts`:
+## Example
 
 ```typescript
 import {
@@ -45,13 +39,14 @@ import {
 } from '@cycgraph/orchestrator';
 
 async function main() {
-  // 1. Configure LLM providers
+  // Create and configure the provider registry
   const providers = createProviderRegistry();
   configureProviderRegistry(providers);
 
-  // 2. Register an agent (registry auto-generates and returns the UUID)
+  // Create and agent registry
   const registry = new InMemoryAgentRegistry();
 
+  // Register an agent
   const writerId = registry.register({
     name: 'Research Writer',
     model: 'claude-sonnet-4-6',
@@ -65,7 +60,7 @@ async function main() {
 
   configureAgentFactory(registry);
 
-  // 3. Define the graph (createGraph fills in defaults like id)
+  // Define the graph
   const graph = createGraph({
     name: 'Simple Writer Workflow',
     description: 'Single agent that writes a draft from the goal.',
@@ -83,15 +78,17 @@ async function main() {
     end_nodes: ['write_node'],
   });
 
-  // 4. Initialize state (createWorkflowState fills in run_id, timestamps, defaults)
+  // Initialize state
   const state = createWorkflowState({
     workflow_id: graph.id,
     goal: 'Explain how transformers work in AI.',
     max_execution_time_ms: 60_000,
   });
 
-  // 5. Set up persistence and run
+  // Set up in-memory persistence
   const persistence = new InMemoryPersistenceProvider();
+
+  // Create the runner
   const runner = new GraphRunner(graph, state, {
     persistStateFn: async (s) => {
       await persistence.saveWorkflowSnapshot(s);
@@ -99,7 +96,7 @@ async function main() {
     },
   });
 
-  console.log('Starting workflow...');
+  // Run the workflow
   const result = await runner.run();
 
   console.log('\n--- Final Output ---');
@@ -111,7 +108,7 @@ main().catch(console.error);
 
 ## Adding durable persistence (PostgreSQL)
 
-`InMemoryPersistenceProvider` is fine for scripts. For production, swap it for the Postgres adapter so workflows survive process restarts.
+In-memory persistence is fine for some workflows, but long running workflows or workflows that need to be resumed later should use Postgres persistence.
 
 ```typescript
 import {
@@ -120,7 +117,7 @@ import {
   getDb,
 } from '@cycgraph/orchestrator-postgres';
 
-// Ensure the connection pool is initialized (reads DATABASE_URL by default)
+// Ensure the connection pool is initialized
 await getDb();
 
 const persistence = new DrizzlePersistenceProvider();
@@ -129,7 +126,7 @@ const eventLog = new DrizzleEventLogWriter();
 // Hook them into the runner
 const runner = new GraphRunner(graph, state, {
   persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
-  eventLog, // enables durable event-sourced replay
+  eventLog,
 });
 ```
 

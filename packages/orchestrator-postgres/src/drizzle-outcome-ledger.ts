@@ -24,7 +24,9 @@
 import { getDb } from './connection.js';
 import { run_outcomes, run_outcome_facts, gate_decisions } from './schema.js';
 import type { GateDecisionRow, RetentionEvidenceJson } from './schema.js';
-import { eq, and, desc, asc, gte, count, avg, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, gte, count, avg, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { withTenant, type Tx, type TenantContext } from './tenancy.js';
 import {
   RunOutcomeSchema,
   type OutcomeLedger,
@@ -65,11 +67,49 @@ function num(raw: unknown): number {
   return Number.isFinite(v) ? v : 0;
 }
 
+/** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
+type Queryer = Awaited<ReturnType<typeof getDb>> | Tx;
+
+export interface DrizzleOutcomeLedgerOptions {
+  /**
+   * Tenant whose outcome evidence this ledger records and aggregates over.
+   * When set, per-fact stats / the leave-one-out baseline / gate decisions are
+   * all scoped to the tenant — so one tenant's run scores can never move
+   * another tenant's promote/evict gate. When omitted, single-tenant (seed
+   * default). This is the durability half of per-tenant eval-gated learning.
+   */
+  tenant?: TenantContext;
+}
+
 /**
  * Postgres-backed {@link OutcomeLedger} plus the eval-gating observability
  * surface.
  */
 export class DrizzleOutcomeLedger implements OutcomeLedger {
+  private readonly tenant?: TenantContext;
+
+  constructor(options?: DrizzleOutcomeLedgerOptions) {
+    this.tenant = options?.tenant;
+  }
+
+  private get tenantValues(): { tenant_id: string } | Record<string, never> {
+    return this.tenant ? { tenant_id: this.tenant.tenant_id } : {};
+  }
+
+  private tenantEq(col: AnyPgColumn): SQL | undefined {
+    return this.tenant ? eq(col, this.tenant.tenant_id) : undefined;
+  }
+
+  private async read<T>(fn: (db: Queryer) => Promise<T>): Promise<T> {
+    const database = await getDb();
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : fn(database);
+  }
+
+  private async tx<T>(fn: (tx: Queryer) => Promise<T>): Promise<T> {
+    const database = await getDb();
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : database.transaction(fn);
+  }
+
   // ─── OutcomeLedger interface ──────────────────────────────────────────
 
   async recordOutcome(outcome: RunOutcome): Promise<void> {
@@ -79,29 +119,28 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
     // in-memory ledger dedups within a run.
     const factIds = [...new Set(parsed.fact_ids)];
 
-    const db = await getDb();
-    await db.transaction(async (tx) => {
+    await this.tx(async (tx) => {
       // Idempotent on run_id — re-recording replaces the earlier outcome.
       await tx
         .insert(run_outcomes)
-        .values({ run_id: parsed.run_id, score: parsed.score, recorded_at: recordedAt })
+        .values({ ...this.tenantValues, run_id: parsed.run_id, score: parsed.score, recorded_at: recordedAt })
         .onConflictDoUpdate({
           target: run_outcomes.run_id,
           set: { score: parsed.score, recorded_at: recordedAt },
         });
 
-      await tx.delete(run_outcome_facts).where(eq(run_outcome_facts.run_id, parsed.run_id));
+      await tx.delete(run_outcome_facts)
+        .where(and(eq(run_outcome_facts.run_id, parsed.run_id), this.tenantEq(run_outcome_facts.tenant_id)));
       if (factIds.length > 0) {
         await tx
           .insert(run_outcome_facts)
-          .values(factIds.map((fact_id) => ({ run_id: parsed.run_id, fact_id })));
+          .values(factIds.map((fact_id) => ({ ...this.tenantValues, run_id: parsed.run_id, fact_id })));
       }
     });
   }
 
   async getFactStats(factId: string): Promise<FactStats | null> {
-    const db = await getDb();
-    const rows = await db
+    const rows = await this.read((db) => db
       .select({
         trials: count(),
         mean: avg(run_outcomes.score),
@@ -109,7 +148,7 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
       })
       .from(run_outcomes)
       .innerJoin(run_outcome_facts, eq(run_outcome_facts.run_id, run_outcomes.run_id))
-      .where(eq(run_outcome_facts.fact_id, factId));
+      .where(and(eq(run_outcome_facts.fact_id, factId), this.tenantEq(run_outcomes.tenant_id))));
 
     const trials = num(rows[0]?.trials);
     if (trials === 0) return null;
@@ -123,15 +162,18 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
   }
 
   async getBaseline(excludeFactId?: string): Promise<OutcomeBaseline> {
-    const db = await getDb();
+    return this.read(async (db) => {
     // Leave-one-out: runs that did NOT include `excludeFactId`.
-    const whereClause =
+    // Combined with the tenant filter so the baseline is computed only over
+    // this tenant's runs (cross-tenant scores must not move the gate).
+    const leaveOneOut =
       excludeFactId === undefined
         ? undefined
         : sql`NOT EXISTS (
             SELECT 1 FROM ${run_outcome_facts} rf
             WHERE rf.run_id = ${run_outcomes.run_id} AND rf.fact_id = ${excludeFactId}
           )`;
+    const whereClause = and(leaveOneOut, this.tenantEq(run_outcomes.tenant_id));
 
     const base = db
       .select({
@@ -149,11 +191,11 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
       mean_score: runs === 0 ? 0 : num(rows[0]?.mean),
       ...(variance !== undefined ? { variance } : {}),
     };
+    });
   }
 
   async listFactStats(): Promise<FactStats[]> {
-    const db = await getDb();
-    const rows = await db
+    const rows = await this.read((db) => db
       .select({
         fact_id: run_outcome_facts.fact_id,
         trials: count(),
@@ -162,8 +204,9 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
       })
       .from(run_outcome_facts)
       .innerJoin(run_outcomes, eq(run_outcomes.run_id, run_outcome_facts.run_id))
+      .where(this.tenantEq(run_outcomes.tenant_id))
       .groupBy(run_outcome_facts.fact_id)
-      .orderBy(asc(run_outcome_facts.fact_id));
+      .orderBy(asc(run_outcome_facts.fact_id)));
 
     return rows.map((r) => {
       const variance = coerceVariance(r.variance);
@@ -177,11 +220,13 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
   }
 
   async clear(): Promise<void> {
-    const db = await getDb();
+    // Tenant-scoped when a tenant is set; unscoped clears everything.
     // FK cascade removes run_outcome_facts when run_outcomes is cleared,
     // but delete it explicitly so the call works regardless of FK timing.
-    await db.delete(run_outcome_facts);
-    await db.delete(run_outcomes);
+    await this.tx(async (db) => {
+      await db.delete(run_outcome_facts).where(this.tenantEq(run_outcome_facts.tenant_id));
+      await db.delete(run_outcomes).where(this.tenantEq(run_outcomes.tenant_id));
+    });
   }
 
   // ─── Observability surface ────────────────────────────────────────────
@@ -244,50 +289,55 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
     }
 
     if (rows.length === 0) return;
-    const db = await getDb();
-    await db.insert(gate_decisions).values(rows);
+    await this.read((db) => db.insert(gate_decisions).values(rows.map((r) => ({ ...this.tenantValues, ...r }))));
   }
 
   /** Recent gate decisions, newest first, filterable for audit views. */
   async listGateDecisions(filter: GateDecisionFilter = {}): Promise<GateDecisionRow[]> {
-    const db = await getDb();
-    const conditions = [];
-    if (filter.fact_id) conditions.push(eq(gate_decisions.fact_id, filter.fact_id));
-    if (filter.decision) conditions.push(eq(gate_decisions.decision, filter.decision));
-    if (filter.reason) conditions.push(eq(gate_decisions.reason, filter.reason));
-    if (filter.since) conditions.push(gte(gate_decisions.gated_at, filter.since));
+    return this.read((db) => {
+      const conditions = [];
+      if (filter.fact_id) conditions.push(eq(gate_decisions.fact_id, filter.fact_id));
+      if (filter.decision) conditions.push(eq(gate_decisions.decision, filter.decision));
+      if (filter.reason) conditions.push(eq(gate_decisions.reason, filter.reason));
+      if (filter.since) conditions.push(gte(gate_decisions.gated_at, filter.since));
+      const t = this.tenantEq(gate_decisions.tenant_id);
+      if (t) conditions.push(t);
 
-    const query = db.select().from(gate_decisions);
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
-    return (where ? query.where(where) : query)
-      .orderBy(desc(gate_decisions.gated_at), desc(gate_decisions.id))
-      .limit(filter.limit ?? 100)
-      .offset(filter.offset ?? 0);
+      const query = db.select().from(gate_decisions);
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      return (where ? query.where(where) : query)
+        .orderBy(desc(gate_decisions.gated_at), desc(gate_decisions.id))
+        .limit(filter.limit ?? 100)
+        .offset(filter.offset ?? 0);
+    });
   }
 
   /** Full decision history for one lesson, oldest first. */
   async getLessonHistory(factId: string): Promise<GateDecisionRow[]> {
-    const db = await getDb();
-    return db
+    return this.read((db) => db
       .select()
       .from(gate_decisions)
-      .where(eq(gate_decisions.fact_id, factId))
-      .orderBy(asc(gate_decisions.gated_at), asc(gate_decisions.id));
+      .where(and(eq(gate_decisions.fact_id, factId), this.tenantEq(gate_decisions.tenant_id)))
+      .orderBy(asc(gate_decisions.gated_at), asc(gate_decisions.id)));
   }
 
   /** Recent run scores in chronological order — the workflow's fitness trend. */
   async getFitnessTrend(opts: { since?: Date; limit?: number } = {}): Promise<FitnessTrendPoint[]> {
-    const db = await getDb();
-    const query = db
-      .select({
-        run_id: run_outcomes.run_id,
-        score: run_outcomes.score,
-        recorded_at: run_outcomes.recorded_at,
-      })
-      .from(run_outcomes);
-    const rows = await (opts.since ? query.where(gte(run_outcomes.recorded_at, opts.since)) : query)
-      .orderBy(asc(run_outcomes.recorded_at))
-      .limit(opts.limit ?? 500);
-    return rows;
+    return this.read((db) => {
+      const query = db
+        .select({
+          run_id: run_outcomes.run_id,
+          score: run_outcomes.score,
+          recorded_at: run_outcomes.recorded_at,
+        })
+        .from(run_outcomes);
+      const where = and(
+        opts.since ? gte(run_outcomes.recorded_at, opts.since) : undefined,
+        this.tenantEq(run_outcomes.tenant_id),
+      );
+      return (where ? query.where(where) : query)
+        .orderBy(asc(run_outcomes.recorded_at))
+        .limit(opts.limit ?? 500);
+    });
   }
 }

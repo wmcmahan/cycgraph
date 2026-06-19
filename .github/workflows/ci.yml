@@ -105,6 +105,51 @@ jobs:
         run: npx vitest run
         working-directory: packages/orchestrator-postgres
 
+  # ── Tenant Isolation Gate ──────────────────────────────────────────────
+  # A NAMED, required release gate (mark it required in branch protection):
+  # runs the cross-tenant isolation + RLS suite against a real pgvector DB with
+  # all tenancy migrations (0017–0019) applied. ISOLATION_GATE=1 makes the suite
+  # fail loudly if it can't reach the DB instead of silently skipping — so a
+  # broken isolation guarantee (or an accidentally-skipped suite) fails the gate.
+  tenant-isolation-gate:
+    name: Tenant Isolation Gate
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: mcai
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcai
+      ISOLATION_GATE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory
+      - name: Enable pgvector extension
+        run: psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+      - name: Apply tenancy migrations (0017–0019 included)
+        run: npm run migrate --workspace=packages/orchestrator-postgres
+      # Explicit file + no --passWithNoTests: a deleted/renamed suite fails the
+      # gate; ISOLATION_GATE=1 fails it if the DB-backed tests would skip.
+      - name: Run cross-tenant isolation suite
+        run: npx vitest run test/tenancy-isolation.test.ts
+        working-directory: packages/orchestrator-postgres
+
   test-memory:
     name: Test Memory
     runs-on: ubuntu-latest

@@ -8,10 +8,15 @@
 import { db } from './connection.js';
 import { workflow_events, workflow_checkpoints, workflow_runs } from './schema.js';
 import type { WorkflowStateJson } from './schema.js';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { withTenant, type Tx, type TenantContext } from './tenancy.js';
 import type { EventLogWriter } from '@cycgraph/orchestrator';
 import type { NewWorkflowEvent, WorkflowEvent, Action, WorkflowState } from '@cycgraph/orchestrator';
 import { hydrateWorkflowState, EventSequenceConflictError, StaleClaimError } from '@cycgraph/orchestrator';
+
+/** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
+type Queryer = typeof db | Tx;
 
 /** Tuning knobs for the event log writer. */
 export interface DrizzleEventLogWriterOptions {
@@ -32,6 +37,12 @@ export interface DrizzleEventLogWriterOptions {
    * appending to a run another worker now owns.
    */
   fencing?: { run_id: string; epoch: number };
+  /**
+   * Tenant this writer operates on behalf of. When set, event/checkpoint
+   * inserts stamp `tenant_id`, reads carry a `tenant_id` filter, and all work
+   * runs inside {@link withTenant}. When omitted, single-tenant (seed default).
+   */
+  tenant?: TenantContext;
 }
 
 const DEFAULT_RETAIN_CHECKPOINTS = 3;
@@ -42,6 +53,7 @@ const DEFAULT_RETAIN_CHECKPOINTS = 3;
 export class DrizzleEventLogWriter implements EventLogWriter {
   private readonly retainCheckpoints: number;
   private readonly fencing?: { run_id: string; epoch: number };
+  private readonly tenant?: TenantContext;
 
   constructor(options?: DrizzleEventLogWriterOptions) {
     const retain = options?.retain_checkpoints ?? DEFAULT_RETAIN_CHECKPOINTS;
@@ -53,10 +65,30 @@ export class DrizzleEventLogWriter implements EventLogWriter {
     }
     this.retainCheckpoints = retain;
     this.fencing = options?.fencing;
+    this.tenant = options?.tenant;
+  }
+
+  private get tenantValues(): { tenant_id: string } | Record<string, never> {
+    return this.tenant ? { tenant_id: this.tenant.tenant_id } : {};
+  }
+
+  private tenantEq(col: AnyPgColumn): SQL | undefined {
+    return this.tenant ? eq(col, this.tenant.tenant_id) : undefined;
+  }
+
+  /** Run a single read — tenant-scoped (inside withTenant) or the shared db. */
+  private read<T>(fn: (q: Queryer) => Promise<T>): Promise<T> {
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : fn(db);
+  }
+
+  /** Run an atomic multi-statement write in one transaction — tenant-scoped or plain. */
+  private tx<T>(fn: (tx: Queryer) => Promise<T>): Promise<T> {
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : db.transaction(fn);
   }
 
   async append(event: NewWorkflowEvent): Promise<void> {
     const values = {
+      ...this.tenantValues,
       run_id: event.run_id,
       sequence_id: event.sequence_id,
       event_type: event.event_type as 'workflow_started' | 'node_started' | 'action_dispatched' | 'internal_dispatched' | 'state_persisted',
@@ -72,11 +104,11 @@ export class DrizzleEventLogWriter implements EventLogWriter {
         // FOR SHARE allows concurrent appends from the legitimate claimant
         // while conflicting with the FOR UPDATE epoch bump in dequeue — the
         // epoch check and the insert are atomic.
-        await db.transaction(async (tx) => {
+        await this.tx(async (tx) => {
           const rows = await tx
             .select({ claim_epoch: workflow_runs.claim_epoch })
             .from(workflow_runs)
-            .where(eq(workflow_runs.id, event.run_id))
+            .where(and(eq(workflow_runs.id, event.run_id), this.tenantEq(workflow_runs.tenant_id)))
             .for('share');
           const current = rows[0]?.claim_epoch;
           if (current !== undefined && current !== fencing.epoch) {
@@ -85,7 +117,7 @@ export class DrizzleEventLogWriter implements EventLogWriter {
           await tx.insert(workflow_events).values(values);
         });
       } else {
-        await db.insert(workflow_events).values(values);
+        await this.read((q) => q.insert(workflow_events).values(values));
       }
     } catch (error) {
       // A (run_id, sequence_id) unique violation means another writer is
@@ -100,33 +132,34 @@ export class DrizzleEventLogWriter implements EventLogWriter {
   }
 
   async loadEvents(run_id: string): Promise<WorkflowEvent[]> {
-    const rows = await db
+    const rows = await this.read((q) => q
       .select()
       .from(workflow_events)
-      .where(eq(workflow_events.run_id, run_id))
-      .orderBy(workflow_events.sequence_id);
+      .where(and(eq(workflow_events.run_id, run_id), this.tenantEq(workflow_events.tenant_id)))
+      .orderBy(workflow_events.sequence_id));
     return rows.map(fromRow);
   }
 
   async loadEventsAfter(run_id: string, afterSequenceId: number): Promise<WorkflowEvent[]> {
-    const rows = await db
+    const rows = await this.read((q) => q
       .select()
       .from(workflow_events)
       .where(
         and(
           eq(workflow_events.run_id, run_id),
-          sql`${workflow_events.sequence_id} > ${afterSequenceId}`
+          sql`${workflow_events.sequence_id} > ${afterSequenceId}`,
+          this.tenantEq(workflow_events.tenant_id),
         )
       )
-      .orderBy(workflow_events.sequence_id);
+      .orderBy(workflow_events.sequence_id));
     return rows.map(fromRow);
   }
 
   async getLatestSequenceId(run_id: string): Promise<number> {
-    const result = await db
+    const result = await this.read((q) => q
       .select({ maxSeq: sql<number>`COALESCE(MAX(${workflow_events.sequence_id}), -1)` })
       .from(workflow_events)
-      .where(eq(workflow_events.run_id, run_id));
+      .where(and(eq(workflow_events.run_id, run_id), this.tenantEq(workflow_events.tenant_id))));
 
     return result[0]?.maxSeq ?? -1;
   }
@@ -137,8 +170,9 @@ export class DrizzleEventLogWriter implements EventLogWriter {
     // means the checkpoint table never grows unbounded for a long-running
     // workflow with frequent checkpoints. Cap is enforced per run_id, so
     // pruning one run never affects another.
-    await db.transaction(async (tx) => {
+    await this.tx(async (tx) => {
       await tx.insert(workflow_checkpoints).values({
+        ...this.tenantValues,
         run_id,
         sequence_id: sequenceId,
         state: toSerializable(state) as WorkflowStateJson,
@@ -152,7 +186,7 @@ export class DrizzleEventLogWriter implements EventLogWriter {
       const keepIds = await tx
         .select({ id: workflow_checkpoints.id })
         .from(workflow_checkpoints)
-        .where(eq(workflow_checkpoints.run_id, run_id))
+        .where(and(eq(workflow_checkpoints.run_id, run_id), this.tenantEq(workflow_checkpoints.tenant_id)))
         .orderBy(desc(workflow_checkpoints.sequence_id))
         .limit(this.retainCheckpoints);
 
@@ -165,6 +199,7 @@ export class DrizzleEventLogWriter implements EventLogWriter {
             and(
               eq(workflow_checkpoints.run_id, run_id),
               sql`${workflow_checkpoints.id} NOT IN (${sql.join(keepIds.map(k => sql`${k.id}`), sql`, `)})`,
+              this.tenantEq(workflow_checkpoints.tenant_id),
             ),
           );
       }
@@ -172,12 +207,12 @@ export class DrizzleEventLogWriter implements EventLogWriter {
   }
 
   async loadCheckpoint(run_id: string): Promise<{ sequence_id: number; state: WorkflowState } | null> {
-    const result = await db
+    const result = await this.read((q) => q
       .select()
       .from(workflow_checkpoints)
-      .where(eq(workflow_checkpoints.run_id, run_id))
+      .where(and(eq(workflow_checkpoints.run_id, run_id), this.tenantEq(workflow_checkpoints.tenant_id)))
       .orderBy(desc(workflow_checkpoints.sequence_id))
-      .limit(1);
+      .limit(1));
 
     const row = result[0] ?? null;
     if (!row) return null;
@@ -190,13 +225,14 @@ export class DrizzleEventLogWriter implements EventLogWriter {
   }
 
   async compact(run_id: string, beforeSequenceId: number): Promise<number> {
-    return db.transaction(async (tx) => {
+    return this.tx(async (tx) => {
       const result = await tx
         .delete(workflow_events)
         .where(
           and(
             eq(workflow_events.run_id, run_id),
-            sql`${workflow_events.sequence_id} <= ${beforeSequenceId}`
+            sql`${workflow_events.sequence_id} <= ${beforeSequenceId}`,
+            this.tenantEq(workflow_events.tenant_id),
           )
         )
         .returning({ id: workflow_events.id });

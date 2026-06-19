@@ -6,16 +6,49 @@
 
 import { db } from './connection.js';
 import { agents } from './schema.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, and, desc, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { withTenant, type Tx, type TenantContext } from './tenancy.js';
 import type { AgentRegistry, AgentRegistryEntry, AgentRegistryInput } from '@cycgraph/orchestrator';
 
+/** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
+type Queryer = typeof db | Tx;
+
+export interface DrizzleAgentRegistryOptions {
+  /**
+   * Tenant whose agents this registry sees. When set, reads/updates/deletes
+   * are filtered to the tenant and registrations stamp `tenant_id`; agent
+   * names are unique per tenant (see `uq_agents_tenant_name`). When omitted,
+   * single-tenant (seed default) — the common global-registry case.
+   */
+  tenant?: TenantContext;
+}
+
 export class DrizzleAgentRegistry implements AgentRegistry {
+  private readonly tenant?: TenantContext;
+
+  constructor(options?: DrizzleAgentRegistryOptions) {
+    this.tenant = options?.tenant;
+  }
+
+  private get tenantValues(): { tenant_id: string } | Record<string, never> {
+    return this.tenant ? { tenant_id: this.tenant.tenant_id } : {};
+  }
+
+  private tenantEq(col: AnyPgColumn): SQL | undefined {
+    return this.tenant ? eq(col, this.tenant.tenant_id) : undefined;
+  }
+
+  private read<T>(fn: (q: Queryer) => Promise<T>): Promise<T> {
+    return this.tenant ? withTenant(this.tenant.tenant_id, fn) : fn(db);
+  }
+
   async loadAgent(id: string): Promise<AgentRegistryEntry | null> {
-    const result = await db
+    const result = await this.read((q) => q
       .select()
       .from(agents)
-      .where(eq(agents.id, id))
-      .limit(1);
+      .where(and(eq(agents.id, id), this.tenantEq(agents.tenant_id)))
+      .limit(1));
 
     if (result.length === 0) return null;
 
@@ -52,9 +85,10 @@ export class DrizzleAgentRegistry implements AgentRegistry {
    * @deprecated Use {@link register} instead. Kept for backward compatibility.
    */
   async registerAgent(input: AgentRegistryInput): Promise<string> {
-    const result = await db
+    const result = await this.read((q) => q
       .insert(agents)
       .values({
+        ...this.tenantValues,
         name: input.name,
         description: input.description ?? null,
         model: input.model,
@@ -72,7 +106,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
         ...(input.provider_options ? { provider_options: input.provider_options } : {}),
         ...(input.model_preference ? { model_preference: input.model_preference } : {}),
       })
-      .returning({ id: agents.id });
+      .returning({ id: agents.id }));
 
     return result[0].id;
   }
@@ -92,18 +126,19 @@ export class DrizzleAgentRegistry implements AgentRegistry {
     if (updates.provider_options !== undefined) set.provider_options = updates.provider_options;
     if (updates.model_preference !== undefined) set.model_preference = updates.model_preference;
 
-    await db.update(agents).set(set).where(eq(agents.id, id));
+    await this.read((q) => q.update(agents).set(set).where(and(eq(agents.id, id), this.tenantEq(agents.tenant_id))));
   }
 
   /** List registered agents with optional pagination. */
   async listAgents(opts: { limit?: number; offset?: number } = {}): Promise<AgentRegistryEntry[]> {
     const { limit = 100, offset = 0 } = opts;
-    const rows = await db
+    const rows = await this.read((q) => q
       .select()
       .from(agents)
+      .where(this.tenantEq(agents.tenant_id))
       .orderBy(desc(agents.created_at))
       .limit(limit)
-      .offset(offset);
+      .offset(offset));
 
     return rows.map(row => ({
       id: row.id,
@@ -123,7 +158,10 @@ export class DrizzleAgentRegistry implements AgentRegistry {
 
   /** Delete an agent by ID. Returns `true` if it existed. */
   async deleteAgent(id: string): Promise<boolean> {
-    const result = await db.delete(agents).where(eq(agents.id, id)).returning({ id: agents.id });
+    const result = await this.read((q) => q
+      .delete(agents)
+      .where(and(eq(agents.id, id), this.tenantEq(agents.tenant_id)))
+      .returning({ id: agents.id }));
     return result.length > 0;
   }
 }

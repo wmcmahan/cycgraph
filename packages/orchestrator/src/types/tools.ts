@@ -66,6 +66,20 @@ export type MCPToolSource = z.infer<typeof MCPToolSourceSchema>;
 const ALLOWED_STDIO_COMMANDS = ['npx', 'node', 'python3', 'python', 'uvx'] as const;
 
 /**
+ * Whether stdio MCP transports are disabled for this deployment.
+ *
+ * Default `false` (stdio allowed) for single-tenant / OSS / self-host, where a
+ * stdio server runs on the user's own machine. Set `MCP_STDIO_DISABLED=true` in
+ * a HOSTED / multi-tenant deployment: a tenant-registered stdio server spawns an
+ * arbitrary process (`npx`/`uvx`/… — the allowlist limits the *binary*, not what
+ * it does) on a SHARED worker, i.e. code execution across tenants. http/sse
+ * transports (SSRF-guarded) remain available. Read at validation/connect time.
+ */
+export function isStdioMcpDisabled(): boolean {
+  return process.env.MCP_STDIO_DISABLED === 'true';
+}
+
+/**
  * SSRF guard for MCP transport URLs.
  *
  * MCP server URLs come from a trusted registry, but a registry write from a
@@ -202,6 +216,18 @@ export const MCPServerEntrySchema = z.object({
   max_concurrent_calls: z.number().int().positive().optional(),
   /** Maximum connection retries before giving up. @default 2 */
   max_retries: z.number().optional(),
+}).superRefine((entry, ctx) => {
+  // Hosted lockdown: reject stdio transports at the trust boundary (every
+  // registry read/write parses this), so a tenant cannot persist a server that
+  // would spawn a process on a shared worker. Connection-time enforcement in
+  // the connection manager is the defense-in-depth backstop.
+  if (entry.transport.type === 'stdio' && isStdioMcpDisabled()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['transport', 'type'],
+      message: 'stdio MCP transports are disabled in this deployment (MCP_STDIO_DISABLED). Use an http or sse transport.',
+    });
+  }
 });
 
 export type MCPServerEntry = z.infer<typeof MCPServerEntrySchema>;
