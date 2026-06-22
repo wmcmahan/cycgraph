@@ -13,6 +13,19 @@
 
 import { z } from 'zod';
 import { ToolSourceSchema } from './tools.js';
+import { type Camelize, camelToSnakeDeep } from './case-mapping.js';
+
+// ─── camelCase authoring layer ──────────────────────────────────────
+//
+// The schemas in this file define the *wire format*: snake_case keys that
+// are persisted to the DB, emitted/parsed by the architect, and read by the
+// engine. That stays snake_case on purpose — see the DB `definition` jsonb
+// column and `architect/prompts.ts`.
+//
+// Consumers author graphs in idiomatic camelCase TypeScript. The `Camelize<>`
+// mapped type (see `./case-mapping.ts`) derives the camelCase authoring types
+// directly from the snake schemas (so they never drift), and `createGraph`
+// runs a deep camel→snake remap before validation.
 
 // ─── Node Types ─────────────────────────────────────────────────────
 
@@ -767,19 +780,46 @@ export const GraphSchema = z.object({
 export type Graph = z.infer<typeof GraphSchema>;
 
 /**
- * Input shape for constructing a graph.
+ * Wire-format input shape for constructing a graph (snake_case).
  *
- * Fields with Zod defaults (`id`) are optional.
- * Use with {@link createGraph} for the simplest construction path.
+ * Fields with Zod defaults (`id`) are optional. This is the on-the-wire
+ * shape; for idiomatic TypeScript authoring prefer {@link GraphConfig}.
  */
 export type GraphInput = z.input<typeof GraphSchema>;
 
 /**
- * Create a Graph with auto-generated defaults.
- *
- * Parses the input through {@link GraphSchema}, filling in `id`
- * via `crypto.randomUUID()` when omitted.
+ * camelCase authoring type for a single node, derived from
+ * {@link GraphNodeSchema}. This is the public, documented Node interface
+ * (see `docs/concepts/nodes`). Snake_case remains the wire/DB format —
+ * `createGraph` remaps to it before validation.
  */
-export function createGraph(input: GraphInput): Graph {
-  return GraphSchema.parse(input);
+export type NodeConfig = Camelize<z.input<typeof GraphNodeSchema>>;
+
+/** camelCase authoring type for a full graph. Accepted by {@link createGraph}. */
+export type GraphConfig = Camelize<GraphInput>;
+
+/**
+ * Validate camelCase authoring input by deep-remapping to the snake_case
+ * wire format, then running the unchanged {@link GraphSchema} for
+ * structural validation and default-filling. The remap is idempotent on
+ * snake_case keys, so wire-format input is tolerated at runtime too.
+ */
+const GraphAuthoringSchema = z
+  .any()
+  .transform((value) => camelToSnakeDeep(value))
+  .pipe(GraphSchema);
+
+/**
+ * Create a Graph from idiomatic camelCase authoring input ({@link GraphConfig}),
+ * auto-generating `id` via `crypto.randomUUID()` when omitted.
+ *
+ * This is the public authoring entry point — every node field, including
+ * nested config blocks (`budget`, `failurePolicy`, `supervisorConfig`, …), is
+ * camelCase. To construct a Graph from the snake_case wire format (e.g. a
+ * graph loaded from the database or produced by the architect), use
+ * `GraphSchema.parse` directly. The runtime remap is idempotent on snake_case
+ * keys, so wire-format objects are still tolerated if passed here.
+ */
+export function createGraph(input: GraphConfig): Graph {
+  return GraphAuthoringSchema.parse(input);
 }

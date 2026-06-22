@@ -5,12 +5,11 @@
  *
  * 1. Load agent config from factory (cached)
  * 2. Build context-aware system prompt (with injection guards)
- * 3. Execute agent with tools via `streamText` (with timeout)
+ * 3. Execute agent with tools (with timeout)
  * 4. Track token usage
- * 5. Extract memory updates from `save_to_memory` tool calls
- * 6. Propagate taint metadata for derived outputs
- * 7. Validate Zero Trust permissions
- * 8. Return an {@link Action} for the GraphRunner
+ * 5. Extract memory updates and taint metadata from tool calls
+ * 6. Validate Zero Trust permissions
+ * 7. Return an {@link Action} for the GraphRunner
  *
  * Security hardening:
  * - Prompt injection guards via sanitization + `<data>` boundaries
@@ -53,14 +52,7 @@ export interface TokenUsage {
   totalTokens: number;
 }
 
-
-/**
- * Minimal shape of a single step returned by `streamText().steps`.
- *
- * The AI SDK's `StepResult<ToolSet>` generic has complex conditional types
- * that don't narrow cleanly when tools are dynamic, so we define the subset
- * we actually access.
- */
+/** Minimal shape of a single step. */
 interface AgentStep {
   toolCalls?: Array<{
     toolCallId: string;
@@ -99,13 +91,21 @@ export async function executeAgent(
   rawTools: Record<string, unknown>,
   attempt: number,
   options?: {
+    /** Override the agent's configured temperature. */
     temperature_override?: number;
+    /** The graph node ID, used to derive the fallback memory key. */
     node_id?: string;
+    /** Override the default agent timeout. */
     timeout_ms?: number;
+    /** External cancellation signal (e.g. workflow cancellation). */
     abortSignal?: AbortSignal;
+    /** Callback invoked for each streamed token (best-effort). */
     onToken?: (token: string) => void;
+    /** Callback invoked when a tool call starts executing. Receives tool name, args, and call ID. */
     onToolCall?: (event: { toolName: string; toolCallId: string; args: unknown }) => void;
+    /** Callback invoked when a tool call finishes. Receives tool name, call ID, duration, and success/error. */
     onToolCallComplete?: (event: { toolName: string; toolCallId: string; durationMs: number; success: boolean; error?: string }) => void;
+    /** Callback invoked to drain taint entries from tools. */
     drainTaintEntries?: (tools?: Record<string, unknown>) => Map<string, TaintMetadata>;
     /** Override the model from agent config (used by budget-aware model resolution). */
     model_override?: string;
@@ -140,8 +140,9 @@ export async function executeAgent(
 
     const startTime = Date.now();
 
-    // Load agent config from database (cached)
+    // Load agent config (cached)
     const config = await agentFactory.loadAgent(agent_id);
+
     // Budget-aware model resolution: use override if provided, else config.model
     const validatedOverride = options?.model_override && typeof options.model_override === 'string' && options.model_override.trim().length > 0
       ? options.model_override
@@ -161,8 +162,6 @@ export async function executeAgent(
       : config;
     const model = agentFactory.getModel(effectiveConfig);
 
-    // Wrap resolved tools into AI SDK v6 tool() format (before prompt so we
-    // can detect save_to_memory presence for conditional instructions)
     const tools = buildToolSet(rawTools, agent_id);
     const hasSaveToMemoryTool = 'save_to_memory' in tools;
 
@@ -208,16 +207,9 @@ export async function executeAgent(
     let text: string;
     let usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined;
     let steps: AgentStep[];
-    // Hoisted so the catch can best-effort read partial usage on failure —
-    // a failed/timed-out attempt may still have spent tokens, which must be
-    // accounted for (a max_retries:3 node can otherwise spend ~4× its visible
-    // budget uncounted).
     let result: Awaited<ReturnType<typeof streamText>> | undefined;
 
     try {
-      // Execute agent with streaming
-      // stopWhen enables multi-step tool use: LLM generates text, calls tools,
-      // sees results, and can call more tools — critical for save_to_memory
       result = await streamText({
         model,
         system: systemPrompt,
@@ -227,7 +219,6 @@ export async function executeAgent(
         abortSignal: combinedSignal,
         ...(options?.temperature_override !== undefined ? { temperature: options.temperature_override } : {}),
         ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
-        // Real-time tool call callbacks — fire as tools execute, not post-hoc
         ...(options?.onToolCall ? {
           experimental_onToolCallStart: (event) => {
             try {

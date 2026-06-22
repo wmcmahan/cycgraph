@@ -25,6 +25,7 @@ import {
   createGraph,
   createWorkflowState,
   type HumanResponse,
+  type WorkflowState,
 } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
@@ -47,17 +48,17 @@ const WRITER_ID = registry.register({
   description: 'Produces a draft article on a given topic',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a professional writer.',
     'Given a goal, produce a clear and engaging draft article.',
     'Keep it under 300 words. Use plain language.',
   ].join(' '),
   temperature: 0.7,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints'],
-    write_keys: ['draft'],
+    readKeys: ['goal', 'constraints'],
+    writeKeys: ['draft'],
   },
 });
 
@@ -66,18 +67,18 @@ const PUBLISHER_ID = registry.register({
   description: 'Finalizes and formats an approved draft for publication',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a publishing editor.',
     'Take the approved draft and produce a final version with a headline,',
     'proper formatting, and a brief author attribution.',
     'Incorporate any feedback from the human reviewer if provided.',
   ].join(' '),
   temperature: 0.4,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'draft', 'human_response', 'human_decision'],
-    write_keys: ['published'],
+    readKeys: ['goal', 'draft', 'human_response', 'human_decision'],
+    writeKeys: ['published'],
   },
 });
 configureAgentFactory(registry);
@@ -100,34 +101,34 @@ const graph = createGraph({
     {
       id: 'write',
       type: 'agent',
-      agent_id: WRITER_ID,
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['draft'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: WRITER_ID,
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['draft'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'review',
       type: 'approval',
-      approval_config: {
-        approval_type: 'human_review',
-        prompt_message: 'Please review the draft before publication.',
-        review_keys: ['draft'],
-        timeout_ms: 300_000, // 5 minutes
+      approvalConfig: {
+        approvalType: 'human_review',
+        promptMessage: 'Please review the draft before publication.',
+        reviewKeys: ['draft'],
+        timeoutMs: 300_000, // 5 minutes
       },
-      read_keys: ['*'],
-      write_keys: ['*', 'control_flow'],
-      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 1000, max_backoff_ms: 1000 },
-      requires_compensation: false,
+      readKeys: ['*'],
+      writeKeys: ['*', 'control_flow'],
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 1000 },
+      requiresCompensation: false,
     },
     {
       id: 'publish',
       type: 'agent',
-      agent_id: PUBLISHER_ID,
-      read_keys: ['goal', 'draft', 'human_response', 'human_decision'],
-      write_keys: ['published'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: PUBLISHER_ID,
+      readKeys: ['goal', 'draft', 'human_response', 'human_decision'],
+      writeKeys: ['published'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
   ],
 
@@ -136,17 +137,17 @@ const graph = createGraph({
     { source: 'review', target: 'publish' },
   ],
 
-  start_node: 'write',
-  end_nodes: ['publish'],
+  startNode: 'write',
+  endNodes: ['publish'],
 });
 
 // ─── 3. Create initial state ─────────────────────────────────────────────
 
 const initialState = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Write a short article explaining why open-source software matters for innovation.',
   constraints: ['Keep the draft under 300 words', 'Use plain language suitable for a general audience'],
-  max_execution_time_ms: 600_000,
+  maxExecutionTimeMs: 600_000,
 });
 
 // ─── 4. Set up persistence + runner ──────────────────────────────────────

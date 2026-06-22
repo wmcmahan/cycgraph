@@ -15,8 +15,8 @@
 
 import {
   InMemoryAgentRegistry,
-  createGraph,
-  createWorkflowState,
+  GraphSchema,
+  WorkflowStateSchema,
 } from '@cycgraph/orchestrator';
 import type {
   Graph,
@@ -82,7 +82,7 @@ export function buildSupervisorGraph(
     description: 'Routes work between research, write, and edit specialists',
     model,
     provider,
-    system_prompt: [
+    systemPrompt: [
       'You coordinate a team of three specialists to complete the goal.',
       'Available workers: "research" (gathers facts), "write" (produces a draft), "edit" (polishes prose).',
       'Inspect current state and decide which worker should act next.',
@@ -90,9 +90,9 @@ export function buildSupervisorGraph(
       'When final_draft is ready, route to "__done__" to complete the workflow.',
     ].join(' '),
     temperature: 0.2,
-    max_steps: 3,
+    maxSteps: 3,
     tools: [],
-    permissions: { read_keys: ['*'], write_keys: ['*'] },
+    permissions: { readKeys: ['*'], writeKeys: ['*'] },
   });
 
   const researcherId = registry.register({
@@ -100,17 +100,17 @@ export function buildSupervisorGraph(
     description: 'Gathers concise factual notes on the goal',
     model,
     provider,
-    system_prompt: [
+    systemPrompt: [
       'You are a research specialist.',
       'Given the goal, produce concise factual notes as bullet points.',
       'Focus on key facts and notable perspectives. Avoid speculation.',
     ].join(' '),
     temperature: 0.4,
-    max_steps: 3,
+    maxSteps: 3,
     tools: [],
     permissions: {
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['research_notes'],
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['research_notes'],
     },
   });
 
@@ -119,17 +119,17 @@ export function buildSupervisorGraph(
     description: 'Produces a polished draft from research notes',
     model,
     provider,
-    system_prompt: [
+    systemPrompt: [
       'You are a writer.',
       'Using the provided research notes, produce a clear, engaging draft.',
       'Keep it under 400 words. Use plain language.',
     ].join(' '),
     temperature: 0.6,
-    max_steps: 3,
+    maxSteps: 3,
     tools: [],
     permissions: {
-      read_keys: ['goal', 'research_notes'],
-      write_keys: ['draft'],
+      readKeys: ['goal', 'research_notes'],
+      writeKeys: ['draft'],
     },
   });
 
@@ -138,17 +138,17 @@ export function buildSupervisorGraph(
     description: 'Polishes a draft into the final version',
     model,
     provider,
-    system_prompt: [
+    systemPrompt: [
       'You are an editor.',
       'Review the draft for clarity, grammar, flow, and accuracy.',
       'Produce a polished final version under the same word budget.',
     ].join(' '),
     temperature: 0.3,
-    max_steps: 3,
+    maxSteps: 3,
     tools: [],
     permissions: {
-      read_keys: ['goal', 'draft'],
-      write_keys: [outputKey],
+      readKeys: ['goal', 'draft'],
+      writeKeys: [outputKey],
     },
   });
 
@@ -159,7 +159,7 @@ export function buildSupervisorGraph(
     max_backoff_ms: 60_000,
   };
 
-  const graph = createGraph({
+  const graph = GraphSchema.parse({
     name: 'supervisor-sut',
     description: 'SUT reference graph: supervisor + research/write/edit specialists',
     nodes: [
@@ -216,7 +216,7 @@ export function buildSupervisorGraph(
     end_nodes: [],
   });
 
-  const initialState = createWorkflowState({
+  const initialState = WorkflowStateSchema.parse({
     workflow_id: graph.id,
     goal: opts.input,
     max_execution_time_ms: opts.maxExecutionTimeMs ?? DEFAULT_TIMEOUT_MS,

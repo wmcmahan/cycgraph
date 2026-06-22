@@ -45,7 +45,7 @@ const SPLITTER_ID = registry.register({
   description: 'Decomposes a broad topic into focused sub-topics for parallel research',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a topic decomposition specialist.',
     'Given a research goal, break it down into 4-5 focused sub-topics that together cover the full scope.',
     'Each sub-topic should be specific enough for a single researcher to investigate independently.',
@@ -54,11 +54,11 @@ const SPLITTER_ID = registry.register({
     'Output ONLY the JSON array, no other text.',
   ].join(' '),
   temperature: 0.5,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints'],
-    write_keys: ['topics'],
+    readKeys: ['goal', 'constraints'],
+    writeKeys: ['topics'],
   },
 });
 
@@ -67,18 +67,18 @@ const RESEARCHER_ID = registry.register({
   description: 'Investigates a specific sub-topic and produces research notes',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a research specialist focused on a single sub-topic.',
     'Your assigned sub-topic is provided in _map_item. The broader goal is in the goal field.',
     'Produce concise, factual research notes (3-5 bullet points) about your specific sub-topic.',
     'Focus on key facts, data, and notable insights.',
   ].join(' '),
   temperature: 0.5,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['_map_item', '_map_index', '_map_total', 'goal'],
-    write_keys: ['research'],
+    readKeys: ['_map_item', '_map_index', '_map_total', 'goal'],
+    writeKeys: ['research'],
   },
 });
 
@@ -87,18 +87,18 @@ const SYNTHESIZER_ID = registry.register({
   description: 'Merges parallel research results into a unified summary',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a synthesis specialist.',
     'You receive parallel research results in mapper_results (an array of objects with "updates" containing research notes).',
     'Combine all research into a single, coherent summary that covers every sub-topic.',
     'Keep it under 500 words. Use clear headings for each area.',
   ].join(' '),
   temperature: 0.4,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'mapper_results', 'mapper_count'],
-    write_keys: ['summary'],
+    readKeys: ['goal', 'mapper_results', 'mapper_count'],
+    writeKeys: ['summary'],
   },
 });
 configureAgentFactory(registry);
@@ -118,43 +118,43 @@ const graph = createGraph({
     {
       id: 'splitter',
       type: 'agent',
-      agent_id: SPLITTER_ID,
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['topics'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: SPLITTER_ID,
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['topics'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'mapper',
       type: 'map',
-      map_reduce_config: {
-        worker_node_id: 'researcher',
-        items_path: '$.memory.topics',
-        max_concurrency: 5,
-        error_strategy: 'best_effort',
+      mapReduceConfig: {
+        workerNodeId: 'researcher',
+        itemsPath: '$.memory.topics',
+        maxConcurrency: 5,
+        errorStrategy: 'best_effort',
       },
-      read_keys: ['*'],
-      write_keys: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
-      failure_policy: { max_retries: 1, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      readKeys: ['*'],
+      writeKeys: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'researcher',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['_map_item', '_map_index', '_map_total', 'goal'],
-      write_keys: ['research'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: RESEARCHER_ID,
+      readKeys: ['_map_item', '_map_index', '_map_total', 'goal'],
+      writeKeys: ['research'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'synthesizer',
       type: 'synthesizer',
-      agent_id: SYNTHESIZER_ID,
-      read_keys: ['goal', 'mapper_results', 'mapper_count'],
-      write_keys: ['summary'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: SYNTHESIZER_ID,
+      readKeys: ['goal', 'mapper_results', 'mapper_count'],
+      writeKeys: ['summary'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
   ],
 
@@ -163,17 +163,17 @@ const graph = createGraph({
     { source: 'mapper', target: 'synthesizer' },
   ],
 
-  start_node: 'splitter',
-  end_nodes: ['synthesizer'],
+  startNode: 'splitter',
+  endNodes: ['synthesizer'],
 });
 
 // ─── 3. Create initial state ─────────────────────────────────────────────
 
 const initialState = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Research the impacts of climate change across different sectors: agriculture, public health, infrastructure, biodiversity, and economic systems.',
   constraints: ['Each sub-topic research should be 3-5 bullet points', 'Final summary under 500 words'],
-  max_execution_time_ms: 180_000,
+  maxExecutionTimeMs: 180_000,
 });
 
 // ─── 4. Set up persistence + runner ──────────────────────────────────────

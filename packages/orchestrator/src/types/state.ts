@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod';
+import { type Camelize, camelToSnakeDeep } from './case-mapping.js';
 
 // ─── Status & Waiting ───────────────────────────────────────────────
 
@@ -192,28 +193,40 @@ export const WorkflowStateSchema = z.object({
 
 export type WorkflowState = z.infer<typeof WorkflowStateSchema>;
 
-/** Input type for `createWorkflowState()` — only `workflow_id` and `goal` are required. */
+/** Wire-format input type (snake_case) — only `workflow_id` and `goal` are required. */
 export type WorkflowStateInput = z.input<typeof WorkflowStateSchema>;
 
 /**
- * Create a valid WorkflowState with sensible defaults.
+ * camelCase authoring type for `createWorkflowState()`, derived from the
+ * snake_case wire schema. Only `workflowId` and `goal` are required.
+ */
+export type WorkflowStateConfig = Camelize<WorkflowStateInput>;
+
+/**
+ * Create a valid WorkflowState from idiomatic camelCase authoring input.
  *
- * Only `workflow_id` and `goal` are required. All runtime-managed fields
- * (`run_id`, `created_at`, `status`, `iteration_count`, etc.) are
- * auto-populated via schema defaults.
+ * Only `workflowId` and `goal` are required. All runtime-managed fields
+ * (`runId`, `createdAt`, `status`, `iterationCount`, etc.) are auto-populated
+ * via schema defaults. The freeform `memory` blackboard keeps arbitrary keys.
+ *
+ * The returned object is the snake_case runtime {@link WorkflowState} (the
+ * engine and database format). To build state from a snake_case wire object
+ * (e.g. loaded from persistence), use `WorkflowStateSchema.parse` /
+ * `hydrateWorkflowState` directly. The runtime remap is idempotent on
+ * snake_case keys, so wire objects are tolerated here too.
  *
  * @example
  * ```typescript
  * const state = createWorkflowState({
- *   workflow_id: graph.id,
+ *   workflowId: graph.id,
  *   goal: 'Research and summarize quantum computing',
  *   constraints: ['Under 500 words'],
- *   max_execution_time_ms: 120_000,
+ *   maxExecutionTimeMs: 120_000,
  * });
  * ```
  */
-export function createWorkflowState(input: WorkflowStateInput): WorkflowState {
-  return WorkflowStateSchema.parse(input);
+export function createWorkflowState(input: WorkflowStateConfig): WorkflowState {
+  return WorkflowStateSchema.parse(camelToSnakeDeep(input));
 }
 
 // ─── State Hydration (load-boundary parsing + migration) ───────────

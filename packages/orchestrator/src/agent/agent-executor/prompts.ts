@@ -56,8 +56,7 @@ export interface BuildPromptOptions {
  * 4. Instruction footer (save_to_memory usage, permission reminders)
  *
  * When `options.contextCompressor` is provided, memory is compressed
- * via the context engine instead of `JSON.stringify`. Falls back to
- * default serialization if the compressor returns `null` or throws.
+ * via the context engine. Falls back to default serialization if the compressor returns `null` or throws.
  *
  * @param config - The agent's configuration record.
  * @param stateView - The current workflow state view scoped to this agent.
@@ -69,8 +68,7 @@ export function buildSystemPrompt(
   stateView: StateView,
   options?: BuildPromptOptions,
 ): string {
-  // Sanitize memory values up front so the context compressor never sees raw
-  // injection content (it may be a third-party / LLM-backed transform).
+  // Sanitize memory values up front so the context compressor never sees raw injection content.
   const sanitizedMemory = sanitizeForPrompt(stateView.memory);
 
   // Serialize memory — use context compressor when available, fall back to default
@@ -82,10 +80,15 @@ export function buildSystemPrompt(
         model: options.model,
       });
       if (result !== null) {
-        // Compressor output is otherwise unbounded — cap it to the same budget
-        // as the default path before it reaches the prompt.
+        // Cap memory to the same budget as the default path before it reaches the prompt.
         memoryJson = capToMemoryBudget(result.compressed);
-        try { options.onCompressed?.(result.metrics); } catch { /* best-effort observability */ }
+        try {
+          options.onCompressed?.(result.metrics);
+        } catch (err) {
+          logger.warn('on_compressed_callback_failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       } else {
         memoryJson = defaultSerializeMemory(sanitizedMemory);
       }
@@ -99,11 +102,7 @@ export function buildSystemPrompt(
     memoryJson = defaultSerializeMemory(sanitizedMemory);
   }
 
-  // Sanitize-AFTER-truncate: the final transformation before embedding is
-  // injection-sanitization, applied to exactly the bytes that will land in the
-  // prompt. This neutralizes anything the compressor may have (re)introduced
-  // and any boundary artifact a byte-level truncation could leave behind —
-  // closing the gap where sanitizing-then-truncating could re-expose content.
+  // Re-sanitize after truncation to remove any injection content exposed by truncation.
   memoryJson = sanitizeString(memoryJson);
 
   const retrievedSection = renderRetrievedMemory(options?.retrievedMemory);
@@ -122,10 +121,10 @@ ${memoryJson}
 
 ## Instructions
 ${options?.hasSaveToMemoryTool
-    ? `- Use the save_to_memory tool to store your findings
+      ? `- Use the save_to_memory tool to store your findings
 - Only write to memory keys you have permission for: ${config.write_keys.join(', ')}
 - Keys starting with underscore (_) are reserved and cannot be written to`
-    : `- Write your response as plain text — your output will be automatically saved by the orchestrator`}
+      : `- Write your response as plain text — your output will be automatically saved by the orchestrator`}
 - Be concise and actionable`;
 }
 
@@ -138,22 +137,34 @@ ${options?.hasSaveToMemoryTool
  * size to {@link MAX_RETRIEVED_MEMORY_BYTES}.
  */
 function renderRetrievedMemory(result: MemoryRetrievalResult | null | undefined): string {
-  if (!result) return '';
-  const hasContent =
-    result.facts.length > 0 || result.entities.length > 0 || result.themes.length > 0;
-  if (!hasContent) return '';
+  if (!result) {
+    return '';
+  }
 
-  const factLines = result.facts.map((f) => `- ${sanitizeString(f.content)}`);
-  const themeLine =
-    result.themes.length > 0
-      ? `Themes: ${result.themes.map((t) => sanitizeString(t.label)).join(', ')}`
-      : undefined;
-  const entityLine =
-    result.entities.length > 0
-      ? `Entities: ${result.entities
-          .map((e) => `${sanitizeString(e.name)} (${sanitizeString(e.type)})`)
-          .join(', ')}`
-      : undefined;
+  const hasFacts = result.facts.length > 0;
+  const hasEntities = result.entities.length > 0;
+  const hasThemes = result.themes.length > 0;
+
+  if (!hasFacts && !hasEntities && !hasThemes) {
+    return '';
+  }
+
+  let factLines: string[] = [];
+  if (hasFacts) {
+    factLines = result.facts.map((f) => `- ${sanitizeString(f.content)}`);
+  }
+
+  let themeLine: string | undefined = undefined;
+  if (hasThemes) {
+    themeLine = `Themes: ${result.themes.map((t) => sanitizeString(t.label)).join(', ')}`;
+  }
+
+  let entityLine: string | undefined = undefined;
+  if (hasEntities) {
+    entityLine = `Entities: ${result.entities
+      .map((e) => `${sanitizeString(e.name)} (${sanitizeString(e.type)})`)
+      .join(', ')}`;
+  }
 
   let body = factLines.join('\n');
   if (themeLine) body += (body ? '\n\n' : '') + themeLine;
@@ -212,7 +223,7 @@ export function capToMemoryBudget(memoryJson: string): string {
 /**
  * Build the task prompt for the current execution attempt.
  *
- * On retry attempts (attempt > 1), the prompt explicitly tells the agent
+ * On retry attempts, the prompt explicitly tells the agent
  * that the previous attempt failed and to try a different approach.
  *
  * @param stateView - The current workflow state view.

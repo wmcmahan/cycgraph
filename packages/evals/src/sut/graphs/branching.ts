@@ -12,8 +12,8 @@
 
 import {
   InMemoryAgentRegistry,
-  createGraph,
-  createWorkflowState,
+  GraphSchema,
+  WorkflowStateSchema,
 } from '@cycgraph/orchestrator';
 import type {
   Graph,
@@ -75,17 +75,17 @@ export function buildBranchingGraph(
     description: 'Emits a structured routing decision for a conditional goal',
     model: opts.model ?? 'claude-sonnet-4-6',
     provider: opts.provider ?? 'anthropic',
-    system_prompt: BRANCHING_PROMPT,
+    systemPrompt: BRANCHING_PROMPT,
     temperature: 0.1,
-    max_steps: 4,
+    maxSteps: 4,
     tools: [{ type: 'builtin', name: 'save_to_memory' }],
     permissions: {
-      read_keys: ['goal', 'constraints'],
-      write_keys: [outputKey],
+      readKeys: ['goal', 'constraints'],
+      writeKeys: [outputKey],
     },
   });
 
-  const graph = createGraph({
+  const graph = GraphSchema.parse({
     name: 'branching-sut',
     description: 'SUT reference graph: one agent emits a JSON routing decision',
     nodes: [
@@ -109,7 +109,7 @@ export function buildBranchingGraph(
     end_nodes: ['router'],
   });
 
-  const initialState = createWorkflowState({
+  const initialState = WorkflowStateSchema.parse({
     workflow_id: graph.id,
     goal: opts.input,
     max_execution_time_ms: opts.maxExecutionTimeMs ?? 120_000,

@@ -143,7 +143,7 @@ const CANDIDATE_ID = registry.register({
   // too; with them the climb is just shorter.
   model: 'claude-haiku-4-5-20251001',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are an expert at writing regular expressions in JavaScript.',
     'Output ONLY a single regex pattern as plain text — no backticks, no explanation, no labels.',
     'You must match HTTP 4xx status codes (exactly three digits, 400 through 499).',
@@ -154,11 +154,11 @@ const CANDIDATE_ID = registry.register({
     'Anchors (^ and $) are usually needed.',
   ].join(' '),
   temperature: 0.9, // overridden by evolution temperature annealing
-  max_steps: 1,
+  maxSteps: 1,
   tools: [],
   permissions: {
-    read_keys: ['*'],
-    write_keys: ['candidate_output'],
+    readKeys: ['*'],
+    writeKeys: ['candidate_output'],
   },
 });
 
@@ -174,15 +174,15 @@ const graph = createGraph({
     {
       id: 'evolve',
       type: 'evolution',
-      agent_id: CANDIDATE_ID,
-      read_keys: ['*'],
-      write_keys: ['*'],
-      evolution_config: {
-        candidate_agent_id: CANDIDATE_ID,
+      agentId: CANDIDATE_ID,
+      readKeys: ['*'],
+      writeKeys: ['*'],
+      evolutionConfig: {
+        candidateAgentId: CANDIDATE_ID,
         // evaluator_agent_id intentionally omitted — fitnessFunction handles scoring.
-        population_size: 4,
-        max_generations: 4,
-        elite_count: 1,
+        populationSize: 4,
+        maxGenerations: 4,
+        eliteCount: 1,
         // Threshold deliberately set above 1.0 so the loop never exits
         // early. Modern LLMs (Haiku, Sonnet, Opus) one-shot the canonical
         // regex even for unusual exclusion patterns, which would terminate
@@ -190,29 +190,29 @@ const graph = createGraph({
         // actually iterating. By running all max_generations we get
         // visible proof that parent context is propagated, temperature
         // anneals, and the parallel fan-out fires every generation.
-        fitness_threshold: 1.5,
+        fitnessThreshold: 1.5,
         // Stagnation also disabled so identical-fitness generations
         // don't trigger early exit.
-        stagnation_generations: 99,
-        selection_strategy: 'rank',
-        initial_temperature: 1.0,
-        final_temperature: 0.3,
-        max_concurrency: 4,
-        error_strategy: 'best_effort',
-        task_timeout_ms: 30_000,
+        stagnationGenerations: 99,
+        selectionStrategy: 'rank',
+        initialTemperature: 1.0,
+        finalTemperature: 0.3,
+        maxConcurrency: 4,
+        errorStrategy: 'best_effort',
+        taskTimeoutMs: 30_000,
       },
-      failure_policy: {
-        max_retries: 2,
-        backoff_strategy: 'exponential',
-        initial_backoff_ms: 1000,
-        max_backoff_ms: 30_000,
+      failurePolicy: {
+        maxRetries: 2,
+        backoffStrategy: 'exponential',
+        initialBackoffMs: 1000,
+        maxBackoffMs: 30_000,
       },
-      requires_compensation: false,
+      requiresCompensation: false,
     },
   ],
   edges: [],
-  start_node: 'evolve',
-  end_nodes: ['evolve'],
+  startNode: 'evolve',
+  endNodes: ['evolve'],
 });
 
 // ─── 5. Run ─────────────────────────────────────────────────────────────
@@ -228,9 +228,9 @@ async function main() {
   console.log('');
 
   const state = createWorkflowState({
-    workflow_id: graph.id,
+    workflowId: graph.id,
     goal: 'Match HTTP 4xx status codes (400-499) except 401, 403, and 404; reject everything else',
-    max_execution_time_ms: 180_000,
+    maxExecutionTimeMs: 180_000,
   });
 
   const runner = new GraphRunner(graph, state, { fitnessFunction });

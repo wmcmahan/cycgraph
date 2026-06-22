@@ -50,7 +50,6 @@ export function extractMemoryUpdates(
   // Extract from save_to_memory tool calls (opt-in structured writes)
   for (const toolCall of toolCalls) {
     if (toolCall.toolName === 'save_to_memory') {
-      // AI SDK v6 steps use `input` for tool call arguments, not `args`
       const args = (toolCall.input ?? toolCall.args ?? {}) as Record<string, unknown>;
       const key = args.key;
       const value = args.value;

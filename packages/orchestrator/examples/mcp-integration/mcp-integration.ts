@@ -33,7 +33,7 @@ import {
   createWorkflowState,
   createLogger,
 } from '@cycgraph/orchestrator';
-import type { ToolSource } from '@cycgraph/orchestrator';
+import type { ToolSourceConfig } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API keys ────────────────────────────────────────
 
@@ -77,21 +77,21 @@ const RESEARCHER_ID = agentRegistry.register({
   description: 'Researches topics using web search and URL fetching',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a research agent with access to web search and URL fetching.',
     'Use brave_web_search to find current information about the topic.',
     'Use fetch to read specific URLs when you need deeper content from a search result.',
     'Synthesize your findings into concise, factual research notes.',
   ].join(' '),
   temperature: 0.5,
-  max_steps: 8, // More steps to allow search → fetch → summarize chains
+  maxSteps: 8, // More steps to allow search → fetch → summarize chains
   tools: [
-    // { type: 'mcp', server_id: 'web-search' },  // Brave web search
-    { type: 'mcp', server_id: 'fetch' },       // URL content fetching
-  ] satisfies ToolSource[],
+    // { type: 'mcp', serverId: 'web-search' },  // Brave web search
+    { type: 'mcp', serverId: 'fetch' },       // URL content fetching
+  ] satisfies ToolSourceConfig[],
   permissions: {
-    read_keys: ['*'],
-    write_keys: ['research_notes'],
+    readKeys: ['*'],
+    writeKeys: ['research_notes'],
   },
 });
 
@@ -101,16 +101,16 @@ const WRITER_ID = agentRegistry.register({
   description: 'Writes concise summaries from research notes',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a writer. Using the research notes, produce a clear, well-structured summary.',
     'Include key facts and cite sources when available.',
   ].join(' '),
   temperature: 0.7,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['research_notes'],
-    write_keys: ['summary'],
+    readKeys: ['research_notes'],
+    writeKeys: ['summary'],
   },
 });
 
@@ -134,20 +134,20 @@ const graph = createGraph({
     {
       id: 'research',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['*'],
-      write_keys: ['research_notes'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 2000, max_backoff_ms: 30000 },
-      requires_compensation: false,
+      agentId: RESEARCHER_ID,
+      readKeys: ['*'],
+      writeKeys: ['research_notes'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 2000, maxBackoffMs: 30000 },
+      requiresCompensation: false,
     },
     {
       id: 'write',
       type: 'agent',
-      agent_id: WRITER_ID,
-      read_keys: ['research_notes'],
-      write_keys: ['summary'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 30000 },
-      requires_compensation: false,
+      agentId: WRITER_ID,
+      readKeys: ['research_notes'],
+      writeKeys: ['summary'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
+      requiresCompensation: false,
     },
   ],
 
@@ -155,12 +155,12 @@ const graph = createGraph({
     { source: 'research', target: 'write' },
   ],
 
-  start_node: 'research',
-  end_nodes: ['write'],
+  startNode: 'research',
+  endNodes: ['write'],
 
   // Taint tracking: MCP tool outputs are automatically marked as tainted.
   // strict_taint rejects routing decisions that depend on tainted data.
-  strict_taint: true,
+  strictTaint: true,
 });
 
 // ─── 5. Run ─────────────────────────────────────────────────────────────
@@ -169,10 +169,10 @@ async function main() {
   logger.info('Starting web research pipeline...\n');
 
   const state = createWorkflowState({
-    workflow_id: graph.id,
+    workflowId: graph.id,
     goal: 'Research the Gitlab website (https://github.com/wmcmahan/cycgraph) and give me summary of the site.',
     constraints: ['Keep the summary under 300 words', 'Include specific facts and sources'],
-    max_execution_time_ms: 120_000,
+    maxExecutionTimeMs: 120_000,
   });
 
   const runner = new GraphRunner(graph, state, {

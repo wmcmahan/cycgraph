@@ -225,7 +225,7 @@ const RESEARCHER_ID = registry.register({
   description: 'Writes research briefs from model knowledge',
   model: WORKER_MODEL,
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a research analyst. Write a research brief on the given topic',
     'from your own knowledge. Be concrete and specific.',
     'When the prompt contains a "## Relevant Memory" section, honour every',
@@ -234,11 +234,11 @@ const RESEARCHER_ID = registry.register({
     'Output only the brief itself, no preamble.',
   ].join(' '),
   temperature: 0.4,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints'],
-    write_keys: ['research_brief'],
+    readKeys: ['goal', 'constraints'],
+    writeKeys: ['research_brief'],
   },
 });
 
@@ -248,7 +248,7 @@ const CRITIC_ID = registry.register({
   description: 'Critiques briefs against a fixed rubric, emitting lessons',
   model: WORKER_MODEL,
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are an exacting research editor. Evaluate the research brief you',
     'receive against this fixed rubric:',
     ...RUBRIC.map((item, i) => `${i + 1}. ${item}`),
@@ -262,11 +262,11 @@ const CRITIC_ID = registry.register({
     'No corrections; maintain the current standard of sourcing, quantification, counterarguments, confidence labelling, and length.',
   ].join(' '),
   temperature: 0.2,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['research_brief'],
-    write_keys: ['critique'],
+    readKeys: ['research_brief'],
+    writeKeys: ['critique'],
   },
 });
 
@@ -282,57 +282,57 @@ const learningGraph = createGraph({
     {
       id: 'research',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['research_brief'],
-      memory_query: { tags: [LESSON_TAG], max_facts: 40 },
-      failure_policy: {
-        max_retries: 2,
-        backoff_strategy: 'exponential',
-        initial_backoff_ms: 1000,
-        max_backoff_ms: 60000,
+      agentId: RESEARCHER_ID,
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['research_brief'],
+      memoryQuery: { tags: [LESSON_TAG], maxFacts: 40 },
+      failurePolicy: {
+        maxRetries: 2,
+        backoffStrategy: 'exponential',
+        initialBackoffMs: 1000,
+        maxBackoffMs: 60000,
       },
-      requires_compensation: false,
+      requiresCompensation: false,
     },
     {
       id: 'critique',
       type: 'agent',
-      agent_id: CRITIC_ID,
-      read_keys: ['research_brief'],
-      write_keys: ['critique'],
-      failure_policy: {
-        max_retries: 2,
-        backoff_strategy: 'exponential',
-        initial_backoff_ms: 1000,
-        max_backoff_ms: 60000,
+      agentId: CRITIC_ID,
+      readKeys: ['research_brief'],
+      writeKeys: ['critique'],
+      failurePolicy: {
+        maxRetries: 2,
+        backoffStrategy: 'exponential',
+        initialBackoffMs: 1000,
+        maxBackoffMs: 60000,
       },
-      requires_compensation: false,
+      requiresCompensation: false,
     },
     {
       id: 'reflect',
       type: 'reflection',
-      read_keys: ['critique'],
-      write_keys: ['reflect_reflection'],
-      reflection_config: {
-        source_keys: ['critique'],
-        extractor: { type: 'rule_based', min_sentence_length: 25 },
+      readKeys: ['critique'],
+      writeKeys: ['reflect_reflection'],
+      reflectionConfig: {
+        sourceKeys: ['critique'],
+        extractor: { type: 'rule_based', minSentenceLength: 25 },
         tags: ['lesson', LESSON_TAG],
       },
-      failure_policy: {
-        max_retries: 1,
-        backoff_strategy: 'exponential',
-        initial_backoff_ms: 500,
-        max_backoff_ms: 5000,
+      failurePolicy: {
+        maxRetries: 1,
+        backoffStrategy: 'exponential',
+        initialBackoffMs: 500,
+        maxBackoffMs: 5000,
       },
-      requires_compensation: false,
+      requiresCompensation: false,
     },
   ],
   edges: [
     { source: 'research', target: 'critique' },
     { source: 'critique', target: 'reflect' },
   ],
-  start_node: 'research',
-  end_nodes: ['reflect'],
+  startNode: 'research',
+  endNodes: ['reflect'],
 });
 
 const controlGraph = createGraph({
@@ -342,21 +342,21 @@ const controlGraph = createGraph({
     {
       id: 'research',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['research_brief'],
-      failure_policy: {
-        max_retries: 2,
-        backoff_strategy: 'exponential',
-        initial_backoff_ms: 1000,
-        max_backoff_ms: 60000,
+      agentId: RESEARCHER_ID,
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['research_brief'],
+      failurePolicy: {
+        maxRetries: 2,
+        backoffStrategy: 'exponential',
+        initialBackoffMs: 1000,
+        maxBackoffMs: 60000,
       },
-      requires_compensation: false,
+      requiresCompensation: false,
     },
   ],
   edges: [],
-  start_node: 'research',
-  end_nodes: ['research'],
+  startNode: 'research',
+  endNodes: ['research'],
 });
 
 // ─── 7. Run + score one workflow ─────────────────────────────────────────
@@ -387,10 +387,10 @@ async function runOnce(
   const lessonsBefore = await countLessons();
 
   const initialState = createWorkflowState({
-    workflow_id: graph.id,
+    workflowId: graph.id,
     goal: `Write a research brief on: ${topic}`,
     constraints: [...CONSTRAINTS],
-    max_execution_time_ms: 180_000,
+    maxExecutionTimeMs: 180_000,
   });
 
   const persistence = new InMemoryPersistenceProvider();

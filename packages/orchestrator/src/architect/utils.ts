@@ -10,7 +10,7 @@
 
 import { z } from 'zod';
 import type { Graph } from '../types/graph.js';
-import { createGraph } from '../types/graph.js';
+import { GraphSchema } from '../types/graph.js';
 import { LLMGraphSchema } from './schemas.js';
 
 /** Inferred type of an LLM-generated graph (before runtime fields are added). */
@@ -26,7 +26,9 @@ export type LLMGraph = z.infer<typeof LLMGraphSchema>;
  * @returns A complete {@link Graph} ready for validation and persistence.
  */
 export function llmGraphToGraph(llm: LLMGraph, existingId?: string): Graph {
-  return createGraph({
+  // Architect output is already snake_case wire format — validate it directly
+  // rather than through the camelCase `createGraph` authoring entry.
+  return GraphSchema.parse({
     ...(existingId ? { id: existingId } : {}),
     name: llm.name,
     description: llm.description,

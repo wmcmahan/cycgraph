@@ -196,7 +196,7 @@ async function runOrchestratorSample(
   const artifacts = buildSingleAgentGraph({
     input: plan.trajectory.input,
     tools: toolNames.length > 0
-      ? [{ type: 'mcp', server_id: 'mock', tool_names: toolNames }]
+      ? [{ type: 'mcp', serverId: 'mock', toolNames: toolNames }]
       : [],
     model,
   });

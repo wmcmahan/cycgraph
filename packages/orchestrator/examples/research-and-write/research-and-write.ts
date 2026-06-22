@@ -43,18 +43,18 @@ const RESEARCHER_ID = registry.register({
   description: 'Gathers background information on a topic',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a research specialist.',
     'Given a goal, produce concise, factual research notes.',
     'Focus on key facts, statistics, and notable perspectives.',
     'Write your findings as bullet points.',
   ].join(' '),
   temperature: 0.5,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints'],
-    write_keys: ['research_notes'],
+    readKeys: ['goal', 'constraints'],
+    writeKeys: ['research_notes'],
   },
 });
 
@@ -63,17 +63,17 @@ const WRITER_ID = registry.register({
   description: 'Produces a polished draft from research notes',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a professional writer.',
     'Using the provided research notes, produce a clear and engaging summary.',
     'Keep it under 300 words. Use plain language.',
   ].join(' '),
   temperature: 0.7,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'research_notes'],
-    write_keys: ['draft'],
+    readKeys: ['goal', 'research_notes'],
+    writeKeys: ['draft'],
   },
 });
 configureAgentFactory(registry);
@@ -93,20 +93,20 @@ const graph = createGraph({
     {
       id: 'research',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['research_notes'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: RESEARCHER_ID,
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['research_notes'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'write',
       type: 'agent',
-      agent_id: WRITER_ID,
-      read_keys: ['goal', 'research_notes'],
-      write_keys: ['draft'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: WRITER_ID,
+      readKeys: ['goal', 'research_notes'],
+      writeKeys: ['draft'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
   ],
 
@@ -114,17 +114,17 @@ const graph = createGraph({
     { source: 'research', target: 'write' },
   ],
 
-  start_node: 'research',
-  end_nodes: ['write'],
+  startNode: 'research',
+  endNodes: ['write'],
 });
 
 // ─── 3. Create initial state ─────────────────────────────────────────────
 
 const initialState = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Explain how large language models work, including transformers, attention mechanisms, and training data.',
   constraints: ['Keep the final draft under 300 words', 'Use plain language suitable for a general audience'],
-  max_execution_time_ms: 120_000,
+  maxExecutionTimeMs: 120_000,
 });
 
 // ─── 4. Set up persistence + runner ──────────────────────────────────────

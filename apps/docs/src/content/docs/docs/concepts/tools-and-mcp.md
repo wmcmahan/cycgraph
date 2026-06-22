@@ -21,10 +21,10 @@ const RESEARCH_AGENT = agentRegistry.register({
   name: 'Research Specialist',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: 'You are a research specialist...',
+  systemPrompt: 'You are a research specialist...',
   tools: [
     { type: 'builtin', name: 'save_to_memory' },
-    { type: 'mcp', server_id: 'web-search' }
+    { type: 'mcp', serverId: 'web-search' }
   ],
 });
 ```
@@ -39,19 +39,19 @@ const WRITER = agentRegistry.register({
   name: 'Writer',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: 'You write clear summaries.',
+  systemPrompt: 'You write clear summaries.',
   tools: [],
-  permissions: { read_keys: ['notes'], write_keys: ['draft'] },
+  permissions: { readKeys: ['notes'], writeKeys: ['draft'] },
 });
 ```
 
-Optionally, you can filter to specific tools from an MCP server by providing `tool_names`:
+Optionally, you can filter to specific tools from an MCP server by providing `toolNames`:
 
 ```typescript
 {
   type: 'mcp',
-  server_id: 'web-search',
-  tool_names: ['search', 'fetch']
+  serverId: 'web-search',
+  toolNames: ['search', 'fetch']
 }
 ```
 
@@ -63,14 +63,14 @@ Graph nodes can override an agent's configured tools for a specific execution st
 {
   id: 'initial-research',
   type: 'agent',
-  agent_id: RESEARCH_AGENT,
+  agentId: RESEARCH_AGENT,
   tools: [
     { type: 'builtin', name: 'save_to_memory' },
-    { type: 'mcp', server_id: 'web-search' },
-    { type: 'mcp', server_id: 'twitter-search' }
+    { type: 'mcp', serverId: 'web-search' },
+    { type: 'mcp', serverId: 'twitter-search' }
   ],
-  read_keys: ['goal'],
-  write_keys: ['initial_notes'],
+  readKeys: ['goal'],
+  writeKeys: ['initial_notes'],
 }
 ```
 
@@ -121,7 +121,7 @@ mcpRegistry.register({
     type: 'sse',
     url: 'https://mcp.example.com/slack/sse',
   },
-  timeout_ms: 60_000,
+  timeoutMs: 60_000,
 });
 ```
 
@@ -141,49 +141,49 @@ Each `MCPServerEntry` also supports the following optional fields:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `timeout_ms` | `number` | — | Connection-level timeout for the MCP transport |
-| `tool_timeout_ms` | `number` | — | Per-tool-call execution timeout (overrides manager default) |
-| `max_retries` | `number` | `2` | Number of connection retry attempts with exponential backoff |
-| `allowed_agents` | `string[]` | — | Restrict which agents can access this server |
+| `timeoutMs` | `number` | — | Connection-level timeout for the MCP transport |
+| `toolTimeoutMs` | `number` | — | Per-tool-call execution timeout (overrides manager default) |
+| `maxRetries` | `number` | `2` | Number of connection retry attempts with exponential backoff |
+| `allowedAgents` | `string[]` | — | Restrict which agents can access this server |
 
 ### Access control
 
-You can restrict which agents are allowed to use a specific server with the `allowed_agents` field:
+You can restrict which agents are allowed to use a specific server with the `allowedAgents` field:
 
 ```typescript
 mcpRegistry.register({
   id: 'admin-tools',
   name: 'Admin Tools',
   transport: { type: 'http', url: 'https://internal.example.com/admin' },
-  allowed_agents: ['admin-agent-001', 'ops-agent-002'],
+  allowedAgents: ['admin-agent-001', 'ops-agent-002'],
 });
 ```
 
-When `allowed_agents` is set, only the listed agents can resolve tools from that server. Omit the field for unrestricted access.
+When `allowedAgents` is set, only the listed agents can resolve tools from that server. Omit the field for unrestricted access.
 
 ### Connection resilience
 
 The `MCPConnectionManager` includes built-in resilience features for production reliability:
 
-**Connection retry with backoff**: Failed connections are automatically retried with exponential backoff. Configure `max_retries` on each server entry (default: 2):
+**Connection retry with backoff**: Failed connections are automatically retried with exponential backoff. Configure `maxRetries` on each server entry (default: 2):
 
 ```typescript
 mcpRegistry.register({
   id: 'web-search',
   name: 'Web Search',
   transport: { type: 'http', url: 'https://mcp.example.com/search' },
-  max_retries: 3, // Retry up to 3 times with backoff (1s, 2s, 4s)
+  maxRetries: 3, // Retry up to 3 times with backoff (1s, 2s, 4s)
 });
 ```
 
-**Per-tool execution timeouts**: Set `tool_timeout_ms` on the server entry to enforce a timeout on each individual tool call. This prevents hung tools from blocking the entire workflow:
+**Per-tool execution timeouts**: Set `toolTimeoutMs` on the server entry to enforce a timeout on each individual tool call. This prevents hung tools from blocking the entire workflow:
 
 ```typescript
 mcpRegistry.register({
   id: 'slow-api',
   name: 'External API',
   transport: { type: 'http', url: 'https://api.example.com/mcp' },
-  tool_timeout_ms: 10_000, // 10 second timeout per tool call
+  toolTimeoutMs: 10_000, // 10 second timeout per tool call
 });
 ```
 
@@ -195,7 +195,7 @@ const manager = new MCPConnectionManager(mcpRegistry, {
 });
 ```
 
-Server-level `tool_timeout_ms` overrides the default.
+Server-level `toolTimeoutMs` overrides the default.
 
 **Tool manifest caching**: Tool manifests from MCP servers are cached for 5 minutes by default, avoiding redundant `client.tools()` calls. Configure via `cache_ttl_ms`:
 
@@ -252,7 +252,7 @@ await registerDefaultMCPServers(mcpRegistry, { only: ['fetch'] });
 await registerDefaultMCPServers(mcpRegistry, { brave_api_key: 'BSA-...' });
 
 // Restrict to specific agents
-await registerDefaultMCPServers(mcpRegistry, { allowed_agents: [RESEARCHER_ID] });
+await registerDefaultMCPServers(mcpRegistry, { allowedAgents: [RESEARCHER_ID] });
 ```
 
 ## Next steps

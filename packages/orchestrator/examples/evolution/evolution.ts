@@ -117,7 +117,7 @@ const CANDIDATE_ID = registry.register({
   description: 'Writes and refines a tagline toward an exact length/word spec',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You write a single product tagline that must hit this spec exactly:',
     SPEC,
     '',
@@ -132,11 +132,11 @@ const CANDIDATE_ID = registry.register({
     'Output ONLY the tagline text — no preamble, no quotes, no commentary.',
   ].join('\n'),
   temperature: 0.9, // Overridden by evolution temperature annealing (explore → exploit)
-  max_steps: 2,
+  maxSteps: 2,
   tools: [],
   permissions: {
-    read_keys: ['*'],
-    write_keys: ['candidate_output'],
+    readKeys: ['*'],
+    writeKeys: ['candidate_output'],
   },
 });
 
@@ -155,50 +155,50 @@ const graph = createGraph({
     {
       id: 'evolve',
       type: 'evolution',
-      agent_id: CANDIDATE_ID,
-      read_keys: ['*'],
-      write_keys: ['*'],
-      evolution_config: {
-        candidate_agent_id: CANDIDATE_ID,
+      agentId: CANDIDATE_ID,
+      readKeys: ['*'],
+      writeKeys: ['*'],
+      evolutionConfig: {
+        candidateAgentId: CANDIDATE_ID,
         // No evaluator_agent_id — scoring comes from the injected fitnessFunction.
 
         // Modest population — the value here is iterative convergence, not
         // brute-forcing the exact counts with one huge first batch.
-        population_size: 4,
-        max_generations: 6,
+        populationSize: 4,
+        maxGenerations: 6,
         // Elitism: carry the single best candidate forward unchanged each round.
         // This guarantees the fitness curve never dips — so you see a clean,
         // monotonic climb — and saves one candidate generation per round.
-        elite_count: 1,
+        eliteCount: 1,
 
         // Stop once a candidate is essentially on-spec, OR once progress stalls.
         // A strong model lands near-spec almost immediately, so the interesting
         // behavior is the convergence that follows — and stagnation detection
         // exits cleanly when the best can't be improved for 3 rounds (a local
         // optimum) rather than padding the run with flat generations.
-        fitness_threshold: 0.98,
-        stagnation_generations: 3,
+        fitnessThreshold: 0.98,
+        stagnationGenerations: 3,
 
-        selection_strategy: 'rank',
+        selectionStrategy: 'rank',
 
         // Explore wording broadly early, refine late. We keep a little late-stage
         // exploration (0.5, not near-0) to give the search a chance to escape a
         // local optimum — e.g. nudging a 53-char phrasing to the exact 55.
-        initial_temperature: 1.0,
-        final_temperature: 0.5,
+        initialTemperature: 1.0,
+        finalTemperature: 0.5,
 
-        max_concurrency: 4,
-        error_strategy: 'best_effort',
-        task_timeout_ms: 30_000,
+        maxConcurrency: 4,
+        errorStrategy: 'best_effort',
+        taskTimeoutMs: 30_000,
       },
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 30000 },
-      requires_compensation: false,
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
+      requiresCompensation: false,
     },
   ],
 
   edges: [],
-  start_node: 'evolve',
-  end_nodes: ['evolve'],
+  startNode: 'evolve',
+  endNodes: ['evolve'],
 });
 
 // ─── 4. Run ──────────────────────────────────────────────────────────────
@@ -207,10 +207,10 @@ async function main() {
   logger.info('Starting evolution example — converging a tagline onto an exact spec...\n');
 
   const state = createWorkflowState({
-    workflow_id: graph.id,
+    workflowId: graph.id,
     goal: 'Write a tagline for "cycgraph", an engine for AI agent workflows that survive crashes and recover automatically.',
     constraints: [`Exactly ${TARGET_CHARS} characters`, `Exactly ${TARGET_WORDS} words`],
-    max_execution_time_ms: 300_000,
+    maxExecutionTimeMs: 300_000,
   });
 
   // The deterministic scorer is injected here, the same way you'd inject an

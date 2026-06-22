@@ -52,7 +52,7 @@ const EXTRACTOR_ID = registry.register({
   description: 'Extracts a structured purchase order from a noisy customer email',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a strict data extraction agent.',
     'Given the text in memory key `email_text`, extract a purchase order and write it to memory key `purchase_order` as a JSON object with these fields:',
     '  - customer_email (string)',
@@ -62,11 +62,11 @@ const EXTRACTOR_ID = registry.register({
     'If a field is not present, do your best to infer it from context. Never invent a placeholder like "not provided" — emit your best guess.',
   ].join('\n'),
   temperature: 0.2,
-  max_steps: 2,
+  maxSteps: 2,
   tools: [],
   permissions: {
-    read_keys: ['email_text', 'goal'],
-    write_keys: ['purchase_order'],
+    readKeys: ['email_text', 'goal'],
+    writeKeys: ['purchase_order'],
   },
 });
 
@@ -75,7 +75,7 @@ const FIXER_ID = registry.register({
   description: 'Re-extracts a purchase order using verifier feedback',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a data correction agent.',
     'The previous extraction failed verification. Read:',
     '  - `email_text` — original customer email',
@@ -84,11 +84,11 @@ const FIXER_ID = registry.register({
     'Produce a corrected `purchase_order` JSON object addressing the verifier feedback. Field shape is the same as before.',
   ].join('\n'),
   temperature: 0.3,
-  max_steps: 2,
+  maxSteps: 2,
   tools: [],
   permissions: {
-    read_keys: ['email_text', 'purchase_order', 'verify_email_verification', 'goal'],
-    write_keys: ['purchase_order'],
+    readKeys: ['email_text', 'purchase_order', 'verify_email_verification', 'goal'],
+    writeKeys: ['purchase_order'],
   },
 });
 
@@ -107,31 +107,31 @@ const graph = createGraph({
     {
       id: 'extract',
       type: 'agent',
-      agent_id: EXTRACTOR_ID,
-      read_keys: ['email_text', 'goal'],
-      write_keys: ['purchase_order'],
+      agentId: EXTRACTOR_ID,
+      readKeys: ['email_text', 'goal'],
+      writeKeys: ['purchase_order'],
     },
     {
       id: 'verify_email',
       type: 'verifier',
-      verifier_config: {
+      verifierConfig: {
         type: 'jsonpath',
-        target_key: 'purchase_order',
+        targetKey: 'purchase_order',
         path: '$.customer_email',
         // A real email has at least one `@` and one `.`, no whitespace.
         // Catches model outputs like "not provided", null, or junk strings.
         assertion: { op: 'matches', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$' },
       },
       // verifier_config.target_key must be readable; result keys must be writable.
-      read_keys: ['purchase_order'],
-      write_keys: ['verify_email_verification', 'verify_email_verification_passed'],
+      readKeys: ['purchase_order'],
+      writeKeys: ['verify_email_verification', 'verify_email_verification_passed'],
     },
     {
       id: 'fix',
       type: 'agent',
-      agent_id: FIXER_ID,
-      read_keys: ['email_text', 'purchase_order', 'verify_email_verification', 'goal'],
-      write_keys: ['purchase_order'],
+      agentId: FIXER_ID,
+      readKeys: ['email_text', 'purchase_order', 'verify_email_verification', 'goal'],
+      writeKeys: ['purchase_order'],
     },
   ],
 
@@ -156,8 +156,8 @@ const graph = createGraph({
     // matches and the runner completes the workflow automatically.
   ],
 
-  start_node: 'extract',
-  end_nodes: [],
+  startNode: 'extract',
+  endNodes: [],
 });
 
 // ─── 3. Create initial state ─────────────────────────────────────────────
@@ -183,12 +183,12 @@ Jordan
 `.trim();
 
 const initialState = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Extract a structured purchase order from a customer email',
   constraints: ['Output a JSON object with customer_email, order_id, total_usd, and items'],
   memory: { email_text: NOISY_EMAIL },
-  max_iterations: 15,
-  max_execution_time_ms: 180_000,
+  maxIterations: 15,
+  maxExecutionTimeMs: 180_000,
 });
 
 // ─── 4. Set up persistence + runner ──────────────────────────────────────

@@ -44,7 +44,7 @@ const WRITER_ID = registry.register({
   description: 'Writes or refines a draft based on feedback',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a skilled writer.',
     'Your task: write a concise, engaging explanation of the given topic for a general audience.',
     'If memory.feedback and memory.suggestions are present, you are revising a previous draft — use that feedback to improve.',
@@ -52,11 +52,11 @@ const WRITER_ID = registry.register({
     'Keep the draft under 250 words. Be clear and precise.',
   ].join(' '),
   temperature: 0.7,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
-    write_keys: ['draft'],
+    readKeys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
+    writeKeys: ['draft'],
   },
 });
 
@@ -65,7 +65,7 @@ const EVALUATOR_ID = registry.register({
   description: 'Scores a draft on quality and provides feedback',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a writing evaluator.',
     'Read the draft and score it on clarity, accuracy, engagement, and conciseness.',
     'You MUST call save_to_memory THREE times:',
@@ -77,11 +77,11 @@ const EVALUATOR_ID = registry.register({
     'Do not be needlessly harsh — if the draft genuinely meets the goal, reflect that in the score.',
   ].join(' '),
   temperature: 0.3,
-  max_steps: 5,
+  maxSteps: 5,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints', 'draft'],
-    write_keys: ['score', 'feedback', 'suggestions'],
+    readKeys: ['goal', 'constraints', 'draft'],
+    writeKeys: ['score', 'feedback', 'suggestions'],
   },
 });
 
@@ -90,18 +90,18 @@ const PUBLISHER_ID = registry.register({
   description: 'Produces the final polished version',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a publishing editor.',
     'Take the approved draft and produce a final, polished version.',
     'Fix any remaining grammar, style, or clarity issues.',
     'Keep the spirit and structure of the original draft intact.',
   ].join(' '),
   temperature: 0.5,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'draft'],
-    write_keys: ['final_output'],
+    readKeys: ['goal', 'draft'],
+    writeKeys: ['final_output'],
   },
 });
 configureAgentFactory(registry);
@@ -125,29 +125,29 @@ const graph = createGraph({
     {
       id: 'writer',
       type: 'agent',
-      agent_id: WRITER_ID,
-      read_keys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
-      write_keys: ['draft'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: WRITER_ID,
+      readKeys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
+      writeKeys: ['draft'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'evaluator',
       type: 'agent',
-      agent_id: EVALUATOR_ID,
-      read_keys: ['goal', 'constraints', 'draft'],
-      write_keys: ['score', 'feedback', 'suggestions'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: EVALUATOR_ID,
+      readKeys: ['goal', 'constraints', 'draft'],
+      writeKeys: ['score', 'feedback', 'suggestions'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'publisher',
       type: 'agent',
-      agent_id: PUBLISHER_ID,
-      read_keys: ['goal', 'draft'],
-      write_keys: ['final_output'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: PUBLISHER_ID,
+      readKeys: ['goal', 'draft'],
+      writeKeys: ['final_output'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
   ],
 
@@ -160,14 +160,14 @@ const graph = createGraph({
     { source: 'evaluator', target: 'publisher', condition: { type: 'conditional', condition: 'number(memory.score) >= 0.8' } },
   ],
 
-  start_node: 'writer',
-  end_nodes: ['publisher'],
+  startNode: 'writer',
+  endNodes: ['publisher'],
 });
 
 // ─── 3. Create initial state ─────────────────────────────────────────────
 
 const initialState = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Write a concise explanation of quantum computing for a general audience.',
   constraints: [
     'Under 250 words',
@@ -175,8 +175,8 @@ const initialState = createWorkflowState({
     'Cover qubits, superposition, and entanglement',
     'Suitable for someone with no physics background',
   ],
-  max_iterations: 20,
-  max_execution_time_ms: 300_000,
+  maxIterations: 20,
+  maxExecutionTimeMs: 300_000,
 });
 
 // ─── 4. Set up persistence + runner ──────────────────────────────────────

@@ -44,7 +44,7 @@ const SUPERVISOR_ID = registry.register({
   description: 'Routes tasks between specialist agents to produce a polished article',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a project supervisor coordinating a team of specialists to produce a high-quality article.',
     'You have three team members: "research" (gathers facts), "write" (produces drafts), and "edit" (polishes prose).',
     'Review the current state and decide which specialist should work next.',
@@ -52,11 +52,11 @@ const SUPERVISOR_ID = registry.register({
     'When the final_draft is polished and ready, route to "__done__" to complete the workflow.',
   ].join(' '),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['*'],
-    write_keys: ['*'],
+    readKeys: ['*'],
+    writeKeys: ['*'],
   },
 });
 
@@ -65,18 +65,18 @@ const RESEARCHER_ID = registry.register({
   description: 'Gathers background information on a topic',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a research specialist.',
     'Given a goal, produce concise, factual research notes.',
     'Focus on key facts, statistics, and notable perspectives.',
     'Write your findings as bullet points.',
   ].join(' '),
   temperature: 0.5,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints'],
-    write_keys: ['research_notes'],
+    readKeys: ['goal', 'constraints'],
+    writeKeys: ['research_notes'],
   },
 });
 
@@ -85,17 +85,17 @@ const WRITER_ID = registry.register({
   description: 'Produces a draft article from research notes',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a professional writer.',
     'Using the provided research notes, produce a clear and engaging article draft.',
     'Keep it under 500 words. Use plain language.',
   ].join(' '),
   temperature: 0.7,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'research_notes'],
-    write_keys: ['draft'],
+    readKeys: ['goal', 'research_notes'],
+    writeKeys: ['draft'],
   },
 });
 
@@ -104,17 +104,17 @@ const EDITOR_ID = registry.register({
   description: 'Polishes a draft into a final article',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a meticulous editor.',
     'Review the draft for clarity, grammar, flow, and factual accuracy.',
     'Produce a polished final version.',
   ].join(' '),
   temperature: 0.4,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'draft'],
-    write_keys: ['final_draft'],
+    readKeys: ['goal', 'draft'],
+    writeKeys: ['final_draft'],
   },
 });
 configureAgentFactory(registry);
@@ -136,42 +136,42 @@ const graph = createGraph({
     {
       id: 'supervisor',
       type: 'supervisor',
-      agent_id: SUPERVISOR_ID,
-      read_keys: ['*'],
-      write_keys: ['*'],
-      supervisor_config: {
-        managed_nodes: ['research', 'write', 'edit'],
-        max_iterations: 10,
+      agentId: SUPERVISOR_ID,
+      readKeys: ['*'],
+      writeKeys: ['*'],
+      supervisorConfig: {
+        managedNodes: ['research', 'write', 'edit'],
+        maxIterations: 10,
       },
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'research',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['research_notes'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: RESEARCHER_ID,
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['research_notes'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'write',
       type: 'agent',
-      agent_id: WRITER_ID,
-      read_keys: ['goal', 'research_notes'],
-      write_keys: ['draft'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: WRITER_ID,
+      readKeys: ['goal', 'research_notes'],
+      writeKeys: ['draft'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'edit',
       type: 'agent',
-      agent_id: EDITOR_ID,
-      read_keys: ['goal', 'draft'],
-      write_keys: ['final_draft'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: EDITOR_ID,
+      readKeys: ['goal', 'draft'],
+      writeKeys: ['final_draft'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
   ],
 
@@ -186,17 +186,17 @@ const graph = createGraph({
     { source: 'edit', target: 'supervisor' },
   ],
 
-  start_node: 'supervisor',
-  end_nodes: [],  // Termination via __done__ sentinel
+  startNode: 'supervisor',
+  endNodes: [],  // Termination via __done__ sentinel
 });
 
 // ─── 3. Create initial state ─────────────────────────────────────────────
 
 const initialState = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Write a concise article about how renewable energy is transforming the global power grid, covering solar, wind, and battery storage.',
   constraints: ['Keep the final article under 500 words', 'Use plain language suitable for a general audience'],
-  max_execution_time_ms: 300_000,
+  maxExecutionTimeMs: 300_000,
 });
 
 // ─── 4. Set up persistence + runner ──────────────────────────────────────

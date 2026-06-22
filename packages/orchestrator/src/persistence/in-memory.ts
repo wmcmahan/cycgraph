@@ -13,13 +13,15 @@
 import type { Graph } from '../types/graph.js';
 import type { WorkflowState } from '../types/state.js';
 import { hydrateWorkflowState } from '../types/state.js';
-import type { MCPServerEntry } from '../types/tools.js';
+import type { MCPServerEntry, MCPServerConfig } from '../types/tools.js';
 import { MCPServerEntrySchema } from '../types/tools.js';
+import { camelToSnakeDeep } from '../types/case-mapping.js';
 import type {
   PersistenceProvider,
   AgentRegistry,
   AgentRegistryEntry,
   AgentRegistryInput,
+  AgentRegistryConfig,
   MCPServerRegistry,
   UsageRecorder,
   UsageRecord,
@@ -261,13 +263,16 @@ export class InMemoryAgentRegistry implements AgentRegistry {
    * If the input includes an `id`, it is used as-is (backwards compatible).
    * Otherwise, a UUID is auto-generated via `crypto.randomUUID()`.
    */
-  register(entry: AgentRegistryInput | AgentRegistryEntry): string {
-    const id = 'id' in entry && entry.id ? entry.id : crypto.randomUUID();
+  register(entry: AgentRegistryConfig): string {
+    // Remap camelCase authoring input to the snake_case wire shape. The remap
+    // is idempotent, so snake_case callers keep working.
+    const wire = camelToSnakeDeep(entry) as AgentRegistryInput & { id?: string };
+    const id = wire.id ?? crypto.randomUUID();
     const full: AgentRegistryEntry = {
       description: null,
       temperature: 0.7,
       max_steps: 10,
-      ...entry,
+      ...wire,
       id,
     };
     this.agents.set(id, full);
@@ -275,10 +280,11 @@ export class InMemoryAgentRegistry implements AgentRegistry {
   }
 
   /** Update an existing agent's configuration. Throws if not found. */
-  async updateAgent(id: string, updates: Partial<AgentRegistryInput>): Promise<void> {
+  async updateAgent(id: string, updates: Partial<AgentRegistryConfig>): Promise<void> {
     const existing = this.agents.get(id);
     if (!existing) throw new Error(`Agent not found: ${id}`);
-    this.agents.set(id, { ...existing, ...updates, id });
+    const wire = camelToSnakeDeep(updates) as Partial<AgentRegistryInput>;
+    this.agents.set(id, { ...existing, ...wire, id });
   }
 
   /** List registered agents with optional pagination. */
@@ -317,8 +323,10 @@ export class InMemoryMCPServerRegistry implements MCPServerRegistry {
    * write actually parses, so we never trust a caller's `MCPServerEntry`
    * (TypeScript types are compile-time only).
    */
-  async saveServer(entry: MCPServerEntry): Promise<void> {
-    const validated = MCPServerEntrySchema.parse(entry);
+  async saveServer(entry: MCPServerConfig): Promise<void> {
+    // Remap camelCase authoring input to snake_case (idempotent) before the
+    // security-critical schema validation.
+    const validated = MCPServerEntrySchema.parse(camelToSnakeDeep(entry));
     this.servers.set(validated.id, validated);
   }
 
@@ -341,8 +349,8 @@ export class InMemoryMCPServerRegistry implements MCPServerRegistry {
   }
 
   /** Convenience alias for saveServer (test helper). Validates like saveServer. */
-  register(entry: MCPServerEntry): void {
-    const validated = MCPServerEntrySchema.parse(entry);
+  register(entry: MCPServerConfig): void {
+    const validated = MCPServerEntrySchema.parse(camelToSnakeDeep(entry));
     this.servers.set(validated.id, validated);
   }
 

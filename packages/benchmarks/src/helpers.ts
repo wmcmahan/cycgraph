@@ -6,8 +6,8 @@
  */
 
 import {
-  createGraph,
-  createWorkflowState,
+  GraphSchema,
+  WorkflowStateSchema,
   type Graph,
   type WorkflowState,
 } from '@cycgraph/orchestrator';
@@ -38,7 +38,9 @@ export function buildLinearToolGraph(nodeCount: number): Graph {
     condition: { type: 'always' as const },
   }));
 
-  return createGraph({
+  // Snake_case wire format — validated directly rather than through the
+  // camelCase `createGraph` authoring entry.
+  return GraphSchema.parse({
     name: `linear-${nodeCount}`,
     description: `Linear ${nodeCount}-node graph for benchmarks`,
     nodes,
@@ -54,7 +56,7 @@ export function buildLinearToolGraph(nodeCount: number): Graph {
  * iteration ceiling on the 1000-node bench.
  */
 export function buildBenchState(graph: Graph, opts?: { maxIterations?: number }): WorkflowState {
-  return createWorkflowState({
+  return WorkflowStateSchema.parse({
     workflow_id: graph.id,
     goal: 'bench',
     max_iterations: opts?.maxIterations ?? Math.max(50, graph.nodes.length + 10),

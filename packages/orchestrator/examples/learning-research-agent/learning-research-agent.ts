@@ -131,7 +131,7 @@ const RESEARCHER_ID = registry.register({
   description: 'Gathers concise research notes on a topic',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a research specialist.',
     'Given a goal, produce 5–8 bullet-style research notes.',
     'Each bullet is a single, self-contained sentence (25–60 words).',
@@ -140,11 +140,11 @@ const RESEARCHER_ID = registry.register({
     'When you apply a lesson, cite it by quoting a key phrase in parentheses.',
   ].join(' '),
   temperature: 0.5,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints'],
-    write_keys: ['research_notes'],
+    readKeys: ['goal', 'constraints'],
+    writeKeys: ['research_notes'],
   },
 });
 
@@ -161,42 +161,42 @@ const graph = createGraph({
     {
       id: 'research',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['research_notes'],
+      agentId: RESEARCHER_ID,
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['research_notes'],
       // Per-node memory retrieval directive. The runner calls
       // `memoryRetriever({ tags: [LESSON_TAG] }, …)` before building this
       // node's prompt and renders the result into a `## Relevant Memory`
       // section. Zero manual injection required.
-      memory_query: {
+      memoryQuery: {
         tags: [LESSON_TAG],
-        max_facts: 20,
+        maxFacts: 20,
       },
-      failure_policy: {
-        max_retries: 2,
-        backoff_strategy: 'exponential',
-        initial_backoff_ms: 1000,
-        max_backoff_ms: 60000,
+      failurePolicy: {
+        maxRetries: 2,
+        backoffStrategy: 'exponential',
+        initialBackoffMs: 1000,
+        maxBackoffMs: 60000,
       },
-      requires_compensation: false,
+      requiresCompensation: false,
     },
     {
       id: 'reflect',
       type: 'reflection',
-      read_keys: ['research_notes'],
-      write_keys: ['research_notes_reflection'],
-      reflection_config: {
-        source_keys: ['research_notes'],
-        extractor: { type: 'rule_based', min_sentence_length: 25 },
+      readKeys: ['research_notes'],
+      writeKeys: ['research_notes_reflection'],
+      reflectionConfig: {
+        sourceKeys: ['research_notes'],
+        extractor: { type: 'rule_based', minSentenceLength: 25 },
         tags: ['lesson', LESSON_TAG],
       },
-      failure_policy: {
-        max_retries: 1,
-        backoff_strategy: 'exponential',
-        initial_backoff_ms: 500,
-        max_backoff_ms: 5000,
+      failurePolicy: {
+        maxRetries: 1,
+        backoffStrategy: 'exponential',
+        initialBackoffMs: 500,
+        maxBackoffMs: 5000,
       },
-      requires_compensation: false,
+      requiresCompensation: false,
     },
   ],
 
@@ -204,8 +204,8 @@ const graph = createGraph({
     { source: 'research', target: 'reflect' },
   ],
 
-  start_node: 'research',
-  end_nodes: ['reflect'],
+  startNode: 'research',
+  endNodes: ['reflect'],
 });
 
 // ─── 4. Run helper ──────────────────────────────────────────────────────
@@ -229,10 +229,10 @@ async function runOnce(goal: string, constraints: string[]): Promise<RunOutcome>
   const priorLessonCount = await countLessons();
 
   const initialState = createWorkflowState({
-    workflow_id: graph.id,
+    workflowId: graph.id,
     goal,
     constraints,
-    max_execution_time_ms: 120_000,
+    maxExecutionTimeMs: 120_000,
   });
 
   const persistence = new InMemoryPersistenceProvider();

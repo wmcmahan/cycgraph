@@ -17,14 +17,14 @@
 import { bench, describe } from 'vitest';
 import {
   rootReducer,
-  createWorkflowState,
+  WorkflowStateSchema,
   type Action,
   type WorkflowState,
 } from '@cycgraph/orchestrator';
 import { internalReducer } from '@cycgraph/orchestrator/internal';
 
 function freshState(): WorkflowState {
-  return createWorkflowState({
+  return WorkflowStateSchema.parse({
     workflow_id: '00000000-0000-0000-0000-000000000000',
     goal: 'bench',
   });

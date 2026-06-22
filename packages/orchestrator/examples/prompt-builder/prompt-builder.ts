@@ -52,7 +52,7 @@ const PROMPT_BUILDER_ID = registry.register({
   description: 'Transforms vague user goals into structured, actionable instructions',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a prompt engineering specialist. Your job is to take a raw user goal and transform it into structured, actionable instructions that a team of AI agents can execute effectively.',
     '',
     'If "prompt_feedback" exists in the workflow state, you are REFINING a previous attempt.',
@@ -78,11 +78,11 @@ const PROMPT_BUILDER_ID = registry.register({
     'You MUST call save_to_memory three times: once for "refined_goal", once for "task_plan", and once for "quality_criteria".',
   ].join('\n'),
   temperature: 0.4,
-  max_steps: 5,
+  maxSteps: 5,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria', 'prompt_feedback', 'prompt_suggestions'],
-    write_keys: ['refined_goal', 'task_plan', 'quality_criteria'],
+    readKeys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria', 'prompt_feedback', 'prompt_suggestions'],
+    writeKeys: ['refined_goal', 'task_plan', 'quality_criteria'],
   },
 });
 
@@ -92,7 +92,7 @@ const PROMPT_CRITIC_ID = registry.register({
   description: 'Evaluates the quality of structured prompt instructions and provides feedback',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a prompt quality evaluator. Your job is to assess whether structured instructions are clear, specific, and actionable enough for a team of AI agents to execute.',
     '',
     'You will receive three pieces of output from the prompt builder:',
@@ -117,11 +117,11 @@ const PROMPT_CRITIC_ID = registry.register({
     'Do not be needlessly harsh — a clear, specific, complete plan should score 0.8+.',
   ].join('\n'),
   temperature: 0.3,
-  max_steps: 5,
+  maxSteps: 5,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria'],
-    write_keys: ['prompt_score', 'prompt_feedback', 'prompt_suggestions'],
+    readKeys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria'],
+    writeKeys: ['prompt_score', 'prompt_feedback', 'prompt_suggestions'],
   },
 });
 
@@ -131,7 +131,7 @@ const SUPERVISOR_ID = registry.register({
   description: 'Routes tasks between specialist agents using the structured plan',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a project supervisor coordinating a team of specialists.',
     'You have three team members: "research" (gathers facts), "write" (produces drafts), and "edit" (polishes prose).',
     '',
@@ -144,11 +144,11 @@ const SUPERVISOR_ID = registry.register({
     'When the final_draft meets the quality_criteria, route to "__done__" to complete.',
   ].join(' '),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['*'],
-    write_keys: ['*'],
+    readKeys: ['*'],
+    writeKeys: ['*'],
   },
 });
 
@@ -158,18 +158,18 @@ const RESEARCHER_ID = registry.register({
   description: 'Gathers background information guided by the structured plan',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a research specialist.',
     'Read the "refined_goal" and "task_plan" from the workflow state — these contain your specific research instructions.',
     'Follow the research steps in the task_plan precisely.',
     'Produce concise, factual research notes as bullet points.',
   ].join(' '),
   temperature: 0.5,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['refined_goal', 'task_plan', 'constraints'],
-    write_keys: ['research_notes'],
+    readKeys: ['refined_goal', 'task_plan', 'constraints'],
+    writeKeys: ['research_notes'],
   },
 });
 
@@ -178,7 +178,7 @@ const WRITER_ID = registry.register({
   description: 'Produces a draft article guided by the structured plan',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a professional writer.',
     'Read the "refined_goal", "task_plan", and "quality_criteria" from the workflow state.',
     'Follow the writing instructions in the task_plan for structure, tone, and format.',
@@ -186,11 +186,11 @@ const WRITER_ID = registry.register({
     'Keep the quality_criteria in mind as you write — the editor will check against them.',
   ].join(' '),
   temperature: 0.7,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['refined_goal', 'task_plan', 'quality_criteria', 'research_notes'],
-    write_keys: ['draft'],
+    readKeys: ['refined_goal', 'task_plan', 'quality_criteria', 'research_notes'],
+    writeKeys: ['draft'],
   },
 });
 
@@ -199,18 +199,18 @@ const EDITOR_ID = registry.register({
   description: 'Polishes a draft using the quality criteria as a checklist',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a meticulous editor.',
     'Read the "quality_criteria" from the workflow state — this is your checklist.',
     'Review the draft against each criterion. Fix any issues you find.',
     'Produce a polished final version that passes all quality criteria.',
   ].join(' '),
   temperature: 0.4,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['refined_goal', 'quality_criteria', 'draft'],
-    write_keys: ['final_draft'],
+    readKeys: ['refined_goal', 'quality_criteria', 'draft'],
+    writeKeys: ['final_draft'],
   },
 });
 
@@ -240,62 +240,62 @@ const graph = createGraph({
     {
       id: 'prompt_builder',
       type: 'agent',
-      agent_id: PROMPT_BUILDER_ID,
-      read_keys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria', 'prompt_feedback', 'prompt_suggestions'],
-      write_keys: ['refined_goal', 'task_plan', 'quality_criteria'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: PROMPT_BUILDER_ID,
+      readKeys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria', 'prompt_feedback', 'prompt_suggestions'],
+      writeKeys: ['refined_goal', 'task_plan', 'quality_criteria'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'prompt_critic',
       type: 'agent',
-      agent_id: PROMPT_CRITIC_ID,
-      read_keys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria'],
-      write_keys: ['prompt_score', 'prompt_feedback', 'prompt_suggestions'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: PROMPT_CRITIC_ID,
+      readKeys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria'],
+      writeKeys: ['prompt_score', 'prompt_feedback', 'prompt_suggestions'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
 
     // ── Phase 2: Supervisor-routed execution ───────────────────────
     {
       id: 'supervisor',
       type: 'supervisor',
-      agent_id: SUPERVISOR_ID,
-      read_keys: ['*'],
-      write_keys: ['*'],
-      supervisor_config: {
-        managed_nodes: ['research', 'write', 'edit'],
-        max_iterations: 10,
+      agentId: SUPERVISOR_ID,
+      readKeys: ['*'],
+      writeKeys: ['*'],
+      supervisorConfig: {
+        managedNodes: ['research', 'write', 'edit'],
+        maxIterations: 10,
       },
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'research',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['refined_goal', 'task_plan', 'constraints'],
-      write_keys: ['research_notes'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: RESEARCHER_ID,
+      readKeys: ['refined_goal', 'task_plan', 'constraints'],
+      writeKeys: ['research_notes'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'write',
       type: 'agent',
-      agent_id: WRITER_ID,
-      read_keys: ['refined_goal', 'task_plan', 'quality_criteria', 'research_notes'],
-      write_keys: ['draft'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: WRITER_ID,
+      readKeys: ['refined_goal', 'task_plan', 'quality_criteria', 'research_notes'],
+      writeKeys: ['draft'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
     {
       id: 'edit',
       type: 'agent',
-      agent_id: EDITOR_ID,
-      read_keys: ['refined_goal', 'quality_criteria', 'draft'],
-      write_keys: ['final_draft'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
-      requires_compensation: false,
+      agentId: EDITOR_ID,
+      readKeys: ['refined_goal', 'quality_criteria', 'draft'],
+      writeKeys: ['final_draft'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
+      requiresCompensation: false,
     },
   ],
 
@@ -316,8 +316,8 @@ const graph = createGraph({
     { source: 'edit', target: 'supervisor' },
   ],
 
-  start_node: 'prompt_builder',
-  end_nodes: [],  // Termination via __done__ sentinel
+  startNode: 'prompt_builder',
+  endNodes: [],  // Termination via __done__ sentinel
 });
 
 // ─── 3. Create initial state ─────────────────────────────────────────────
@@ -325,11 +325,11 @@ const graph = createGraph({
 // The self-annealing loop will refine it until it's actionable.
 
 const initialState = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'write something about AI agents',
   constraints: ['keep it accessible'],
-  max_iterations: 30,    // Allow enough headroom for annealing + execution
-  max_execution_time_ms: 300_000,
+  maxIterations: 30,    // Allow enough headroom for annealing + execution
+  maxExecutionTimeMs: 300_000,
 });
 
 // ─── 4. Set up persistence + runner ──────────────────────────────────────

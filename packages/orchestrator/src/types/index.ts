@@ -7,6 +7,7 @@
  * @module types
  */
 
+export * from './case-mapping.js';
 export * from './state.js';
 export * from './graph.js';
 export * from './event.js';

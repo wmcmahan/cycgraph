@@ -62,7 +62,7 @@ const TARGET_SUPERVISOR_ID = agentRegistry.register({
   description: 'Routes between researcher and writer',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You supervise a research-and-write workflow with two team members:',
     '  - "researcher": Produces research notes on the given topic.',
     '  - "writer": Writes a polished summary from the research notes.',
@@ -73,9 +73,9 @@ const TARGET_SUPERVISOR_ID = agentRegistry.register({
     '3. After the summary is written, route to "__done__".',
   ].join('\n'),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
-  permissions: { read_keys: ['*'], write_keys: ['*'] },
+  permissions: { readKeys: ['*'], writeKeys: ['*'] },
 });
 
 const TARGET_RESEARCHER_ID = agentRegistry.register({
@@ -83,14 +83,14 @@ const TARGET_RESEARCHER_ID = agentRegistry.register({
   description: 'Produces research notes on a topic using existing knowledge',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a research specialist. Produce detailed research notes on the topic in the goal.',
     'Cover key concepts, recent developments, and practical applications.',
   ].join('\n'),
   temperature: 0.5,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
-  permissions: { read_keys: ['goal'], write_keys: ['research_notes'] },
+  permissions: { readKeys: ['goal'], writeKeys: ['research_notes'] },
 });
 
 const TARGET_WRITER_ID = agentRegistry.register({
@@ -98,13 +98,13 @@ const TARGET_WRITER_ID = agentRegistry.register({
   description: 'Writes a polished summary from research notes',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a writer. Read the research_notes and produce a concise, polished summary.',
   ].join('\n'),
   temperature: 0.7,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
-  permissions: { read_keys: ['goal', 'research_notes'], write_keys: ['summary'] },
+  permissions: { readKeys: ['goal', 'research_notes'], writeKeys: ['summary'] },
 });
 
 // ─── 3. Register observer workflow agents ───────────────────────────────
@@ -114,7 +114,7 @@ const OBSERVER_SUPERVISOR_ID = agentRegistry.register({
   description: 'Routes between triage specialist agents',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are an observer supervisor triaging a completed workflow run.',
     'You have three specialists and a report writer:',
     '  - "token_analyst": Analyzes token usage patterns.',
@@ -126,9 +126,9 @@ const OBSERVER_SUPERVISOR_ID = agentRegistry.register({
     'Do not skip any specialist — even if the data looks clean, each should confirm that.',
   ].join('\n'),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
-  permissions: { read_keys: ['*'], write_keys: ['*'] },
+  permissions: { readKeys: ['*'], writeKeys: ['*'] },
 });
 
 const TOKEN_ANALYST_ID = agentRegistry.register({
@@ -136,7 +136,7 @@ const TOKEN_ANALYST_ID = agentRegistry.register({
   description: 'Analyzes token usage patterns for waste or anomalies',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You analyze token usage from a completed workflow run.',
     'You receive target_events (event log) and target_snapshot (state summary) in memory.',
     '',
@@ -150,11 +150,11 @@ const TOKEN_ANALYST_ID = agentRegistry.register({
     'Include severity level (info/warning/critical) for each finding.',
   ].join('\n'),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['target_events', 'target_snapshot'],
-    write_keys: ['token_analysis'],
+    readKeys: ['target_events', 'target_snapshot'],
+    writeKeys: ['token_analysis'],
   },
 });
 
@@ -163,7 +163,7 @@ const STALL_DETECTOR_ID = agentRegistry.register({
   description: 'Detects routing loops, stalls, or anomalous patterns',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You detect stalls and routing anomalies in a completed workflow run.',
     'You receive target_events and target_snapshot in memory.',
     '',
@@ -177,11 +177,11 @@ const STALL_DETECTOR_ID = agentRegistry.register({
     'Include severity level (info/warning/critical) for each finding.',
   ].join('\n'),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['target_events', 'target_snapshot'],
-    write_keys: ['stall_analysis'],
+    readKeys: ['target_events', 'target_snapshot'],
+    writeKeys: ['stall_analysis'],
   },
 });
 
@@ -190,7 +190,7 @@ const ERROR_CLASSIFIER_ID = agentRegistry.register({
   description: 'Classifies errors from the workflow run',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You classify errors from a completed workflow run.',
     'You receive target_events and target_snapshot in memory.',
     '',
@@ -206,11 +206,11 @@ const ERROR_CLASSIFIER_ID = agentRegistry.register({
     'Include severity level (info/warning/critical) for each finding.',
   ].join('\n'),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['target_events', 'target_snapshot'],
-    write_keys: ['error_analysis'],
+    readKeys: ['target_events', 'target_snapshot'],
+    writeKeys: ['error_analysis'],
   },
 });
 
@@ -219,7 +219,7 @@ const REPORT_WRITER_ID = agentRegistry.register({
   description: 'Synthesizes triage findings into a structured report',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You synthesize triage findings into a final structured report.',
     'You receive token_analysis, stall_analysis, and error_analysis in memory.',
     '',
@@ -232,11 +232,11 @@ const REPORT_WRITER_ID = agentRegistry.register({
     'Format as a clean markdown report.',
   ].join('\n'),
   temperature: 0.4,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['token_analysis', 'stall_analysis', 'error_analysis', 'target_snapshot'],
-    write_keys: ['triage_report'],
+    readKeys: ['token_analysis', 'stall_analysis', 'error_analysis', 'target_snapshot'],
+    writeKeys: ['triage_report'],
   },
 });
 
@@ -254,33 +254,33 @@ const targetGraph = createGraph({
     {
       id: 'supervisor',
       type: 'supervisor',
-      agent_id: TARGET_SUPERVISOR_ID,
-      read_keys: ['*'],
-      write_keys: ['*'],
-      supervisor_config: {
-        managed_nodes: ['researcher', 'writer'],
-        max_iterations: 10,
+      agentId: TARGET_SUPERVISOR_ID,
+      readKeys: ['*'],
+      writeKeys: ['*'],
+      supervisorConfig: {
+        managedNodes: ['researcher', 'writer'],
+        maxIterations: 10,
       },
-      failure_policy: { max_retries: 1, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 30000 },
-      requires_compensation: false,
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
+      requiresCompensation: false,
     },
     {
       id: 'researcher',
       type: 'agent',
-      agent_id: TARGET_RESEARCHER_ID,
-      read_keys: ['goal'],
-      write_keys: ['research_notes'],
-      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 1000, max_backoff_ms: 5000 },
-      requires_compensation: false,
+      agentId: TARGET_RESEARCHER_ID,
+      readKeys: ['goal'],
+      writeKeys: ['research_notes'],
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
+      requiresCompensation: false,
     },
     {
       id: 'writer',
       type: 'agent',
-      agent_id: TARGET_WRITER_ID,
-      read_keys: ['goal', 'research_notes'],
-      write_keys: ['summary'],
-      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 1000, max_backoff_ms: 5000 },
-      requires_compensation: false,
+      agentId: TARGET_WRITER_ID,
+      readKeys: ['goal', 'research_notes'],
+      writeKeys: ['summary'],
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
+      requiresCompensation: false,
     },
   ],
   edges: [
@@ -289,8 +289,8 @@ const targetGraph = createGraph({
     { source: 'researcher', target: 'supervisor' },
     { source: 'writer', target: 'supervisor' },
   ],
-  start_node: 'supervisor',
-  end_nodes: [],
+  startNode: 'supervisor',
+  endNodes: [],
 });
 
 // ─── 5. Define the observer workflow graph ──────────────────────────────
@@ -302,51 +302,51 @@ const observerGraph = createGraph({
     {
       id: 'observer_supervisor',
       type: 'supervisor',
-      agent_id: OBSERVER_SUPERVISOR_ID,
-      read_keys: ['*'],
-      write_keys: ['*'],
-      supervisor_config: {
-        managed_nodes: ['token_analyst', 'stall_detector', 'error_classifier', 'report_writer'],
-        max_iterations: 8,
+      agentId: OBSERVER_SUPERVISOR_ID,
+      readKeys: ['*'],
+      writeKeys: ['*'],
+      supervisorConfig: {
+        managedNodes: ['token_analyst', 'stall_detector', 'error_classifier', 'report_writer'],
+        maxIterations: 8,
       },
-      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 1000, max_backoff_ms: 5000 },
-      requires_compensation: false,
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
+      requiresCompensation: false,
     },
     {
       id: 'token_analyst',
       type: 'agent',
-      agent_id: TOKEN_ANALYST_ID,
-      read_keys: ['target_events', 'target_snapshot'],
-      write_keys: ['token_analysis'],
-      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 1000, max_backoff_ms: 5000 },
-      requires_compensation: false,
+      agentId: TOKEN_ANALYST_ID,
+      readKeys: ['target_events', 'target_snapshot'],
+      writeKeys: ['token_analysis'],
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
+      requiresCompensation: false,
     },
     {
       id: 'stall_detector',
       type: 'agent',
-      agent_id: STALL_DETECTOR_ID,
-      read_keys: ['target_events', 'target_snapshot'],
-      write_keys: ['stall_analysis'],
-      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 1000, max_backoff_ms: 5000 },
-      requires_compensation: false,
+      agentId: STALL_DETECTOR_ID,
+      readKeys: ['target_events', 'target_snapshot'],
+      writeKeys: ['stall_analysis'],
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
+      requiresCompensation: false,
     },
     {
       id: 'error_classifier',
       type: 'agent',
-      agent_id: ERROR_CLASSIFIER_ID,
-      read_keys: ['target_events', 'target_snapshot'],
-      write_keys: ['error_analysis'],
-      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 1000, max_backoff_ms: 5000 },
-      requires_compensation: false,
+      agentId: ERROR_CLASSIFIER_ID,
+      readKeys: ['target_events', 'target_snapshot'],
+      writeKeys: ['error_analysis'],
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
+      requiresCompensation: false,
     },
     {
       id: 'report_writer',
       type: 'agent',
-      agent_id: REPORT_WRITER_ID,
-      read_keys: ['token_analysis', 'stall_analysis', 'error_analysis', 'target_snapshot'],
-      write_keys: ['triage_report'],
-      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 1000, max_backoff_ms: 5000 },
-      requires_compensation: false,
+      agentId: REPORT_WRITER_ID,
+      readKeys: ['token_analysis', 'stall_analysis', 'error_analysis', 'target_snapshot'],
+      writeKeys: ['triage_report'],
+      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
+      requiresCompensation: false,
     },
   ],
   edges: [
@@ -359,8 +359,8 @@ const observerGraph = createGraph({
     { source: 'error_classifier', target: 'observer_supervisor' },
     { source: 'report_writer', target: 'observer_supervisor' },
   ],
-  start_node: 'observer_supervisor',
-  end_nodes: [],
+  startNode: 'observer_supervisor',
+  endNodes: [],
 });
 
 // ─── 6. Run the target workflow ─────────────────────────────────────────
@@ -371,10 +371,10 @@ async function runTargetWorkflow(): Promise<WorkflowState> {
   await persistence.saveGraph(targetGraph);
 
   const targetState = createWorkflowState({
-    workflow_id: targetGraph.id,
+    workflowId: targetGraph.id,
     goal: 'Explain the key differences between transformer and diffusion architectures in modern AI, covering attention mechanisms, training approaches, and practical applications.',
-    max_iterations: 20,
-    max_execution_time_ms: 120_000,
+    maxIterations: 20,
+    maxExecutionTimeMs: 120_000,
   });
 
   const worker = new WorkflowWorker({
@@ -430,10 +430,10 @@ async function runObserverWorkflow(targetRunId: string): Promise<WorkflowState> 
   await persistence.saveGraph(observerGraph);
 
   const observerState = createWorkflowState({
-    workflow_id: observerGraph.id,
+    workflowId: observerGraph.id,
     goal: `Triage the workflow run ${targetRunId} — analyze events and state for issues.`,
-    max_iterations: 20,
-    max_execution_time_ms: 120_000,
+    maxIterations: 20,
+    maxExecutionTimeMs: 120_000,
   });
 
   // The observer uses middleware to inject target data into its own state

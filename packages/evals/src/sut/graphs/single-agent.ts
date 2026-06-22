@@ -7,7 +7,7 @@
  *
  * The agent's tool declarations come from the caller — pass
  * `tools: []` for no-tools trajectories, or
- * `tools: [{ type: 'mcp', server_id: 'mock', tool_names: ['web_search'] }]`
+ * `tools: [{ type: 'mcp', serverId: 'mock', toolNames: ['web_search'] }]`
  * to let the mock resolver provide canned responses.
  *
  * @module sut/graphs/single-agent
@@ -15,14 +15,14 @@
 
 import {
   InMemoryAgentRegistry,
-  createGraph,
-  createWorkflowState,
+  GraphSchema,
+  WorkflowStateSchema,
 } from '@cycgraph/orchestrator';
 import type {
   Graph,
   WorkflowState,
   AgentRegistry,
-  ToolSource,
+  ToolSourceConfig,
 } from '@cycgraph/orchestrator';
 
 /** Options for the single-agent reference graph. */
@@ -34,7 +34,7 @@ export interface SingleAgentGraphOptions {
    * Tools the agent declares. Pass an empty array for no-tools trajectories.
    * MCP-typed tools are resolved by the mock tool resolver during recording.
    */
-  tools?: ToolSource[];
+  tools?: ToolSourceConfig[];
 
   /** Memory key the agent writes its response to (default: `'response'`). */
   outputKey?: string;
@@ -92,17 +92,17 @@ export function buildSingleAgentGraph(
     description: 'Generic agent for single-node trajectory recording',
     model: opts.model ?? 'claude-sonnet-4-6',
     provider: opts.provider ?? 'anthropic',
-    system_prompt: opts.systemPrompt ?? DEFAULT_PROMPT,
+    systemPrompt: opts.systemPrompt ?? DEFAULT_PROMPT,
     temperature: 0.2,
-    max_steps: opts.maxSteps ?? 5,
+    maxSteps: opts.maxSteps ?? 5,
     tools,
     permissions: {
-      read_keys: ['goal', 'constraints'],
-      write_keys: [outputKey],
+      readKeys: ['goal', 'constraints'],
+      writeKeys: [outputKey],
     },
   });
 
-  const graph = createGraph({
+  const graph = GraphSchema.parse({
     name: 'single-agent-sut',
     description: 'SUT reference graph: one agent → one memory key',
     nodes: [
@@ -126,7 +126,7 @@ export function buildSingleAgentGraph(
     end_nodes: ['agent'],
   });
 
-  const initialState = createWorkflowState({
+  const initialState = WorkflowStateSchema.parse({
     workflow_id: graph.id,
     goal: opts.input,
     max_execution_time_ms: opts.maxExecutionTimeMs ?? 120_000,

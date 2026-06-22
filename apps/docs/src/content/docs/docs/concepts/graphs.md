@@ -35,8 +35,8 @@ const graph = createGraph({
 | `description` | `string` | *required* | Description of what this graph does. |
 | `nodes` | `GraphNode[]` | *required* | List of nodes that define the work to be done. |
 | `edges` | `GraphEdge[]` | *required* | Directed edges defining the flow of execution. |
-| `start_node` | `string` | *required* | The ID of the first node to execute. |
-| `end_nodes` | `string[]` | *required* | Terminal node IDs. Execution stops here. |
+| `startNode` | `string` | *required* | The ID of the first node to execute. |
+| `endNodes` | `string[]` | *required* | Terminal node IDs. Execution stops here. |
 
 ## Edges
 
@@ -44,7 +44,7 @@ An **Edge** is a directed connection between a source node and a target node.
 
 When a node completes, the orchestrator evaluates all outgoing edges from that node. The condition determines whether the edge is traversed.
 
-If the node is **not** a declared end node and **no** outgoing edge's condition matches, that's a dead-end — the runner fails the run with `NoMatchingEdgeError` rather than silently treating it as completion. Make sure every non-terminal node has at least one edge whose condition can match (an `always` edge is the simplest fallback), or list genuinely-terminal nodes in `end_nodes`. Set `allow_implicit_completion: true` on `GraphRunnerOptions` for the legacy silent-completion behavior.
+If the node is **not** a declared end node and **no** outgoing edge's condition matches, that's a dead-end — the runner fails the run with `NoMatchingEdgeError` rather than silently treating it as completion. Make sure every non-terminal node has at least one edge whose condition can match (an `always` edge is the simplest fallback), or list genuinely-terminal nodes in `endNodes`. Set `allow_implicit_completion: true` on `GraphRunnerOptions` for the legacy silent-completion behavior.
 
 ### Edge configuration
 

@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import type { Camelize } from './case-mapping.js';
 
 // ─── Tool Source (Agent Config Level) ──────────────────────────────
 
@@ -57,6 +58,13 @@ export const ToolSourceSchema = z.discriminatedUnion('type', [
 ]);
 
 export type ToolSource = z.infer<typeof ToolSourceSchema>;
+
+/**
+ * camelCase authoring type for tool sources (`serverId`, `toolNames`), derived
+ * from the snake_case {@link ToolSource} wire type. Used when authoring node /
+ * agent `tools`; the constructors remap to snake_case for the engine.
+ */
+export type ToolSourceConfig = Camelize<ToolSource>;
 export type BuiltinToolSource = z.infer<typeof BuiltinToolSourceSchema>;
 export type MCPToolSource = z.infer<typeof MCPToolSourceSchema>;
 
@@ -231,3 +239,11 @@ export const MCPServerEntrySchema = z.object({
 });
 
 export type MCPServerEntry = z.infer<typeof MCPServerEntrySchema>;
+
+/**
+ * camelCase authoring type for MCP server registration (`allowedAgents`,
+ * `timeoutMs`, …), derived from the snake_case {@link MCPServerEntry} wire
+ * type. Accepted by `saveServer`; stored entries and `loadServer` results
+ * remain snake_case. Transport `env` / `headers` keys are preserved verbatim.
+ */
+export type MCPServerConfig = Camelize<MCPServerEntry>;

@@ -16,7 +16,7 @@
  * @module mcp/default-servers
  */
 
-import type { MCPServerEntry } from '../types/tools.js';
+import type { MCPServerEntry, MCPServerConfig } from '../types/tools.js';
 import type { MCPServerRegistry } from '../persistence/interfaces.js';
 
 // ─── Server Definitions ─────────────────────────────────────────────
@@ -104,16 +104,16 @@ export interface RegisterDefaultMCPServersOptions {
   exclude?: string[];
 
   /**
-   * Override `allowed_agents` for all registered servers.
+   * Override `allowedAgents` for all registered servers.
    * By default, servers are unrestricted (all agents can use them).
    */
-  allowed_agents?: string[];
+  allowedAgents?: string[];
 
   /**
    * Override the `BRAVE_API_KEY` for the web-search server.
    * If not set, falls back to `process.env.BRAVE_API_KEY`.
    */
-  brave_api_key?: string;
+  braveApiKey?: string;
 }
 
 /**
@@ -150,7 +150,7 @@ export async function registerDefaultMCPServers(
   registry: MCPServerRegistry,
   options?: RegisterDefaultMCPServersOptions,
 ): Promise<string[]> {
-  const { only, exclude, allowed_agents, brave_api_key } = options ?? {};
+  const { only, exclude, allowedAgents, braveApiKey } = options ?? {};
   const registered: string[] = [];
 
   for (const server of DEFAULT_MCP_SERVERS) {
@@ -162,13 +162,13 @@ export async function registerDefaultMCPServers(
     // Apply overrides
     let entry = { ...server };
 
-    if (allowed_agents) {
-      entry = { ...entry, allowed_agents };
+    if (allowedAgents) {
+      entry = { ...entry, allowed_agents: allowedAgents };
     }
 
-    // Apply brave_api_key override for web-search
+    // Apply braveApiKey override for web-search
     if (server.id === 'web-search' && entry.transport.type === 'stdio') {
-      const apiKey = brave_api_key ?? process.env.BRAVE_API_KEY;
+      const apiKey = braveApiKey ?? process.env.BRAVE_API_KEY;
       if (apiKey) {
         entry = {
           ...entry,
@@ -180,7 +180,9 @@ export async function registerDefaultMCPServers(
       }
     }
 
-    await registry.saveServer(entry);
+    // The bundled defaults are snake_case wire-format constants; saveServer's
+    // authoring type is camelCase but its runtime remap is idempotent on snake.
+    await registry.saveServer(entry as unknown as MCPServerConfig);
     registered.push(entry.id);
   }
 

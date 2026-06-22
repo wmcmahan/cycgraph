@@ -355,10 +355,11 @@ export class WorkflowWorker extends EventEmitter {
           iteration: latestSnapshot.iteration_count,
         });
       } else {
-        // Fresh start
+        // Fresh start — snake_case wire input, validated directly rather than
+        // through the camelCase `createWorkflowState` authoring entry.
         const initialState = (job.initial_state ?? {}) as Partial<WorkflowState>;
-        const { createWorkflowState } = await import('../types/state.js');
-        const state = createWorkflowState({
+        const { WorkflowStateSchema } = await import('../types/state.js');
+        const state = WorkflowStateSchema.parse({
           workflow_id: graph.id,
           run_id: job.run_id,
           goal: (initialState.goal as string) ?? '',

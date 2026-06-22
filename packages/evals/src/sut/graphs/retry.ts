@@ -15,14 +15,14 @@
 
 import {
   InMemoryAgentRegistry,
-  createGraph,
-  createWorkflowState,
+  GraphSchema,
+  WorkflowStateSchema,
 } from '@cycgraph/orchestrator';
 import type {
   Graph,
   WorkflowState,
   AgentRegistry,
-  ToolSource,
+  ToolSourceConfig,
 } from '@cycgraph/orchestrator';
 
 /** Options for the retry reference graph. */
@@ -75,8 +75,8 @@ export function buildRetryGraph(opts: RetryGraphOptions): RetryGraphArtifacts {
   const toolName = opts.toolName ?? 'flaky_fetch';
   const registry = new InMemoryAgentRegistry();
 
-  const tools: ToolSource[] = [
-    { type: 'mcp', server_id: 'mock', tool_names: [toolName] },
+  const tools: ToolSourceConfig[] = [
+    { type: 'mcp', serverId: 'mock', toolNames: [toolName] },
   ];
 
   const agentId = registry.register({
@@ -84,7 +84,7 @@ export function buildRetryGraph(opts: RetryGraphOptions): RetryGraphArtifacts {
     description: 'Handles an unreliable resource and narrates the outcome',
     model: opts.model ?? 'claude-sonnet-4-6',
     provider: opts.provider ?? 'anthropic',
-    system_prompt: [
+    systemPrompt: [
       'You are tasked with completing the goal using the tools available to you.',
       `The "${toolName}" tool may fail on the first attempts; retry up to 5 times before giving up.`,
       'After completing the task (or exhausting retries), produce a concise narrative describing:',
@@ -94,15 +94,15 @@ export function buildRetryGraph(opts: RetryGraphOptions): RetryGraphArtifacts {
       'Save this narrative to memory.',
     ].join(' '),
     temperature: 0.2,
-    max_steps: opts.maxSteps ?? 8,
+    maxSteps: opts.maxSteps ?? 8,
     tools,
     permissions: {
-      read_keys: ['goal', 'constraints'],
-      write_keys: [outputKey],
+      readKeys: ['goal', 'constraints'],
+      writeKeys: [outputKey],
     },
   });
 
-  const graph = createGraph({
+  const graph = GraphSchema.parse({
     name: 'retry-sut',
     description: 'SUT reference graph: one agent uses a flaky tool with retries',
     nodes: [
@@ -126,7 +126,7 @@ export function buildRetryGraph(opts: RetryGraphOptions): RetryGraphArtifacts {
     end_nodes: ['agent'],
   });
 
-  const initialState = createWorkflowState({
+  const initialState = WorkflowStateSchema.parse({
     workflow_id: graph.id,
     goal: opts.input,
     max_execution_time_ms: opts.maxExecutionTimeMs ?? 180_000,

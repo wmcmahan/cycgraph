@@ -7,18 +7,24 @@ The **WorkflowState** is the single source of truth for a running workflow. Ever
 
 ## Creating state
 
+State is **authored in camelCase** via `createWorkflowState`. The runtime state object below is snake_case (the engine reads and the database stores that wire format), so the **Schema reference** fields you read back are snake_case.
+
 ```typescript
 import { createWorkflowState } from '@cycgraph/orchestrator';
 
 const state = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Research and summarize quantum computing',
   constraints: ['Under 500 words'],
-  max_execution_time_ms: 120_000,
+  maxExecutionTimeMs: 120_000,
 });
+
+// Read back uses the snake_case runtime shape:
+state.workflow_id; // string
+state.iteration_count; // number
 ```
 
-## Schema reference
+## Schema reference (runtime / read shape — snake_case)
 
 ### Identity and input
 

@@ -53,24 +53,24 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const logger = createLogger('example.postgres');
 
-// ─── 1. Initialize Postgres connection ──────────────────────────────────
+// ─── 1. Postgres-backed providers ───────────────────────────────────────
+// The adapters share a lazily-initialized connection pool. Construct them
+// with no arguments (pass `{ tenant }` for multi-tenant deployments); the
+// pool is initialized once via `await getDb()` at the start of `main()`.
 
-const db = getDb();
-
-// Create persistence providers backed by Postgres
-const persistence = new DrizzlePersistenceProvider(db);
-const eventLog = new DrizzleEventLogWriter(db);
-const usageRecorder = new DrizzleUsageRecorder(db);
+const persistence = new DrizzlePersistenceProvider();
+const eventLog = new DrizzleEventLogWriter();
+const usageRecorder = new DrizzleUsageRecorder();
 
 // Use Postgres-backed agent registry (agents stored in DB, not in-memory)
-const agentRegistry = new DrizzleAgentRegistry(db);
+const agentRegistry = new DrizzleAgentRegistry();
 
 // ─── 2. Register agents in Postgres ─────────────────────────────────────
 // These persist across restarts — no need to re-register each time.
 
 async function ensureAgentsRegistered() {
   // Check if agents already exist (idempotent registration)
-  const existing = await agentRegistry.list();
+  const existing = await agentRegistry.listAgents();
   if (existing.some(a => a.name === 'PG Research Agent')) {
     logger.info('Agents already registered in Postgres');
     const researcher = existing.find(a => a.name === 'PG Research Agent')!;
@@ -83,16 +83,16 @@ async function ensureAgentsRegistered() {
     description: 'Researches topics (Postgres-persisted)',
     model: 'claude-sonnet-4-6',
     provider: 'anthropic',
-    system_prompt: [
+    systemPrompt: [
       'You are a research specialist.',
       'Produce concise, factual research notes on the given topic.',
     ].join(' '),
     temperature: 0.5,
-    max_steps: 3,
+    maxSteps: 3,
     tools: [],
     permissions: {
-      read_keys: ['*'],
-      write_keys: ['research_notes'],
+      readKeys: ['*'],
+      writeKeys: ['research_notes'],
     },
   });
 
@@ -101,16 +101,16 @@ async function ensureAgentsRegistered() {
     description: 'Writes articles from research (Postgres-persisted)',
     model: 'claude-sonnet-4-6',
     provider: 'anthropic',
-    system_prompt: [
+    systemPrompt: [
       'You are a professional writer.',
       'Using the research notes, produce a clear article under 300 words.',
     ].join(' '),
     temperature: 0.7,
-    max_steps: 3,
+    maxSteps: 3,
     tools: [],
     permissions: {
-      read_keys: ['research_notes'],
-      write_keys: ['article'],
+      readKeys: ['research_notes'],
+      writeKeys: ['article'],
     },
   });
 
@@ -122,6 +122,9 @@ async function ensureAgentsRegistered() {
 
 async function main() {
   logger.info('Starting Postgres persistence example...\n');
+
+  // Initialize the shared connection pool before any adapter runs a query.
+  await getDb();
 
   const { RESEARCHER_ID, WRITER_ID } = await ensureAgentsRegistered();
 
@@ -138,25 +141,25 @@ async function main() {
       {
         id: 'research',
         type: 'agent',
-        agent_id: RESEARCHER_ID,
-        read_keys: ['*'],
-        write_keys: ['research_notes'],
-        failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 30000 },
-        requires_compensation: false,
+        agentId: RESEARCHER_ID,
+        readKeys: ['*'],
+        writeKeys: ['research_notes'],
+        failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
+        requiresCompensation: false,
       },
       {
         id: 'write',
         type: 'agent',
-        agent_id: WRITER_ID,
-        read_keys: ['research_notes'],
-        write_keys: ['article'],
-        failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 30000 },
-        requires_compensation: false,
+        agentId: WRITER_ID,
+        readKeys: ['research_notes'],
+        writeKeys: ['article'],
+        failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
+        requiresCompensation: false,
       },
     ],
     edges: [{ source: 'research', target: 'write' }],
-    start_node: 'research',
-    end_nodes: ['write'],
+    startNode: 'research',
+    endNodes: ['write'],
   });
 
   // Save graph definition to Postgres
@@ -165,10 +168,10 @@ async function main() {
 
   // Create workflow state
   const state = createWorkflowState({
-    workflow_id: graph.id,
+    workflowId: graph.id,
     goal: 'Research and write about the impact of large language models on software development',
     constraints: ['Under 300 words'],
-    max_execution_time_ms: 120_000,
+    maxExecutionTimeMs: 120_000,
   });
 
   // Create runner with Postgres persistence + event log
@@ -179,7 +182,7 @@ async function main() {
       await persistence.saveWorkflowRun(s);
     },
     // Event log enables durable execution replay
-    eventLogWriter: eventLog,
+    eventLog: eventLog,
   });
 
   // Run the workflow
@@ -197,23 +200,23 @@ async function main() {
     console.log(finalState.memory.article ?? '(none)');
 
     // Record usage to Postgres (for billing/analytics)
-    await usageRecorder.record({
+    await usageRecorder.saveUsageRecord({
       run_id: finalState.run_id,
       graph_id: graph.id,
       input_tokens: 0,  // Actual breakdown would come from action metadata
       output_tokens: 0,
       cost_usd: finalState.total_cost_usd,
-      model_breakdown: {},
+      duration_ms: 0,
     });
 
     console.log('\n═══ Postgres Verification ═══');
 
     // Verify state was persisted
-    const savedState = await persistence.getLatestWorkflowState(finalState.run_id);
+    const savedState = await persistence.loadLatestWorkflowState(finalState.run_id);
     console.log('State persisted:', savedState ? 'YES' : 'NO');
 
     // Verify events were logged
-    const events = await eventLog.getEvents(finalState.run_id);
+    const events = await eventLog.loadEvents(finalState.run_id);
     console.log('Events logged:', events.length);
 
     console.log(`\nTokens used: ${finalState.total_tokens_used}`);

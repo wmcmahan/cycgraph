@@ -144,6 +144,22 @@ describe('buildSystemPrompt with ContextCompressor', () => {
     expect(onCompressed).not.toHaveBeenCalled();
   });
 
+  it('does not let a throwing metrics callback break prompt construction', () => {
+    const config = makeConfig();
+    const stateView = makeStateView();
+    const compressor = makeCompressor('compressed');
+    const onCompressed = vi.fn(() => { throw new Error('observability boom'); });
+
+    const result = buildSystemPrompt(config, stateView, {
+      contextCompressor: compressor,
+      onCompressed,
+    });
+
+    // Callback threw, but compressed memory still lands in the prompt.
+    expect(onCompressed).toHaveBeenCalledOnce();
+    expect(result).toContain('compressed');
+  });
+
   it('handles empty memory with compressor', () => {
     const config = makeConfig();
     const stateView = makeStateView({});

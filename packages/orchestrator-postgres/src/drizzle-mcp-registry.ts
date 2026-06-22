@@ -10,8 +10,8 @@ import { eq, and, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { withTenant, type Tx, type TenantContext } from './tenancy.js';
 import type { MCPServerRegistry } from '@cycgraph/orchestrator';
-import type { MCPServerEntry } from '@cycgraph/orchestrator';
-import { MCPServerEntrySchema } from '@cycgraph/orchestrator';
+import type { MCPServerEntry, MCPServerConfig } from '@cycgraph/orchestrator';
+import { MCPServerEntrySchema, camelToSnakeDeep } from '@cycgraph/orchestrator';
 
 /** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
 type Queryer = typeof db | Tx;
@@ -48,13 +48,14 @@ export class DrizzleMCPServerRegistry implements MCPServerRegistry {
     return this.tenant ? withTenant(this.tenant.tenant_id, fn) : fn(db);
   }
 
-  async saveServer(entry: MCPServerEntry): Promise<void> {
+  async saveServer(entry: MCPServerConfig): Promise<void> {
     // SECURITY: re-validate at the trust boundary. The stdio command
     // allowlist and URL SSRF guard live in MCPServerEntrySchema and are only
     // enforced if every write actually parses (TS types are compile-time
     // only — a JS caller or `any` cast could otherwise persist an arbitrary
-    // command/transport that connectToServer would then spawn).
-    const v = MCPServerEntrySchema.parse(entry);
+    // command/transport that connectToServer would then spawn). camelCase
+    // authoring input is remapped to snake_case (idempotent) before parsing.
+    const v = MCPServerEntrySchema.parse(camelToSnakeDeep(entry));
     await this.read((q) => q
       .insert(mcp_servers)
       .values({

@@ -12,7 +12,8 @@
 
 import type { Graph } from '../types/graph.js';
 import type { WorkflowState } from '../types/state.js';
-import type { MCPServerEntry, ToolSource } from '../types/tools.js';
+import type { MCPServerEntry, MCPServerConfig, ToolSource } from '../types/tools.js';
+import type { Camelize } from '../types/case-mapping.js';
 import type { ModelTier } from '../agent/model-resolver.js';
 
 /** JSON-serializable value. Structurally compatible with AI SDK's `JSONValue`. */
@@ -273,6 +274,15 @@ export type AgentRegistryInput = Omit<
 };
 
 /**
+ * camelCase authoring shape for {@link AgentRegistry.register}, derived from
+ * the snake_case {@link AgentRegistryInput} wire type. This is the public,
+ * documented way to register an agent (`systemPrompt`, `maxSteps`,
+ * `permissions.readKeys`, …). Stored entries and `loadAgent` results remain
+ * snake_case.
+ */
+export type AgentRegistryConfig = Camelize<AgentRegistryInput>;
+
+/**
  * Registry for loading agent configurations.
  *
  * Decouples the agent factory from any specific database or config store.
@@ -281,11 +291,11 @@ export interface AgentRegistry {
   /** Load an agent by ID. Returns `null` if not found. */
   loadAgent(id: string): Promise<AgentRegistryEntry | null>;
 
-  /** Register an agent config and return its auto-generated ID. */
-  register(entry: AgentRegistryInput): string | Promise<string>;
+  /** Register an agent config (camelCase) and return its auto-generated ID. */
+  register(entry: AgentRegistryConfig): string | Promise<string>;
 
-  /** Update an existing agent's configuration. */
-  updateAgent?(id: string, updates: Partial<AgentRegistryInput>): Promise<void>;
+  /** Update an existing agent's configuration (camelCase fields). */
+  updateAgent?(id: string, updates: Partial<AgentRegistryConfig>): Promise<void>;
 
   /** List registered agents with optional pagination. */
   listAgents?(opts?: { limit?: number; offset?: number }): Promise<AgentRegistryEntry[]>;
@@ -305,8 +315,8 @@ export interface AgentRegistry {
  * to create or modify entries.
  */
 export interface MCPServerRegistry {
-  /** Register or update an MCP server entry. */
-  saveServer(entry: MCPServerEntry): Promise<void>;
+  /** Register or update an MCP server entry (camelCase authoring shape). */
+  saveServer(entry: MCPServerConfig): Promise<void>;
 
   /** Load a server by ID. Returns `null` if not found. */
   loadServer(id: string): Promise<MCPServerEntry | null>;

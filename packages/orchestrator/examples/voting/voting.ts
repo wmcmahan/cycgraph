@@ -45,18 +45,18 @@ const SECURITY_VOTER_ID = registry.register({
   description: 'Reviews proposals from a security perspective',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a security expert reviewing a technical proposal.',
     'Evaluate the proposal for security implications: authentication, authorization,',
     'data protection, injection risks, and compliance.',
     'Your output must be a JSON object: { "decision": "approve" | "reject", "reasoning": "..." }',
   ].join(' '),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['*'],
-    write_keys: ['vote'],
+    readKeys: ['*'],
+    writeKeys: ['vote'],
   },
 });
 
@@ -65,17 +65,17 @@ const PERFORMANCE_VOTER_ID = registry.register({
   description: 'Reviews proposals from a performance perspective',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a performance engineer reviewing a technical proposal.',
     'Evaluate for scalability, latency impact, resource usage, and efficiency.',
     'Your output must be a JSON object: { "decision": "approve" | "reject", "reasoning": "..." }',
   ].join(' '),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['*'],
-    write_keys: ['vote'],
+    readKeys: ['*'],
+    writeKeys: ['vote'],
   },
 });
 
@@ -84,17 +84,17 @@ const ARCHITECTURE_VOTER_ID = registry.register({
   description: 'Reviews proposals from an architecture perspective',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a software architect reviewing a technical proposal.',
     'Evaluate for design patterns, maintainability, extensibility, and technical debt.',
     'Your output must be a JSON object: { "decision": "approve" | "reject", "reasoning": "..." }',
   ].join(' '),
   temperature: 0.3,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
   permissions: {
-    read_keys: ['*'],
-    write_keys: ['vote'],
+    readKeys: ['*'],
+    writeKeys: ['vote'],
   },
 });
 
@@ -113,23 +113,23 @@ const graph = createGraph({
     {
       id: 'review-vote',
       type: 'voting',
-      read_keys: ['*'],
-      write_keys: ['*'],
-      voting_config: {
-        voter_agent_ids: [SECURITY_VOTER_ID, PERFORMANCE_VOTER_ID, ARCHITECTURE_VOTER_ID],
+      readKeys: ['*'],
+      writeKeys: ['*'],
+      votingConfig: {
+        voterAgentIds: [SECURITY_VOTER_ID, PERFORMANCE_VOTER_ID, ARCHITECTURE_VOTER_ID],
         strategy: 'majority_vote',
-        vote_key: 'vote',
+        voteKey: 'vote',
         quorum: 2,            // At least 2 of 3 voters must respond
-        task_timeout_ms: 30_000, // Per-voter timeout
+        taskTimeoutMs: 30_000, // Per-voter timeout
       },
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 30000 },
-      requires_compensation: false,
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
+      requiresCompensation: false,
     },
   ],
 
   edges: [],
-  start_node: 'review-vote',
-  end_nodes: ['review-vote'],
+  startNode: 'review-vote',
+  endNodes: ['review-vote'],
 });
 
 // ─── 3. Run ─────────────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ async function main() {
   logger.info('Starting voting example — multi-expert technical review...\n');
 
   const state = createWorkflowState({
-    workflow_id: graph.id,
+    workflowId: graph.id,
     goal: [
       'Review this proposal: "Replace our REST API with GraphQL federation.',
       'The migration would involve: (1) adding Apollo Gateway as a reverse proxy,',
@@ -148,7 +148,7 @@ async function main() {
       'Vote to approve or reject this proposal.',
     ].join(' '),
     constraints: ['Consider the full lifecycle cost, not just implementation'],
-    max_execution_time_ms: 120_000,
+    maxExecutionTimeMs: 120_000,
   });
 
   const runner = new GraphRunner(graph, state);

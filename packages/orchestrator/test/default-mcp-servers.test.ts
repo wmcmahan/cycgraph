@@ -70,7 +70,7 @@ describe('Default MCP Servers', () => {
 
     test('applies allowed_agents override', async () => {
       await registerDefaultMCPServers(registry, {
-        allowed_agents: ['agent-1', 'agent-2'],
+        allowedAgents: ['agent-1', 'agent-2'],
       });
 
       const webSearch = await registry.loadServer('web-search');
@@ -82,7 +82,7 @@ describe('Default MCP Servers', () => {
 
     test('applies brave_api_key override to web-search', async () => {
       await registerDefaultMCPServers(registry, {
-        brave_api_key: 'BSA-test-key-123',
+        braveApiKey: 'BSA-test-key-123',
       });
 
       const webSearch = await registry.loadServer('web-search');
@@ -98,8 +98,8 @@ describe('Default MCP Servers', () => {
         : {};
 
       await registerDefaultMCPServers(registry, {
-        brave_api_key: 'BSA-override',
-        allowed_agents: ['agent-x'],
+        braveApiKey: 'BSA-override',
+        allowedAgents: ['agent-x'],
       });
 
       // Original should be unchanged
