@@ -216,6 +216,25 @@ describe('Human-in-the-Loop', () => {
     expect(resumedState.memory.human_decision).toBe('rejected');
   });
 
+  test('rejection without a rejection node halts the run (cancelled)', async () => {
+    const graph = createHITLGraph(); // no rejection_node_id
+    const state = createState();
+    const eventLog = new InMemoryEventLogWriter();
+
+    const runner1 = new GraphRunner(graph, state, { eventLog });
+    const pausedState = await runner1.run();
+    expect(pausedState.status).toBe('waiting');
+
+    const runner2 = new GraphRunner(graph, { ...pausedState }, { eventLog });
+    runner2.applyHumanResponse({ decision: 'rejected', data: 'No' });
+    const resumedState = await runner2.run();
+
+    // The gated node must NOT have executed, and the run ends terminally.
+    expect(resumedState.status).toBe('cancelled');
+    expect(resumedState.visited_nodes).not.toContain('publish');
+    expect(resumedState.memory.human_decision).toBe('rejected');
+  });
+
   test('applyHumanResponse should clear pending approval', async () => {
     const graph = createHITLGraph();
     const state = createState();

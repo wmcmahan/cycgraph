@@ -85,5 +85,7 @@ export function registerOllamaProvider(
 
     logger.info('resolving_ollama_model', { modelId, baseURL });
     return createOllama({ baseURL })(modelId);
-  }, { models });
+    // Ollama model ids are arbitrary local tags (e.g. `my-finetune:latest`), so
+    // the known list is only a hint — unknown models must pass through.
+  }, { models, allowUnknownModels: true });
 }

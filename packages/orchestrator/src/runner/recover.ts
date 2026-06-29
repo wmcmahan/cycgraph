@@ -132,6 +132,8 @@ export async function recoverGraphRunner(
       retry_count: 0,
       max_retries: 3,
       total_tokens_used: 0,
+      total_input_tokens: 0,
+      total_output_tokens: 0,
       total_cost_usd: 0,
       _cost_alert_thresholds_fired: [],
       visited_nodes: [],

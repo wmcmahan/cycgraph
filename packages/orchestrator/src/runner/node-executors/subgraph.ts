@@ -10,10 +10,11 @@
  */
 
 import type { GraphNode } from '../../types/graph.js';
-import type { Action, WorkflowState, StateView } from '../../types/state.js';
+import type { Action, WorkflowState, StateView, TaintMetadata } from '../../types/state.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger.js';
 import { NodeConfigError } from '../errors.js';
+import { getTaintInfo, getTaintRegistry, markTainted } from '../../utils/taint.js';
 import type { NodeExecutorContext } from './context.js';
 
 const logger = createLogger('runner.node.subgraph');
@@ -25,6 +26,26 @@ const logger = createLogger('runner.node.subgraph');
  * any legitimate composition depth.
  */
 const MAX_SUBGRAPH_DEPTH = 32;
+
+/**
+ * Revive a stashed child checkpoint after a DB round-trip (JSON turns Dates
+ * into strings). We can't use `WorkflowStateSchema.parse` here — a subgraph
+ * child's `workflow_id` is the subgraph slug, not a UUID, so strict validation
+ * would reject a legitimate state. Coerce only the top-level Date fields the
+ * runner reads on resume.
+ */
+function reviveChildState(raw: unknown): WorkflowState {
+  const s = raw as Record<string, unknown>;
+  const d = (v: unknown) => (typeof v === 'string' ? new Date(v) : v);
+  return {
+    ...(s as object),
+    created_at: d(s.created_at),
+    updated_at: d(s.updated_at),
+    ...(s.started_at != null ? { started_at: d(s.started_at) } : {}),
+    ...(s.waiting_since != null ? { waiting_since: d(s.waiting_since) } : {}),
+    ...(s.waiting_timeout_at != null ? { waiting_timeout_at: d(s.waiting_timeout_at) } : {}),
+  } as WorkflowState;
+}
 
 /**
  * Execute a subgraph node (nested workflow composition).
@@ -85,6 +106,11 @@ export async function executeSubgraphNode(
   for (const [parentKey, childKey] of Object.entries(config.input_mapping)) {
     if (parentKey in stateView.memory) {
       childMemory[childKey] = stateView.memory[parentKey];
+      // Carry taint across the composition boundary: an untrusted parent value
+      // must stay untrusted inside the child, or the child's sensitive nodes
+      // would run ungated. (`stateView` re-attaches taint for readable keys.)
+      const info = getTaintInfo(stateView.memory, parentKey);
+      if (info) markTainted(childMemory, childKey, info);
     }
   }
 
@@ -113,6 +139,8 @@ export async function executeSubgraphNode(
     max_execution_time_ms: 3_600_000,
     memory: childMemory,
     total_tokens_used: 0,
+    total_input_tokens: 0,
+    total_output_tokens: 0,
     total_cost_usd: 0,
     max_token_budget: remainingBudget,
     visited_nodes: [],
@@ -126,32 +154,87 @@ export async function executeSubgraphNode(
   // Lazy import to avoid circular dependency (GraphRunner → subgraph → GraphRunner)
   const { GraphRunner } = await import('../graph-runner.js');
 
-  // Propagate the parent's guardrails into the child runner. Without this a
-  // subgraph silently runs with NO toolResolver (built-ins only), NO
-  // factSanitizer (PII redaction off), NO memoryWriter (reflection nodes
-  // throw), and ignores cancellation — a real loss of security/correctness
-  // guarantees across the composition boundary.
-  const childRunner = new GraphRunner(childGraph, childState, {
+  // Propagate the parent's guardrails into the child runner — INCLUDING the
+  // security policy, so a tainted→sensitive action inside the subgraph is gated
+  // exactly as in the parent. Without this the composition boundary silently
+  // dropped toolResolver/factSanitizer/securityPolicy/etc.
+  const childOptions = {
     loadGraphFn: ctx.loadGraphFn,
     onToken: ctx.onToken,
     toolResolver: ctx.toolResolver,
     modelResolver: ctx.modelResolver,
     contextCompressor: ctx.contextCompressor,
     memoryRetriever: ctx.memoryRetriever,
+    securityPolicy: ctx.securityPolicy,
     memoryWriter: ctx.memoryWriter,
     factSanitizer: ctx.factSanitizer,
     fitnessFunction: ctx.fitnessFunction,
     ...(ctx.rateLimiter ? { rateLimiter: ctx.rateLimiter } : {}),
-  });
-  const finalChildState = await childRunner.run();
+  };
 
-  // Map child outputs back to parent memory
+  // Resume support: a prior run of THIS node paused its child for human
+  // approval (a nested gate) and stashed the child checkpoint here. On resume,
+  // rehydrate it (z.coerce.date revives the JSON-round-tripped Dates) and
+  // forward the human decision instead of starting the child over.
+  const resumeKey = `_subgraph_resume_${node.id}`;
+  const stashed = ctx.state.memory[resumeKey];
+
+  let finalChildState: WorkflowState;
+  if (stashed) {
+    const resumedChild = reviveChildState(stashed);
+    const childRunner = new GraphRunner(childGraph, resumedChild, childOptions);
+    childRunner.applyHumanResponse({
+      decision: ctx.state.memory.human_decision as 'approved' | 'rejected' | 'edited',
+      data: ctx.state.memory.human_response,
+    });
+    finalChildState = await childRunner.run();
+  } else {
+    const childRunner = new GraphRunner(childGraph, childState, childOptions);
+    finalChildState = await childRunner.run();
+  }
+
+  // The child paused for a nested approval (tainted → sensitive action). Surface
+  // it as a PARENT pause and stash the child checkpoint so resume continues it.
+  if (finalChildState.status === 'waiting') {
+    const childPending = (finalChildState.memory._pending_approval ?? {}) as Record<string, unknown>;
+    logger.info('subgraph_paused_for_approval', { node_id: node.id, subgraph_id: config.subgraph_id });
+    return {
+      id: uuidv4(),
+      idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}:wait`,
+      type: 'request_human_input',
+      payload: {
+        waiting_for: 'human_approval',
+        pending_approval: { ...childPending, subgraph_node_id: node.id },
+        memory_updates: { [resumeKey]: finalChildState },
+      },
+      metadata: { node_id: node.id, timestamp: new Date(), attempt },
+    };
+  }
+
+  // A non-completed child (e.g. a rejected nested approval cancelled it) means
+  // the nested action was declined — fail the parent node closed.
+  if (finalChildState.status !== 'completed') {
+    throw new Error(`Subgraph "${config.subgraph_id}" did not complete (status: ${finalChildState.status})`);
+  }
+
+  // Map child outputs back to parent memory, carrying taint back across the
+  // boundary: data the child marked untrusted stays untrusted in the parent.
   const outputUpdates: Record<string, unknown> = {};
+  const outputTaint: Record<string, TaintMetadata> = {};
   for (const [childKey, parentKey] of Object.entries(config.output_mapping)) {
     if (childKey in finalChildState.memory) {
       outputUpdates[parentKey] = finalChildState.memory[childKey];
+      const info = getTaintInfo(finalChildState.memory, childKey);
+      if (info) outputTaint[parentKey] = info;
     }
   }
+  if (Object.keys(outputTaint).length > 0) {
+    // `_taint_registry` is a system key (excluded from write-key permission
+    // checks), so this is authorized regardless of the node's write_keys.
+    outputUpdates['_taint_registry'] = { ...getTaintRegistry(ctx.state.memory), ...outputTaint };
+  }
+  // Clear the resume stash now the child has completed.
+  if (stashed) outputUpdates[resumeKey] = undefined;
 
   // Propagate child compensation stack to parent with namespaced IDs
   const childCompensation = finalChildState.compensation_stack;

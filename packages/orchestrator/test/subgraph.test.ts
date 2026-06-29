@@ -66,6 +66,8 @@ vi.mock('../src/utils/tracing.js', () => ({
 }));
 
 import { GraphRunner } from '../src/runner/graph-runner.js';
+import { executeAgent } from '../src/agent/agent-executor/executor.js';
+import { markTainted } from '../src/utils/taint.js';
 import type { Graph } from '../src/types/graph.js';
 import type { WorkflowState } from '../src/types/state.js';
 
@@ -537,5 +539,133 @@ describe('Subgraph Execution', () => {
     // The child's tool node requires_compensation but may or may not have
     // produced a compensation action depending on the mock. Either way,
     // the code path is exercised.
+  });
+
+  it('propagates taint across the subgraph boundary (no laundering)', async () => {
+    // The child agent records whether it saw the parent's taint under the
+    // mapped key, and (like the real executor) marks its output derived-tainted.
+    let childSawTaintedInput = false;
+    (executeAgent as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async (agentId: string, stateView: { memory: Record<string, unknown> }) => {
+        const reg = (stateView.memory._taint_registry ?? {}) as Record<string, unknown>;
+        childSawTaintedInput = 'child_input' in reg;
+        return {
+          id: uuidv4(),
+          idempotency_key: uuidv4(),
+          type: 'update_memory',
+          payload: {
+            updates: {
+              child_output: 'processed',
+              _taint_registry: { ...reg, child_output: { source: 'derived', agent_id: agentId, created_at: new Date().toISOString() } },
+            },
+          },
+          metadata: { node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt: 1 },
+        };
+      },
+    );
+
+    const childGraph: Graph = {
+      id: 'child-graph', name: 'child', description: 'child',
+      nodes: [{
+        id: 'worker', type: 'agent', agent_id: 'worker',
+        read_keys: ['child_input'], write_keys: ['child_output'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'worker', end_nodes: ['worker'],
+    };
+
+    const parentGraph: Graph = {
+      id: 'parent-graph', name: 'parent', description: 'parent',
+      nodes: [{
+        id: 'sub-node', type: 'subgraph',
+        subgraph_config: {
+          subgraph_id: 'child-graph',
+          input_mapping: { parent_input: 'child_input' },
+          output_mapping: { child_output: 'parent_result' },
+          max_iterations: 50,
+        },
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sub-node', end_nodes: ['sub-node'],
+    };
+
+    const state = createTestState({ memory: { parent_input: 'untrusted content' } });
+    markTainted(state.memory, 'parent_input', { source: 'tool_node', tool_name: 'external_input', created_at: new Date().toISOString() });
+
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+    const finalState = await new GraphRunner(parentGraph, state, { loadGraphFn }).run();
+
+    expect(finalState.status).toBe('completed');
+    // INPUT: untrusted parent data entered the child still marked tainted.
+    expect(childSawTaintedInput).toBe(true);
+    // OUTPUT: taint came back to the parent — the subgraph cannot launder it.
+    const reg = (finalState.memory._taint_registry ?? {}) as Record<string, unknown>;
+    expect('parent_result' in reg).toBe(true);
+  });
+
+  it('gates a sensitive child node and resumes it across the boundary (HITL)', async () => {
+    // The fooled child agent writes 'send' (sensitive) — only reached if approved.
+    (executeAgent as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async (agentId: string) => ({
+        id: uuidv4(), idempotency_key: uuidv4(), type: 'update_memory',
+        payload: { updates: { send: 'the message' } },
+        metadata: { node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt: 1 },
+      }),
+    );
+
+    // Gate any node that writes the sensitive 'send' key (works on the CHILD node).
+    const securityPolicy = (c: { node: { write_keys?: string[] } }) =>
+      (c.node.write_keys ?? []).includes('send')
+        ? { effect: 'require_approval' as const, sensitivity: ['state_write'], reason: 'untrusted → send' }
+        : { effect: 'allow' as const };
+
+    const childGraph: Graph = {
+      id: 'child-graph', name: 'child', description: 'child',
+      nodes: [{
+        id: 'sender', type: 'agent', agent_id: 'sender',
+        read_keys: ['child_input'], write_keys: ['send'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sender', end_nodes: ['sender'],
+    };
+    const parentGraph: Graph = {
+      id: 'parent-graph', name: 'parent', description: 'parent',
+      nodes: [{
+        id: 'sub-node', type: 'subgraph',
+        subgraph_config: {
+          subgraph_id: 'child-graph',
+          input_mapping: { parent_input: 'child_input' },
+          output_mapping: { send: 'parent_result' },
+          max_iterations: 50,
+        },
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sub-node', end_nodes: ['sub-node'],
+    };
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+
+    const state = createTestState({ memory: { parent_input: 'untrusted content' } });
+    markTainted(state.memory, 'parent_input', { source: 'tool_node', tool_name: 'external_input', created_at: new Date().toISOString() });
+
+    // First run: the child gates the sensitive node → the PARENT pauses.
+    const waiting = await new GraphRunner(parentGraph, state, { loadGraphFn, securityPolicy }).run();
+    expect(waiting.status).toBe('waiting');
+    expect((waiting.memory._pending_approval as { subgraph_node_id?: string }).subgraph_node_id).toBe('sub-node');
+    expect(waiting.memory['_subgraph_resume_sub-node']).toBeDefined();
+    expect(executeAgent).not.toHaveBeenCalled(); // gated BEFORE the child agent ran
+    expect(waiting.memory.parent_result).toBeUndefined();
+
+    // Resume (approve): the child continues from its checkpoint → parent completes.
+    const r2 = new GraphRunner(parentGraph, waiting, { loadGraphFn, securityPolicy });
+    r2.applyHumanResponse({ decision: 'approved' });
+    const done = await r2.run();
+    expect(done.status).toBe('completed');
+    expect(done.memory.parent_result).toBe('the message');
   });
 });

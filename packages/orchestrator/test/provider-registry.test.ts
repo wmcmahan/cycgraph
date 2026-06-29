@@ -84,14 +84,27 @@ describe('ProviderRegistry', () => {
         .toThrow(UnsupportedProviderError);
     });
 
-    it('still resolves unknown models (warns but does not block)', () => {
+    it('throws on an unknown model (fail-fast on a misconfigured agent)', () => {
       const resolver = vi.fn((id: string) => stubModel(id));
       registry.register('custom', resolver, { models: ['known-model'] });
 
-      // Should not throw for unknown model
-      const model = registry.resolveModel('custom', 'unknown-model');
+      // A model not in the known list is almost always a typo or a
+      // decommissioned id — fail loudly before any token spend rather than
+      // letting the provider SDK silently substitute or error mid-stream.
+      expect(() => registry.resolveModel('custom', 'unknown-model')).toThrow(
+        /Unknown model "unknown-model"/,
+      );
+      expect(resolver).not.toHaveBeenCalled();
+    });
+
+    it('resolves once an unknown model is registered via addModel', () => {
+      const resolver = vi.fn((id: string) => stubModel(id));
+      registry.register('custom', resolver, { models: ['known-model'] });
+      registry.addModel('custom', 'newly-supported-model');
+
+      const model = registry.resolveModel('custom', 'newly-supported-model');
       expect(model).toBeDefined();
-      expect(resolver).toHaveBeenCalledWith('unknown-model');
+      expect(resolver).toHaveBeenCalledWith('newly-supported-model');
     });
   });
 

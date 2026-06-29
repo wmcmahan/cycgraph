@@ -15,6 +15,7 @@ import type { GraphNode } from '../../types/graph.js';
 import type { Graph } from '../../types/graph.js';
 import type { WorkflowState, Action, StateView, TaintMetadata } from '../../types/state.js';
 import type { ToolSource } from '../../types/tools.js';
+import type { SecurityPolicy } from '../security-policy.js';
 import type { ToolResolver } from '../../mcp/connection-manager.js';
 import type { ModelResolver, ModelResolutionResult, ModelTier } from '../../agent/model-resolver.js';
 import type { ContextCompressor, ContextCompressionMetrics } from '../../agent/context-compressor.js';
@@ -210,6 +211,8 @@ export interface NodeExecutorContext {
   contextCompressor?: ContextCompressor;
   /** Memory retriever for injecting relevant facts into prompts (from GraphRunnerOptions). */
   memoryRetriever?: MemoryRetriever;
+  /** Taint-aware security policy (from GraphRunnerOptions) — propagated into subgraph child runners. */
+  securityPolicy?: SecurityPolicy;
   /** Memory writer for persisting facts produced by reflection nodes (from GraphRunnerOptions). */
   memoryWriter?: MemoryWriter;
   /** Optional pre-write hook applied to reflection facts (from GraphRunnerOptions). */

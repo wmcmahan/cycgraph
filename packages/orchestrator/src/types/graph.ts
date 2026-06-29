@@ -619,6 +619,14 @@ export const MemoryQuerySchema = z.object({
   tags: z.array(z.string()).optional(),
   /** Soft cap on facts injected into the prompt. */
   max_facts: z.number().int().min(1).max(100).optional(),
+  /**
+   * Treat retrieved content as UNTRUSTED (e.g. RAG over user-uploaded or
+   * web documents). When true and facts are injected, the agent's outputs are
+   * marked tainted (`source: 'retrieval'`) so a poisoned document can't drive a
+   * downstream sensitive action ungated. Leave false for trusted internal
+   * knowledge / the agent's own reflection memory.
+   */
+  untrusted: z.boolean().optional(),
 });
 
 export type MemoryQuery = z.infer<typeof MemoryQuerySchema>;

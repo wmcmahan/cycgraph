@@ -28,6 +28,8 @@ export interface AgentMemoryOptions {
     entityIds?: string[];
     tags?: string[];
     maxFacts?: number;
+    /** Retrieved content is untrusted → taint the agent's outputs. */
+    untrusted?: boolean;
   };
 }
 
@@ -53,6 +55,7 @@ export function buildAgentMemoryOptions(
       entityIds: node.memory_query.entity_ids,
       tags: node.memory_query.tags,
       maxFacts: node.memory_query.max_facts,
+      untrusted: node.memory_query.untrusted,
     };
   }
   return out;

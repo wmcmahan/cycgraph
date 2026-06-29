@@ -131,8 +131,9 @@ export function evaluateCondition(
 
         // Check for tainted keys referenced in the condition expression
         const taintRegistry = getTaintRegistry(state.memory);
-        if (Object.keys(taintRegistry).length > 0) {
-          const taintedKeysInExpr = Object.keys(taintRegistry).filter(
+        const taintedKeys = Object.keys(taintRegistry);
+        if (taintedKeys.length > 0) {
+          const taintedKeysInExpr = taintedKeys.filter(
             key => expression.includes(`memory.${key}`) || expression.includes(key),
           );
           if (taintedKeysInExpr.length > 0) {
@@ -153,7 +154,12 @@ export function evaluateCondition(
         }
 
         const fn = getCompiledExpression(expression);
-        const result = fn(state);
+        // Expose taint as first-class, top-level routing inputs so edges can gate
+        // on untrusted data WITHOUT dot-accessing the internal `_taint_registry`:
+        //   - `tainted`       → true when any memory key is tainted
+        //   - `tainted_keys`  → the list of tainted keys (use with `includes(...)`)
+        // This is what lets a graph route tainted flows through an approval gate.
+        const result = fn({ ...state, tainted: taintedKeys.length > 0, tainted_keys: taintedKeys });
 
         // filtrex with useDotAccessOperatorAndOptionalChaining may return
         // an Error object (e.g. UnknownPropertyError) instead of throwing.

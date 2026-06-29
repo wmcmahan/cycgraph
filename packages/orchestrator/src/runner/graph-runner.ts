@@ -59,6 +59,9 @@ import type { FactSanitizer } from '../agent/fact-sanitizer.js';
 import type { FitnessFunction } from '../agent/fitness-function.js';
 import type { RateLimiter } from '../agent/rate-limiter.js';
 import { PermissionDeniedError } from '../agent/agent-executor/errors.js';
+import type { SecurityPolicy } from './security-policy.js';
+import { readableTaintedKeys, SecurityPolicyViolationError } from './security-policy.js';
+import { getTaintRegistry } from '../utils/taint.js';
 
 // Extracted modules
 import { CircuitBreakerManager } from './circuit-breaker.js';
@@ -95,6 +98,17 @@ export interface GraphRunnerEvents {
   'action:applied': { action_id: string; type: string; node_id: string };
   /** Emitted after state is persisted to storage. */
   'state:persisted': { run_id: string; iteration: number };
+  /** Emitted when the security policy reaches a non-`allow` decision for a node. */
+  'security:policy': {
+    run_id: string;
+    node_id: string;
+    effect: 'monitor' | 'block' | 'require_approval';
+    sensitivity?: string[];
+    tainted_keys: string[];
+    reason?: string;
+    rule_id?: string;
+    timestamp: number;
+  };
   /** Emitted for each token delta during agent streaming. */
   'agent:token_delta': { run_id: string; node_id: string; token: string };
   /** Emitted when a tool call begins executing. */
@@ -270,6 +284,15 @@ export interface GraphRunnerOptions {
    * Only used when `persistDeltaFn` is provided.
    */
   deltaTrackerOptions?: { full_snapshot_interval?: number; max_patch_bytes?: number };
+  /**
+   * Optional taint-aware security policy consulted BEFORE each node executes.
+   *
+   * When provided, any node that reads untrusted (tainted) data is passed to
+   * the policy, which may allow it, flag it (`monitor`), fail the run
+   * (`block`), or pause it for human approval (`require_approval`) — without
+   * the graph author wiring an approval node. See {@link SecurityPolicy}.
+   */
+  securityPolicy?: SecurityPolicy;
 }
 
 /**
@@ -339,6 +362,9 @@ export class GraphRunner extends EventEmitter {
   // Optional rate-limiting hook awaited before every LLM call
   private readonly rateLimiter?: RateLimiter;
 
+  // Optional taint-aware security policy consulted before each node executes
+  private readonly securityPolicy?: SecurityPolicy;
+
   // Auto-compaction: compact event log every N events (0 = disabled)
   private readonly compactionInterval: number;
 
@@ -393,6 +419,7 @@ export class GraphRunner extends EventEmitter {
     this.factSanitizerFailMode = options?.factSanitizerFailMode ?? 'drop';
     this.fitnessFunction = options?.fitnessFunction;
     this.rateLimiter = options?.rateLimiter;
+    this.securityPolicy = options?.securityPolicy;
     this.autoRollback = options?.auto_rollback ?? false;
     this.allowImplicitCompletion = options?.allow_implicit_completion ?? false;
     this.compactionInterval = options?.compaction_interval ?? DEFAULT_COMPACTION_INTERVAL;
@@ -622,6 +649,7 @@ export class GraphRunner extends EventEmitter {
       get modelResolver() { return self.modelResolver; },
       get contextCompressor() { return self.contextCompressor; },
       get memoryRetriever() { return self.memoryRetriever; },
+      get securityPolicy() { return self.securityPolicy; },
       get memoryWriter() { return self.memoryWriter; },
       get factSanitizer() { return self.factSanitizer; },
       get factSanitizerFailMode() { return self.factSanitizerFailMode; },
@@ -921,6 +949,21 @@ export class GraphRunner extends EventEmitter {
           }
         }
 
+        // ── Security policy enforcement (taint-aware, pre-execution) ──
+        // A node that reads untrusted data and performs a sensitive action is
+        // gated/blocked HERE — before it runs — independent of how the graph
+        // was authored. Skip approval nodes (they ARE a gate) and anything the
+        // middleware already short-circuited. A `block` decision throws and is
+        // handled by the run's failure path (fail-closed).
+        let policyInjected = false;
+        if (!action && this.securityPolicy && currentNode.type !== 'approval') {
+          const gate = this.applySecurityPolicy(currentNode);
+          if (gate) {
+            action = gate;
+            policyInjected = true;
+          }
+        }
+
         // Execute node (with real-time token streaming when in streaming mode)
         const nodeStartTime = Date.now();
         if (!action) {
@@ -987,8 +1030,10 @@ export class GraphRunner extends EventEmitter {
           );
         }
 
-        // Validate action against permissions
-        if (!validateAction(action, currentNode.write_keys)) {
+        // Validate action against permissions. Policy-injected gates are
+        // SYSTEM actions (not the node's own output), so they intentionally
+        // bypass the node's write-key permission check.
+        if (!policyInjected && !validateAction(action, currentNode.write_keys)) {
           throw new PermissionDeniedError(`Node ${currentNode.id} tried to write to unauthorized keys`);
         }
 
@@ -1064,7 +1109,11 @@ export class GraphRunner extends EventEmitter {
         // Track cumulative token usage from agent/supervisor executions
         const tokenUsage = action.metadata.token_usage;
         if (tokenUsage?.totalTokens && typeof tokenUsage.totalTokens === 'number') {
-          this.dispatchInternal('_track_tokens', { tokens: tokenUsage.totalTokens });
+          this.dispatchInternal('_track_tokens', {
+            tokens: tokenUsage.totalTokens,
+            input_tokens: tokenUsage.inputTokens ?? 0,
+            output_tokens: tokenUsage.outputTokens ?? 0,
+          });
         }
 
         // Track cumulative cost from token usage. Also compute the
@@ -1197,8 +1246,12 @@ export class GraphRunner extends EventEmitter {
           break;
         }
 
-        // Check if current node is an end node — if so, we're done
-        if (this.graph.end_nodes.includes(currentNode.id)) {
+        // Check if current node is an end node — if so, we're done. But a
+        // flow-control action (approval node, or an injected security-policy
+        // gate) may have paused the run at this node: a `waiting` end node is
+        // held for human input, NOT complete. Only finalize a still-`running`
+        // run; the pause is handled by the flow-control branch below.
+        if (this.graph.end_nodes.includes(currentNode.id) && this.state.status === 'running') {
           logger.info('execution_complete_at_end_node', { node_id: currentNode.id, graph_id: this.graph.id, run_id: this.state.run_id });
           this.dispatchInternal('_complete');
           await this.persistState();
@@ -1536,7 +1589,11 @@ export class GraphRunner extends EventEmitter {
 
     const totalTokens = usage.totalTokens ?? ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
     if (totalTokens > 0) {
-      this.dispatchInternal('_track_tokens', { tokens: totalTokens });
+      this.dispatchInternal('_track_tokens', {
+        tokens: totalTokens,
+        input_tokens: usage.inputTokens ?? 0,
+        output_tokens: usage.outputTokens ?? 0,
+      });
     }
     if (usage.model && (usage.inputTokens || usage.outputTokens)) {
       const cost = calculateCost(usage.model, usage.inputTokens ?? 0, usage.outputTokens ?? 0);
@@ -1639,6 +1696,103 @@ export class GraphRunner extends EventEmitter {
   }
 
   /**
+   * Consult the security policy for a node about to execute.
+   *
+   * Returns an `request_human_input` gate action to inject (pausing the run
+   * for approval), or `undefined` to let the node run normally. Throws
+   * {@link SecurityPolicyViolationError} when the policy decision is `block`
+   * (the run's failure path turns this into a fail-closed `workflow:failed`).
+   *
+   * Only consulted for nodes that read tainted data; a node reading nothing
+   * untrusted is always allowed without invoking the policy.
+   */
+  private applySecurityPolicy(node: GraphNode): Action | undefined {
+    // A prior human approval for this node (recorded on resume) lets it run
+    // exactly once. The flag persists for the run, so a node revisited in a
+    // loop after approval is not re-gated — a known v1 limitation.
+    const approved = (this.state.memory._policy_approved ?? {}) as Record<string, boolean>;
+    if (approved[node.id]) return undefined;
+
+    const registry = getTaintRegistry(this.state.memory);
+    const taintedReadKeys = readableTaintedKeys(node, registry);
+    if (taintedReadKeys.length === 0) return undefined;
+
+    const decision = this.securityPolicy!({
+      node,
+      state: this.state,
+      tainted_read_keys: taintedReadKeys,
+    });
+    if (!decision || decision.effect === 'allow') return undefined;
+
+    // Surface every non-allow decision so the host can audit it durably.
+    this.emit('security:policy', {
+      run_id: this.state.run_id,
+      node_id: node.id,
+      effect: decision.effect,
+      sensitivity: decision.sensitivity,
+      tainted_keys: taintedReadKeys,
+      reason: decision.reason,
+      rule_id: decision.rule_id,
+      timestamp: Date.now(),
+    });
+
+    if (decision.effect === 'monitor') {
+      logger.warn('security_policy_flagged', {
+        run_id: this.state.run_id,
+        node_id: node.id,
+        sensitivity: decision.sensitivity,
+        tainted_keys: taintedReadKeys,
+        reason: decision.reason,
+      });
+      return undefined;
+    }
+
+    if (decision.effect === 'block') {
+      throw new SecurityPolicyViolationError(
+        node.id,
+        decision.reason
+          ?? `Blocked by security policy: untrusted data reaching a sensitive action at node "${node.id}"`,
+        decision.sensitivity,
+      );
+    }
+
+    // require_approval → inject an approval gate BEFORE the node runs. Tagged
+    // `policy_gate` so the resume path re-enters this node (rather than
+    // advancing past it) once a human approves.
+    logger.info('security_policy_gated', {
+      run_id: this.state.run_id,
+      node_id: node.id,
+      sensitivity: decision.sensitivity,
+      tainted_keys: taintedReadKeys,
+    });
+    return {
+      id: uuidv4(),
+      idempotency_key: `policy_gate:${node.id}:${this.state.iteration_count}`,
+      type: 'request_human_input',
+      payload: {
+        waiting_for: 'human_approval',
+        pending_approval: {
+          node_id: node.id,
+          policy_gate: true,
+          prompt_message: decision.prompt
+            ?? `Security policy: node "${node.id}" uses untrusted data to perform a sensitive action. Approve to proceed.`,
+          review_data: {
+            reason: decision.reason,
+            sensitivity: decision.sensitivity,
+            rule_id: decision.rule_id,
+            tainted_keys: taintedReadKeys,
+          },
+        },
+      },
+      metadata: {
+        node_id: node.id,
+        timestamp: new Date(),
+        attempt: 1,
+      },
+    };
+  }
+
+  /**
    * Apply human response and prepare for resumption.
    * Called by the worker before run() on HITL resume.
    */
@@ -1658,6 +1812,8 @@ export class GraphRunner extends EventEmitter {
     const pendingApproval = this.state.memory._pending_approval as {
       node_id?: string;
       rejection_node_id?: string;
+      policy_gate?: boolean;
+      subgraph_node_id?: string;
     } | undefined;
 
     // Create and apply resume action
@@ -1688,14 +1844,43 @@ export class GraphRunner extends EventEmitter {
       action,
     });
 
+    // Nested subgraph approval: the decision belongs to the CHILD run, not the
+    // parent. `resume_from_human` already recorded human_decision/human_response
+    // in memory; re-enter the subgraph node (current_node never advanced) so its
+    // executor forwards the decision and continues the child. Do NOT advance or
+    // cancel the parent here.
+    if (pendingApproval?.subgraph_node_id) {
+      return;
+    }
+
     // Handle rejection routing
-    if (response.decision === 'rejected' && pendingApproval?.rejection_node_id) {
-      const rejectionNode = this.graph.nodes.find(n => n.id === pendingApproval.rejection_node_id);
-      if (rejectionNode) {
-        this.dispatchInternal('_advance', { node_id: rejectionNode.id });
+    if (response.decision === 'rejected') {
+      if (pendingApproval?.rejection_node_id) {
+        const rejectionNode = this.graph.nodes.find(n => n.id === pendingApproval.rejection_node_id);
+        if (rejectionNode) {
+          this.dispatchInternal('_advance', { node_id: rejectionNode.id });
+          return;
+        }
       }
-    } else if (response.decision !== 'rejected') {
-      // Advance to next node from the approval node
+      // No rejection branch configured: the human declined the action, so the
+      // run must NOT proceed to the gated node. Terminate it (cancelled) rather
+      // than leaving it stalled with nowhere to advance.
+      this.dispatchInternal('_cancel');
+    } else if (pendingApproval?.policy_gate && pendingApproval.node_id) {
+      // Approved a SECURITY-POLICY gate. Unlike a graph-authored approval node,
+      // the gated node has NOT executed yet — the policy held it before it ran.
+      // Record the approval and re-enter the SAME node (do not advance) so it
+      // now runs. `applySecurityPolicy` sees the flag and lets it through once.
+      const approved = {
+        ...((this.state.memory._policy_approved as Record<string, boolean> | undefined) ?? {}),
+        [pendingApproval.node_id]: true,
+      };
+      this.state = {
+        ...this.state,
+        memory: { ...this.state.memory, _policy_approved: approved },
+      };
+    } else {
+      // Approved: advance to the next node from the approval node.
       const approvalNode = this.graph.nodes.find(n => n.id === pendingApproval?.node_id);
       if (approvalNode) {
         const nextNode = getNextNode(this.edgeMap, this.nodeMap, approvalNode, this.state);

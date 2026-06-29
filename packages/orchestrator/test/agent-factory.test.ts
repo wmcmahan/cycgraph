@@ -100,7 +100,7 @@ describe('AgentFactory', () => {
     });
 
     it('returns different model instances for different configs', () => {
-      const config1 = { ...factory.getDefaultConfig('a'), model: 'claude-3-5-sonnet', provider: 'anthropic' };
+      const config1 = { ...factory.getDefaultConfig('a'), model: 'claude-sonnet-4-6', provider: 'anthropic' };
       const config2 = { ...factory.getDefaultConfig('b'), model: 'gpt-4-turbo', provider: 'openai' };
       const m1 = factory.getModel(config1);
       const m2 = factory.getModel(config2);

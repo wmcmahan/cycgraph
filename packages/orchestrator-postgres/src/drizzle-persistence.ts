@@ -58,6 +58,9 @@ export function toWorkflowStateJson(state: WorkflowState): WorkflowStateJson {
     visited_nodes: state.visited_nodes,
     supervisor_history: state.supervisor_history,
     total_tokens_used: state.total_tokens_used,
+    total_input_tokens: state.total_input_tokens,
+    total_output_tokens: state.total_output_tokens,
+    total_cost_usd: state.total_cost_usd,
     max_token_budget: state.max_token_budget,
     started_at: state.started_at,
     created_at: state.created_at,
@@ -180,6 +183,15 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
       .orderBy(desc(graphs.updated_at))
       .limit(limit)
       .offset(offset));
+  }
+
+  /** Delete a graph (tenant-scoped). Returns `true` if a row existed. */
+  async deleteGraph(graph_id: string): Promise<boolean> {
+    const deleted = await this.read((q) => q
+      .delete(graphs)
+      .where(and(eq(graphs.id, graph_id), this.tenantEq(graphs.tenant_id)))
+      .returning({ id: graphs.id }));
+    return deleted.length > 0;
   }
 
   // ── Workflow Run Operations ──

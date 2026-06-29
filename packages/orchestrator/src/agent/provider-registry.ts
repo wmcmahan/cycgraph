@@ -37,6 +37,14 @@ export type LanguageModelFactory = (modelId: string) => LanguageModel;
 export interface ProviderOptions {
   /** Known model identifiers this provider supports. */
   models: string[];
+  /**
+   * When true, an unknown model (not in {@link models}) is passed through to
+   * the factory instead of throwing. Use for providers whose model space is
+   * open-ended — e.g. Ollama, where model ids are arbitrary local tags. Curated
+   * cloud providers (OpenAI, Anthropic) leave this false to fail fast on typos.
+   * Defaults to false.
+   */
+  allowUnknownModels?: boolean;
 }
 
 /** Internal storage for a registered provider. */
@@ -45,6 +53,8 @@ interface ProviderRegistration {
   factory: LanguageModelFactory;
   /** Known model identifiers this provider supports. */
   models: string[];
+  /** Whether unknown models pass through instead of throwing. */
+  allowUnknownModels: boolean;
 }
 
 /**
@@ -65,7 +75,11 @@ export class ProviderRegistry {
    * @param options - Additional options including known model identifiers.
    */
   register(name: string, factory: LanguageModelFactory, options: ProviderOptions): void {
-    this.providers.set(name, { factory, models: options.models });
+    this.providers.set(name, {
+      factory,
+      models: options.models,
+      allowUnknownModels: options.allowUnknownModels ?? false,
+    });
   }
 
   /** Check if a provider is registered. */
@@ -98,6 +112,19 @@ export class ProviderRegistry {
       throw new UnsupportedProviderError(providerName);
     }
     if (!registration.models.includes(modelId)) {
+      if (!registration.allowUnknownModels) {
+        // Fail fast on an unknown model rather than letting it reach the
+        // provider SDK, where a typo'd/decommissioned id is silently substituted
+        // or errors mid-stream after real token spend. The agent config is
+        // misconfigured; surface it loudly. Register genuinely-new models via
+        // `addModel()`, or set `allowUnknownModels` for open-ended providers.
+        throw new Error(
+          `Unknown model "${modelId}" for provider "${providerName}". ` +
+            `Known models: ${registration.models.join(', ')}. ` +
+            `Fix the agent config or register it with registry.addModel("${providerName}", "${modelId}").`,
+        );
+      }
+      // Open-ended provider (e.g. Ollama): pass through, but warn.
       logger.warn('unknown_model', { provider: providerName, modelId, known: registration.models });
     }
     return registration.factory(modelId);

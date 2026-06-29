@@ -137,6 +137,10 @@ export const WorkflowStateSchema = z.object({
   // ── Token budget ──
   /** Cumulative tokens consumed across all LLM calls. */
   total_tokens_used: z.number().default(0),
+  /** Cumulative prompt/input tokens (the input half of {@link total_tokens_used}). */
+  total_input_tokens: z.number().default(0),
+  /** Cumulative completion/output tokens (the output half of {@link total_tokens_used}). */
+  total_output_tokens: z.number().default(0),
   /** If set, workflow fails when token usage exceeds this limit. */
   max_token_budget: z.number().optional(),
 
@@ -396,6 +400,13 @@ export const RequestHumanInputPayloadSchema = z.object({
   timeout_ms: z.number().optional(),
   /** Arbitrary review payload. Optional — agents pausing for generic input may omit it. */
   pending_approval: z.unknown().optional(),
+  /**
+   * Extra memory to persist as part of the pause. Used by the subgraph executor
+   * to stash a child-run checkpoint alongside the parent's `waiting` transition,
+   * so resume can rehydrate and continue the child. Applied before
+   * `_pending_approval` so it can't clobber it.
+   */
+  memory_updates: z.record(z.string(), z.unknown()).optional(),
 });
 export type RequestHumanInputPayload = z.infer<typeof RequestHumanInputPayloadSchema>;
 
@@ -555,7 +566,7 @@ export type Action = z.infer<typeof ActionSchema>;
  */
 export interface TaintMetadata {
   /** Origin of the data. */
-  source: 'mcp_tool' | 'tool_node' | 'agent_response' | 'derived';
+  source: 'mcp_tool' | 'tool_node' | 'agent_response' | 'derived' | 'retrieval';
   /** Tool that produced the data (if `source` is tool-related). */
   tool_name?: string;
   /** MCP server that provided the tool (if `source` is `"mcp_tool"`). */

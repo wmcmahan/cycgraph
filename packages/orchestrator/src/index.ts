@@ -50,6 +50,13 @@ export { WorkflowWorker } from './runner/worker.js';
 export type { WorkflowWorkerOptions, WorkflowWorkerEvents } from './runner/worker.js';
 export { createStateView } from './runner/state-view.js';
 export type { GraphRunnerMiddleware, MiddlewareContext, BeforeNodeResult } from './runner/middleware.js';
+export type {
+  SecurityPolicy,
+  SecurityPolicyContext,
+  SecurityPolicyDecision,
+  SecurityPolicyEffect,
+} from './runner/security-policy.js';
+export { SecurityPolicyViolationError, readableTaintedKeys } from './runner/security-policy.js';
 export { createObserverMiddleware } from './runner/observer-middleware.js';
 export type { ObserverMiddlewareOptions, ObserverFinding, ObserverSeverity, DiagnosticAgentOptions } from './runner/observer-middleware.js';
 export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './runner/errors.js';

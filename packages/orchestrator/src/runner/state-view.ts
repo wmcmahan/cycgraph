@@ -9,7 +9,10 @@
  */
 
 import type { GraphNode } from '../types/graph.js';
-import type { WorkflowState, StateView } from '../types/state.js';
+import type { WorkflowState, StateView, TaintRegistry } from '../types/state.js';
+import { getTaintRegistry } from '../utils/taint.js';
+
+const TAINT_REGISTRY_KEY = '_taint_registry';
 
 /**
  * Create a filtered state view for a node.
@@ -27,6 +30,21 @@ export function createStateView(state: WorkflowState, node: GraphNode): StateVie
   const memory = allowedKeys.includes('*')
     ? filterInternalKeys(state.memory)
     : filterMemory(state.memory, allowedKeys);
+
+  // Preserve taint info for the keys this node can actually read, so the agent
+  // executor can mark its outputs as derived-tainted when it reads untrusted
+  // data (`propagateDerivedTaint` inspects `memory._taint_registry`). Without
+  // this, derived taint never propagates for least-privilege read_keys. The
+  // registry is stripped from the agent PROMPT by `sanitizeForPrompt`, so it
+  // stays executor-only and never leaks into the model context.
+  const fullRegistry = getTaintRegistry(state.memory);
+  const viewRegistry: TaintRegistry = {};
+  for (const key of Object.keys(memory)) {
+    if (key in fullRegistry) viewRegistry[key] = fullRegistry[key];
+  }
+  if (Object.keys(viewRegistry).length > 0) {
+    memory[TAINT_REGISTRY_KEY] = viewRegistry;
+  }
 
   return {
     workflow_id: state.workflow_id,

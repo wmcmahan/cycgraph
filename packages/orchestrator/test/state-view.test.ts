@@ -114,7 +114,10 @@ describe('createStateView', () => {
   });
 
   describe('internal key filtering', () => {
-    test('should strip _taint_registry from wildcard access', () => {
+    test('carries _taint_registry for readable tainted keys (executor-only)', () => {
+      // The view now retains taint info for the keys the node can read so the
+      // agent executor can propagate derived taint. It is stripped from the
+      // agent PROMPT by sanitizeForPrompt, not from the view itself.
       const state = makeState({
         findings: 'visible',
         _taint_registry: { findings: { source: 'web_search' } },
@@ -123,7 +126,22 @@ describe('createStateView', () => {
       const view = createStateView(state, makeNode(['*']));
 
       expect(view.memory).toHaveProperty('findings');
-      expect(view.memory).not.toHaveProperty('_taint_registry');
+      expect(view.memory._taint_registry).toEqual({ findings: { source: 'web_search' } });
+    });
+
+    test('only carries taint entries for keys the node can read', () => {
+      const state = makeState({
+        readable: 'x',
+        secret: 'y',
+        _taint_registry: { readable: { source: 'web_search' }, secret: { source: 'web_search' } },
+      });
+
+      const view = createStateView(state, makeNode(['readable']));
+
+      expect(view.memory).toHaveProperty('readable');
+      expect(view.memory).not.toHaveProperty('secret');
+      // Taint for the unreadable `secret` key is not leaked into the view.
+      expect(view.memory._taint_registry).toEqual({ readable: { source: 'web_search' } });
     });
 
     test('should strip all _-prefixed keys from wildcard access', () => {

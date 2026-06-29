@@ -335,6 +335,9 @@ export const requestHumanInputReducer: Reducer = (state, action) => {
     waiting_timeout_at: new Date(now.getTime() + timeout_ms),
     memory: {
       ...state.memory,
+      // Stash extra memory (e.g. a subgraph child checkpoint) before
+      // `_pending_approval` so it cannot overwrite it.
+      ...(parsed.memory_updates && typeof parsed.memory_updates === 'object' ? parsed.memory_updates : {}),
       _pending_approval: parsed.pending_approval,
     },
   });
@@ -484,9 +487,13 @@ export const internalReducer: Reducer = (state, action) => {
 
     case '_track_tokens': {
       const tokens = action.payload.tokens as number;
+      const inputTokens = (action.payload.input_tokens as number) ?? 0;
+      const outputTokens = (action.payload.output_tokens as number) ?? 0;
       return {
         ...state,
         total_tokens_used: (state.total_tokens_used || 0) + tokens,
+        total_input_tokens: (state.total_input_tokens || 0) + inputTokens,
+        total_output_tokens: (state.total_output_tokens || 0) + outputTokens,
         updated_at: timeOf(action),
       };
     }

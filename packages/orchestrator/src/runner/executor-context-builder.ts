@@ -22,6 +22,7 @@ import type { ToolResolver } from '../mcp/connection-manager.js';
 import type { ModelResolver } from '../agent/model-resolver.js';
 import type { ContextCompressor } from '../agent/context-compressor.js';
 import type { MemoryRetriever } from '../agent/memory-retriever.js';
+import type { SecurityPolicy } from './security-policy.js';
 import type { MemoryWriter } from '../agent/memory-writer.js';
 import type { FactSanitizer } from '../agent/fact-sanitizer.js';
 import type { FitnessFunction } from '../agent/fitness-function.js';
@@ -61,6 +62,7 @@ export interface ExecutorContextRunner {
   fitnessFunction?: FitnessFunction;
   rateLimiter?: RateLimiter;
   toolResolver?: ToolResolver;
+  securityPolicy?: SecurityPolicy;
 
   emit(event: string, payload: unknown): boolean;
   listenerCount(event: string | symbol): number;
@@ -160,6 +162,7 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     modelResolver: runner.modelResolver,
     contextCompressor: runner.contextCompressor,
     memoryRetriever: runner.memoryRetriever,
+    securityPolicy: runner.securityPolicy,
     memoryWriter: runner.memoryWriter,
     factSanitizer: runner.factSanitizer,
     factSanitizerFailMode: runner.factSanitizerFailMode,

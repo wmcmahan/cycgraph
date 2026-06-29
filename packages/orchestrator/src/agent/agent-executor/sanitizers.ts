@@ -73,6 +73,9 @@ export function sanitizeString(input: string): string {
 export function sanitizeForPrompt(memory: Record<string, unknown>): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(memory)) {
+    // Internal bookkeeping keys (e.g. `_taint_registry`) are executor-only and
+    // must never appear in the model context.
+    if (key.startsWith('_')) continue;
     sanitized[sanitizeString(key)] = sanitizeValue(value);
   }
   return sanitized;

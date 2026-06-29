@@ -149,6 +149,9 @@ export interface PersistenceProvider {
   /** List graphs ordered by `updated_at` descending. */
   listGraphs(opts?: { limit?: number; offset?: number }): Promise<GraphRow[]>;
 
+  /** Delete a graph by ID. Returns `true` if it existed. */
+  deleteGraph(graph_id: string): Promise<boolean>;
+
   // ── Workflow Run Operations ──
 
   /** Save or upsert a workflow run record from the current state. */

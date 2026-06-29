@@ -131,6 +131,8 @@ export async function executeAgent(
       entityIds?: string[];
       tags?: string[];
       maxFacts?: number;
+      /** Retrieved content is untrusted → taint the agent's outputs. */
+      untrusted?: boolean;
     };
   }
 ): Promise<Action> {
@@ -361,6 +363,16 @@ export async function executeAgent(
             agent_id,
             created_at: new Date().toISOString(),
           };
+        }
+      }
+
+      // Retrieval taint: when untrusted retrieved content (RAG over external /
+      // user documents) was injected into this prompt, mark the outputs so a
+      // poisoned document can't drive a downstream sensitive action ungated.
+      if (options?.memory_query?.untrusted && (retrievedMemory?.facts?.length ?? 0) > 0) {
+        for (const key of outputKeys) {
+          if (key === '_taint_registry') continue;
+          taintUpdates[key] = { source: 'retrieval', agent_id, created_at: new Date().toISOString() };
         }
       }
 

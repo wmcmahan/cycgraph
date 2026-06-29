@@ -90,6 +90,10 @@ export class InMemoryPersistenceProvider implements PersistenceProvider {
       .slice(offset, offset + limit);
   }
 
+  async deleteGraph(graph_id: string): Promise<boolean> {
+    return this.graphs.delete(graph_id);
+  }
+
   // ── Workflow Run Operations ──
 
   /** Save or upsert a workflow run record. Preserves original `created_at`. */

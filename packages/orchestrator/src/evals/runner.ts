@@ -133,6 +133,8 @@ function buildInitialState(evalCase: EvalCase): WorkflowState {
     max_execution_time_ms: evalCase.timeout_ms || 60000,
     memory: evalCase.input,
     total_tokens_used: 0,
+    total_input_tokens: 0,
+    total_output_tokens: 0,
     total_cost_usd: 0,
     max_token_budget: maxTokenBudget,
     visited_nodes: [],
