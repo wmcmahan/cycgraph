@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/context-engine",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Framework-agnostic context optimization engine — composable compression pipeline that makes every token count.",
   "keywords": [
     "context-compression",
