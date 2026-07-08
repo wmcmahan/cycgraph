@@ -1,5 +1,39 @@
 # @cycgraph/orchestrator-postgres
 
+## 3.0.0
+
+### Minor Changes
+
+- c6cb931: Packaging: shared libraries moved to peer dependencies, and the Node engine floor lowered to 22.
+
+  **BREAKING — install-time.** Libraries that a consumer composes against the packages' own objects are now `peerDependencies` and must be installed by the consumer:
+
+  - `zod` (`@cycgraph/orchestrator`, `@cycgraph/memory`, `@cycgraph/context-engine`) — these packages export Zod schemas that consumers parse with and compose into their own schemas.
+  - `ai` (`@cycgraph/orchestrator`) — the package exports `LanguageModel` types from the AI SDK.
+  - `drizzle-orm` (`@cycgraph/orchestrator-postgres`) — the package exports Drizzle table objects (`export * from './schema'`) that consumers query with their own Drizzle operators (`eq`, `sql`, …). Drizzle tags tables/columns with internal Symbols, so two copies at different versions break at runtime; a single shared copy is required.
+
+  Most consumers already depend on these directly, so no change is needed. A consumer that relied on them being installed transitively must now add them to its own `dependencies`.
+
+  **OpenTelemetry is now optional.** `@opentelemetry/api` remains a dependency (it no-ops without an SDK), but the heavy `@opentelemetry/sdk-node`, exporters, `sdk-metrics`, `resources`, and `semantic-conventions` are now **optional** peer dependencies. Tracing/metrics are already loaded via dynamic `import()` only when enabled, so a deployment that doesn't export telemetry no longer installs the full OTel stack. Install them to enable trace/metric export.
+
+  **Node `engines` floor lowered from `>=24` to `>=22`.** The packages run on Node 22 LTS (the whole test suite runs on it), so this only widens compatibility — Node 22 consumers no longer get `EBADENGINE` warnings.
+
+- c6cb931: Multi-tenant isolation, fencing, and retention fixes.
+
+  - **Cross-tenant upsert guard.** Every tenant-scoped `onConflictDoUpdate` (graphs, workflow runs, MCP servers, the memory tables, run outcomes) now scopes the UPDATE to the caller's tenant (`setWhere`). Previously a caller-supplied primary-key collision could overwrite another tenant's row — e.g. `saveServer({ id: "github", … })` clobbering another tenant's MCP transport (the command the engine later spawns).
+  - **Queue runs on the platform plane.** `DrizzleWorkflowQueue` methods now run through `withPlatform` (the BYPASSRLS connection) instead of the tenant-subject connection. Once RLS is enforced (`FORCE`, migration 0019) with a non-superuser owner, the previous owner-connection `dequeue` would have returned zero rows and silently stopped delivering jobs.
+  - **`compact()` is fenced.** Event-log compaction now verifies the run's claim epoch before deleting, so a reclaimed/stale worker can't delete events belonging to the run a new claimant owns (which would corrupt the new claimant's replay). Throws `StaleClaimError`, matching `append`.
+  - **Retention actually reclaims storage.** `deleteWarmData` now deletes cold (archived) runs, cascading via FK to their `workflow_states`, `workflow_events` (the highest-volume table), `workflow_checkpoints`, and `usage_records` — previously only `workflow_states` rows were deleted, so events/usage grew forever. The archive sweep is batched to bound its transaction, and `getStorageStats().cold_runs` reports a real count instead of a hardcoded `0`.
+  - **`findFacts` gains `exclude_tags`** (SQL `NOT (tags ?| …)`) so the memory package's quarantine exclusion is honored by the Postgres store. Additive.
+
+### Patch Changes
+
+- Updated dependencies [c6cb931]
+- Updated dependencies [c6cb931]
+- Updated dependencies [c6cb931]
+  - @cycgraph/memory@0.3.0
+  - @cycgraph/orchestrator@0.5.0
+
 ## 2.0.0
 
 ### Minor Changes
