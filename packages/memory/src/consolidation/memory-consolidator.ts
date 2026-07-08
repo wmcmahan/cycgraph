@@ -269,11 +269,16 @@ export class MemoryConsolidator {
     return a.valid_from >= b.valid_from ? a : b;
   }
 
-  /** Union the loser's evidence (episodes, tags, access count) into the keeper. */
+  /** Union the loser's evidence (entities, episodes, tags, access count) into the keeper. */
   private mergeIntoKeeper(keeper: SemanticFact, loser: SemanticFact): SemanticFact {
     const verifiedTag = this.options.verifiedTag ?? 'verified';
     const candidateTag = this.options.candidateTag ?? 'candidate';
 
+    // Union entity links: if the near-duplicates referenced different entities,
+    // dropping the loser's would silently unlink the survivor from those
+    // entities — entity-scoped retrieval and conflict detection (both group by
+    // entity_id) would stop seeing this fact for them.
+    const entity_ids = [...new Set([...keeper.entity_ids, ...loser.entity_ids])];
     const source_episode_ids = [...new Set([...keeper.source_episode_ids, ...loser.source_episode_ids])];
     let tags = [...new Set([...(keeper.tags ?? []), ...(loser.tags ?? [])])];
     // A verified survivor must not also carry the candidate tag — that would
@@ -281,7 +286,7 @@ export class MemoryConsolidator {
     if (tags.includes(verifiedTag)) tags = tags.filter((t) => t !== candidateTag);
     const access_count = (keeper.access_count ?? 0) + (loser.access_count ?? 0);
 
-    return { ...keeper, source_episode_ids, tags, access_count };
+    return { ...keeper, entity_ids, source_episode_ids, tags, access_count };
   }
 
   private async planDecay(

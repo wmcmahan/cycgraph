@@ -20,11 +20,13 @@ export { executeSubgraphNode } from './subgraph.js';
 export { executeVotingNode } from './voting.js';
 export { executeSwarmAgentNode } from './swarm.js';
 export { executeEvolutionNode } from './evolution.js';
-export { executeVerifierNode, VerificationFailedError } from './verifier.js';
+export { executeVerifierNode } from './verifier.js';
+export { executeReflectionNode } from './reflection.js';
 export {
-  executeReflectionNode,
+  VerificationFailedError,
   MemoryWriterMissingError,
-} from './reflection.js';
+  SubgraphIncompleteError,
+} from './errors.js';
 export {
   NODE_EXECUTORS,
   SUPPORTED_NODE_TYPES,

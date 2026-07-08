@@ -101,9 +101,9 @@ export const runtimeConfig: RuntimeConfig = loadRuntimeConfig();
 
 // ─── Named exports (backwards-compatible aliases) ────────────────────
 //
-// These mirror the constants that previously lived in `agent/constants.ts`,
-// `reducers/index.ts`, and `runner/conditions.ts`. Importing from this module
-// is preferred; the legacy modules re-export these for back-compat.
+// Prefer importing these from this module; `agent/constants.ts`,
+// `reducers/index.ts`, and `runner/conditions.ts` re-export them for
+// back-compat.
 
 export const AGENT_CONFIG_CACHE_TTL_MS = runtimeConfig.AGENT_CONFIG_CACHE_TTL_MS;
 export const MAX_AGENT_CONFIG_CACHE_SIZE = runtimeConfig.MAX_AGENT_CONFIG_CACHE_SIZE;

@@ -6,6 +6,8 @@
  * @module persistence/errors
  */
 
+import { CycgraphError } from '../errors.js';
+
 /**
  * Thrown by fenced persistence/event-log writers when a write carries a
  * claim epoch older than the run's current epoch.
@@ -16,7 +18,7 @@
  * rejected, and continuing only burns tokens. The worker must NOT nack the
  * job — it no longer owns it.
  */
-export class StaleClaimError extends Error {
+export class StaleClaimError extends CycgraphError {
   constructor(
     public readonly runId: string,
     public readonly staleEpoch: number,

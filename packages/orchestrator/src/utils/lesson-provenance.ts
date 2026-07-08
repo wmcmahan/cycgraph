@@ -19,6 +19,7 @@
  * @module utils/lesson-provenance
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import type {
   LessonProvenanceEntry,
   LessonProvenanceRegistry,
@@ -27,6 +28,33 @@ import type {
 
 /** Well-known memory key for the lesson provenance registry. */
 export const LESSON_PROVENANCE_KEY = '_lesson_provenance';
+
+/**
+ * Mint a provenance registry for the facts injected into a node's
+ * prompt. Called at action-creation time by the agent and supervisor
+ * executors so event-log replay reproduces the entry verbatim — the
+ * same discipline as `TaintMetadata.created_at`.
+ *
+ * Only facts whose retriever supplied an `id` are attributable; returns
+ * `undefined` when none were (nothing to record).
+ */
+export function mintLessonProvenance(
+  retrieved: { facts: Array<{ id?: string }> } | null | undefined,
+  origin: { nodeId: string; agentId: string },
+): LessonProvenanceRegistry | undefined {
+  const factIds = (retrieved?.facts ?? [])
+    .map((f) => f.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  if (factIds.length === 0) return undefined;
+  return {
+    [uuidv4()]: {
+      node_id: origin.nodeId,
+      agent_id: origin.agentId,
+      fact_ids: factIds,
+      retrieved_at: new Date().toISOString(),
+    } satisfies LessonProvenanceEntry,
+  };
+}
 
 /**
  * Ring-buffer cap on registry entries (newest kept). One entry is

@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger.js';
 import { NodeConfigError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 
 const logger = createLogger('runner.node.approval');
 
@@ -57,7 +58,7 @@ export async function executeApprovalNode(
 
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'request_human_input',
     payload: {
       waiting_for: 'human_approval',

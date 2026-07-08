@@ -16,7 +16,9 @@ import { createLogger } from '../../utils/logger.js';
 import { ensureSaveToMemory } from './agent.js';
 import { NodeConfigError, UnsupportedNodeTypeError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { buildNodeCallbacks } from './node-callbacks.js';
 import { combineAbortSignals } from '../../utils/abort.js';
 import { aggregateParallelTaint } from '../../utils/taint.js';
 
@@ -45,38 +47,38 @@ export async function executeWorkerWithStateView(
 ): Promise<Action> {
   switch (node.type) {
     case 'agent': {
-      const agent_id = node.agent_id;
-      if (!agent_id) throw new NodeConfigError(node.id, 'agent', 'agent_id');
-      const agentConfig = await ctx.deps.loadAgent(agent_id);
-      const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), agent_id);
-      const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, node.id) : undefined;
+      const agentId = node.agent_id;
+      if (!agentId) throw new NodeConfigError(node.id, 'agent', 'agent_id');
+      const agentConfig = await ctx.deps.loadAgent(agentId);
+      const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), agentId);
+      const { onToken } = buildNodeCallbacks(node.id, ctx);
       // Combine the workflow signal with the per-task timeout signal so a
       // task_timeout_ms actually aborts the worker's LLM call.
       const abortSignal = combineAbortSignals(ctx.abortSignal, taskSignal);
-      return ctx.deps.executeAgent(agent_id, stateView, tools, attempt, {
-        node_id: node.id,
+      return ctx.deps.executeAgent(agentId, stateView, tools, attempt, {
+        nodeId: node.id,
         abortSignal,
         onToken,
         drainTaintEntries: ctx.deps.drainTaintEntries,
-        ...(node.default_write_key ? { default_write_key: node.default_write_key } : {}),
+        ...(node.default_write_key ? { defaultWriteKey: node.default_write_key } : {}),
         ...buildAgentMemoryOptions(node, ctx),
       });
     }
     case 'tool': {
-      const tool_id = node.tool_id;
-      if (!tool_id) throw new NodeConfigError(node.id, 'tool', 'tool_id');
+      const toolId = node.tool_id;
+      if (!toolId) throw new NodeConfigError(node.id, 'tool', 'tool_id');
       // Resolve tool sources from node or agent config, then find the named tool
       const toolSources = node.tools ?? [];
       const resolvedTools = await ctx.deps.resolveTools(toolSources, node.agent_id);
-      const toolDef = resolvedTools[tool_id] as { execute?: (args: Record<string, unknown>) => Promise<unknown> } | undefined;
+      const toolDef = resolvedTools[toolId] as { execute?: (args: Record<string, unknown>) => Promise<unknown> } | undefined;
       if (!toolDef?.execute) {
-        throw new NodeConfigError(node.id, 'tool', `resolvable tool "${tool_id}"`);
+        throw new NodeConfigError(node.id, 'tool', `resolvable tool "${toolId}"`);
       }
       const raw = await toolDef.execute(stateView.memory);
       const resultKey = `${node.id}_result`;
       return {
         id: uuidv4(),
-        idempotency_key: `${node.id}:map:${attempt}`,
+        idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
         type: 'update_memory',
         payload: { updates: { [resultKey]: raw } },
         metadata: { node_id: node.id, timestamp: new Date(), attempt },
@@ -122,11 +124,28 @@ export async function executeMapNode(
     try {
       const results = JSONPath({ path: config.items_path, json: stateView });
       items = Array.isArray(results[0]) ? results[0] : results;
-    } catch {
-      throw new NodeConfigError(node.id, 'map', `valid items_path ("${config.items_path}" failed)`);
+    } catch (err) {
+      throw new NodeConfigError(node.id, 'map', `valid items_path ("${config.items_path}" failed)`, { cause: err });
     }
   } else {
     throw new NodeConfigError(node.id, 'map', 'static_items or items_path');
+  }
+
+  // Fan-out size cap. `max_concurrency` bounds how many run at once, but an
+  // unbounded item count still issues one LLM call per item — potential DoS /
+  // budget blowout. Fail loudly (never silently truncate — dropping items
+  // would produce a wrong result that looks complete).
+  if (items.length > config.max_items) {
+    logger.warn('map_items_cap_exceeded', {
+      node_id: node.id,
+      resolved: items.length,
+      cap: config.max_items,
+    });
+    throw new NodeConfigError(
+      node.id,
+      'map',
+      `at most ${config.max_items} items (resolved ${items.length}) — chunk the input or lower the item count`,
+    );
   }
 
   // Short-circuit on empty items
@@ -134,7 +153,7 @@ export async function executeMapNode(
     logger.warn('map_empty_items', { node_id: node.id });
     return {
       id: uuidv4(),
-      idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+      idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
       type: 'merge_parallel_results',
       payload: {
         updates: { [`${node.id}_results`]: [], [`${node.id}_count`]: 0 },
@@ -160,24 +179,24 @@ export async function executeMapNode(
         _map_total: items.length,
       },
     },
-    input_item: item,
-    item_index: index,
+    inputItem: item,
+    itemIndex: index,
   }));
 
   const results = await executeParallel(
     tasks,
     async (task, taskSignal) => executeWorkerWithStateView(task.node, task.stateView, 1, ctx, taskSignal),
-    { max_concurrency: config.max_concurrency, error_strategy: config.error_strategy, task_timeout_ms: config.task_timeout_ms },
+    { maxConcurrency: config.max_concurrency, errorStrategy: config.error_strategy, taskTimeoutMs: config.task_timeout_ms },
   );
 
   const successResults = results.filter(r => r.success).map(r => ({
-    index: r.task_index,
-    node_id: r.node_id,
+    index: r.taskIndex,
+    node_id: r.nodeId,
     updates: r.action?.payload?.updates,
   }));
   const errorResults = results.filter(r => !r.success).map(r => ({
-    index: r.task_index,
-    node_id: r.node_id,
+    index: r.taskIndex,
+    node_id: r.nodeId,
     error: r.error,
   }));
 
@@ -216,7 +235,7 @@ export async function executeMapNode(
 
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'merge_parallel_results',
     payload: {
       updates: {

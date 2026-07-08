@@ -155,7 +155,7 @@ describe('Voting/Consensus', () => {
     mockEvaluateQuality.mockResolvedValue({
       score: 0.9,
       reasoning: 'plan_A is better because...',
-      tokens_used: 50,
+      tokensUsed: 50,
     });
 
     const graph = createVotingGraph({

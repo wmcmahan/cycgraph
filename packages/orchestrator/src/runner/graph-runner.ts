@@ -13,8 +13,6 @@ import { EventEmitter } from 'events';
 import type { Graph, GraphNode, GraphEdge } from '../types/graph.js';
 import type { WorkflowState, Action, StateView } from '../types/state.js';
 import { rootReducer, internalReducer, validateAction, REPLAY_VERSION } from '../reducers/index.js';
-import { calculateBackoff, sleep } from './helpers.js';
-import { evaluateCondition } from './conditions.js';
 import { getNextNode, getCurrentNode, shouldContinue, buildEdgeMap } from './router.js';
 import { IdempotencyTracker } from './idempotency-tracker.js';
 import { buildExecutorContext as buildExecutorContextFn, type ExecutorContextRunner } from './executor-context-builder.js';
@@ -25,8 +23,8 @@ import { validateGraph } from '../validation/graph-validator.js';
 import { ActionSchema } from '../types/state.js';
 import { createLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/context.js';
-import { calculateCost } from '../utils/pricing.js';
-import { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './errors.js';
+import { BudgetExceededError, WorkflowTimeoutError, NoMatchingEdgeError } from './errors.js';
+import { applyUsageAndEnforceBudgets, type ExecutionAccountingRuntime } from './execution-accounting.js';
 import {
   incrementWorkflowsStarted,
   incrementWorkflowsCompleted,
@@ -36,9 +34,8 @@ import {
   recordCostUsd,
 } from '../utils/metrics.js';
 import type { EventLogWriter } from '../db/event-log.js';
-import { NoopEventLogWriter, EventSequenceConflictError } from '../db/event-log.js';
-import { StaleClaimError } from '../persistence/errors.js';
-import type { EventType } from '../types/event.js';
+import { NoopEventLogWriter } from '../db/event-log.js';
+import { EventLogCoordinator } from './event-log-coordinator.js';
 import type { StreamEvent } from './stream-events.js';
 import { computeMemoryDiff } from './memory-differ.js';
 import { StateDeltaTracker, type StatePatch } from '../persistence/delta-tracker.js';
@@ -60,14 +57,15 @@ import type { FitnessFunction } from '../agent/fitness-function.js';
 import type { RateLimiter } from '../agent/rate-limiter.js';
 import { PermissionDeniedError } from '../agent/agent-executor/errors.js';
 import type { SecurityPolicy } from './security-policy.js';
-import { readableTaintedKeys, SecurityPolicyViolationError } from './security-policy.js';
-import { getTaintRegistry } from '../utils/taint.js';
+import { evaluateSecurityPolicy } from './security-policy.js';
+import { computeHumanResponseOutcome, type HumanResponse } from './hitl-resume.js';
+
+// Re-export for backward compatibility — HumanResponse moved to hitl-resume.ts
+export type { HumanResponse } from './hitl-resume.js';
 
 // Extracted modules
-import { CircuitBreakerManager } from './circuit-breaker.js';
-import { createStateView } from './state-view.js';
+import { NodeExecutionDriver } from './node-execution-driver.js';
 import type { NodeExecutorContext } from './node-executors/context.js';
-import { getNodeExecutor } from './node-executors/index.js';
 
 const logger = createLogger('runner.graph');
 const tracer = getTracer('orchestrator.runner');
@@ -141,9 +139,9 @@ export interface GraphRunnerEvents {
 
 /**
  * Default number of events between automatic event-log compactions when an
- * `eventLog` is wired and `compaction_interval` is not specified. Conservative
+ * `eventLog` is wired and `compactionInterval` is not specified. Conservative
  * enough that short runs never compact, low enough that a long run's event log
- * stays bounded. Set `compaction_interval: 0` to opt out.
+ * stays bounded. Set `compactionInterval: 0` to opt out.
  */
 export const DEFAULT_COMPACTION_INTERVAL = 1000;
 
@@ -175,7 +173,7 @@ export interface GraphRunnerOptions {
    * workflow transitions to 'cancelled' instead of 'failed'.
    * Defaults to false.
    */
-  auto_rollback?: boolean;
+  autoRollback?: boolean;
   /**
    * When true, a node that is not a declared end node yet has no matching
    * outgoing edge silently completes the workflow (legacy behavior). When
@@ -183,7 +181,7 @@ export interface GraphRunnerOptions {
    * dead-end (e.g. a typo'd edge condition) surfaces instead of producing a
    * misleading "completed" run that only executed part of the graph.
    */
-  allow_implicit_completion?: boolean;
+  allowImplicitCompletion?: boolean;
   /**
    * Budget-aware model resolver.
    *
@@ -267,7 +265,7 @@ export interface GraphRunnerOptions {
    * via `compactEvents()`).
    * @default 1000
    */
-  compaction_interval?: number;
+  compactionInterval?: number;
   /**
    * Optional callback for persisting state deltas (patches).
    *
@@ -283,7 +281,7 @@ export interface GraphRunnerOptions {
    * Options for the delta tracker (snapshot interval, max patch size).
    * Only used when `persistDeltaFn` is provided.
    */
-  deltaTrackerOptions?: { full_snapshot_interval?: number; max_patch_bytes?: number };
+  deltaTrackerOptions?: { fullSnapshotInterval?: number; maxPatchBytes?: number };
   /**
    * Optional taint-aware security policy consulted BEFORE each node executes.
    *
@@ -307,7 +305,11 @@ export interface GraphRunnerOptions {
 export class GraphRunner extends EventEmitter {
   private graph: Graph;
   private state: WorkflowState;
-  private circuitBreakers: CircuitBreakerManager = new CircuitBreakerManager();
+  /**
+   * Runs one node to an Action: retry, circuit breaker, timeout/abort
+   * arbitration, failed-attempt usage. See `runner/node-execution-driver.ts`.
+   */
+  private readonly driver: NodeExecutionDriver;
   /**
    * Idempotency state. Owned by {@link IdempotencyTracker}; the runner still
    * owns `sequenceId` (single-writer rule — see plan doc).
@@ -321,9 +323,11 @@ export class GraphRunner extends EventEmitter {
   private readonly nodeMap: Map<string, GraphNode>;
   private readonly edgeMap: Map<string, GraphEdge[]>;
 
-  // Event sourcing — durable execution
+  // Event sourcing — durable execution. Sequence assignment, flush
+  // barrier, failure tracking, and deferred appends are owned by the
+  // coordinator; the runner keeps `eventLog` only for `getEventLog()`.
   private readonly eventLog: EventLogWriter;
-  private sequenceId: number = 0;
+  private readonly events: EventLogCoordinator;
 
   // Token streaming callback
   private onToken?: (token: string, nodeId: string) => void;
@@ -377,7 +381,8 @@ export class GraphRunner extends EventEmitter {
   private readonly persistDeltaFn?: (patch: StatePatch) => Promise<void>;
   private readonly deltaTracker?: StateDeltaTracker;
 
-  // Cancellation — allows external abort of in-flight agent/supervisor calls
+  // Cancellation — allows external abort of in-flight agent/supervisor calls.
+  // Per-NODE cancellation is owned by the NodeExecutionDriver.
   private abortController: AbortController = new AbortController();
 
   // Graceful shutdown — finish current node, then pause
@@ -391,6 +396,8 @@ export class GraphRunner extends EventEmitter {
   private readonly budget: BudgetMonitor;
   /** Persistence pipeline + auto-compaction. See `runner/persistence-coordinator.ts`. */
   private readonly persistence: PersistenceCoordinator;
+  /** Live accessors handed to `applyUsageAndEnforceBudgets` each iteration. */
+  private readonly accountingRuntime: ExecutionAccountingRuntime;
   private lastRunError?: Error;
 
   /**
@@ -413,6 +420,10 @@ export class GraphRunner extends EventEmitter {
     this.persistStateFn = options?.persistStateFn;
     this.loadGraphFn = options?.loadGraphFn;
     this.eventLog = options?.eventLog ?? new NoopEventLogWriter();
+    this.events = new EventLogCoordinator({
+      eventLog: this.eventLog,
+      getRunId: () => this.state.run_id,
+    });
     this.onToken = options?.onToken;
     this.middleware = options?.middleware ?? [];
     this.toolResolver = options?.toolResolver;
@@ -425,9 +436,9 @@ export class GraphRunner extends EventEmitter {
     this.fitnessFunction = options?.fitnessFunction;
     this.rateLimiter = options?.rateLimiter;
     this.securityPolicy = options?.securityPolicy;
-    this.autoRollback = options?.auto_rollback ?? false;
-    this.allowImplicitCompletion = options?.allow_implicit_completion ?? false;
-    this.compactionInterval = options?.compaction_interval ?? DEFAULT_COMPACTION_INTERVAL;
+    this.autoRollback = options?.autoRollback ?? false;
+    this.allowImplicitCompletion = options?.allowImplicitCompletion ?? false;
+    this.compactionInterval = options?.compactionInterval ?? DEFAULT_COMPACTION_INTERVAL;
     this.persistDeltaFn = options?.persistDeltaFn;
     if (this.persistDeltaFn) {
       this.deltaTracker = new StateDeltaTracker(options?.deltaTrackerOptions);
@@ -456,6 +467,28 @@ export class GraphRunner extends EventEmitter {
       isStreaming: () => this.isStreaming,
       push: (event) => this.channel.pushPending(event),
       emit: (event, payload) => this.emit(event, payload),
+    });
+
+    this.accountingRuntime = {
+      getState: () => this.state,
+      dispatchInternal: (type, payload) => this.dispatchInternal(type, payload),
+      persistState: () => this.persistState(),
+      drainPendingEvents: () => this.drainPendingEvents(),
+      budget: this.budget,
+    };
+
+    // Wire the node execution driver with live accessors — `state`,
+    // `startTime`, and `isStreaming` are reassigned during the run.
+    this.driver = new NodeExecutionDriver({
+      getGraph: () => this.graph,
+      getState: () => this.state,
+      getStartTime: () => this.startTime,
+      isStreaming: () => this.isStreaming,
+      getWorkflowAbortController: () => this.abortController,
+      buildExecutorContext: () => this.buildExecutorContext(),
+      dispatchInternal: (type, payload) => this.dispatchInternal(type, payload),
+      emit: (event, payload) => this.emit(event, payload),
+      pushPending: (event) => this.channel.pushPending(event),
     });
   }
 
@@ -507,127 +540,7 @@ export class GraphRunner extends EventEmitter {
     this.state = internalReducer(this.state, action);
 
     // Fire-and-forget: log internal dispatch to event store
-    this.appendEvent('internal_dispatched', { internal_type: type, internal_payload: payload });
-  }
-
-  // Consecutive event-log flush failures. Mirrors the snapshot 3-strike
-  // rule in PersistenceCoordinator: three consecutive failed flushes halt
-  // the workflow instead of silently degrading durable-execution recovery.
-  private eventLogFailures: number = 0;
-
-  /** Halt threshold for consecutive event-log flush failures. */
-  private static readonly MAX_EVENT_LOG_FAILURES = 3;
-
-  // Append promises issued since the last flush. Appends overlap with node
-  // execution (no per-event latency), but persistState() awaits them all
-  // BEFORE writing the snapshot so the event log can never silently fall
-  // behind the snapshot it anchors.
-  private pendingAppends: Array<Promise<{ ok: boolean }>> = [];
-
-  // A fatal append error observed on any append: a sequence conflict or a
-  // stale claim both mean another writer is executing this run — fatal for
-  // this runner regardless of the consecutive-failure budget.
-  private eventLogFatalError: Error | null = null;
-
-  // Events recorded before sequenceId is known to be past the existing log.
-  // applyHumanResponse() runs before run() on resume, when a fresh runner
-  // still has sequenceId 0 — appending immediately would collide with the
-  // run's existing events. Deferred events are replayed through appendEvent
-  // in executeLoop's resume path, right after the sequence rebuild.
-  private deferAppends = false;
-  private deferredEvents: Array<{
-    event_type: EventType;
-    opts: {
-      node_id?: string;
-      action?: Action;
-      internal_type?: string;
-      internal_payload?: Record<string, unknown>;
-    };
-  }> = [];
-
-  /**
-   * Append an event to the durable event log.
-   *
-   * The write starts immediately but is not awaited here — `flushEventLog()`
-   * (called from `persistState()`) awaits every outstanding append before
-   * the state snapshot commits. Failures are tracked there; sequence
-   * conflicts are remembered and re-thrown as fatal.
-   */
-  private appendEvent(
-    event_type: EventType,
-    opts: {
-      node_id?: string;
-      action?: Action;
-      internal_type?: string;
-      internal_payload?: Record<string, unknown>;
-    } = {},
-  ): void {
-    if (this.deferAppends) {
-      this.deferredEvents.push({ event_type, opts });
-      return;
-    }
-    const event = {
-      run_id: this.state.run_id,
-      sequence_id: this.sequenceId++,
-      event_type,
-      ...opts,
-    };
-    const promise = this.eventLog.append(event).then(
-      () => ({ ok: true }),
-      (error) => {
-        if (error instanceof EventSequenceConflictError || error instanceof StaleClaimError) {
-          this.eventLogFatalError = error;
-        }
-        logger.error('event_log_append_failed', error, {
-          run_id: this.state.run_id,
-          sequence_id: event.sequence_id,
-          event_type,
-        });
-        return { ok: false };
-      },
-    );
-    this.pendingAppends.push(promise);
-  }
-
-  /**
-   * Await all outstanding event-log appends.
-   *
-   * Called by `persistState()` as a write barrier: events must be durable
-   * before the snapshot that reflects them. Without this barrier a crash
-   * could leave a snapshot whose history is missing from the log, and
-   * event-log recovery would silently reconstruct an older state.
-   *
-   * @throws {EventSequenceConflictError} If any append collided with an
-   *   existing sequence_id — another writer owns this run.
-   * @throws {Error} After {@link MAX_EVENT_LOG_FAILURES} consecutive
-   *   flushes containing failures (same rule as snapshot persistence).
-   */
-  private async flushEventLog(): Promise<void> {
-    if (this.pendingAppends.length === 0) return;
-    const pending = this.pendingAppends;
-    this.pendingAppends = [];
-    const results = await Promise.all(pending);
-
-    if (this.eventLogFatalError) {
-      throw this.eventLogFatalError;
-    }
-
-    const failed = results.filter(r => !r.ok).length;
-    if (failed > 0) {
-      this.eventLogFailures++;
-      logger.error('event_log_flush_failed', new Error(`${failed} append(s) failed`), {
-        run_id: this.state.run_id,
-        consecutive_failed_flushes: this.eventLogFailures,
-      });
-      if (this.eventLogFailures >= GraphRunner.MAX_EVENT_LOG_FAILURES) {
-        throw new Error(
-          `Event log unavailable after ${this.eventLogFailures} consecutive failed flushes. ` +
-          `Halting workflow to prevent unrecoverable event-log divergence.`,
-        );
-      }
-    } else {
-      this.eventLogFailures = 0;
-    }
+    this.events.append('internal_dispatched', { internal_type: type, internal_payload: payload });
   }
 
   /**
@@ -649,7 +562,7 @@ export class GraphRunner extends EventEmitter {
       get isStreaming() { return self.isStreaming; },
       get tokenChannel() { return self.channel.tokenBuffer; },
       get tokenNotify() { return self.channel.currentNotify; },
-      get abortSignal() { return self.abortController.signal; },
+      get abortSignal() { return self.driver.nodeAbortSignal(); },
       get onToken() { return self.onToken; },
       get loadGraphFn() { return self.loadGraphFn; },
       get modelResolver() { return self.modelResolver; },
@@ -684,7 +597,7 @@ export class GraphRunner extends EventEmitter {
    */
   private async *executeNodeAndDrainTokens(node: GraphNode): AsyncGenerator<StreamEvent, Action> {
     this.channel.clearTokens();
-    const actionPromise = this.executeNodeWithTimeout(node);
+    const actionPromise = this.driver.executeWithTimeout(node);
     let resolved = false;
 
     actionPromise.then(
@@ -703,6 +616,28 @@ export class GraphRunner extends EventEmitter {
   }
 
   /**
+   * Fail the run before any node executes (graph validation / wiring
+   * errors): dispatch `_fail`, persist, and yield the terminal
+   * `workflow:failed` event. Shared by the pre-flight checks in
+   * {@link executeLoop}.
+   */
+  private async *failPreflight(logEvent: string, errorMsg: string): AsyncGenerator<StreamEvent> {
+    logger.error(logEvent, new Error(errorMsg), { graph_id: this.graph.id });
+    this.dispatchInternal('_fail', { last_error: errorMsg });
+    await this.persistState();
+    yield* this.drainPendingEvents();
+    this.lastRunError = new Error(errorMsg);
+    yield {
+      type: 'workflow:failed',
+      workflow_id: this.state.workflow_id,
+      run_id: this.state.run_id,
+      error: errorMsg,
+      state: this.state,
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
    * Core execution loop as an async generator.
    * Yields StreamEvent objects at each step. Both stream() and run() consume this.
    */
@@ -712,20 +647,10 @@ export class GraphRunner extends EventEmitter {
     // Validate graph structure before running
     const validation = validateGraph(this.graph);
     if (!validation.valid) {
-      const errorMsg = `Graph validation failed: ${validation.errors.join(', ')}`;
-      logger.error('graph_validation_failed', new Error(errorMsg), { graph_id: this.graph.id });
-      this.dispatchInternal('_fail', { last_error: errorMsg });
-      await this.persistState();
-      yield* this.drainPendingEvents();
-      this.lastRunError = new Error(errorMsg);
-      yield {
-        type: 'workflow:failed',
-        workflow_id: this.state.workflow_id,
-        run_id: this.state.run_id,
-        error: errorMsg,
-        state: this.state,
-        timestamp: Date.now(),
-      };
+      yield* this.failPreflight(
+        'graph_validation_failed',
+        `Graph validation failed: ${validation.errors.join(', ')}`,
+      );
       return;
     }
 
@@ -734,20 +659,10 @@ export class GraphRunner extends EventEmitter {
     // tokens (and, for some, being pointlessly retried).
     const wiring = this.checkRuntimeWiring();
     if (wiring.errors.length > 0) {
-      const errorMsg = `Runner wiring error: ${wiring.errors.join(', ')}`;
-      logger.error('runner_wiring_failed', new Error(errorMsg), { graph_id: this.graph.id });
-      this.dispatchInternal('_fail', { last_error: errorMsg });
-      await this.persistState();
-      yield* this.drainPendingEvents();
-      this.lastRunError = new Error(errorMsg);
-      yield {
-        type: 'workflow:failed',
-        workflow_id: this.state.workflow_id,
-        run_id: this.state.run_id,
-        error: errorMsg,
-        state: this.state,
-        timestamp: Date.now(),
-      };
+      yield* this.failPreflight(
+        'runner_wiring_failed',
+        `Runner wiring error: ${wiring.errors.join(', ')}`,
+      );
       return;
     }
     for (const w of wiring.warnings) {
@@ -832,8 +747,8 @@ export class GraphRunner extends EventEmitter {
       );
       // The tracker doesn't own sequenceId — advance it ourselves so the event
       // log stays continuous after replay.
-      if (rebuild.maxSequenceId !== null && rebuild.maxSequenceId + 1 > this.sequenceId) {
-        this.sequenceId = rebuild.maxSequenceId + 1;
+      if (rebuild.maxSequenceId !== null) {
+        this.events.advanceSequenceTo(rebuild.maxSequenceId + 1);
       }
       this.dispatchInternal('_init', { resume: true });
     } else {
@@ -842,13 +757,7 @@ export class GraphRunner extends EventEmitter {
 
     // Record events deferred from before execution (applyHumanResponse) —
     // sequenceId is now guaranteed past the run's existing log.
-    if (this.deferredEvents.length > 0) {
-      const deferred = this.deferredEvents;
-      this.deferredEvents = [];
-      for (const { event_type, opts } of deferred) {
-        this.appendEvent(event_type, opts);
-      }
-    }
+    this.events.replayDeferred();
 
     await this.persistState();
     yield* this.drainPendingEvents();
@@ -859,7 +768,7 @@ export class GraphRunner extends EventEmitter {
     // them, and crash recovery from the log (no checkpoint) would otherwise
     // resume with default limits (no token budget, max_iterations 50), silently
     // disabling budget/iteration/timeout enforcement post-recovery.
-    this.appendEvent('workflow_started', {
+    this.events.append('workflow_started', {
       internal_payload: {
         replay_version: REPLAY_VERSION,
         config: {
@@ -883,17 +792,17 @@ export class GraphRunner extends EventEmitter {
           await this.persistState();
           yield* this.drainPendingEvents();
 
-          const elapsed_ms = Date.now() - (this.startTime ?? Date.now());
+          const elapsedMs = Date.now() - (this.startTime ?? Date.now());
           this.lastRunError = new WorkflowTimeoutError(
             this.state.workflow_id,
             this.state.run_id,
-            elapsed_ms,
+            elapsedMs,
           );
           yield {
             type: 'workflow:timeout',
             workflow_id: this.state.workflow_id,
             run_id: this.state.run_id,
-            elapsed_ms,
+            elapsed_ms: elapsedMs,
             state: this.state,
             timestamp: Date.now(),
           };
@@ -949,7 +858,7 @@ export class GraphRunner extends EventEmitter {
         }
 
         // Log node_started event before execution
-        this.appendEvent('node_started', { node_id: currentNode.id });
+        this.events.append('node_started', { node_id: currentNode.id });
 
         // Middleware context (built once per iteration, reused across hooks)
         const mwCtx: MiddlewareContext | undefined = this.middleware.length > 0
@@ -978,7 +887,12 @@ export class GraphRunner extends EventEmitter {
         // handled by the run's failure path (fail-closed).
         let policyInjected = false;
         if (!action && this.securityPolicy && currentNode.type !== 'approval') {
-          const gate = this.applySecurityPolicy(currentNode);
+          const gate = evaluateSecurityPolicy({
+            node: currentNode,
+            state: this.state,
+            policy: this.securityPolicy,
+            emitPolicyEvent: (payload) => this.emit('security:policy', payload),
+          });
           if (gate) {
             action = gate;
             policyInjected = true;
@@ -1020,14 +934,14 @@ export class GraphRunner extends EventEmitter {
             // Drain retry events accumulated during successful retries
             yield* this.drainPendingEvents();
 
-            const duration_ms = Date.now() - nodeStartTime;
-            yield { type: 'node:complete', node_id: currentNode.id, node_type: currentNode.type, duration_ms, timestamp: Date.now() };
-            this.emit('node:complete', { node_id: currentNode.id, type: currentNode.type, duration_ms });
+            const durationMs = Date.now() - nodeStartTime;
+            yield { type: 'node:complete', node_id: currentNode.id, node_type: currentNode.type, duration_ms: durationMs, timestamp: Date.now() };
+            this.emit('node:complete', { node_id: currentNode.id, type: currentNode.type, duration_ms: durationMs });
           } else {
-            // Node span + run context are established inside
-            // executeNodeWithTimeout, so both this branch and the streaming
+            // Node span + run context are established inside the driver's
+            // executeWithTimeout, so both this branch and the streaming
             // branch above are covered uniformly.
-            action = await this.executeNodeWithTimeout(currentNode);
+            action = await this.driver.executeWithTimeout(currentNode);
           }
         }
 
@@ -1125,108 +1039,12 @@ export class GraphRunner extends EventEmitter {
         }
 
         // Log action_dispatched event (captures full Action including LLM response)
-        this.appendEvent('action_dispatched', { node_id: currentNode.id, action });
+        this.events.append('action_dispatched', { node_id: currentNode.id, action });
 
-        // Track cumulative token usage from agent/supervisor executions
-        const tokenUsage = action.metadata.token_usage;
-        if (tokenUsage?.totalTokens && typeof tokenUsage.totalTokens === 'number') {
-          this.dispatchInternal('_track_tokens', {
-            tokens: tokenUsage.totalTokens,
-            input_tokens: tokenUsage.inputTokens ?? 0,
-            output_tokens: tokenUsage.outputTokens ?? 0,
-          });
-        }
-
-        // Track cumulative cost from token usage. Also compute the
-        // per-action cost so the per-node budget check below has it.
-        let actionCostUsd = 0;
-        if (tokenUsage?.inputTokens !== undefined || tokenUsage?.outputTokens !== undefined) {
-          const inputTokens = tokenUsage.inputTokens ?? 0;
-          const outputTokens = tokenUsage.outputTokens ?? 0;
-          actionCostUsd = this.budget.calculateActionCost(inputTokens, outputTokens, action);
-          if (actionCostUsd > 0) {
-            this.dispatchInternal('_track_cost', { cost_usd: actionCostUsd });
-            await this.budget.checkThresholds(this.state);
-            yield* this.drainPendingEvents();
-          }
-          // Attribute this call's tokens/cost to its model for per-model
-          // billing rollups. Tracked even when cost is 0 (unknown pricing or
-          // local models) so token usage is still attributed.
-          const model = action.metadata.model;
-          if (model && (inputTokens > 0 || outputTokens > 0)) {
-            this.dispatchInternal('_track_model_usage', {
-              model,
-              input_tokens: inputTokens,
-              output_tokens: outputTokens,
-              cost_usd: actionCostUsd,
-            });
-          }
-        }
-
-        // Enforce per-node budget (max_tokens / max_cost_usd). Stops the
-        // workflow immediately on breach — no retry, since a retry would
-        // just compound the spend.
-        if (currentNode.budget) {
-          const nodeTokens = tokenUsage?.totalTokens ?? 0;
-          if (
-            currentNode.budget.max_tokens !== undefined &&
-            nodeTokens > currentNode.budget.max_tokens
-          ) {
-            logger.warn('node_budget_exceeded', {
-              node_id: currentNode.id,
-              limit: 'max_tokens',
-              used: nodeTokens,
-              cap: currentNode.budget.max_tokens,
-            });
-            this.dispatchInternal('_fail', {
-              last_error: `Node "${currentNode.id}" exceeded max_tokens: ${nodeTokens} > ${currentNode.budget.max_tokens}`,
-            });
-            await this.persistState();
-            yield* this.drainPendingEvents();
-            throw new NodeBudgetExceededError(
-              currentNode.id,
-              'max_tokens',
-              nodeTokens,
-              currentNode.budget.max_tokens,
-            );
-          }
-          if (
-            currentNode.budget.max_cost_usd !== undefined &&
-            actionCostUsd > currentNode.budget.max_cost_usd
-          ) {
-            logger.warn('node_budget_exceeded', {
-              node_id: currentNode.id,
-              limit: 'max_cost_usd',
-              used: actionCostUsd,
-              cap: currentNode.budget.max_cost_usd,
-            });
-            this.dispatchInternal('_fail', {
-              last_error: `Node "${currentNode.id}" exceeded max_cost_usd: $${actionCostUsd.toFixed(4)} > $${currentNode.budget.max_cost_usd.toFixed(4)}`,
-            });
-            await this.persistState();
-            yield* this.drainPendingEvents();
-            throw new NodeBudgetExceededError(
-              currentNode.id,
-              'max_cost_usd',
-              actionCostUsd,
-              currentNode.budget.max_cost_usd,
-            );
-          }
-        }
-
-        // Enforce token budget
-        if (this.state.max_token_budget && this.state.total_tokens_used > this.state.max_token_budget) {
-          const errorMsg = `Token budget exceeded: ${this.state.total_tokens_used} tokens used, budget was ${this.state.max_token_budget}`;
-          logger.warn('budget_exceeded', {
-            total_tokens: this.state.total_tokens_used,
-            budget: this.state.max_token_budget,
-            node_id: currentNode.id,
-          });
-          this.dispatchInternal('_budget_exceeded', { last_error: errorMsg });
-          await this.persistState();
-          yield* this.drainPendingEvents();
-          throw new BudgetExceededError(this.state.total_tokens_used, this.state.max_token_budget);
-        }
+        // Usage accounting + budget enforcement (tokens, cost, per-model
+        // rollups, per-node budget, workflow token budget). Yields threshold
+        // events; throws on breach. See runner/execution-accounting.ts.
+        yield* applyUsageAndEnforceBudgets(action, currentNode, this.accountingRuntime);
 
         yield {
           type: 'action:applied',
@@ -1356,11 +1174,11 @@ export class GraphRunner extends EventEmitter {
         yield* this.drainPendingEvents();
       }
 
-      const duration_ms = Date.now() - (this.startTime ?? Date.now());
+      const durationMs = Date.now() - (this.startTime ?? Date.now());
 
       if (this.state.status === 'completed') {
         incrementWorkflowsCompleted({ graph_id: this.graph.id });
-        recordWorkflowDuration(duration_ms, { status: 'completed', graph_id: this.graph.id });
+        recordWorkflowDuration(durationMs, { status: 'completed', graph_id: this.graph.id });
         recordTokensUsed(this.state.total_tokens_used, { graph_id: this.graph.id });
         if (this.state.total_cost_usd > 0) {
           recordCostUsd(this.state.total_cost_usd, { graph_id: this.graph.id });
@@ -1368,13 +1186,13 @@ export class GraphRunner extends EventEmitter {
         this.emit('workflow:complete', {
           workflow_id: this.state.workflow_id,
           run_id: this.state.run_id,
-          duration_ms,
+          duration_ms: durationMs,
         });
         yield {
           type: 'workflow:complete',
           workflow_id: this.state.workflow_id,
           run_id: this.state.run_id,
-          duration_ms,
+          duration_ms: durationMs,
           state: this.state,
           timestamp: Date.now(),
         };
@@ -1435,7 +1253,7 @@ export class GraphRunner extends EventEmitter {
       const err = error instanceof Error ? error : new Error(String(error));
       this.lastRunError = err;
 
-      // Execute compensation actions if auto_rollback is enabled and compensation stack is non-empty
+      // Execute compensation actions if autoRollback is enabled and compensation stack is non-empty
       let rollbackSucceeded = false;
       if (this.autoRollback && this.state.compensation_stack.length > 0) {
         try {
@@ -1481,7 +1299,7 @@ export class GraphRunner extends EventEmitter {
       // after the last persist) are durable before the generator returns.
       // Failures here are logged, not thrown — the run is already over and
       // throwing from a finally would mask the run's real outcome.
-      await this.flushEventLog().catch((error) => {
+      await this.events.flush().catch((error) => {
         logger.error('event_log_final_flush_failed', error, {
           run_id: this.state.run_id,
         });
@@ -1560,278 +1378,6 @@ export class GraphRunner extends EventEmitter {
   }
 
   /**
-   * Execute a single node with retry logic.
-   *
-   * When `isStreaming`, node lifecycle events (start/complete/failed)
-   * are emitted by `executeLoop()` instead to avoid double-emission.
-   */
-  private async executeNode(node: GraphNode): Promise<Action> {
-    const nodeStartTime = Date.now();
-
-    if (!this.isStreaming) {
-      this.emit('node:start', {
-        node_id: node.id,
-        type: node.type,
-        timestamp: nodeStartTime,
-      });
-    }
-
-    try {
-      // Execute with retry
-      const action = await this.executeNodeWithRetry(node);
-
-      const duration_ms = Date.now() - nodeStartTime;
-
-      if (!this.isStreaming) {
-        this.emit('node:complete', {
-          node_id: node.id,
-          type: node.type,
-          duration_ms,
-        });
-      }
-
-      return action;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      if (!this.isStreaming) {
-        this.emit('node:failed', {
-          node_id: node.id,
-          type: node.type,
-          error: errorMessage,
-          attempt: node.failure_policy.max_retries,
-        });
-      }
-
-      throw error;
-    }
-  }
-
-  /**
-   * Execute node with retry and circuit breaker
-   */
-  /**
-   * Count tokens/cost spent on a failed agent attempt. Reads the best-effort
-   * `partialUsage` that the agent executor attaches to its typed errors and
-   * dispatches the same `_track_tokens` / `_track_cost` internal actions the
-   * success path uses, so failed-attempt spend is visible to every budget.
-   */
-  private trackFailedAttemptUsage(error: unknown): void {
-    const usage = (error as { partialUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number; model?: string } })?.partialUsage;
-    if (!usage) return;
-
-    const totalTokens = usage.totalTokens ?? ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
-    if (totalTokens > 0) {
-      this.dispatchInternal('_track_tokens', {
-        tokens: totalTokens,
-        input_tokens: usage.inputTokens ?? 0,
-        output_tokens: usage.outputTokens ?? 0,
-      });
-    }
-    if (usage.model && (usage.inputTokens || usage.outputTokens)) {
-      const cost = calculateCost(usage.model, usage.inputTokens ?? 0, usage.outputTokens ?? 0);
-      if (cost > 0) {
-        this.dispatchInternal('_track_cost', { cost_usd: cost });
-      }
-      this.dispatchInternal('_track_model_usage', {
-        model: usage.model,
-        input_tokens: usage.inputTokens ?? 0,
-        output_tokens: usage.outputTokens ?? 0,
-        cost_usd: cost,
-      });
-    }
-  }
-
-  private async executeNodeWithRetry(node: GraphNode): Promise<Action> {
-    const policy = node.failure_policy;
-    let lastError: Error | undefined;
-
-    for (let attempt = 1; attempt <= policy.max_retries; attempt++) {
-      try {
-        // Check circuit breaker
-        if (policy.circuit_breaker?.enabled) {
-          this.circuitBreakers.check(node);
-        }
-
-        // Execute node
-        const action = await this.executeNodeLogic(node, attempt);
-
-        // Success: update circuit breaker
-        if (policy.circuit_breaker?.enabled) {
-          this.circuitBreakers.update(node.id, true, this.graph.nodes);
-        }
-
-        return action;
-      } catch (error) {
-        lastError = error as Error;
-
-        // Account for tokens spent on this FAILED attempt. The agent executor
-        // attaches best-effort partial usage to AgentExecutionError /
-        // AgentTimeoutError; without this, a node that retries N times only
-        // ever counts the successful attempt's tokens, hiding up to N×
-        // the visible spend from every budget.
-        this.trackFailedAttemptUsage(error);
-
-        // Update circuit breaker
-        if (policy.circuit_breaker?.enabled) {
-          this.circuitBreakers.update(node.id, false, this.graph.nodes);
-        }
-
-        // Short-circuit on a definitively non-retryable error (e.g. a 400
-        // invalid-request or context-length-exceeded). Retrying would re-issue
-        // an identical request that fails the same way — pure wasted spend.
-        // Only `retryable === false` short-circuits; `undefined` (unknown
-        // error) still retries.
-        if ((error as { retryable?: boolean })?.retryable === false) {
-          logger.warn('node_error_non_retryable', { node_id: node.id, attempt, error: lastError?.message });
-          break;
-        }
-
-        const is_last_attempt = attempt === policy.max_retries;
-        if (is_last_attempt) break;
-
-        // Calculate backoff and retry
-        const backoff_ms = calculateBackoff(
-          attempt,
-          policy.backoff_strategy,
-          policy.initial_backoff_ms,
-          policy.max_backoff_ms
-        );
-
-        this.emit('node:retry', { node_id: node.id, attempt, backoff_ms });
-        if (this.isStreaming) {
-          this.channel.pushPending({
-            type: 'node:retry',
-            node_id: node.id,
-            attempt,
-            backoff_ms,
-            timestamp: Date.now(),
-          });
-        }
-        logger.warn('node_retry', { node_id: node.id, attempt, backoff_ms, error: lastError?.message });
-
-        await sleep(backoff_ms);
-      }
-    }
-
-    throw lastError || new Error(`Node ${node.id} failed after ${policy.max_retries} retries`);
-  }
-
-  /**
-   * Execute node logic based on type — dispatches to extracted executor functions.
-   */
-  private async executeNodeLogic(node: GraphNode, attempt: number): Promise<Action> {
-    // Create state view (security boundary)
-    const stateView = createStateView(this.state, node);
-    const ctx = this.buildExecutorContext();
-
-    // Dispatch via the node-executor registry (a compiler-exhaustive
-    // Record<NodeType, NodeExecutor>) instead of a hand-maintained switch.
-    const executor = getNodeExecutor(node.type);
-    if (!executor) {
-      throw new UnsupportedNodeTypeError(node.type);
-    }
-    return await executor(node, stateView, attempt, ctx);
-  }
-
-  /**
-   * Consult the security policy for a node about to execute.
-   *
-   * Returns an `request_human_input` gate action to inject (pausing the run
-   * for approval), or `undefined` to let the node run normally. Throws
-   * {@link SecurityPolicyViolationError} when the policy decision is `block`
-   * (the run's failure path turns this into a fail-closed `workflow:failed`).
-   *
-   * Only consulted for nodes that read tainted data; a node reading nothing
-   * untrusted is always allowed without invoking the policy.
-   */
-  private applySecurityPolicy(node: GraphNode): Action | undefined {
-    // A prior human approval for this node (recorded on resume) lets it run
-    // exactly once. The flag persists for the run, so a node revisited in a
-    // loop after approval is not re-gated — a known v1 limitation.
-    const approved = (this.state.memory._policy_approved ?? {}) as Record<string, boolean>;
-    if (approved[node.id]) return undefined;
-
-    const registry = getTaintRegistry(this.state.memory);
-    const taintedReadKeys = readableTaintedKeys(node, registry);
-    if (taintedReadKeys.length === 0) return undefined;
-
-    const decision = this.securityPolicy!({
-      node,
-      state: this.state,
-      tainted_read_keys: taintedReadKeys,
-    });
-    if (!decision || decision.effect === 'allow') return undefined;
-
-    // Surface every non-allow decision so the host can audit it durably.
-    this.emit('security:policy', {
-      run_id: this.state.run_id,
-      node_id: node.id,
-      effect: decision.effect,
-      sensitivity: decision.sensitivity,
-      tainted_keys: taintedReadKeys,
-      reason: decision.reason,
-      rule_id: decision.rule_id,
-      timestamp: Date.now(),
-    });
-
-    if (decision.effect === 'monitor') {
-      logger.warn('security_policy_flagged', {
-        run_id: this.state.run_id,
-        node_id: node.id,
-        sensitivity: decision.sensitivity,
-        tainted_keys: taintedReadKeys,
-        reason: decision.reason,
-      });
-      return undefined;
-    }
-
-    if (decision.effect === 'block') {
-      throw new SecurityPolicyViolationError(
-        node.id,
-        decision.reason
-          ?? `Blocked by security policy: untrusted data reaching a sensitive action at node "${node.id}"`,
-        decision.sensitivity,
-      );
-    }
-
-    // require_approval → inject an approval gate BEFORE the node runs. Tagged
-    // `policy_gate` so the resume path re-enters this node (rather than
-    // advancing past it) once a human approves.
-    logger.info('security_policy_gated', {
-      run_id: this.state.run_id,
-      node_id: node.id,
-      sensitivity: decision.sensitivity,
-      tainted_keys: taintedReadKeys,
-    });
-    return {
-      id: uuidv4(),
-      idempotency_key: `policy_gate:${node.id}:${this.state.iteration_count}`,
-      type: 'request_human_input',
-      payload: {
-        waiting_for: 'human_approval',
-        pending_approval: {
-          node_id: node.id,
-          policy_gate: true,
-          prompt_message: decision.prompt
-            ?? `Security policy: node "${node.id}" uses untrusted data to perform a sensitive action. Approve to proceed.`,
-          review_data: {
-            reason: decision.reason,
-            sensitivity: decision.sensitivity,
-            rule_id: decision.rule_id,
-            tainted_keys: taintedReadKeys,
-          },
-        },
-      },
-      metadata: {
-        node_id: node.id,
-        timestamp: new Date(),
-        attempt: 1,
-      },
-    };
-  }
-
-  /**
    * Apply human response and prepare for resumption.
    * Called by the worker before run() on HITL resume.
    */
@@ -1839,94 +1385,31 @@ export class GraphRunner extends EventEmitter {
     // Defer event appends until run()/stream() resumes: this method is
     // called before execution, when a freshly-constructed runner's
     // sequenceId hasn't been advanced past the run's existing event log yet.
-    this.deferAppends = true;
-    try {
-      this.applyHumanResponseInner(response);
-    } finally {
-      this.deferAppends = false;
-    }
+    this.events.withDeferredAppends(() => this.applyHumanResponseInner(response));
   }
 
   private applyHumanResponseInner(response: HumanResponse): void {
-    const pendingApproval = this.state.memory._pending_approval as {
-      node_id?: string;
-      rejection_node_id?: string;
-      policy_gate?: boolean;
-      subgraph_node_id?: string;
-    } | undefined;
+    const outcome = computeHumanResponseOutcome(
+      response,
+      this.state,
+      this.graph,
+      this.edgeMap,
+      this.nodeMap,
+      this.routingOptions,
+    );
+    this.state = outcome.state;
 
-    // Create and apply resume action
-    const action: Action = {
-      id: uuidv4(),
-      idempotency_key: `resume:${this.state.run_id}:${Date.now()}`,
-      type: 'resume_from_human',
-      payload: {
-        decision: response.decision,
-        response: response.data,
-        memory_updates: response.memory_updates,
-      },
-      metadata: {
-        node_id: pendingApproval?.node_id || 'unknown',
-        timestamp: new Date(),
-        attempt: 1,
-      },
-    };
-
-    this.state = rootReducer(this.state, action);
-
-    // Durably record the human decision BEFORE the _advance dispatches below,
-    // so event-log replay applies the resume in the same order as the live
-    // run. Without this, a recovered run would reconstruct state without the
+    // Durably record the human decision BEFORE the follow-up dispatches, so
+    // event-log replay applies the resume in the same order as the live run.
+    // Without this, a recovered run would reconstruct state without the
     // human's response.
-    this.appendEvent('action_dispatched', {
-      node_id: action.metadata.node_id,
-      action,
+    this.events.append('action_dispatched', {
+      node_id: outcome.resumeAction.metadata.node_id,
+      action: outcome.resumeAction,
     });
 
-    // Nested subgraph approval: the decision belongs to the CHILD run, not the
-    // parent. `resume_from_human` already recorded human_decision/human_response
-    // in memory; re-enter the subgraph node (current_node never advanced) so its
-    // executor forwards the decision and continues the child. Do NOT advance or
-    // cancel the parent here.
-    if (pendingApproval?.subgraph_node_id) {
-      return;
-    }
-
-    // Handle rejection routing
-    if (response.decision === 'rejected') {
-      if (pendingApproval?.rejection_node_id) {
-        const rejectionNode = this.graph.nodes.find(n => n.id === pendingApproval.rejection_node_id);
-        if (rejectionNode) {
-          this.dispatchInternal('_advance', { node_id: rejectionNode.id });
-          return;
-        }
-      }
-      // No rejection branch configured: the human declined the action, so the
-      // run must NOT proceed to the gated node. Terminate it (cancelled) rather
-      // than leaving it stalled with nowhere to advance.
-      this.dispatchInternal('_cancel');
-    } else if (pendingApproval?.policy_gate && pendingApproval.node_id) {
-      // Approved a SECURITY-POLICY gate. Unlike a graph-authored approval node,
-      // the gated node has NOT executed yet — the policy held it before it ran.
-      // Record the approval and re-enter the SAME node (do not advance) so it
-      // now runs. `applySecurityPolicy` sees the flag and lets it through once.
-      const approved = {
-        ...((this.state.memory._policy_approved as Record<string, boolean> | undefined) ?? {}),
-        [pendingApproval.node_id]: true,
-      };
-      this.state = {
-        ...this.state,
-        memory: { ...this.state.memory, _policy_approved: approved },
-      };
-    } else {
-      // Approved: advance to the next node from the approval node.
-      const approvalNode = this.graph.nodes.find(n => n.id === pendingApproval?.node_id);
-      if (approvalNode) {
-        const nextNode = getNextNode(this.edgeMap, this.nodeMap, approvalNode, this.state, this.routingOptions);
-        if (nextNode) {
-          this.dispatchInternal('_advance', { node_id: nextNode.id });
-        }
-      }
+    for (const dispatch of outcome.dispatches) {
+      this.dispatchInternal(dispatch.type, dispatch.payload);
     }
   }
 
@@ -1981,17 +1464,17 @@ export class GraphRunner extends EventEmitter {
   private checkTimeout(): boolean {
     if (!this.state.started_at || !this.startTime) return false;
 
-    const elapsed_ms = Date.now() - this.startTime;
+    const elapsedMs = Date.now() - this.startTime;
 
-    if (elapsed_ms > this.state.max_execution_time_ms) {
-      logger.error('workflow_timeout', undefined, { elapsed_ms, max_ms: this.state.max_execution_time_ms, run_id: this.state.run_id });
+    if (elapsedMs > this.state.max_execution_time_ms) {
+      logger.error('workflow_timeout', undefined, { elapsed_ms: elapsedMs, max_ms: this.state.max_execution_time_ms, run_id: this.state.run_id });
       this.dispatchInternal('_timeout');
       // When streaming, timeout events are yielded by executeLoop()
       if (!this.isStreaming) {
         this.emit('workflow:timeout', {
           workflow_id: this.state.workflow_id,
           run_id: this.state.run_id,
-          elapsed_ms,
+          elapsed_ms: elapsedMs,
         });
       }
       return true;
@@ -2065,88 +1548,14 @@ export class GraphRunner extends EventEmitter {
     // snapshot commits, so resume logic can decide whether a logged action's
     // effects are already inside this snapshot. Runner-internal bookkeeping —
     // not a reducer concern (no state semantics change).
-    this.state = { ...this.state, _last_event_sequence_id: this.sequenceId - 1 };
-    await this.flushEventLog();
-    await this.persistence.persist(this.state, this.sequenceId);
+    this.state = { ...this.state, _last_event_sequence_id: this.events.lastAssignedSequenceId };
+    await this.events.flush();
+    await this.persistence.persist(this.state, this.events.nextSequenceId);
   }
 
-  /**
-   * Execute node with timeout wrapper.
-   * Uses AbortController to ensure the timeout handle is always cleaned up,
-   * preventing timer leaks when the node completes before the timeout fires.
-   */
-  private async executeNodeWithTimeout(node: GraphNode): Promise<Action> {
-    // Re-establish run context here too: under stream(), an external consumer
-    // drives the generator outside run()'s runWithContext scope, so this
-    // per-node chokepoint is where node/agent/MCP logs pick up run_id. The
-    // node.execute span also lives here so BOTH the streaming and
-    // non-streaming paths produce it (the streaming branch had none).
-    return runWithContext(
-      { run_id: this.state.run_id, graph_id: this.graph.id },
-      () => withSpan(tracer, `node.execute.${node.type}`, (nodeSpan) => {
-        nodeSpan.setAttribute('node.id', node.id);
-        nodeSpan.setAttribute('node.type', node.type);
-        nodeSpan.setAttribute('workflow.run_id', this.state.run_id);
-        return this.executeNodeWithTimeoutInner(node);
-      }),
-    );
-  }
-
-  private async executeNodeWithTimeoutInner(node: GraphNode): Promise<Action> {
-    const nodeTimeout = node.failure_policy.timeout_ms;
-
-    // Calculate remaining workflow-level timeout
-    let workflowTimeoutMs: number | undefined;
-    if (this.startTime && this.state.max_execution_time_ms) {
-      const elapsed = Date.now() - this.startTime;
-      const remaining = this.state.max_execution_time_ms - elapsed;
-      if (remaining <= 0) {
-        // Already past deadline
-        this.abortController.abort();
-        throw new WorkflowTimeoutError(this.state.workflow_id, this.state.run_id, elapsed);
-      }
-      workflowTimeoutMs = remaining;
-    }
-
-    // Pick the tighter of node timeout and workflow timeout
-    const effectiveTimeout = nodeTimeout && workflowTimeoutMs
-      ? Math.min(nodeTimeout, workflowTimeoutMs)
-      : nodeTimeout || workflowTimeoutMs;
-
-    if (!effectiveTimeout) {
-      return await this.executeNode(node);
-    }
-
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const isWorkflowTimeout = workflowTimeoutMs !== undefined &&
-      (!nodeTimeout || workflowTimeoutMs <= nodeTimeout);
-
-    try {
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          // Fire abort signal so in-flight LLM calls are cancelled
-          this.abortController.abort();
-          if (isWorkflowTimeout) {
-            const elapsed = Date.now() - (this.startTime ?? Date.now());
-            reject(new WorkflowTimeoutError(this.state.workflow_id, this.state.run_id, elapsed));
-          } else {
-            reject(new Error(`Node ${node.id} timeout after ${effectiveTimeout}ms`));
-          }
-        }, effectiveTimeout);
-      });
-
-      return await Promise.race([
-        this.executeNode(node),
-        timeoutPromise,
-      ]);
-    } finally {
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId);
-      }
-    }
-  }
-
-  // Cost tracking lives in BudgetMonitor — see runner/budget-monitor.ts
+  // Node execution (retry / circuit breaker / timeout / abort linking)
+  // lives in NodeExecutionDriver — see runner/node-execution-driver.ts.
+  // Cost tracking lives in BudgetMonitor — see runner/budget-monitor.ts.
 
   // ─── Durable Execution: Recovery ───────────────────────────────────
 
@@ -2206,7 +1615,7 @@ export class GraphRunner extends EventEmitter {
     for (const { nodeId, iterationCount } of snapshot.executedActionIds) {
       this.idempotency.add(nodeId, iterationCount);
     }
-    this.sequenceId = snapshot.nextSequenceId;
+    this.events.advanceSequenceTo(snapshot.nextSequenceId);
   }
 
   /**
@@ -2228,7 +1637,7 @@ export class GraphRunner extends EventEmitter {
    * ```
    */
   async compactEvents(): Promise<number> {
-    return this.persistence.compactNow(this.state, this.sequenceId);
+    return this.persistence.compactNow(this.state, this.events.nextSequenceId);
   }
 
   /** Expose readonly access to the event log writer (for testing/diagnostics) */
@@ -2247,16 +1656,4 @@ export class GraphRunner extends EventEmitter {
     return this.state;
   }
 
-}
-
-/**
- * Human response payload for HITL (Human-in-the-Loop) resume.
- */
-export interface HumanResponse {
-  /** The reviewer's decision. */
-  decision: 'approved' | 'rejected' | 'edited';
-  /** Optional freeform response data. */
-  data?: unknown;
-  /** Optional memory updates to apply on resume. */
-  memory_updates?: Record<string, unknown>;
 }

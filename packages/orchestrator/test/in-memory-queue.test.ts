@@ -88,6 +88,32 @@ describe('InMemoryWorkflowQueue', () => {
     expect(job!.last_error).toBe('fatal error');
   });
 
+  // A nacked job backs off — it's not immediately re-dequeuable, so a
+  // fast-failing job doesn't burn its attempts in a tight loop.
+  test('retry backoff delays re-visibility after nack', async () => {
+    const q = new InMemoryWorkflowQueue({ retryBackoffMs: 10_000 });
+    const jobId = await q.enqueue({ ...defaultInput(), max_attempts: 3 });
+    await q.dequeue('w'); // attempt = 1
+    await q.nack(jobId, 'transient');
+
+    const job = await q.getJob(jobId);
+    expect(job!.status).toBe('waiting');
+    expect(job!.visible_at).not.toBeNull();
+    expect(job!.visible_at!.getTime()).toBeGreaterThan(Date.now());
+    // Not yet visible → dequeue skips it.
+    expect(await q.dequeue('w')).toBeNull();
+  });
+
+  test('zero backoff retries immediately (opt-out)', async () => {
+    const q = new InMemoryWorkflowQueue({ retryBackoffMs: 0 });
+    const jobId = await q.enqueue({ ...defaultInput(), max_attempts: 3 });
+    await q.dequeue('w');
+    await q.nack(jobId, 'transient');
+    const next = await q.dequeue('w');
+    expect(next?.id).toBe(jobId);
+    expect(next?.attempt).toBe(2);
+  });
+
   test('heartbeat extends visible_at', async () => {
     const jobId = await queue.enqueue(defaultInput());
     const job = await queue.dequeue('w');
@@ -117,6 +143,31 @@ describe('InMemoryWorkflowQueue', () => {
     expect(next).toBeNull();
   });
 
+  // Lifecycle ops must verify ownership. A stale worker whose job was
+  // reclaimed cannot ack/nack/release/heartbeat the job a new worker now owns.
+  test('lifecycle ops are no-ops for a non-owning worker', async () => {
+    const jobId = await queue.enqueue(defaultInput());
+    await queue.dequeue('w1'); // owned by w1
+    const before = await queue.getJob(jobId);
+
+    // A different worker cannot mutate it.
+    await queue.ack(jobId, 'w2');
+    expect((await queue.getJob(jobId))!.status).toBe('active');
+
+    await queue.nack(jobId, 'boom', 'w2');
+    expect((await queue.getJob(jobId))!.status).toBe('active');
+
+    await queue.release(jobId, 'w2');
+    expect((await queue.getJob(jobId))!.status).toBe('active');
+
+    await queue.heartbeat(jobId, 999_999, 'w2');
+    expect((await queue.getJob(jobId))!.visible_at?.getTime()).toBe(before!.visible_at?.getTime());
+
+    // The legitimate owner still can.
+    await queue.ack(jobId, 'w1');
+    expect((await queue.getJob(jobId))!.status).toBe('completed');
+  });
+
   test('reclaimExpired returns jobs with expired visibility', async () => {
     const jobId = await queue.enqueue({
       ...defaultInput(),
@@ -133,6 +184,32 @@ describe('InMemoryWorkflowQueue', () => {
     const job = await queue.getJob(jobId);
     expect(job!.status).toBe('waiting');
     expect(job!.worker_id).toBeNull();
+  });
+
+  // A worker that dies hard (no ack/nack) must not loop forever. Each
+  // reclaim counts as a failed attempt; after max_attempts the job is
+  // dead-lettered instead of being handed out again.
+  test('poison-pill: reclaimExpired dead-letters a job after max_attempts', async () => {
+    const jobId = await queue.enqueue({
+      ...defaultInput(),
+      max_attempts: 2,
+      visibility_timeout_ms: 1,
+    });
+
+    // Claim → worker dies hard → visibility expires → reclaim (attempt 1 < 2).
+    await queue.dequeue('w'); // attempt = 1
+    await new Promise(r => setTimeout(r, 5));
+    await queue.reclaimExpired();
+    expect((await queue.getJob(jobId))!.status).toBe('waiting');
+
+    // Claim again → dies again → reclaim (attempt 2 >= 2 → dead_letter).
+    await queue.dequeue('w'); // attempt = 2
+    await new Promise(r => setTimeout(r, 5));
+    await queue.reclaimExpired();
+    expect((await queue.getJob(jobId))!.status).toBe('dead_letter');
+
+    // The loop is broken: a dead-lettered job is never handed out again.
+    expect(await queue.dequeue('w')).toBeNull();
   });
 
   test('dequeue skips active jobs', async () => {
@@ -172,7 +249,9 @@ describe('InMemoryWorkflowQueue', () => {
 
 describe('InMemoryWorkflowQueue — fencing epochs', () => {
   test('dequeue stamps claim_epoch, bumped on every claim of the same run', async () => {
-    const queue = new InMemoryWorkflowQueue();
+    // Zero backoff so the nack→re-dequeue is immediate (this tests epoch
+    // mechanics, not retry backoff).
+    const queue = new InMemoryWorkflowQueue({ retryBackoffMs: 0 });
     const runId = crypto.randomUUID();
     const jobId = await queue.enqueue({
       type: 'start',

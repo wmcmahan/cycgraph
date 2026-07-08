@@ -136,7 +136,7 @@ describe('executeAgentNode', () => {
       expect.any(Object),
       expect.any(Object),
       1,
-      expect.objectContaining({ node_id: 'node-1' }),
+      expect.objectContaining({ nodeId: 'node-1' }),
     );
     expect(result.type).toBe('update_memory');
   });

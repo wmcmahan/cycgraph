@@ -1,11 +1,19 @@
 /**
  * Evals Module — Public API
  *
- * Re-exports the eval framework's types, assertion checker, and runner.
+ * Explicit named re-exports (NOT `export *`) so a new symbol added to a leaf
+ * file does NOT silently enter the package's public/semver surface.
  *
  * @module evals
  */
 
-export * from './types.js';
+export type {
+  EvalAssertion,
+  AssertionResult,
+  EvalCaseResult,
+  EvalCase,
+  EvalReport,
+  EvalSuite,
+} from './types.js';
 export { checkAssertion } from './assertions.js';
 export { runEval } from './runner.js';

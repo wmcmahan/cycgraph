@@ -24,17 +24,17 @@ export interface ParallelTask {
   /** Pre-built state view for this task. */
   stateView: StateView;
   /** Optional input item (used by map-reduce fan-out). */
-  input_item?: unknown;
+  inputItem?: unknown;
   /** Optional index of the input item. */
-  item_index?: number;
+  itemIndex?: number;
 }
 
 /** Result of a single parallel task execution. */
 export interface ParallelResult {
   /** Index of this task in the original task array. */
-  task_index: number;
+  taskIndex: number;
   /** ID of the node that was executed. */
-  node_id: string;
+  nodeId: string;
   /** The action produced (undefined on failure). */
   action?: Action;
   /** Whether the task succeeded. */
@@ -42,28 +42,28 @@ export interface ParallelResult {
   /** Error message on failure. */
   error?: string;
   /** Tokens consumed by this task. */
-  tokens_used?: number;
+  tokensUsed?: number;
 }
 
 /** Configuration for parallel execution. */
 export interface ParallelExecutionConfig {
   /** Maximum number of concurrent tasks per batch. */
-  max_concurrency: number;
+  maxConcurrency: number;
   /** How to handle task failures. */
-  error_strategy: 'fail_fast' | 'best_effort';
+  errorStrategy: 'fail_fast' | 'best_effort';
   /** Per-task timeout in milliseconds. If a task exceeds this, it is aborted. */
-  task_timeout_ms?: number;
+  taskTimeoutMs?: number;
 }
 
 /**
  * Execute tasks in parallel with concurrency control.
  *
- * Tasks are chunked into batches of `max_concurrency`. Within each
+ * Tasks are chunked into batches of `maxConcurrency`. Within each
  * batch, all tasks run concurrently. Under `fail_fast`, the first
  * failure aborts the batch. Under `best_effort`, all results
  * (including failures) are collected.
  *
- * When `task_timeout_ms` is set, each task gets an `AbortController`
+ * When `taskTimeoutMs` is set, each task gets an `AbortController`
  * whose signal is aborted on timeout. The `executeFn` receives an
  * `AbortSignal` that it should propagate to LLM calls.
  *
@@ -79,21 +79,21 @@ export async function executeParallel(
 ): Promise<ParallelResult[]> {
   const results: ParallelResult[] = [];
 
-  // Chunk tasks into batches of max_concurrency
+  // Chunk tasks into batches of maxConcurrency
   const batches: ParallelTask[][] = [];
-  for (let i = 0; i < tasks.length; i += config.max_concurrency) {
-    batches.push(tasks.slice(i, i + config.max_concurrency));
+  for (let i = 0; i < tasks.length; i += config.maxConcurrency) {
+    batches.push(tasks.slice(i, i + config.maxConcurrency));
   }
 
   logger.info('parallel_execution_start', {
     total_tasks: tasks.length,
     batches: batches.length,
-    max_concurrency: config.max_concurrency,
-    error_strategy: config.error_strategy,
+    max_concurrency: config.maxConcurrency,
+    error_strategy: config.errorStrategy,
   });
 
-  for (let batchStart = 0; batchStart < tasks.length; batchStart += config.max_concurrency) {
-    const batch = batches[batchStart / config.max_concurrency];
+  for (let batchStart = 0; batchStart < tasks.length; batchStart += config.maxConcurrency) {
+    const batch = batches[batchStart / config.maxConcurrency];
 
     const batchPromises = batch.map(async (task, batchIndex): Promise<ParallelResult> => {
       const taskIndex = batchStart + batchIndex;
@@ -101,13 +101,13 @@ export async function executeParallel(
       try {
         let action: Action;
 
-        if (config.task_timeout_ms) {
+        if (config.taskTimeoutMs) {
           // Create an AbortController for cooperative cancellation.
           // The signal is passed to executeFn so LLM calls can be aborted.
           // Promise.race ensures the timeout rejects immediately even if
           // executeFn doesn't check the signal (resource leak prevention).
           const abortController = new AbortController();
-          const timeoutMs = config.task_timeout_ms;
+          const timeoutMs = config.taskTimeoutMs;
 
           action = await Promise.race([
             executeFn(task, abortController.signal),
@@ -133,32 +133,32 @@ export async function executeParallel(
         const tokenUsage = extMetadata?.token_usage as { totalTokens?: number } | undefined;
 
         return {
-          task_index: taskIndex,
-          node_id: task.node.id,
+          taskIndex,
+          nodeId: task.node.id,
           action,
           success: true,
-          tokens_used: tokenUsage?.totalTokens,
+          tokensUsed: tokenUsage?.totalTokens,
         };
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         logger.warn('parallel_task_failed', { task_index: taskIndex, node_id: task.node.id, error: errorMsg });
 
         return {
-          task_index: taskIndex,
-          node_id: task.node.id,
+          taskIndex,
+          nodeId: task.node.id,
           success: false,
           error: errorMsg,
         };
       }
     });
 
-    if (config.error_strategy === 'fail_fast') {
+    if (config.errorStrategy === 'fail_fast') {
       try {
         const batchResults = await Promise.all(
           batchPromises.map(async (p) => {
             const result = await p;
             if (!result.success) {
-              throw new Error(`Task ${result.task_index} (${result.node_id}) failed: ${result.error}`);
+              throw new Error(`Task ${result.taskIndex} (${result.nodeId}) failed: ${result.error}`);
             }
             return result;
           }),

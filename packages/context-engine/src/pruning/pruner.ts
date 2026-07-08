@@ -78,10 +78,39 @@ export function pruneByScore(
 }
 
 /**
+ * Segment roles whose content is structured data (serialized memory,
+ * tool/JSON schemas) rather than prose. Token-level pruning drops
+ * whitespace-delimited tokens — meaning-preserving lossy compression for prose,
+ * but it CORRUPTS structured data: dropping a key, value, or delimiter yields
+ * malformed output (e.g. `{"score": , "fact_id":"abc"}`) that the consuming LLM
+ * silently misreads. Structured segments are compressed by structure-aware
+ * stages (format, dedup) instead and are left intact by token pruning.
+ */
+const STRUCTURED_ROLES: ReadonlySet<string> = new Set(['memory', 'tools']);
+
+/** Cheap safety-net for JSON content in a non-structured role (e.g. `custom`). */
+function looksStructured(content: string): boolean {
+  const t = content.trimStart();
+  return t.startsWith('{') || t.startsWith('[');
+}
+
+/**
+ * True when a segment must NOT be token-pruned because doing so would corrupt
+ * structured content. Gates on role first (format-independent — survives the
+ * format stage rewriting JSON into a compact non-JSON shape), with a JSON
+ * content sniff as a backstop for structured data in an unexpected role.
+ */
+function isTokenPruneUnsafe(seg: PromptSegment): boolean {
+  return STRUCTURED_ROLES.has(seg.role) || looksStructured(seg.content);
+}
+
+/**
  * Create a pipeline compression stage that prunes tokens by importance scores.
  *
  * For each segment, scores all tokens via the provided scorer, then
- * prunes to fit within the segment's share of the budget.
+ * prunes to fit within the segment's share of the budget. Structured segments
+ * (see {@link isTokenPruneUnsafe}) are passed through untouched — token pruning
+ * is only applied to prose.
  */
 export function createPruningStage(scorer: TokenScorer): CompressionStage {
   return {
@@ -100,6 +129,12 @@ export function createPruningStage(scorer: TokenScorer): CompressionStage {
 
         // Skip if already within budget
         if (counts[i] <= segBudget) return seg;
+
+        // Never token-prune structured content — it would corrupt it. Better to
+        // leave a memory/tools segment slightly over its soft budget (the format
+        // and dedup stages already compress it) than hand the model malformed
+        // JSON.
+        if (isTokenPruneUnsafe(seg)) return seg;
 
         const scorerContext: ScorerContext = {
           role: seg.role,

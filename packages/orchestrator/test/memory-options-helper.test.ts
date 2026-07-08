@@ -36,7 +36,7 @@ describe('buildAgentMemoryOptions', () => {
     const node = makeNode({ memory_query: undefined });
     const out = buildAgentMemoryOptions(node, makeCtx({ memoryRetriever: retriever }));
     expect(out.memoryRetriever).toBe(retriever);
-    expect(out.memory_query).toBeUndefined();
+    expect(out.memoryQuery).toBeUndefined();
   });
 
   it('translates memory_query from snake_case to camelCase', () => {
@@ -49,7 +49,7 @@ describe('buildAgentMemoryOptions', () => {
       },
     });
     const out = buildAgentMemoryOptions(node, makeCtx());
-    expect(out.memory_query).toEqual({
+    expect(out.memoryQuery).toEqual({
       text: 'find me lessons',
       entityIds: ['e1', 'e2'],
       tags: ['lesson'],
@@ -62,7 +62,7 @@ describe('buildAgentMemoryOptions', () => {
       memory_query: { tags: ['x'] },
     });
     const out = buildAgentMemoryOptions(node, makeCtx());
-    expect(out.memory_query).toEqual({
+    expect(out.memoryQuery).toEqual({
       text: undefined,
       entityIds: undefined,
       tags: ['x'],

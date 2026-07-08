@@ -29,7 +29,7 @@ export interface EvaluationResult {
   /** Optional suggestions for improving the evaluated output. */
   suggestions?: string;
   /** Total tokens consumed by the evaluation call. */
-  tokens_used: number;
+  tokensUsed: number;
 }
 
 /** Zod schema for structured output extraction from the LLM. */
@@ -45,7 +45,7 @@ const EvaluationSchema = z.object({
  * Loads the evaluator agent's config, builds prompts with injection
  * guards, and calls the LLM with structured output extraction.
  *
- * @param evaluator_agent_id - The database ID of the evaluator agent.
+ * @param evaluatorAgentId - The database ID of the evaluator agent.
  * @param goal - The original goal the output was generated for.
  * @param output - The output to evaluate (string or serialisable object).
  * @param criteria - Optional domain-specific evaluation criteria.
@@ -54,21 +54,21 @@ const EvaluationSchema = z.object({
  * @throws {Error} If the LLM call fails or returns unparseable structured output.
  */
 export async function evaluateQualityExecutor(
-  evaluator_agent_id: string,
+  evaluatorAgentId: string,
   goal: string,
   output: unknown,
   criteria?: string,
 ): Promise<EvaluationResult> {
   return withSpan(tracer, 'evaluator.evaluate', async (span) => {
-    span.setAttribute('evaluator.agent_id', evaluator_agent_id);
+    span.setAttribute('evaluator.agent_id', evaluatorAgentId);
 
-    const agentConfig = await agentFactory.loadAgent(evaluator_agent_id);
+    const agentConfig = await agentFactory.loadAgent(evaluatorAgentId);
     const model = agentFactory.getModel(agentConfig);
 
     const systemPrompt = createEvaluatorSystemPrompt(agentConfig, criteria);
     const prompt = createEvaluatorPrompt(goal, output);
 
-    logger.info('evaluating', { evaluator_agent_id, goal_length: goal.length });
+    logger.info('evaluating', { evaluator_agent_id: evaluatorAgentId, goal_length: goal.length });
 
     const { output: evaluation, usage } = await generateText({
       model,
@@ -78,22 +78,22 @@ export async function evaluateQualityExecutor(
       ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
     });
 
-    const tokens_used = usage?.totalTokens ?? 0;
+    const tokensUsed = usage?.totalTokens ?? 0;
 
     logger.info('evaluation_complete', {
-      evaluator_agent_id,
+      evaluator_agent_id: evaluatorAgentId,
       score: evaluation.score,
-      tokens_used,
+      tokens_used: tokensUsed,
     });
 
     span.setAttribute('evaluator.score', evaluation.score);
-    span.setAttribute('evaluator.tokens', tokens_used);
+    span.setAttribute('evaluator.tokens', tokensUsed);
 
     return {
       score: evaluation.score,
       reasoning: evaluation.reasoning,
       suggestions: evaluation.suggestions,
-      tokens_used,
+      tokensUsed,
     };
   });
 }

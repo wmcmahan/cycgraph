@@ -25,7 +25,10 @@ import { createLogger } from '../../utils/logger.js';
 import { getTracer, withSpan } from '../../utils/tracing.js';
 import { v4 as uuidv4 } from 'uuid';
 import { SUPERVISOR_DONE } from './constants.js';
-import { buildSupervisorSystemPrompt } from './prompt.js';
+import { buildSupervisorSystemPrompt } from './prompts.js';
+import { retrieveForPrompt } from '../retrieve-for-prompt.js';
+import { resolveEffectiveModelConfig } from '../model-override.js';
+import { mintLessonProvenance } from '../../utils/lesson-provenance.js';
 import { AgentExecutionError } from '../agent-executor/errors.js';
 import { classifyRetryable } from '../agent-executor/error-classification.js';
 import { SupervisorConfigError, SupervisorRoutingError } from './errors.js';
@@ -69,13 +72,13 @@ export async function executeSupervisor(
   attempt: number,
   options?: {
     abortSignal?: AbortSignal;
-    model_override?: string;
+    modelOverride?: string;
     contextCompressor?: import('../context-compressor.js').ContextCompressor;
     onContextCompressed?: (metrics: import('../context-compressor.js').ContextCompressionMetrics) => void;
     /** Memory retriever for injecting relevant facts into the routing prompt. */
     memoryRetriever?: import('../memory-retriever.js').MemoryRetriever;
     /** Per-node retrieval directive (paired with `memoryRetriever`). */
-    memory_query?: {
+    memoryQuery?: {
       text?: string;
       entityIds?: string[];
       tags?: string[];
@@ -115,29 +118,17 @@ export async function executeSupervisor(
     // Load agent config for the supervisor LLM (cached)
     const agentConfig = await agentFactory.loadAgent(supervisorAgentId);
     // Budget-aware model resolution: use override if provided
-    const validatedOverride = options?.model_override && typeof options.model_override === 'string' && options.model_override.trim().length > 0
-      ? options.model_override
-      : undefined;
-
-    if (options?.model_override && !validatedOverride) {
-      logger.warn('invalid_model_override', {
-        agent_id: supervisorAgentId,
-        node_id: node.id,
-        model_override: options.model_override,
-        fallback_model: agentConfig.model,
-      });
-    }
-
-    const effectiveConfig = validatedOverride
-      ? { ...agentConfig, model: validatedOverride }
-      : agentConfig;
+    const effectiveConfig = resolveEffectiveModelConfig(agentConfig, options?.modelOverride, {
+      agentId: supervisorAgentId,
+      nodeId: node.id,
+    });
     const model = agentFactory.getModel(effectiveConfig);
 
     // Resolve memory retrieval (best-effort — failures must never block
     // routing; the supervisor still gets the workflow-state memory below).
-    const retrievedMemory = await retrieveForSupervisorPrompt(
+    const retrievedMemory = await retrieveForPrompt(
       options?.memoryRetriever,
-      options?.memory_query,
+      options?.memoryQuery,
       stateView,
       effectiveConfig.model,
     );
@@ -151,24 +142,13 @@ export async function executeSupervisor(
 
     // Lesson provenance: record which retrieved facts were injected into
     // this routing prompt, so the run's outcome is attributable to them —
-    // the same contract agent nodes honour (see agent-executor). Minted
-    // here (action-creation time) and carried on the returned handoff /
-    // completion action; the reducer merges it append-only. Only facts
-    // whose retriever supplied an `id` are attributable.
-    const injectedFactIds = (retrievedMemory?.facts ?? [])
-      .map((f) => f.id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    const lessonProvenance: LessonProvenanceRegistry | undefined =
-      injectedFactIds.length > 0
-        ? {
-            [uuidv4()]: {
-              node_id: node.id,
-              agent_id: supervisorAgentId,
-              fact_ids: injectedFactIds,
-              retrieved_at: new Date().toISOString(),
-            },
-          }
-        : undefined;
+    // the same contract agent nodes honour (see agent-executor). Carried
+    // on the returned handoff / completion action; the reducer merges it
+    // append-only.
+    const lessonProvenance = mintLessonProvenance(retrievedMemory, {
+      nodeId: node.id,
+      agentId: supervisorAgentId,
+    });
 
     logger.info('routing', {
       supervisor_id: node.id,
@@ -333,43 +313,3 @@ function createCompletionAction(
   };
 }
 
-/**
- * Resolve memory for the supervisor's routing prompt. Mirrors
- * `retrieveForPrompt` in agent-executor: best-effort, default-text-to-goal
- * only when no explicit query knob is set.
- */
-async function retrieveForSupervisorPrompt(
-  retriever: import('../memory-retriever.js').MemoryRetriever | undefined,
-  rawQuery:
-    | { text?: string; entityIds?: string[]; tags?: string[]; maxFacts?: number }
-    | undefined,
-  stateView: StateView,
-  model: string,
-): Promise<import('../memory-retriever.js').MemoryRetrievalResult | null> {
-  if (!retriever || !rawQuery) return null;
-
-  const query: { text?: string; entityIds?: string[]; tags?: string[] } = {};
-  if (rawQuery.text) query.text = rawQuery.text;
-  if (rawQuery.entityIds && rawQuery.entityIds.length > 0) query.entityIds = rawQuery.entityIds;
-  if (rawQuery.tags && rawQuery.tags.length > 0) query.tags = rawQuery.tags;
-
-  if (
-    query.text === undefined &&
-    query.entityIds === undefined &&
-    query.tags === undefined
-  ) {
-    query.text = stateView.goal;
-  }
-
-  try {
-    return await retriever(query, {
-      ...(rawQuery.maxFacts !== undefined ? { maxFacts: rawQuery.maxFacts } : {}),
-      model,
-    });
-  } catch (err) {
-    logger.warn('memory_retriever_failed', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
-}

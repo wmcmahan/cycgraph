@@ -231,7 +231,7 @@ describe('generateWorkflow', () => {
   it('uses custom architect_agent_id when provided', async () => {
     (generateText as any).mockResolvedValue({ output: makeValidLLMGraph() });
 
-    await generateWorkflow({ prompt: 'test', architect_agent_id: 'custom-architect' });
+    await generateWorkflow({ prompt: 'test', architectAgentId: 'custom-architect' });
 
     expect(agentFactory.loadAgent).toHaveBeenCalledWith('custom-architect');
   });
@@ -317,7 +317,7 @@ describe('generateWorkflow', () => {
     (generateText as any).mockResolvedValue({ output: makeInvalidLLMGraph() });
 
     await expect(
-      generateWorkflow({ prompt: 'test', max_retries: 2 })
+      generateWorkflow({ prompt: 'test', maxRetries: 2 })
     ).rejects.toThrow(ArchitectError);
   });
 
@@ -325,7 +325,7 @@ describe('generateWorkflow', () => {
     (generateText as any).mockResolvedValue({ output: makeInvalidLLMGraph() });
 
     try {
-      await generateWorkflow({ prompt: 'test', max_retries: 1 });
+      await generateWorkflow({ prompt: 'test', maxRetries: 1 });
       expect.fail('Should have thrown');
     } catch (error) {
       expect(error).toBeInstanceOf(ArchitectError);
@@ -337,7 +337,7 @@ describe('generateWorkflow', () => {
     (generateText as any).mockRejectedValue(new Error('API rate limit'));
 
     await expect(
-      generateWorkflow({ prompt: 'test', max_retries: 0 })
+      generateWorkflow({ prompt: 'test', maxRetries: 0 })
     ).rejects.toThrow(ArchitectError);
   });
 
@@ -347,7 +347,7 @@ describe('generateWorkflow', () => {
       .mockRejectedValueOnce(new Error('Transient API error'))
       .mockResolvedValueOnce({ output: makeValidLLMGraph() });
 
-    const result = await generateWorkflow({ prompt: 'test', max_retries: 1 });
+    const result = await generateWorkflow({ prompt: 'test', maxRetries: 1 });
 
     expect(result.attempts).toBe(2);
     expect(result.graph.name).toBe('Research & Write');
@@ -361,7 +361,7 @@ describe('generateWorkflow', () => {
     const existing = makeExistingGraph();
     const result = await generateWorkflow({
       prompt: 'Add a writer node',
-      current_graph: existing,
+      currentGraph: existing,
     });
 
     expect(result.graph.id).toBe('existing-graph-id');
@@ -373,7 +373,7 @@ describe('generateWorkflow', () => {
 
     await generateWorkflow({
       prompt: 'Add a writer node',
-      current_graph: makeExistingGraph(),
+      currentGraph: makeExistingGraph(),
     });
 
     const callArgs = (generateText as any).mock.calls[0][0];

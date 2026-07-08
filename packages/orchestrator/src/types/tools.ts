@@ -169,7 +169,15 @@ function extractMappedIpv4(host: string): string | null {
   return null;
 }
 
-function isPrivateOrLoopbackHost(hostname: string): boolean {
+/**
+ * True when a host is private / loopback / link-local / unique-local /
+ * unspecified. Accepts a hostname or a literal IP in any encoding (dotted or
+ * integer IPv4, IPv4-mapped IPv6, bracketed or bare IPv6). Exported so the
+ * connection manager can re-check DNS-*resolved* addresses at connect time —
+ * the parse-time schema guard only sees the literal hostname string and cannot
+ * catch a public name that resolves to a private IP (DNS rebinding).
+ */
+export function isPrivateOrLoopbackHost(hostname: string): boolean {
   // URL.hostname keeps IPv6 in brackets — strip them.
   let host = hostname.toLowerCase();
   if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);

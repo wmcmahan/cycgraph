@@ -223,8 +223,8 @@ const runner = new GraphRunner(graph, state, {
     await persistence.saveDelta(patch);
   },
   deltaTrackerOptions: {
-    full_snapshot_interval: 10,  // Full snapshot every 10 persists
-    max_patch_bytes: 50_000,     // Fall back to full if patch > 50KB
+    fullSnapshotInterval: 10,  // Full snapshot every 10 persists
+    maxPatchBytes: 50_000,     // Fall back to full if patch > 50KB
   },
 });
 ```
@@ -243,8 +243,8 @@ The delta tracker compares each state to the previously persisted snapshot and p
 
 A full snapshot is automatically emitted:
 - On the first persist (no previous state to diff against)
-- Every `full_snapshot_interval` persists (default: 10)
-- When the computed patch exceeds `max_patch_bytes` (default: 50KB)
+- Every `fullSnapshotInterval` persists (default: 10)
+- When the computed patch exceeds `maxPatchBytes` (default: 50KB)
 
 This ensures recovery never requires replaying a long chain of patches.
 
@@ -259,11 +259,11 @@ Long-running workflows accumulate events in the event log. The `GraphRunner` sup
 ```typescript
 const runner = new GraphRunner(graph, state, {
   eventLog: myEventLog,
-  compaction_interval: 100, // Checkpoint and compact every 100 events
+  compactionInterval: 100, // Checkpoint and compact every 100 events
 });
 ```
 
-When `compaction_interval` is set, the runner automatically:
+When `compactionInterval` is set, the runner automatically:
 1. Saves a checkpoint (state snapshot at the current sequence ID)
 2. Deletes all events at or before the checkpoint
 

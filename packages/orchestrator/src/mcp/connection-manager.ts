@@ -28,6 +28,7 @@ import { Semaphore } from './semaphore.js';
 import type { MCPServerRegistry } from '../persistence/interfaces.js';
 import type { ToolSource, MCPServerEntry } from '../types/tools.js';
 import { isStdioMcpDisabled } from '../types/tools.js';
+import { assertHostResolvesPublic, scrubStdioEnv } from './transport-security.js';
 import type { TaintMetadata } from '../types/state.js';
 
 const logger = createLogger('mcp.connections');
@@ -533,11 +534,15 @@ export class MCPConnectionManager implements ToolResolver {
         if (!StdioTransportClass) {
           throw new Error('Stdio transport requires @ai-sdk/mcp/mcp-stdio — is @ai-sdk/mcp installed?');
         }
+        const { env: safeEnv, dropped } = scrubStdioEnv(config.env);
+        if (dropped.length > 0) {
+          logger.warn('mcp_stdio_env_scrubbed', { server_id: entry.id, dropped });
+        }
         return new StdioTransportClass({
           command: config.command,
           args: config.args,
           env: {
-            ...config.env,
+            ...safeEnv,
             // Suppress npm install/fund/audit output that npx writes to stdout,
             // which corrupts the JSON-RPC stdio transport.
             npm_config_loglevel: 'silent',
@@ -545,12 +550,14 @@ export class MCPConnectionManager implements ToolResolver {
         });
       }
       case 'http':
+        await assertHostResolvesPublic(config.url, entry.id);
         return {
           type: 'http' as const,
           url: config.url,
           headers: config.headers,
         };
       case 'sse':
+        await assertHostResolvesPublic(config.url, entry.id);
         return {
           type: 'sse' as const,
           url: config.url,
@@ -619,6 +626,12 @@ export class MCPConnectionManager implements ToolResolver {
           result = semaphore ? await semaphore.run(() => invoke(args)) : await invoke(args);
         } catch (err) {
           this.toolBreakers?.recordFailure(serverId, toolName);
+          // A throwing server still delivers attacker-influencable text (its
+          // error message) into the agent's LLM context, which the agent can
+          // fold into its output. Taint it exactly like a successful result —
+          // otherwise strict_taint / securityPolicy gates never fire on
+          // injection smuggled through a tool error.
+          this.recordTaint(collector, serverId, toolName);
           throw err;
         }
 
@@ -630,20 +643,32 @@ export class MCPConnectionManager implements ToolResolver {
         // out co-tenant runs. Capping here stops all three.
         result = MCPConnectionManager.enforceResultSize(result, toolName, serverId);
 
-        const taintKey = `${serverId}:${toolName}`;
-        const entry = {
-          source: 'mcp_tool' as const,
-          tool_name: toolName,
-          server_id: serverId,
-          created_at: new Date().toISOString(),
-        };
-        // Write to the per-resolution collector (race-free); also mirror to
-        // the process-wide map so a no-arg drainTaintEntries() still works.
-        (collector ?? this.taintEntries).set(taintKey, entry);
-        this.taintEntries.set(taintKey, entry);
+        this.recordTaint(collector, serverId, toolName);
         return result;
       },
     };
+  }
+
+  /**
+   * Record a taint entry for a `serverId:toolName` source in both the
+   * per-resolution collector (race-free attribution) and the process-wide map
+   * (so a no-arg {@link drainTaintEntries} still works). Called on BOTH the
+   * success and error paths — a tool error is an external-data source too.
+   */
+  private recordTaint(
+    collector: Map<string, TaintMetadata> | undefined,
+    serverId: string,
+    toolName: string,
+  ): void {
+    const taintKey = `${serverId}:${toolName}`;
+    const entry = {
+      source: 'mcp_tool' as const,
+      tool_name: toolName,
+      server_id: serverId,
+      created_at: new Date().toISOString(),
+    };
+    (collector ?? this.taintEntries).set(taintKey, entry);
+    this.taintEntries.set(taintKey, entry);
   }
 
   /** Maximum serialized bytes accepted from a single MCP tool result. */

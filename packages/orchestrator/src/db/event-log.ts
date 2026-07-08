@@ -19,6 +19,7 @@
 import type { NewWorkflowEvent, WorkflowEvent } from '../types/event.js';
 import type { WorkflowState } from '../types/state.js';
 import { hydrateWorkflowState } from '../types/state.js';
+import { CycgraphError } from '../errors.js';
 
 /**
  * Thrown when an `append()` collides with an existing `(run_id, sequence_id)`.
@@ -27,7 +28,7 @@ import { hydrateWorkflowState } from '../types/state.js';
  * split-brain that must surface loudly, never be silently absorbed. The
  * GraphRunner treats this as fatal for the local runner.
  */
-export class EventSequenceConflictError extends Error {
+export class EventSequenceConflictError extends CycgraphError {
   constructor(
     public readonly runId: string,
     public readonly sequenceId: number,

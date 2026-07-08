@@ -13,9 +13,20 @@
  */
 
 // ─── Core Types ─────────────────────────────────────────────────────
-// State, Graph, Event schemas and TypeScript types
+// State, Graph, Event schemas and TypeScript types.
+//
+// The `export *` here re-exports the `./types` barrel, which is itself a
+// CURATED set of explicit named exports (no `export *` inside). So a new
+// symbol added to a leaf schema file (state/graph/event/tools/case-mapping)
+// does NOT auto-enter the public surface — it must be added to `types/index.ts`
+// deliberately. Same discipline applies to `./persistence` and `./evals` below.
 
 export * from './types/index.js';
+
+// ─── Error Base Class ───────────────────────────────────────────────
+// Every engine error extends CycgraphError, so consumers can catch them as a
+// group: `catch (e) { if (e instanceof CycgraphError) … }`.
+export { CycgraphError } from './errors.js';
 
 // ─── Reducers ───────────────────────────────────────────────────────
 // Pure state transition functions. Explicit named exports — `internalReducer`
@@ -60,8 +71,7 @@ export { SecurityPolicyViolationError, readableTaintedKeys } from './runner/secu
 export { createObserverMiddleware } from './runner/observer-middleware.js';
 export type { ObserverMiddlewareOptions, ObserverFinding, ObserverSeverity, DiagnosticAgentOptions } from './runner/observer-middleware.js';
 export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './runner/errors.js';
-export { MemoryWriterMissingError } from './runner/node-executors/reflection.js';
-export { VerificationFailedError } from './runner/node-executors/verifier.js';
+export { MemoryWriterMissingError, VerificationFailedError, SubgraphIncompleteError } from './runner/node-executors/errors.js';
 
 // ─── Stream Events ─────────────────────────────────────────────────
 export type { StreamEvent, TerminalStreamEvent, ModelResolvedEvent, ContextCompressedEvent, MemoryDiff } from './runner/stream-events.js';
@@ -87,7 +97,8 @@ export * from './persistence/index.js';
 
 // ─── Validation ─────────────────────────────────────────────────────
 
-export * from './validation/graph-validator.js';
+export { validateGraph } from './validation/graph-validator.js';
+export type { ValidationResult } from './validation/graph-validator.js';
 
 // ─── Agent Runtime ──────────────────────────────────────────────────
 

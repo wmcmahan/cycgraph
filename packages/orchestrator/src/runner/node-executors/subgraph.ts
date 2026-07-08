@@ -16,6 +16,8 @@ import { createLogger } from '../../utils/logger.js';
 import { NodeConfigError } from '../errors.js';
 import { getTaintInfo, getTaintRegistry, markTainted } from '../../utils/taint.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
+import { SubgraphIncompleteError } from './errors.js';
 
 const logger = createLogger('runner.node.subgraph');
 
@@ -118,6 +120,15 @@ export async function executeSubgraphNode(
     ? ctx.state.max_token_budget - ctx.state.total_tokens_used
     : undefined;
 
+  // Propagate the parent's REMAINING USD budget so the child enforces cost
+  // limits too — without this the child ran with no `budget_usd` and could
+  // overspend unbounded (the parent's BudgetMonitor short-circuits on an
+  // undefined budget). The parent additionally re-accounts the child's total
+  // cost on return (see the returned `token_usage.costUsd`).
+  const remainingCostBudget = ctx.state.budget_usd !== undefined
+    ? Math.max(0, ctx.state.budget_usd - ctx.state.total_cost_usd)
+    : undefined;
+
   const childState: WorkflowState = {
     state_schema_version: 1,
     workflow_id: config.subgraph_id,
@@ -144,6 +155,7 @@ export async function executeSubgraphNode(
     total_cost_usd: 0,
     model_breakdown: {},
     max_token_budget: remainingBudget,
+    budget_usd: remainingCostBudget,
     visited_nodes: [],
     max_iterations: config.max_iterations,
     compensation_stack: [],
@@ -201,7 +213,7 @@ export async function executeSubgraphNode(
     logger.info('subgraph_paused_for_approval', { node_id: node.id, subgraph_id: config.subgraph_id });
     return {
       id: uuidv4(),
-      idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}:wait`,
+      idempotency_key: `${nodeIdempotencyKey(node, ctx, attempt)}:wait`,
       type: 'request_human_input',
       payload: {
         waiting_for: 'human_approval',
@@ -215,7 +227,7 @@ export async function executeSubgraphNode(
   // A non-completed child (e.g. a rejected nested approval cancelled it) means
   // the nested action was declined — fail the parent node closed.
   if (finalChildState.status !== 'completed') {
-    throw new Error(`Subgraph "${config.subgraph_id}" did not complete (status: ${finalChildState.status})`);
+    throw new SubgraphIncompleteError(node.id, config.subgraph_id, finalChildState.status);
   }
 
   // Map child outputs back to parent memory, carrying taint back across the
@@ -255,7 +267,7 @@ export async function executeSubgraphNode(
 
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'update_memory',
     payload: { updates: outputUpdates },
     compensation_entries: compensationEntries,
@@ -263,7 +275,16 @@ export async function executeSubgraphNode(
       node_id: node.id,
       timestamp: new Date(),
       attempt,
-      token_usage: { totalTokens: finalChildState.total_tokens_used },
+      // Report the child's full token breakdown AND its already-summed cost so
+      // the parent rolls both into its own budgets. `costUsd` is authoritative
+      // here (the child spanned potentially many models); the parent uses it
+      // directly rather than recomputing from tokens.
+      token_usage: {
+        totalTokens: finalChildState.total_tokens_used,
+        inputTokens: finalChildState.total_input_tokens,
+        outputTokens: finalChildState.total_output_tokens,
+        costUsd: finalChildState.total_cost_usd,
+      },
     },
   };
 }

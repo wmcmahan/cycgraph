@@ -227,7 +227,7 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
       executeAgent: rateLimiter
         ? (agentId, stateView, tools, attempt, options) =>
             rateLimiter(
-              { agentId, kind: 'agent', ...(options?.node_id ? { nodeId: options.node_id } : {}) },
+              { agentId, kind: 'agent', ...(options?.nodeId ? { nodeId: options.nodeId } : {}) },
               { abortSignal: runner.abortSignal },
             ).then(() => executeAgent(agentId, stateView, tools, attempt, options))
         : executeAgent,

@@ -5,8 +5,10 @@ import { DefaultTokenCounter } from '../src/providers/defaults.js';
 
 const counter = new DefaultTokenCounter();
 
-function makeSegment(id: string, content: string): PromptSegment {
-  return { id, content, role: 'memory', priority: 1, locked: false };
+// Prose role: token-pruning only applies to prose (structured 'memory'/'tools'
+// segments are protected from corruption).
+function makeSegment(id: string, content: string, role: PromptSegment['role'] = 'history'): PromptSegment {
+  return { id, content, role, priority: 1, locked: false };
 }
 
 describe('createHeuristicScorer', () => {

@@ -560,6 +560,13 @@ export const ActionSchema = z.object({
       inputTokens: z.number().optional(),
       outputTokens: z.number().optional(),
       totalTokens: z.number(),
+      /**
+       * Pre-computed USD cost for this action. When set, the runner adds it to
+       * `total_cost_usd` directly instead of recomputing from tokens + model —
+       * used by composite executors (e.g. subgraph) whose spend spans multiple
+       * models and is already summed in the child run's `total_cost_usd`.
+       */
+      costUsd: z.number().optional(),
     }).optional(),
     /** Tool calls made during execution. */
     tool_executions: z.array(z.object({

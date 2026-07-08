@@ -6,8 +6,11 @@ import { DefaultTokenCounter } from '../src/providers/defaults.js';
 
 const counter = new DefaultTokenCounter();
 
-function makeSegment(id: string, content: string): PromptSegment {
-  return { id, content, role: 'memory', priority: 1, locked: false };
+// Prose role: token-pruning only applies to prose. Structured roles
+// ('memory'/'tools') are protected from corruption — see the dedicated
+// structured-content test below.
+function makeSegment(id: string, content: string, role: PromptSegment['role'] = 'history'): PromptSegment {
+  return { id, content, role, priority: 1, locked: false };
 }
 
 function makeScored(text: string, score: number, offset: number): ScoredToken {
@@ -136,5 +139,37 @@ describe('createPruningStage', () => {
 
     const result = stage.execute(segments, context);
     expect(result.segments[0].content).toBe(short);
+  });
+
+  // Token-pruning must NOT corrupt structured content. An over-budget
+  // 'memory' (or 'tools') segment is left intact — dropping a JSON key/value/
+  // delimiter would hand the consuming LLM malformed data.
+  it('leaves over-budget structured (memory) segments intact instead of corrupting them', () => {
+    const stage = createPruningStage(simpleScorer);
+    const json = '{"score": 5, "fact_id": "abc123", "content": "a fairly long verbose memory value that exceeds budget"}';
+    const segments = [makeSegment('m', json, 'memory')];
+    const context = {
+      tokenCounter: counter,
+      budget: { maxTokens: 3, outputReserve: 0 } as BudgetConfig,
+    };
+
+    const result = stage.execute(segments, context);
+    // Unchanged, and still valid JSON.
+    expect(result.segments[0].content).toBe(json);
+    expect(() => JSON.parse(result.segments[0].content)).not.toThrow();
+  });
+
+  it('protects JSON content even in a non-structured role (content sniff)', () => {
+    const stage = createPruningStage(simpleScorer);
+    const json = '{"a": "some long value here that will be over the tiny budget", "b": 2}';
+    const segments = [makeSegment('c', json, 'custom')];
+    const context = {
+      tokenCounter: counter,
+      budget: { maxTokens: 2, outputReserve: 0 } as BudgetConfig,
+    };
+
+    const result = stage.execute(segments, context);
+    expect(result.segments[0].content).toBe(json);
+    expect(() => JSON.parse(result.segments[0].content)).not.toThrow();
   });
 });

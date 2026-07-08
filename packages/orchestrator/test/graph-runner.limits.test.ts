@@ -183,4 +183,38 @@ describe('GraphRunner — Timeout Management', () => {
       );
     }
   }, 5000);
+
+  // A NODE-level timeout must abort only that node's in-flight work — not the
+  // single shared workflow controller, which would cancel parallel siblings and
+  // irreversibly trip the run loop.
+  test('a node-level timeout aborts only the node controller, not the workflow controller', async () => {
+    const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+
+    const graph = createLinearGraph();
+    // Tiny node timeout on the first node; workflow deadline far away so the
+    // NODE timeout (not the workflow timeout) is what fires. max_retries: 1 =
+    // exactly one attempt (the retry loop runs `1..=max_retries`).
+    graph.nodes[0].failure_policy = {
+      max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 10, max_backoff_ms: 10, timeout_ms: 30,
+    };
+    const initialState = createInitialState();
+    initialState.max_execution_time_ms = 3_600_000;
+
+    // Hang forever (never settles) so the node timeout is what ends the node.
+    // Capture the abort signal the node received.
+    let nodeSignal: AbortSignal | undefined;
+    (executeAgent as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      (_id: string, _sv: unknown, _tools: unknown, _attempt: number, opts?: { abortSignal?: AbortSignal }) =>
+        new Promise(() => { nodeSignal = opts?.abortSignal; }),
+    );
+
+    const runner = new GraphRunner(graph, initialState);
+    await expect(runner.run()).rejects.toThrow(/timeout/i);
+
+    // The node's in-flight call was cancelled by the per-node controller...
+    expect(nodeSignal?.aborted).toBe(true);
+    // ...but the shared workflow controller must NOT be poisoned by a node
+    // timeout. (No public accessor — assert the internal invariant directly.)
+    expect((runner as unknown as { abortController: AbortController }).abortController.signal.aborted).toBe(false);
+  }, 5000);
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { executeSupervisor, SupervisorDecisionSchema } from '../src/agent/supervisor-executor/executor.js';
 import { SUPERVISOR_DONE } from '../src/agent/supervisor-executor/constants.js';
 import { SupervisorConfigError, SupervisorRoutingError } from '../src/agent/supervisor-executor/errors.js';
-import { buildSupervisorSystemPrompt } from '../src/agent/supervisor-executor/prompt.js';
+import { buildSupervisorSystemPrompt } from '../src/agent/supervisor-executor/prompts.js';
 import type { GraphNode, SupervisorConfig } from '../src/types/graph.js';
 import type { StateView, WorkflowState } from '../src/types/state.js';
 
@@ -301,7 +301,7 @@ describe('SupervisorExecutor', () => {
       const node = makeNode();
       await executeSupervisor(node, makeStateView(), [], 1, {
         memoryRetriever,
-        memory_query: { tags: ['supervisor-context'], maxFacts: 3 },
+        memoryQuery: { tags: ['supervisor-context'], maxFacts: 3 },
       });
 
       expect(memoryRetriever).toHaveBeenCalledTimes(1);
@@ -311,7 +311,7 @@ describe('SupervisorExecutor', () => {
       expect(options.maxFacts).toBe(3);
     });
 
-    it('defaults text to goal when memory_query is empty', async () => {
+    it('defaults text to goal when memoryQuery is empty', async () => {
       const memoryRetriever = vi.fn().mockResolvedValue(null);
       const node = makeNode();
       await executeSupervisor(
@@ -319,14 +319,14 @@ describe('SupervisorExecutor', () => {
         { ...makeStateView(), goal: 'Route to the right specialist' },
         [],
         1,
-        { memoryRetriever, memory_query: {} },
+        { memoryRetriever, memoryQuery: {} },
       );
 
       expect(memoryRetriever).toHaveBeenCalledTimes(1);
       expect(memoryRetriever.mock.calls[0][0].text).toBe('Route to the right specialist');
     });
 
-    it('does not call retriever when memory_query is absent', async () => {
+    it('does not call retriever when memoryQuery is absent', async () => {
       const memoryRetriever = vi.fn().mockResolvedValue(null);
       await executeSupervisor(makeNode(), makeStateView(), [], 1, { memoryRetriever });
       expect(memoryRetriever).not.toHaveBeenCalled();
@@ -336,7 +336,7 @@ describe('SupervisorExecutor', () => {
       const memoryRetriever = vi.fn().mockRejectedValue(new Error('store down'));
       const result = await executeSupervisor(makeNode(), makeStateView(), [], 1, {
         memoryRetriever,
-        memory_query: { tags: ['x'] },
+        memoryQuery: { tags: ['x'] },
       });
       expect(result.type).toBe('set_status');
       expect(memoryRetriever).toHaveBeenCalledTimes(1);
@@ -359,7 +359,7 @@ describe('SupervisorExecutor', () => {
 
       const action = await executeSupervisor(makeNode(), makeStateView(), [], 1, {
         memoryRetriever,
-        memory_query: { tags: ['lesson'] },
+        memoryQuery: { tags: ['lesson'] },
       });
 
       expect(action.type).toBe('handoff');
@@ -381,7 +381,7 @@ describe('SupervisorExecutor', () => {
 
       const action = await executeSupervisor(makeNode(), makeStateView(), [], 1, {
         memoryRetriever,
-        memory_query: { tags: ['lesson'] },
+        memoryQuery: { tags: ['lesson'] },
       });
 
       expect(action.type).toBe('set_status');
@@ -398,7 +398,7 @@ describe('SupervisorExecutor', () => {
 
       const action = await executeSupervisor(makeNode(), makeStateView(), [], 1, {
         memoryRetriever,
-        memory_query: { tags: ['lesson'] },
+        memoryQuery: { tags: ['lesson'] },
       });
 
       expect(action.payload.lesson_provenance).toBeUndefined();
@@ -412,7 +412,7 @@ describe('SupervisorExecutor', () => {
       });
       await executeSupervisor(makeNode(), makeStateView(), [], 1, {
         memoryRetriever,
-        memory_query: { tags: ['supervisor-context'] },
+        memoryQuery: { tags: ['supervisor-context'] },
       });
 
       const { generateText } = await import('ai');

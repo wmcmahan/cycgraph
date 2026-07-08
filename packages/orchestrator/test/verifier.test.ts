@@ -3,10 +3,8 @@
  */
 import { describe, test, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import {
-  executeVerifierNode,
-  VerificationFailedError,
-} from '../src/runner/node-executors/verifier.js';
+import { executeVerifierNode } from '../src/runner/node-executors/verifier.js';
+import { VerificationFailedError } from '../src/runner/node-executors/errors.js';
 import { NodeConfigError } from '../src/runner/errors.js';
 import type { GraphNode, VerifierConfig } from '../src/types/graph.js';
 import type { StateView } from '../src/types/state.js';
@@ -135,7 +133,7 @@ describe('executeVerifierNode', () => {
 
   describe('llm_judge variant', () => {
     test('passes at/above threshold and records evaluator tokens', async () => {
-      const evaluate = vi.fn().mockResolvedValue({ score: 0.9, reasoning: 'good', tokens_used: 120 });
+      const evaluate = vi.fn().mockResolvedValue({ score: 0.9, reasoning: 'good', tokensUsed: 120 });
       const node = makeNode({
         type: 'llm_judge',
         target_key: 'draft',
@@ -149,7 +147,7 @@ describe('executeVerifierNode', () => {
     });
 
     test('fails below threshold', async () => {
-      const evaluate = vi.fn().mockResolvedValue({ score: 0.5, reasoning: 'weak', tokens_used: 50 });
+      const evaluate = vi.fn().mockResolvedValue({ score: 0.5, reasoning: 'weak', tokensUsed: 50 });
       const node = makeNode({
         type: 'llm_judge',
         target_key: 'draft',

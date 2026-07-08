@@ -22,7 +22,7 @@
 
 import { compileExpression } from 'filtrex';
 import type { Graph, GraphNode, GraphEdge } from '../types/graph.js';
-import { FILTREX_COMPILE_OPTIONS, normalizeConditionExpression } from '../runner/conditions.js';
+import { FILTREX_COMPILE_OPTIONS, normalizeConditionExpression } from '../utils/condition-expression.js';
 
 /**
  * Result of a graph validation pass.
@@ -75,7 +75,7 @@ export function validateGraph(graph: Graph): ValidationResult {
     // Symmetric warning for the write side: a wildcard-write node (possibly fed
     // tainted data) can clobber ANY non-`_` memory key — a verifier's
     // `*_passed` flag or an approval-gate decision key that security routing
-    // depends on — with no reviewer signal. Previously only reads were warned.
+    // depends on — with no reviewer signal.
     if (node.write_keys.includes('*')) {
       warnings.push(
         `Node '${node.id}': write_keys includes '*' (can overwrite any memory key) — prefer explicit keys for least privilege`,

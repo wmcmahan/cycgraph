@@ -105,7 +105,7 @@ Wall-clock cap (`state.max_execution_time_ms`, default 5min) reached. Either rai
 
 ### `NoMatchingEdgeError: node "X" has no outgoing edge whose condition matched`
 
-Execution reached a node that **isn't** a declared end node, yet none of its outgoing edges' conditions evaluated `true` — a dead-end. The usual cause is a filtrex condition that's always false (a typo'd key name, a comparison against a value that's never written). This used to silently complete the workflow having run only part of the graph; it now fails loud. Fix the edge condition, add the node to `end_nodes` if it really is terminal, or — for the legacy silent-completion behavior — set `allow_implicit_completion: true` on `GraphRunnerOptions`.
+Execution reached a node that **isn't** a declared end node, yet none of its outgoing edges' conditions evaluated `true` — a dead-end. The usual cause is a filtrex condition that's always false (a typo'd key name, a comparison against a value that's never written). This used to silently complete the workflow having run only part of the graph; it now fails loud. Fix the edge condition, add the node to `end_nodes` if it really is terminal, or — for the legacy silent-completion behavior — set `allowImplicitCompletion: true` on `GraphRunnerOptions`.
 
 ### `MemoryWriterMissingError: Reflection node "X" requires a memoryWriter`
 

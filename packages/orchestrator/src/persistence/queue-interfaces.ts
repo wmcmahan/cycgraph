@@ -114,23 +114,37 @@ export interface WorkflowQueue {
    */
   dequeue(workerId: string): Promise<WorkflowJob | null>;
 
-  /** Mark a job as completed. */
-  ack(jobId: string): Promise<void>;
+  /**
+   * Mark a job as completed.
+   *
+   * @param workerId When provided, the ack only applies if this worker still
+   *   owns the job (`worker_id` matches). A stale worker whose job was reclaimed
+   *   must NOT be able to complete the run a new claimant now owns. Omit for
+   *   ownership-agnostic behavior (backward compatible).
+   */
+  ack(jobId: string, workerId?: string): Promise<void>;
 
   /**
    * Report a job failure.
    *
    * If `attempt < max_attempts`, the job returns to `waiting` for retry.
    * Otherwise, it transitions to `dead_letter`.
+   *
+   * @param workerId When provided, the nack only applies if this worker still
+   *   owns the job — a stale worker cannot requeue/dead-letter the new
+   *   claimant's job.
    */
-  nack(jobId: string, error: string): Promise<void>;
+  nack(jobId: string, error: string, workerId?: string): Promise<void>;
 
   /**
    * Extend the visibility timeout for an active job (heartbeat).
    *
    * @param extendMs Additional milliseconds to extend (defaults to the job's `visibility_timeout_ms`).
+   * @param workerId When provided, the heartbeat only applies if this worker
+   *   still owns the job — a stale worker cannot keep the new claimant's job
+   *   invisible (which would defeat legitimate reclaim).
    */
-  heartbeat(jobId: string, extendMs?: number): Promise<void>;
+  heartbeat(jobId: string, extendMs?: number, workerId?: string): Promise<void>;
 
   /**
    * Pause a job without incrementing the attempt count.
@@ -138,8 +152,11 @@ export interface WorkflowQueue {
    * Used for HITL pauses — transitions to `paused` status so the job
    * is NOT re-claimable by `dequeue`. A separate `resume` job must be
    * enqueued to continue the workflow.
+   *
+   * @param workerId When provided, the release only applies if this worker
+   *   still owns the job.
    */
-  release(jobId: string): Promise<void>;
+  release(jobId: string, workerId?: string): Promise<void>;
 
   /**
    * Reclaim jobs with expired visibility timeouts (crash recovery).

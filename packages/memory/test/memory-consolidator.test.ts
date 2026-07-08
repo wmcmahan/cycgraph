@@ -157,6 +157,39 @@ describe('MemoryConsolidator', () => {
     expect(new Set(remaining[0].source_episode_ids)).toEqual(new Set([ep1, ep2]));
   });
 
+  // Dedup must union entity links from the loser. Otherwise entity-scoped
+  // retrieval / conflict-detection (both group by entity_id) silently stop
+  // seeing the survivor for the loser's entities.
+  it('unions loser entity_ids into the survivor during dedup', async () => {
+    const entA = crypto.randomUUID();
+    const entB = crypto.randomUUID();
+    const keeper = makeFact({
+      content: 'Alice leads the Widget project',
+      embedding: [1, 0, 0],
+      valid_from: daysAgo(1),
+      source_episode_ids: [crypto.randomUUID()],
+      entity_ids: [entA],
+    });
+    // Near-duplicate that links a DIFFERENT entity (fewer episodes → loser).
+    const loser = makeFact({
+      content: 'Alice leads the Widget project team',
+      embedding: [1, 0, 0],
+      valid_from: daysAgo(2),
+      source_episode_ids: [],
+      entity_ids: [entB],
+    });
+    await store.putFact(keeper);
+    await store.putFact(loser);
+    await index.rebuild(store);
+
+    const consolidator = new MemoryConsolidator(store, index, { dedupThreshold: 0.9 });
+    await consolidator.consolidate();
+
+    const remaining = await store.findFacts({ include_invalidated: false });
+    expect(remaining).toHaveLength(1);
+    expect(new Set(remaining[0].entity_ids)).toEqual(new Set([entA, entB]));
+  });
+
   // 3c. Quarantined (poisoned) facts are excluded from consolidation entirely.
   it('excludes quarantined facts from dedup', async () => {
     const good = makeFact({ content: 'Alice works at Acme', embedding: [1, 0, 0], tags: ['lesson'] });

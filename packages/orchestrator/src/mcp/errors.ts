@@ -6,6 +6,8 @@
  * @module mcp/errors
  */
 
+import { CycgraphError } from '../errors.js';
+
 /**
  * Thrown when a tool source references an MCP server ID not found in the registry.
  *
@@ -14,7 +16,7 @@
  * throw new MCPServerNotFoundError('my-server');
  * ```
  */
-export class MCPServerNotFoundError extends Error {
+export class MCPServerNotFoundError extends CycgraphError {
   constructor(
     /** The server ID that was not found. */
     public readonly serverId: string,
@@ -32,7 +34,7 @@ export class MCPServerNotFoundError extends Error {
  * throw new MCPAccessDeniedError('agent-123', 'web-search');
  * ```
  */
-export class MCPAccessDeniedError extends Error {
+export class MCPAccessDeniedError extends CycgraphError {
   constructor(
     /** The agent ID that was denied access. */
     public readonly agentId: string,
@@ -63,7 +65,7 @@ export class MCPAccessDeniedError extends Error {
  * }
  * ```
  */
-export class ToolCircuitBreakerOpenError extends Error {
+export class ToolCircuitBreakerOpenError extends CycgraphError {
   constructor(
     /** The MCP server hosting the tool. */
     public readonly serverId: string,

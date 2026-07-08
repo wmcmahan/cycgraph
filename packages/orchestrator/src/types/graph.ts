@@ -225,19 +225,34 @@ export type AnnealingConfig = z.infer<typeof AnnealingConfigSchema>;
  *
  * Fan-out to parallel workers, then fan-in via an optional synthesizer.
  */
+/**
+ * Hard ceiling on the number of items a single map node may fan out over.
+ * `max_concurrency` bounds how many run at once, but WITHOUT a count cap a
+ * `items_path` resolving to a huge array still issues one LLM call per item —
+ * unbounded spend / DoS. Callers needing more must chunk the input.
+ */
+export const MAX_MAP_ITEMS = 1000;
+
 export const MapReduceConfigSchema = z.object({
   /** Node ID of the worker to fan out to. */
   worker_node_id: z.string(),
   /** JSONPath to extract the items array from memory. */
   items_path: z.string().optional(),
   /** Static items array (alternative to `items_path`). */
-  static_items: z.array(z.unknown()).optional(),
+  static_items: z.array(z.unknown()).max(MAX_MAP_ITEMS).optional(),
   /** Node ID of the synthesizer to fan results into. */
   synthesizer_node_id: z.string().optional(),
   /** How to handle worker errors. */
   error_strategy: z.enum(['fail_fast', 'best_effort']).default('best_effort'),
   /** Maximum concurrent workers. Capped to bound parallel LLM fan-out. */
   max_concurrency: z.number().int().min(1).max(50).default(5),
+  /**
+   * Hard cap on total items fanned out (both `static_items` and a resolved
+   * `items_path`). Defaults to — and can never exceed — {@link MAX_MAP_ITEMS}.
+   * A resolved item count above this fails the node loudly rather than issuing
+   * an unbounded number of LLM calls.
+   */
+  max_items: z.number().int().min(1).max(MAX_MAP_ITEMS).default(MAX_MAP_ITEMS),
   /** Per-task timeout in milliseconds (guards against hung LLM calls). */
   task_timeout_ms: z.number().min(1).optional(),
 });

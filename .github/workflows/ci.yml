@@ -167,8 +167,8 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=packages/memory
 
-      - name: Run memory tests
-        run: npx vitest run
+      - name: Run memory tests (with coverage thresholds)
+        run: npx vitest run --coverage
         working-directory: packages/memory
 
   test-context-engine:
@@ -186,8 +186,8 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=packages/context-engine
 
-      - name: Run context-engine tests
-        run: npx vitest run
+      - name: Run context-engine tests (with coverage thresholds)
+        run: npx vitest run --coverage
         working-directory: packages/context-engine
 
   evals-unit-tests:

@@ -15,7 +15,7 @@ describe('StateDeltaTracker', () => {
   let tracker: StateDeltaTracker;
 
   beforeEach(() => {
-    tracker = new StateDeltaTracker({ full_snapshot_interval: 5 });
+    tracker = new StateDeltaTracker({ fullSnapshotInterval: 5 });
   });
 
   describe('first persist', () => {
@@ -138,8 +138,8 @@ describe('StateDeltaTracker', () => {
   describe('max patch size', () => {
     test('falls back to full snapshot when patch exceeds max size', () => {
       const tracker = new StateDeltaTracker({
-        full_snapshot_interval: 100,
-        max_patch_bytes: 50, // Very small limit
+        fullSnapshotInterval: 100,
+        maxPatchBytes: 50, // Very small limit
       });
 
       const state = makeState({ memory: {} });

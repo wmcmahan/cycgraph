@@ -34,7 +34,7 @@ import type { Graph } from '../types/graph.js';
 import type { WorkflowState, Action } from '../types/state.js';
 import { createLogger } from '../utils/logger.js';
 
-const logger = createLogger('observer');
+const logger = createLogger('runner.observer');
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timeout']);
 

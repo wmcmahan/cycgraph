@@ -8,6 +8,8 @@
  * @module agent-factory/errors
  */
 
+import { CycgraphError } from '../../errors.js';
+
 /**
  * Thrown when an agent ID cannot be resolved — either the ID is not a valid
  * UUID or the registry returned `null`.
@@ -21,7 +23,7 @@
  * // → "Agent not found: invalid-id"
  * ```
  */
-export class AgentNotFoundError extends Error {
+export class AgentNotFoundError extends CycgraphError {
   constructor(agent_id: string) {
     super(`Agent not found: ${agent_id}`);
     this.name = 'AgentNotFoundError';
@@ -38,7 +40,7 @@ export class AgentNotFoundError extends Error {
  * // → "Unsupported provider: gemini"
  * ```
  */
-export class UnsupportedProviderError extends Error {
+export class UnsupportedProviderError extends CycgraphError {
   constructor(provider: string) {
     super(`Unsupported provider: ${provider}`);
     this.name = 'UnsupportedProviderError';
@@ -61,7 +63,7 @@ export class UnsupportedProviderError extends Error {
  * // access original via error.cause
  * ```
  */
-export class AgentLoadError extends Error {
+export class AgentLoadError extends CycgraphError {
   constructor(agent_id: string, cause: unknown) {
     const message = cause instanceof Error ? cause.message : String(cause);
     super(`Failed to load agent ${agent_id}: ${message}`, { cause });

@@ -17,6 +17,7 @@ import { executeAnnealingLoop } from './annealing.js';
 import { executeSwarmAgentNode } from './swarm.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { buildNodeCallbacks } from './node-callbacks.js';
 
 const logger = createLogger('runner.node.agent');
 
@@ -57,8 +58,8 @@ export async function executeAgentNode(
   attempt: number,
   ctx: NodeExecutorContext,
 ): Promise<Action> {
-  const agent_id = node.agent_id;
-  if (!agent_id) {
+  const agentId = node.agent_id;
+  if (!agentId) {
     throw new NodeConfigError(node.id, 'agent', 'agent_id');
   }
 
@@ -70,41 +71,28 @@ export async function executeAgentNode(
     return executeSwarmAgentNode(node, stateView, attempt, ctx);
   }
 
-  logger.info('agent_node_executing', { agent_id, node_id: node.id });
+  logger.info('agent_node_executing', { agent_id: agentId, node_id: node.id });
 
-  const agentConfig = await ctx.deps.loadAgent(agent_id);
+  const agentConfig = await ctx.deps.loadAgent(agentId);
 
-  const { modelOverride } = resolveModelForAgent(agentConfig, agent_id, node.id, ctx);
+  const { modelOverride } = resolveModelForAgent(agentConfig, agentId, node.id, ctx);
 
-  const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, node.id) : undefined;
-  const onToolCall = ctx.onToolCall
-    ? (event: { toolName: string; toolCallId: string; args: unknown }) => ctx.onToolCall!(event, node.id)
-    : undefined;
-  const onToolCallComplete = ctx.onToolCallComplete
-    ? (event: { toolName: string; toolCallId: string; durationMs: number; success: boolean; error?: string }) => ctx.onToolCallComplete!(event, node.id)
-    : undefined;
+  const { onToken, onToolCall, onToolCallComplete, onContextCompressed } = buildNodeCallbacks(node.id, ctx);
 
   // Node-level tools override agent config tools
   const toolSources = ensureSaveToMemory(node.tools ?? agentConfig.tools, agentConfig.write_keys);
-  const tools = await ctx.deps.resolveTools(toolSources, agent_id);
-  return ctx.deps.executeAgent(agent_id, stateView, tools, attempt, {
-    node_id: node.id,
+  const tools = await ctx.deps.resolveTools(toolSources, agentId);
+  return ctx.deps.executeAgent(agentId, stateView, tools, attempt, {
+    nodeId: node.id,
     abortSignal: ctx.abortSignal,
     onToken,
     onToolCall,
     onToolCallComplete,
     drainTaintEntries: ctx.deps.drainTaintEntries,
-    ...(modelOverride ? { model_override: modelOverride } : {}),
-    ...(node.default_write_key ? { default_write_key: node.default_write_key } : {}),
+    ...(modelOverride ? { modelOverride } : {}),
+    ...(node.default_write_key ? { defaultWriteKey: node.default_write_key } : {}),
     contextCompressor: ctx.contextCompressor,
-    onContextCompressed: ctx.onContextCompressed
-      ? (metrics) => ctx.onContextCompressed!({
-          tokensIn: metrics.totalTokensIn,
-          tokensOut: metrics.totalTokensOut,
-          reductionPercent: metrics.reductionPercent,
-          durationMs: metrics.totalDurationMs,
-        }, node.id)
-      : undefined,
+    onContextCompressed,
     ...buildAgentMemoryOptions(node, ctx),
   });
 }

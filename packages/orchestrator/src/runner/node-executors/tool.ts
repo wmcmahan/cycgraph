@@ -11,6 +11,7 @@
 import type { GraphNode } from '../../types/graph.js';
 import type { Action, StateView, TaintMetadata } from '../../types/state.js';
 import type { TaintedToolResultShape } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger.js';
 import { NodeConfigError } from '../errors.js';
@@ -38,24 +39,24 @@ export async function executeToolNode(
   attempt: number,
   ctx: NodeExecutorContext,
 ): Promise<Action> {
-  const tool_id = node.tool_id;
-  if (!tool_id) {
+  const toolId = node.tool_id;
+  if (!toolId) {
     throw new NodeConfigError(node.id, 'tool', 'tool_id');
   }
 
-  logger.info('tool_node_executing', { tool_id, node_id: node.id });
+  logger.info('tool_node_executing', { tool_id: toolId, node_id: node.id });
 
   // Resolve tool sources from node config, then find the named tool
   const toolSources = node.tools ?? [];
   const resolvedTools = await ctx.deps.resolveTools(toolSources, node.agent_id);
-  const toolDef = resolvedTools[tool_id] as { execute?: (args: Record<string, unknown>) => Promise<unknown> } | undefined;
+  const toolDef = resolvedTools[toolId] as { execute?: (args: Record<string, unknown>) => Promise<unknown> } | undefined;
   if (!toolDef?.execute) {
     logger.warn('tool_not_resolvable', {
-      tool_id,
+      tool_id: toolId,
       node_id: node.id,
       hint: 'Add tool sources to the node or configure a ToolResolver',
     });
-    throw new NodeConfigError(node.id, 'tool', `resolvable tool "${tool_id}" (no tool sources configured or tool not found in resolved sources)`);
+    throw new NodeConfigError(node.id, 'tool', `resolvable tool "${toolId}" (no tool sources configured or tool not found in resolved sources)`);
   }
   const raw = await toolDef.execute(stateView.memory);
 
@@ -81,7 +82,7 @@ export async function executeToolNode(
       const [, firstEntry] = drained.entries().next().value as [string, TaintMetadata];
       taint = {
         source: 'mcp_tool',
-        tool_name: [...new Set([...drained.values()].map((e) => e.tool_name).filter(Boolean))].join(',') || tool_id,
+        tool_name: [...new Set([...drained.values()].map((e) => e.tool_name).filter(Boolean))].join(',') || toolId,
         server_id: firstEntry.server_id,
         created_at: new Date().toISOString(),
       };
@@ -96,7 +97,7 @@ export async function executeToolNode(
 
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'update_memory',
     payload: { updates },
     metadata: {

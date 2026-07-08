@@ -16,5 +16,3 @@ docker-compose.override.yml
 apps/docs/.astro
 sandbox/
 app/docs/.vercel
-docs/plans/
-docs/brainstorms

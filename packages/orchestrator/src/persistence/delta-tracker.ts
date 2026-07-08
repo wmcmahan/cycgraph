@@ -8,7 +8,7 @@
  *
  * Usage:
  * ```ts
- * const tracker = new StateDeltaTracker({ full_snapshot_interval: 10 });
+ * const tracker = new StateDeltaTracker({ fullSnapshotInterval: 10 });
  *
  * // In the persist path:
  * const delta = tracker.computeDelta(currentState);
@@ -56,12 +56,12 @@ export interface StateDeltaTrackerOptions {
    * Full snapshots ensure recovery doesn't require replaying
    * a long chain of patches. @default 10
    */
-  full_snapshot_interval?: number;
+  fullSnapshotInterval?: number;
   /**
    * Maximum patch size in bytes (estimated). If a patch exceeds
    * this, a full snapshot is emitted instead. @default 50000
    */
-  max_patch_bytes?: number;
+  maxPatchBytes?: number;
 }
 
 /** Scalar fields on WorkflowState that we track for diffs. */
@@ -85,8 +85,8 @@ export class StateDeltaTracker {
   private readonly maxPatchBytes: number;
 
   constructor(options?: StateDeltaTrackerOptions) {
-    this.fullSnapshotInterval = options?.full_snapshot_interval ?? 10;
-    this.maxPatchBytes = options?.max_patch_bytes ?? 50_000;
+    this.fullSnapshotInterval = options?.fullSnapshotInterval ?? 10;
+    this.maxPatchBytes = options?.maxPatchBytes ?? 50_000;
   }
 
   /**
