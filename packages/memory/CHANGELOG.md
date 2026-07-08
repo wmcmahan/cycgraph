@@ -1,5 +1,33 @@
 # @cycgraph/memory
 
+## 0.3.0
+
+### Minor Changes
+
+- c6cb931: Poisoning-resistance fixes for consolidation, conflict resolution, and retrieval, plus a first-class quarantine concept.
+
+  **Deduplication no longer evicts trusted lessons.** `MemoryConsolidator` keeper selection now prefers a `verified` (gate-promoted) fact over an unverified one, then higher `access_count`, then more source episodes, then recency — so a fresh (or poisoned) near-duplicate written with a newer timestamp can no longer invalidate a proven lesson. When a duplicate is merged, the loser's evidence (`access_count`, `tags`, `source_episode_ids`) is now folded into the survivor instead of dropped, and merges accumulate correctly when one fact absorbs several duplicates. New `verifiedTag` / `candidateTag` options on `ConsolidationOptions`.
+
+  **Conflict resolution respects recency.** The `negation-invalidates-positive` policy now resolves by temporal order — a newer positive correction ("X is now safe") survives a stale negation ("X is not safe"), and a newer negation still invalidates an older positive; the negation bias only breaks a timestamp tie. Previously a stale negation always won, silently killing later corrections.
+
+  **Detection is side-effect-free by default.** `ConflictDetector.detectConflicts()` no longer mutates the store as a side effect: `autoResolveSupersession` now defaults to `false`. **Note:** callers that relied on `detectConflicts()` auto-invalidating superseded facts must now opt in (`autoResolveSupersession: true`) or resolve explicitly via `autoResolveAll()`.
+
+  **Quarantine (new).** A well-known `QUARANTINE_TAG` export and a new `exclude_tags` field on `FactFilter` (AND-NOT semantics). Gated retrieval, consolidation, and conflict detection exclude quarantined facts by default, so a fact learned during a failed/poisoned run can no longer resurface as a trusted lesson or be promoted by the gate. Additive; facts are excluded from reads but remain recoverable for audit.
+
+- c6cb931: Packaging: shared libraries moved to peer dependencies, and the Node engine floor lowered to 22.
+
+  **BREAKING — install-time.** Libraries that a consumer composes against the packages' own objects are now `peerDependencies` and must be installed by the consumer:
+
+  - `zod` (`@cycgraph/orchestrator`, `@cycgraph/memory`, `@cycgraph/context-engine`) — these packages export Zod schemas that consumers parse with and compose into their own schemas.
+  - `ai` (`@cycgraph/orchestrator`) — the package exports `LanguageModel` types from the AI SDK.
+  - `drizzle-orm` (`@cycgraph/orchestrator-postgres`) — the package exports Drizzle table objects (`export * from './schema'`) that consumers query with their own Drizzle operators (`eq`, `sql`, …). Drizzle tags tables/columns with internal Symbols, so two copies at different versions break at runtime; a single shared copy is required.
+
+  Most consumers already depend on these directly, so no change is needed. A consumer that relied on them being installed transitively must now add them to its own `dependencies`.
+
+  **OpenTelemetry is now optional.** `@opentelemetry/api` remains a dependency (it no-ops without an SDK), but the heavy `@opentelemetry/sdk-node`, exporters, `sdk-metrics`, `resources`, and `semantic-conventions` are now **optional** peer dependencies. Tracing/metrics are already loaded via dynamic `import()` only when enabled, so a deployment that doesn't export telemetry no longer installs the full OTel stack. Install them to enable trace/metric export.
+
+  **Node `engines` floor lowered from `>=24` to `>=22`.** The packages run on Node 22 LTS (the whole test suite runs on it), so this only widens compatibility — Node 22 consumers no longer get `EBADENGINE` warnings.
+
 ## 0.2.0
 
 ### Minor Changes

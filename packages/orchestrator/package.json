@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/orchestrator",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Self-improving agent workflows: every run distills lessons into memory, and future runs retrieve them automatically. Cyclic graph engine with durable execution, per-node budgets, taint tracking, and human-in-the-loop gates.",
   "keywords": [
     "agents",
@@ -79,12 +79,24 @@
     "@opentelemetry/semantic-conventions": "^1.41.1"
   },
   "peerDependenciesMeta": {
-    "@opentelemetry/exporter-prometheus": { "optional": true },
-    "@opentelemetry/exporter-trace-otlp-http": { "optional": true },
-    "@opentelemetry/resources": { "optional": true },
-    "@opentelemetry/sdk-metrics": { "optional": true },
-    "@opentelemetry/sdk-node": { "optional": true },
-    "@opentelemetry/semantic-conventions": { "optional": true }
+    "@opentelemetry/exporter-prometheus": {
+      "optional": true
+    },
+    "@opentelemetry/exporter-trace-otlp-http": {
+      "optional": true
+    },
+    "@opentelemetry/resources": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-metrics": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-node": {
+      "optional": true
+    },
+    "@opentelemetry/semantic-conventions": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@grpc/grpc-js": "^1.14.4",
