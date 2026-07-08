@@ -82,6 +82,19 @@ describe('pruneByScore', () => {
     const result = pruneByScore(tokens, 5, counter);
     expect(result).toBe('short');
   });
+
+  it('always keeps protected tokens even when they lose on score and budget', () => {
+    // A low-scored but protected token (e.g. a negation) must survive even
+    // under a budget too tight to hold everything.
+    const tokens: ScoredToken[] = [
+      makeScored('delete', 0.9, 0),
+      makeScored(' ', 0.5, 1),
+      { text: 'not', score: 0.1, offset: 2, protected: true },
+    ];
+    // Budget nominally fits only the high-scored 'delete', but 'not' is kept.
+    const result = pruneByScore(tokens, 1, counter);
+    expect(result).toContain('not');
+  });
 });
 
 describe('createPruningStage', () => {

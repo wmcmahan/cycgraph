@@ -279,10 +279,15 @@ async function runBaselineComparison(
     noiseFloor: opts.noiseFloor,
   });
 
-  // Persist a new baseline on a passing run so the next run has a current
-  // comparison anchor. Don't persist if the run regressed; otherwise we'd
-  // be moving the goalposts every time the gate fails.
-  if (opts.persistOnPass && !delta.hasRegression) {
+  // Persist a new baseline on a passing run so the next run has a comparison
+  // anchor — but NEVER ratchet the baseline UPWARD. If we re-persisted every
+  // passing run, drift creeping up by less than the noise floor each run would
+  // reset the anchor higher every time and climb unbounded without ever
+  // tripping a regression (boiling-frog). So we only rewrite the baseline when
+  // the run did not regress AND aggregate drift did not increase — the baseline
+  // moves down on genuine improvement, or holds, but never drifts up on its own.
+  const notWorseThanBaseline = !baseline || current.aggregateDrift <= baseline.aggregateDrift;
+  if (opts.persistOnPass && !delta.hasRegression && notWorseThanBaseline) {
     writeBaseline(current);
   }
 

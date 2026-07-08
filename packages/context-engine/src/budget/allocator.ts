@@ -237,5 +237,13 @@ function truncateToTokens(
     }
   }
 
+  // Never cut between a UTF-16 surrogate pair: if the last kept code unit is a
+  // high surrogate, its low-surrogate partner was excluded, leaving a lone
+  // surrogate that serializes to invalid UTF-8 (U+FFFD) at the provider. Drop it.
+  if (best > 0 && best < text.length) {
+    const lastUnit = text.charCodeAt(best - 1);
+    if (lastUnit >= 0xd800 && lastUnit <= 0xdbff) best -= 1;
+  }
+
   return text.slice(0, best) + truncationSuffix;
 }

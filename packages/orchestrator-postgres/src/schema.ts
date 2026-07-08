@@ -93,6 +93,8 @@ export interface ModelBreakdown {
     input_tokens: number;
     output_tokens: number;
     cost_usd: number;
+    /** Number of LLM calls attributed to this model. */
+    calls: number;
   };
 }
 

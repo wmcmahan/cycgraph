@@ -262,6 +262,46 @@ describe('Durable Execution — Event Sourcing', () => {
       expect(recovered.memory).toEqual(result1.memory);
     });
 
+    test('recovery from event log (no checkpoint) preserves run limits/config', async () => {
+      // Regression: without a checkpoint, recover() used to seed default limits
+      // (no token budget, max_iterations 50, empty goal), silently disabling
+      // budget/iteration/timeout enforcement after a crash. The limits are now
+      // persisted in the workflow_started event and restored on replay.
+      const eventLog = new InMemoryEventLogWriter();
+      const graph: Graph = {
+        id: uuidv4(),
+        name: 'limited',
+        nodes: [makeNode('start'), makeNode('end')],
+        edges: [makeEdge('start', 'end')],
+        start_node: 'start',
+        end_nodes: ['end'],
+      };
+      const state = makeState({
+        workflow_id: graph.id,
+        goal: 'a specific goal',
+        constraints: ['stay under budget'],
+        max_iterations: 7,
+        max_execution_time_ms: 123_000,
+        max_retries: 2,
+        max_token_budget: 1000,
+        budget_usd: 5,
+      });
+
+      const runner1 = new GraphRunner(graph, state, { eventLog });
+      await runner1.run();
+
+      const runner2 = await GraphRunner.recover(graph, state.run_id, eventLog);
+      const recovered = runner2['state'] as WorkflowState;
+
+      expect(recovered.max_token_budget).toBe(1000);
+      expect(recovered.budget_usd).toBe(5);
+      expect(recovered.max_iterations).toBe(7);
+      expect(recovered.max_execution_time_ms).toBe(123_000);
+      expect(recovered.max_retries).toBe(2);
+      expect(recovered.goal).toBe('a specific goal');
+      expect(recovered.constraints).toEqual(['stay under budget']);
+    });
+
     test('should recover 3-node workflow with correct memory accumulation', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {

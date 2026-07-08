@@ -147,6 +147,24 @@ describe('ConflictDetector', () => {
     expect(supersessions).toHaveLength(0);
   });
 
+  // 5b. detectConflicts is side-effect-free by DEFAULT (no autoResolve opt-in).
+  it('does not mutate the store during detection by default', async () => {
+    const f1 = makeFact({ content: 'Alice works at Acme Corp', entity_ids: [ENTITY_A], valid_from: daysAgo(30) });
+    const f2 = makeFact({ content: 'Alice works at Beta Corp', entity_ids: [ENTITY_A], valid_from: daysAgo(1) });
+    await store.putFact(f1);
+    await store.putFact(f2);
+    await index.rebuild(store);
+
+    // No autoResolveSupersession set → defaults to false → detection is read-only.
+    const detector = new ConflictDetector(store, index);
+    const conflicts = await detector.detectConflicts();
+
+    expect(conflicts.filter((c) => c.type === 'supersession')).toHaveLength(1);
+    // Neither fact was invalidated by the mere act of detecting.
+    expect((await store.getFact(f1.id))?.invalidated_by).toBeUndefined();
+    expect((await store.getFact(f2.id))?.invalidated_by).toBeUndefined();
+  });
+
   // 6. Supersession auto-resolve: older fact gets invalidated
   it('auto-resolves supersession by invalidating the older fact', async () => {
     const f1 = makeFact({

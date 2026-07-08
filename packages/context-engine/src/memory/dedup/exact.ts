@@ -54,12 +54,26 @@ export function dedup(items: string[]): DedupResult {
 export function createExactDedupStage(): CompressionStage {
   return {
     name: 'exact-dedup',
+    // Dedup runs across ALL segments (shared `seen` set below), so it must be
+    // declared cross-segment. Otherwise the incremental pipeline runs it on the
+    // fresh-segment subset only and a duplicate spanning a cached + a fresh
+    // segment survives — batch and incremental would diverge for identical input.
+    scope: 'cross-segment' as const,
     execute(segments: PromptSegment[], _context: StageContext) {
       // Collect all paragraphs across segments with their origin
       const seen = new Set<number>();
       const output: PromptSegment[] = [];
 
       for (const seg of segments) {
+        // Structured content (JSON / CSV) must never be line-deduped: dropping a
+        // repeated structural line (`},`, an identical CSV row, a duplicate
+        // import) produces invalid JSON or silently loses data rows. Pass it
+        // through untouched.
+        if (isStructuredContent(seg.content)) {
+          output.push(seg);
+          continue;
+        }
+
         const hasDoubleLine = seg.content.includes('\n\n');
         const paragraphs = splitParagraphs(seg.content);
         const kept: string[] = [];
@@ -97,6 +111,36 @@ function splitParagraphs(content: string): string[] {
     return content.split('\n\n');
   }
   return content.split('\n');
+}
+
+/**
+ * Whether content is structured data (JSON or CSV/TSV) whose lines are NOT
+ * safely deduplicable — dropping a repeated line would corrupt it. Shared by
+ * the exact and fuzzy dedup stages.
+ */
+export function isStructuredContent(content: string): boolean {
+  const trimmed = content.trim();
+  if (trimmed === '') return false;
+
+  // Valid JSON object/array.
+  if (trimmed[0] === '{' || trimmed[0] === '[') {
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch {
+      // Not valid JSON — fall through to the delimiter check.
+    }
+  }
+
+  // CSV/TSV: two or more non-empty lines that all share a common delimiter.
+  const lines = trimmed.split('\n').filter((l) => l.trim() !== '');
+  if (lines.length >= 2) {
+    for (const delim of [',', '\t', ';']) {
+      if (lines.every((l) => l.includes(delim))) return true;
+    }
+  }
+
+  return false;
 }
 
 /**

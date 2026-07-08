@@ -351,6 +351,16 @@ export interface UsageRecord {
   cost_usd: number;
   /** Wall-clock duration in milliseconds. */
   duration_ms: number;
+  /**
+   * Per-model token/cost attribution for this run, keyed by model id. Optional:
+   * runs from before per-model tracking, or runs with no LLM calls, omit it.
+   */
+  model_breakdown?: Record<string, {
+    input_tokens: number;
+    output_tokens: number;
+    cost_usd: number;
+    calls: number;
+  }>;
 }
 
 /**

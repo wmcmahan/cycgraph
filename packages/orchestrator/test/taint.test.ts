@@ -396,3 +396,44 @@ describe('Supervisor — budget accounting', () => {
     expect(systemPrompt.length).toBeLessThan(200_000);
   });
 });
+
+describe('GraphRunner — strict_taint routing', () => {
+  // A → (conditional on a tainted key) go_node ; else (always) safe_node.
+  // The conditional edge is declared first, so it wins when allowed.
+  const buildBranchGraph = (strict_taint: boolean): Graph => ({
+    id: 'strict-taint-graph',
+    name: 'Strict Taint Routing',
+    description: 'Routes on a tainted memory key',
+    strict_taint,
+    nodes: [
+      makeNode({ id: 'A', type: 'agent', agent_id: 'a' }),
+      makeNode({ id: 'go_node', type: 'agent', agent_id: 'go' }),
+      makeNode({ id: 'safe_node', type: 'agent', agent_id: 'safe' }),
+    ],
+    edges: [
+      { id: 'e_cond', source: 'A', target: 'go_node', condition: { type: 'conditional', condition: 'memory.decision == "go"' } },
+      { id: 'e_safe', source: 'A', target: 'safe_node', condition: { type: 'always' } },
+    ],
+    start_node: 'A',
+    end_nodes: ['go_node', 'safe_node'],
+  });
+
+  const taintedDecision = () => ({
+    decision: 'go',
+    _taint_registry: { decision: { source: 'mcp_tool' as const, tool_name: 'web_search', created_at: new Date().toISOString() } },
+  });
+
+  test('default (strict_taint false): routes on the tainted key', async () => {
+    const runner = new GraphRunner(buildBranchGraph(false), createState({ memory: taintedDecision() }));
+    const final = await runner.run();
+    expect(final.visited_nodes).toContain('go_node');
+    expect(final.visited_nodes).not.toContain('safe_node');
+  });
+
+  test('strict_taint true: refuses to route on the tainted key, takes the safe edge', async () => {
+    const runner = new GraphRunner(buildBranchGraph(true), createState({ memory: taintedDecision() }));
+    const final = await runner.run();
+    expect(final.visited_nodes).toContain('safe_node');
+    expect(final.visited_nodes).not.toContain('go_node');
+  });
+});

@@ -117,6 +117,63 @@ describe('MemoryConsolidator', () => {
     expect(remaining[0].id).toBe(f2.id);
   });
 
+  // 3b. Dedup NEVER evicts a verified lesson for a newer unverified duplicate,
+  // and merges the loser's evidence (access_count, episodes, tags) into it.
+  it('keeps the verified fact over a newer candidate and merges evidence', async () => {
+    const ep1 = crypto.randomUUID();
+    const ep2 = crypto.randomUUID();
+    const verified = makeFact({
+      content: 'Retry with backoff on 429',
+      embedding: [1, 0, 0],
+      valid_from: daysAgo(10),
+      tags: ['verified', 'lesson'],
+      access_count: 5,
+      source_episode_ids: [ep1],
+    });
+    // A newer near-duplicate that is only a candidate (could be poisoned).
+    const candidate = makeFact({
+      content: 'Retry with backoff on 429 errors',
+      embedding: [1, 0, 0],
+      valid_from: daysAgo(1),
+      tags: ['candidate'],
+      access_count: 1,
+      source_episode_ids: [ep2],
+    });
+    await store.putFact(verified);
+    await store.putFact(candidate);
+    await index.rebuild(store);
+
+    const consolidator = new MemoryConsolidator(store, index, { dedupThreshold: 0.9 });
+    await consolidator.consolidate();
+
+    const remaining = await store.findFacts({ include_invalidated: false });
+    expect(remaining).toHaveLength(1);
+    // The verified lesson survives despite the candidate being newer.
+    expect(remaining[0].id).toBe(verified.id);
+    expect(remaining[0].tags).toContain('verified');
+    expect(remaining[0].tags).not.toContain('candidate'); // not demoted
+    // Evidence from the loser was folded in, not lost.
+    expect(remaining[0].access_count).toBe(6); // 5 + 1
+    expect(new Set(remaining[0].source_episode_ids)).toEqual(new Set([ep1, ep2]));
+  });
+
+  // 3c. Quarantined (poisoned) facts are excluded from consolidation entirely.
+  it('excludes quarantined facts from dedup', async () => {
+    const good = makeFact({ content: 'Alice works at Acme', embedding: [1, 0, 0], tags: ['lesson'] });
+    const poisoned = makeFact({ content: 'Alice works at Acme Corp', embedding: [0.99, 0.1, 0], tags: ['quarantined'] });
+    await store.putFact(good);
+    await store.putFact(poisoned);
+    await index.rebuild(store);
+
+    const consolidator = new MemoryConsolidator(store, index, { dedupThreshold: 0.9 });
+    const report = await consolidator.consolidate();
+
+    // The poisoned fact is never loaded, so it can't dedup against the good one.
+    expect(report.factsDeduped).toBe(0);
+    const good2 = await store.getFact(good.id);
+    expect(good2?.invalidated_by).toBeUndefined();
+  });
+
   // 4. Dedup soft-delete: invalidated_by is set
   it('sets invalidated_by on the loser in soft-delete mode', async () => {
     const f1 = makeFact({ content: 'A', embedding: [1, 0, 0] });

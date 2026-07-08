@@ -70,6 +70,34 @@ describe('createExactDedupStage', () => {
     expect(result.segments[1].content).toContain('unique to b');
   });
 
+  it('is declared cross-segment (so the incremental pipeline runs it on all segments)', () => {
+    expect(createExactDedupStage().scope).toBe('cross-segment');
+  });
+
+  it('does not corrupt JSON with repeated structural lines', () => {
+    const stage = createExactDedupStage();
+    // Pretty-printed JSON with repeated `},` and identical value lines. Naive
+    // per-line dedup would drop the repeats and produce invalid JSON.
+    const json = JSON.stringify(
+      { items: [{ type: 'string' }, { type: 'string' }, { type: 'string' }] },
+      null,
+      2,
+    );
+    const result = stage.execute([makeSegment('a', json)], context);
+    // Round-trips: structure preserved, nothing dropped.
+    expect(result.segments[0].content).toBe(json);
+    expect(() => JSON.parse(result.segments[0].content)).not.toThrow();
+    expect(JSON.parse(result.segments[0].content).items).toHaveLength(3);
+  });
+
+  it('does not drop duplicate CSV rows', () => {
+    const stage = createExactDedupStage();
+    const csv = 'a,b\n1,2\n1,2\n3,4';
+    const result = stage.execute([makeSegment('a', csv)], context);
+    // All 4 rows preserved (the two identical `1,2` rows are real data).
+    expect(result.segments[0].content.split('\n')).toHaveLength(4);
+  });
+
   it('preserves empty content', () => {
     const stage = createExactDedupStage();
     const result = stage.execute([makeSegment('a', '')], context);

@@ -234,4 +234,16 @@ describe('retrieveGatedLessons', () => {
     // The single slot goes to the candidate under the custom tag.
     expect(lessons.map((f) => f.id)).toEqual(['trial']);
   });
+
+  it('never retrieves a quarantined (poisoned) lesson', async () => {
+    await store.putFact(makeLesson('good', 'verified', daysAgo(1)));
+    // A poisoned lesson carrying the scope tag AND the quarantine tag.
+    await store.putFact(makeLesson('poisoned', 'verified', daysAgo(0), { tags: ['lesson', TAG, 'verified', 'quarantined'] }));
+
+    const lessons = await retrieveGatedLessons(store, { tags: [TAG], max_facts: 5, candidate_slots: 2 });
+
+    const ids = lessons.map((f) => f.id);
+    expect(ids).toContain('good');
+    expect(ids).not.toContain('poisoned');
+  });
 });

@@ -13,6 +13,7 @@
 
 import type { SemanticJudgeResult } from './types.js';
 import type { EvalProvider } from '../providers/types.js';
+import { JUDGE_DATA_PREAMBLE, fenceUntrusted } from './judge-fencing.js';
 
 // ─── Rubric Prompts ────────────────────────────────────────────────
 
@@ -114,17 +115,19 @@ export const ANSWER_RELEVANCY: RubricMetric = {
   name: 'answer_relevancy',
   buildPrompt(ctx) {
     const expectedSection = ctx.expectedOutput
-      ? `Expected Output: ${ctx.expectedOutput}`
+      ? `Expected Output: ${fenceUntrusted(ctx.expectedOutput)}`
       : 'Expected Output: N/A (reference-free evaluation)';
 
     return [
       'You are an evaluation judge. Score how well the actual output addresses the input query.',
       '',
-      `Input: ${ctx.input}`,
+      JUDGE_DATA_PREAMBLE,
+      '',
+      `Input: ${fenceUntrusted(ctx.input)}`,
       '',
       expectedSection,
       '',
-      `Actual Output: ${ctx.actualOutput}`,
+      `Actual Output: ${fenceUntrusted(ctx.actualOutput)}`,
       '',
       'Score from 0.0 to 1.0 where:',
       '- 1.0 = The actual output fully addresses the input query with equivalent meaning to the expected output',
@@ -156,15 +159,17 @@ export const FAITHFULNESS: RubricMetric = {
   name: 'faithfulness',
   buildPrompt(ctx) {
     const expectedSection = ctx.expectedOutput
-      ? `Expected Output: ${ctx.expectedOutput}`
+      ? `Expected Output: ${fenceUntrusted(ctx.expectedOutput)}`
       : 'Expected Output: N/A (reference-free evaluation)';
 
     return [
       'You are an evaluation judge. Score whether the actual output is factually consistent with the expected output.',
       '',
+      JUDGE_DATA_PREAMBLE,
+      '',
       expectedSection,
       '',
-      `Actual Output: ${ctx.actualOutput}`,
+      `Actual Output: ${fenceUntrusted(ctx.actualOutput)}`,
       '',
       'Score from 0.0 to 1.0 where:',
       '- 1.0 = All facts in the actual output are consistent with the expected output, no contradictions',
@@ -196,9 +201,11 @@ export const LOGICAL_COHERENCE: RubricMetric = {
     return [
       'You are an evaluation judge. Score whether the actual output demonstrates a logically coherent reasoning process.',
       '',
-      `Input: ${ctx.input}`,
+      JUDGE_DATA_PREAMBLE,
       '',
-      `Actual Output: ${ctx.actualOutput}`,
+      `Input: ${fenceUntrusted(ctx.input)}`,
+      '',
+      `Actual Output: ${fenceUntrusted(ctx.actualOutput)}`,
       '',
       'Score from 0.0 to 1.0 where:',
       '- 1.0 = The output follows a clear, logical chain of reasoning with no contradictions',

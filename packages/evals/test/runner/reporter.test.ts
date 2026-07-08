@@ -46,6 +46,7 @@ describe('formatReport', () => {
             zodFailures: 1,
             semanticFailures: 0,
             deterministicFailures: 0,
+            driftedTests: 1,
             driftPercent: 10,
           },
           memory: {
@@ -54,6 +55,7 @@ describe('formatReport', () => {
             zodFailures: 0,
             semanticFailures: 0,
             deterministicFailures: 0,
+            driftedTests: 0,
             driftPercent: 0,
           },
         },

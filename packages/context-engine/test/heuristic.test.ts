@@ -113,4 +113,23 @@ describe('createHeuristicPruningStage', () => {
     const stage = createHeuristicPruningStage();
     expect(stage.name).toBe('heuristic-pruning');
   });
+
+  it('never prunes negations (meaning must not invert under budget pressure)', () => {
+    const stage = createHeuristicPruningStage();
+    // A safety-critical instruction padded with low-value filler so the pruner
+    // is forced to cut. The negation "not" must survive.
+    const content = 'Please do not ever delete the production database under any circumstances whatsoever, as it would be basically catastrophic and essentially unrecoverable for the entire system';
+    const segments = [makeSegment('a', content)];
+    const context = {
+      tokenCounter: counter,
+      budget: { maxTokens: 8, outputReserve: 0 } as BudgetConfig,
+    };
+
+    const result = stage.execute(segments, context);
+    const pruned = result.segments[0].content;
+    // Pruning happened...
+    expect(counter.countTokens(pruned)).toBeLessThan(counter.countTokens(content));
+    // ...but the negation survived so "delete" is never left unqualified.
+    expect(pruned).toMatch(/\bnot\b/);
+  });
 });

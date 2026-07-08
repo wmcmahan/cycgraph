@@ -68,33 +68,48 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
 
 /** Models already warned about (prevents repeated log noise). */
 const warnedModels = new Set<string>();
+/** Cap on {@link warnedModels} so a stream of varied unknown model ids can't grow it unbounded. */
+const MAX_WARNED_MODELS = 1000;
+
+/** Coerce a token count to a finite, non-negative number (malformed usage → 0). */
+function sanitizeTokens(n: number): number {
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
 
 /**
  * Calculate cost in USD for a given model and token counts.
  *
  * Returns `0` for unknown models (graceful degradation) and logs
- * a warning once per unknown model.
+ * a warning once per unknown model. Token counts are coerced to finite,
+ * non-negative values first: a `NaN` from malformed provider usage would
+ * otherwise produce a `NaN` cost, and since every `NaN > budget` comparison is
+ * `false`, that single bad value would permanently stop the USD budget from
+ * ever enforcing again.
  *
  * @param model - Model identifier (must match a key in {@link MODEL_PRICING}).
  * @param inputTokens - Number of input (prompt) tokens.
  * @param outputTokens - Number of output (completion) tokens.
- * @returns Estimated cost in USD.
+ * @returns Estimated cost in USD (always finite and >= 0).
  */
 export function calculateCost(
   model: string,
   inputTokens: number,
   outputTokens: number,
 ): number {
+  const input = sanitizeTokens(inputTokens);
+  const output = sanitizeTokens(outputTokens);
+
   const pricing = MODEL_PRICING[model];
   if (!pricing) {
     if (!warnedModels.has(model)) {
+      if (warnedModels.size >= MAX_WARNED_MODELS) warnedModels.clear();
       warnedModels.add(model);
       logger.warn('unknown_model_pricing', { model });
     }
     return 0;
   }
   return (
-    (inputTokens * pricing.inputPerMToken) / 1_000_000 +
-    (outputTokens * pricing.outputPerMToken) / 1_000_000
+    (input * pricing.inputPerMToken) / 1_000_000 +
+    (output * pricing.outputPerMToken) / 1_000_000
   );
 }

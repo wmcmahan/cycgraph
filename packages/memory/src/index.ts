@@ -42,6 +42,8 @@ export type {
 // ─── Interfaces ────────────────────────────────────────────────────
 // Contracts for storage, search, and processing
 
+export { QUARANTINE_TAG } from './interfaces/memory-store.js';
+
 export type {
   MemoryStore,
   EntityFilter,

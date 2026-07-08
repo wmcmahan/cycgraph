@@ -126,6 +126,9 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
         .values({ ...this.tenantValues, run_id: parsed.run_id, score: parsed.score, recorded_at: recordedAt })
         .onConflictDoUpdate({
           target: run_outcomes.run_id,
+          // Scope the UPDATE to the caller's tenant so a run_id collision can't
+          // overwrite another tenant's recorded outcome score.
+          setWhere: this.tenantEq(run_outcomes.tenant_id),
           set: { score: parsed.score, recorded_at: recordedAt },
         });
 

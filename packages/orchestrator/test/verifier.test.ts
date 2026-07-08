@@ -114,6 +114,23 @@ describe('executeVerifierNode', () => {
       const bad = await executeVerifierNode(node, makeStateView({ doc: { id: 'nope' } }), 1, makeCtx());
       expect(bad.payload.updates.verify_verification_passed).toBe(false);
     });
+
+    test('refuses a nested-quantifier ReDoS pattern (fails closed, no backtracking)', async () => {
+      const node = makeNode({
+        type: 'jsonpath',
+        target_key: 'doc',
+        path: '$.text',
+        assertion: { op: 'matches', pattern: '(a+)+$' }, // classic catastrophic backtracking
+      });
+      // A value that WOULD pin the event loop for this pattern on a backtracking
+      // engine (mismatch after many 'a's, short enough to fit any input cap).
+      const evil = 'a'.repeat(40) + '!';
+      const start = Date.now();
+      const result = await executeVerifierNode(node, makeStateView({ doc: { text: evil } }), 1, makeCtx());
+      // The pattern is refused outright, so it returns immediately and fails.
+      expect(Date.now() - start).toBeLessThan(1000);
+      expect(result.payload.updates.verify_verification_passed).toBe(false);
+    });
   });
 
   describe('llm_judge variant', () => {

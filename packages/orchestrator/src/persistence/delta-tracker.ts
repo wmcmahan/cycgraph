@@ -67,7 +67,7 @@ export interface StateDeltaTrackerOptions {
 /** Scalar fields on WorkflowState that we track for diffs. */
 const TRACKED_FIELDS = [
   'status', 'current_node', 'iteration_count', 'retry_count',
-  'last_error', 'total_tokens_used', 'total_cost_usd',
+  'last_error', 'total_tokens_used', 'total_cost_usd', 'model_breakdown',
   'waiting_for', 'waiting_since', 'waiting_timeout_at',
   'started_at', 'updated_at',
 ] as const;
@@ -201,6 +201,15 @@ export class StateDeltaTracker {
       const aStr = a instanceof Date ? a.toISOString() : String(a);
       const bStr = b instanceof Date ? b.toISOString() : String(b);
       return aStr === bStr;
+    }
+    // Deep-compare object-valued tracked fields (e.g. model_breakdown) so an
+    // unchanged map doesn't register as a diff — and re-persist — every version.
+    if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
+      try {
+        return JSON.stringify(a) === JSON.stringify(b);
+      } catch {
+        return false;
+      }
     }
     return false;
   }

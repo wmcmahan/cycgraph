@@ -395,9 +395,10 @@ describe('Evolution (DGM) Node', () => {
       const runner = new GraphRunner(graph, state);
       const finalState = await runner.run();
 
-      // 3 candidates × 30 tokens each + 3 evals × 20 tokens each = 150
-      // Plus the merge_parallel_results action tracks total_tokens → reducer adds them
-      expect(finalState.total_tokens_used).toBeGreaterThanOrEqual(150);
+      // 3 candidates × 30 + 3 evals × 20 = 150, counted exactly once via the
+      // runner's _track_tokens. Exact equality guards against the fan-out
+      // double-count regression (the reducer must not also add total_tokens).
+      expect(finalState.total_tokens_used).toBe(150);
     });
 
     test('should pass temperature override with linear interpolation', async () => {

@@ -145,7 +145,7 @@ describe('Tier 2 Reducers', () => {
   });
 
   describe('mergeParallelResultsReducer', () => {
-    test('should merge updates and add token count', () => {
+    test('should merge updates but NOT add token count (runner _track_tokens is sole accountant)', () => {
       const state = createBaseState();
       state.total_tokens_used = 100;
 
@@ -158,10 +158,12 @@ describe('Tier 2 Reducers', () => {
 
       expect(newState.memory.map1_results).toEqual(['a', 'b']);
       expect(newState.memory.map1_count).toBe(2);
-      expect(newState.total_tokens_used).toBe(600);
+      // The runner dispatches a separate _track_tokens for the same action, so
+      // adding total_tokens here too would double-count. Reducer leaves it.
+      expect(newState.total_tokens_used).toBe(100);
     });
 
-    test('should handle zero tokens', () => {
+    test('leaves token total untouched regardless of payload total_tokens', () => {
       const state = createBaseState();
       state.total_tokens_used = 50;
 
@@ -208,7 +210,8 @@ describe('Tier 2 Reducers', () => {
 
       const newState = rootReducer(state, action);
       expect(newState.memory.data).toEqual([1, 2, 3]);
-      expect(newState.total_tokens_used).toBe(100);
+      // Token accounting is the runner's _track_tokens job, not the reducer's.
+      expect(newState.total_tokens_used).toBe(0);
     });
   });
 

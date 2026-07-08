@@ -93,6 +93,34 @@ describe('createIncrementalPipeline', () => {
     expect(turn2.result.segments[0].content).toBe(turn1.result.segments[0].content);
   });
 
+  it('invalidates the cache when the budget changes between turns', () => {
+    const pipeline = createIncrementalPipeline({ stages: [createFormatStage()] });
+    const segments = [makeSegment({ id: 'data', content: jsonContent(sampleData) })];
+
+    const turn1 = pipeline.compress({ segments, budget: makeBudget({ maxTokens: 8000 }) });
+    // Same content, but a much tighter budget. Reusing the cached (larger)
+    // output would blow the new budget — the cache must be invalidated.
+    const turn2 = pipeline.compress(
+      { segments, budget: makeBudget({ maxTokens: 200 }) },
+      turn1.state,
+    );
+
+    expect(turn2.cachedSegmentCount).toBe(0);
+    expect(turn2.freshSegmentCount).toBe(1);
+  });
+
+  it('invalidates the cache when the model changes between turns', () => {
+    const pipeline = createIncrementalPipeline({ stages: [createFormatStage()] });
+    const segments = [makeSegment({ id: 'data', content: jsonContent(sampleData) })];
+    const budget = makeBudget();
+
+    const turn1 = pipeline.compress({ segments, budget, model: 'gpt-4o' });
+    const turn2 = pipeline.compress({ segments, budget, model: 'claude-sonnet-4-6' }, turn1.state);
+
+    expect(turn2.cachedSegmentCount).toBe(0);
+    expect(turn2.freshSegmentCount).toBe(1);
+  });
+
   it('second turn with one changed segment only re-compresses that one', () => {
     const pipeline = createIncrementalPipeline({
       stages: [createFormatStage()],
@@ -489,8 +517,10 @@ describe('createIncrementalPipeline', () => {
       segmentHashes: new Map(turn1.state.segmentHashes),
       compressedSegments: new Map(turn1.state.compressedSegments),
       perSegmentOutputs: new Map(turn1.state.perSegmentOutputs),
+      perSegmentOutputHashes: new Map(turn1.state.perSegmentOutputHashes),
       lastMetrics: { ...turn1.state.lastMetrics },
       turnNumber: turn1.state.turnNumber,
+      configFingerprint: turn1.state.configFingerprint,
     };
 
     const turn2 = pipeline.compress({ segments: [seg], budget }, serializedState);

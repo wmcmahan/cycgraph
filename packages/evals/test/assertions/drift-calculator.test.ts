@@ -54,16 +54,18 @@ describe('computeDrift', () => {
       expect(report.passed).toBe(false);
     });
 
-    it('counts both zod and semantic failures separately', () => {
+    it('counts a test that fails multiple categories only ONCE', () => {
       const results = [
-        makeResult('orchestrator', false, false), // both fail — counts as 2 failures
+        makeResult('orchestrator', false, false), // fails zod AND semantic → 1 drifted test
         makeResult('orchestrator', true, true),
       ];
 
       const report = computeDrift(results);
 
-      // (1 zod + 1 semantic) / 2 tests = 100%
-      expect(report.aggregatePercent).toBe(100);
+      // 1 drifted test / 2 tests = 50% (NOT 100% — drift is a fraction of tests,
+      // not a sum of failure events across categories).
+      expect(report.aggregatePercent).toBe(50);
+      expect(report.perSuite['orchestrator'].driftedTests).toBe(1);
       expect(report.passed).toBe(false);
     });
 
@@ -75,7 +77,8 @@ describe('computeDrift', () => {
 
       const report = computeDrift(results);
 
-      expect(report.aggregatePercent).toBe(200);
+      // 2 drifted / 2 tests = 100% — never exceeds 100.
+      expect(report.aggregatePercent).toBe(100);
       expect(report.passed).toBe(false);
     });
   });
@@ -198,11 +201,13 @@ describe('computeDrift', () => {
 
       const report = computeDrift(results);
 
-      // 1 test, all 3 types fail: (1+1+1)/1 * 100 = 300%
+      // 1 test failing all 3 categories is still ONE drifted test → 100%, not
+      // 300%. Per-category counts are retained for reporting.
       expect(report.perSuite['context-engine'].zodFailures).toBe(1);
       expect(report.perSuite['context-engine'].semanticFailures).toBe(1);
       expect(report.perSuite['context-engine'].deterministicFailures).toBe(1);
-      expect(report.aggregatePercent).toBe(300);
+      expect(report.perSuite['context-engine'].driftedTests).toBe(1);
+      expect(report.aggregatePercent).toBe(100);
     });
   });
 

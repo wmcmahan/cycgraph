@@ -16,30 +16,39 @@
  * @module @cycgraph/orchestrator-postgres/drizzle-queue
  */
 
-import { db } from './connection.js';
 import { workflow_jobs, workflow_runs } from './schema.js';
 import type { WorkflowJobRow } from './schema.js';
 import { eq, and, sql, asc, lte, or, isNull } from 'drizzle-orm';
+import { withPlatform } from './tenancy.js';
 import type { WorkflowQueue, WorkflowJob, EnqueueJobInput, QueueDepth } from '@cycgraph/orchestrator';
 
 /**
  * PostgreSQL-backed workflow job queue with fencing-epoch claims.
+ *
+ * The queue is a **platform-plane** component: it dequeues/reclaims across all
+ * tenants and upserts run rows with an explicit `tenant_id`. Every method runs
+ * through {@link withPlatform} (the BYPASSRLS connection under FORCE RLS), NOT
+ * the tenant-subject connection — otherwise, once migration 0019 enforces RLS
+ * with a non-superuser owner, `dequeue`'s cross-tenant select would return zero
+ * rows (no `app.tenant_id` GUC is set) and job delivery would silently stop.
  */
 export class DrizzleWorkflowQueue implements WorkflowQueue {
   async enqueue(input: EnqueueJobInput): Promise<string> {
-    const rows = await db.insert(workflow_jobs).values({
-      type: input.type,
-      // Opaque tenant tag; omitted (DB seed default) for single-tenant callers.
-      ...(input.tenant_id ? { tenant_id: input.tenant_id } : {}),
-      run_id: input.run_id,
-      graph_id: input.graph_id,
-      initial_state: input.initial_state ?? null,
-      human_response: input.human_response ?? null,
-      priority: input.priority ?? 0,
-      max_attempts: input.max_attempts ?? 3,
-      visibility_timeout_ms: input.visibility_timeout_ms ?? 300_000,
-    }).returning({ id: workflow_jobs.id });
-    return rows[0].id;
+    return withPlatform(async (db) => {
+      const rows = await db.insert(workflow_jobs).values({
+        type: input.type,
+        // Opaque tenant tag; omitted (DB seed default) for single-tenant callers.
+        ...(input.tenant_id ? { tenant_id: input.tenant_id } : {}),
+        run_id: input.run_id,
+        graph_id: input.graph_id,
+        initial_state: input.initial_state ?? null,
+        human_response: input.human_response ?? null,
+        priority: input.priority ?? 0,
+        max_attempts: input.max_attempts ?? 3,
+        visibility_timeout_ms: input.visibility_timeout_ms ?? 300_000,
+      }).returning({ id: workflow_jobs.id });
+      return rows[0].id;
+    });
   }
 
   /**
@@ -52,7 +61,7 @@ export class DrizzleWorkflowQueue implements WorkflowQueue {
    * `workflow_events.run_id` has a foreign key on it).
    */
   async dequeue(workerId: string): Promise<WorkflowJob | null> {
-    return db.transaction(async (tx) => {
+    return withPlatform((db) => db.transaction(async (tx) => {
       const candidates = await tx
         .select()
         .from(workflow_jobs)
@@ -99,18 +108,18 @@ export class DrizzleWorkflowQueue implements WorkflowQueue {
         .returning({ claim_epoch: workflow_runs.claim_epoch });
 
       return fromRow(updated[0], epochRows[0]?.claim_epoch);
-    });
+    }));
   }
 
   async ack(jobId: string): Promise<void> {
-    await db
+    await withPlatform((db) => db
       .update(workflow_jobs)
       .set({ status: 'completed', visible_at: null })
-      .where(eq(workflow_jobs.id, jobId));
+      .where(eq(workflow_jobs.id, jobId)));
   }
 
   async nack(jobId: string, error: string): Promise<void> {
-    await db.transaction(async (tx) => {
+    await withPlatform((db) => db.transaction(async (tx) => {
       const rows = await tx
         .select()
         .from(workflow_jobs)
@@ -130,67 +139,73 @@ export class DrizzleWorkflowQueue implements WorkflowQueue {
           last_error: error,
         })
         .where(eq(workflow_jobs.id, jobId));
-    });
+    }));
   }
 
   async heartbeat(jobId: string, extendMs?: number): Promise<void> {
     const now = new Date();
-    await db
+    await withPlatform((db) => db
       .update(workflow_jobs)
       .set({
         last_heartbeat_at: now,
         visible_at: sql`${now.toISOString()}::timestamptz + (COALESCE(${extendMs ?? null}::integer, visibility_timeout_ms) * interval '1 millisecond')`,
       })
-      .where(and(eq(workflow_jobs.id, jobId), eq(workflow_jobs.status, 'active')));
+      .where(and(eq(workflow_jobs.id, jobId), eq(workflow_jobs.status, 'active'))));
   }
 
   async release(jobId: string): Promise<void> {
-    await db
+    await withPlatform((db) => db
       .update(workflow_jobs)
       .set({ status: 'paused', worker_id: null, visible_at: null })
-      .where(eq(workflow_jobs.id, jobId));
+      .where(eq(workflow_jobs.id, jobId)));
   }
 
   async reclaimExpired(): Promise<number> {
     const now = new Date();
-    const rows = await db
-      .update(workflow_jobs)
-      .set({ status: 'waiting', worker_id: null, visible_at: null })
-      .where(
-        and(
-          eq(workflow_jobs.status, 'active'),
-          or(isNull(workflow_jobs.visible_at), lte(workflow_jobs.visible_at, now)),
-        ),
-      )
-      .returning({ id: workflow_jobs.id });
-    return rows.length;
+    return withPlatform(async (db) => {
+      const rows = await db
+        .update(workflow_jobs)
+        .set({ status: 'waiting', worker_id: null, visible_at: null })
+        .where(
+          and(
+            eq(workflow_jobs.status, 'active'),
+            or(isNull(workflow_jobs.visible_at), lte(workflow_jobs.visible_at, now)),
+          ),
+        )
+        .returning({ id: workflow_jobs.id });
+      return rows.length;
+    });
   }
 
   async getJob(jobId: string): Promise<WorkflowJob | null> {
-    const rows = await db
-      .select()
-      .from(workflow_jobs)
-      .where(eq(workflow_jobs.id, jobId))
-      .limit(1);
-    return rows[0] ? fromRow(rows[0]) : null;
+    return withPlatform(async (db) => {
+      const rows = await db
+        .select()
+        .from(workflow_jobs)
+        .where(eq(workflow_jobs.id, jobId))
+        .limit(1);
+      return rows[0] ? fromRow(rows[0]) : null;
+    });
   }
 
   async getQueueDepth(): Promise<QueueDepth> {
-    const rows = await db
-      .select({
-        status: workflow_jobs.status,
-        count: sql<number>`COUNT(*)::int`,
-      })
-      .from(workflow_jobs)
-      .groupBy(workflow_jobs.status);
+    return withPlatform(async (db) => {
+      const rows = await db
+        .select({
+          status: workflow_jobs.status,
+          count: sql<number>`COUNT(*)::int`,
+        })
+        .from(workflow_jobs)
+        .groupBy(workflow_jobs.status);
 
-    const byStatus = new Map(rows.map(r => [r.status, r.count]));
-    return {
-      waiting: byStatus.get('waiting') ?? 0,
-      active: byStatus.get('active') ?? 0,
-      paused: byStatus.get('paused') ?? 0,
-      dead_letter: byStatus.get('dead_letter') ?? 0,
-    };
+      const byStatus = new Map(rows.map(r => [r.status, r.count]));
+      return {
+        waiting: byStatus.get('waiting') ?? 0,
+        active: byStatus.get('active') ?? 0,
+        paused: byStatus.get('paused') ?? 0,
+        dead_letter: byStatus.get('dead_letter') ?? 0,
+      };
+    });
   }
 }
 

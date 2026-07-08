@@ -391,15 +391,21 @@ export const resumeFromHumanReducer: Reducer = (state, action) => {
 export const mergeParallelResultsReducer: Reducer = (state, action) => {
   if (action.type !== 'merge_parallel_results') return state;
 
-  const { updates, total_tokens } = MergeParallelResultsPayloadSchema.parse(action.payload);
+  const { updates } = MergeParallelResultsPayloadSchema.parse(action.payload);
   const { filtered, drops } = filterOversizedValues(updates, action.metadata?.node_id, timeOf(action));
-  const totalTokens = total_tokens || 0;
 
+  // Token accounting is intentionally NOT done here. The runner dispatches a
+  // separate `_track_tokens` internal action from `action.metadata.token_usage`
+  // for every fan-out action (map/voting/evolution), and that action is the
+  // sole accountant for total/input/output tokens — both live and on replay
+  // (both `action_dispatched` and `internal_dispatched` events are always
+  // emitted together and replayed). Adding `payload.total_tokens` here too
+  // double-counted `total_tokens_used` (tripping the token budget at half the
+  // real budget) while input/output were counted once — an inconsistent state.
   return {
     ...state,
     memory: mergeMemory(state.memory, filtered),
     memory_drops: appendMemoryDrops(state.memory_drops, drops),
-    total_tokens_used: (state.total_tokens_used || 0) + totalTokens,
     updated_at: timeOf(action),
   };
 };
@@ -503,6 +509,32 @@ export const internalReducer: Reducer = (state, action) => {
       return {
         ...state,
         total_cost_usd: (state.total_cost_usd ?? 0) + costUsd,
+        updated_at: timeOf(action),
+      };
+    }
+
+    case '_track_model_usage': {
+      const model = action.payload.model as string;
+      const inputTokens = (action.payload.input_tokens as number) ?? 0;
+      const outputTokens = (action.payload.output_tokens as number) ?? 0;
+      const costUsd = (action.payload.cost_usd as number) ?? 0;
+      const prev = state.model_breakdown?.[model] ?? {
+        input_tokens: 0,
+        output_tokens: 0,
+        cost_usd: 0,
+        calls: 0,
+      };
+      return {
+        ...state,
+        model_breakdown: {
+          ...state.model_breakdown,
+          [model]: {
+            input_tokens: prev.input_tokens + inputTokens,
+            output_tokens: prev.output_tokens + outputTokens,
+            cost_usd: prev.cost_usd + costUsd,
+            calls: prev.calls + 1,
+          },
+        },
         updated_at: timeOf(action),
       };
     }

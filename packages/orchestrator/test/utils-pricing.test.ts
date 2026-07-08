@@ -41,6 +41,20 @@ describe('calculateCost', () => {
     expect(calculateCost('gpt-4o', 0, 0)).toBe(0);
   });
 
+  it('never returns NaN for malformed (NaN) token counts', () => {
+    // A NaN cost would permanently disable the USD budget (NaN > budget is
+    // always false), so malformed usage must be coerced to a finite cost.
+    const cost = calculateCost('gpt-4o', NaN, 100);
+    expect(Number.isFinite(cost)).toBe(true);
+    expect(cost).toBeGreaterThanOrEqual(0);
+    // The finite output-token portion still counts.
+    expect(cost).toBe(calculateCost('gpt-4o', 0, 100));
+  });
+
+  it('treats negative token counts as zero', () => {
+    expect(calculateCost('gpt-4o', -1000, -1000)).toBe(0);
+  });
+
   it('returns 0 for unknown model and logs a warning', () => {
     const cost = calculateCost('unknown-model-xyz', 1000, 1000);
     expect(cost).toBe(0);

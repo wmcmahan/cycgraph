@@ -4,7 +4,11 @@
  * Aggregates per-test zod structural and semantic judge results
  * into a single Semantic Drift % metric per suite and overall.
  *
- * Formula: Drift % = (zodFailures + semanticFailures) / totalTests * 100
+ * Formula: Drift % = driftedTests / totalTests * 100, where a test is
+ * "drifted" if it failed in AT LEAST ONE category (zod / semantic /
+ * deterministic). A test failing several ways counts once — so drift is a true
+ * fraction of tests in [0, 100], not a sum of failure events that can exceed
+ * 100% (e.g. one test failing all three categories used to score 300%).
  *
  * @module assertions/drift-calculator
  */
@@ -63,21 +67,17 @@ export function computeDrift(
   // Compute per-suite drift
   const perSuite: Record<string, SuiteDriftSummary> = {};
   let totalTests = 0;
-  let totalZodFailures = 0;
-  let totalSemanticFailures = 0;
-  let totalDeterministicFailures = 0;
+  let totalDriftedTests = 0;
 
   for (const [suiteName, suiteResults] of bySuite) {
     const summary = computeSuiteDrift(suiteName, suiteResults);
     perSuite[suiteName] = summary;
     totalTests += summary.totalTests;
-    totalZodFailures += summary.zodFailures;
-    totalSemanticFailures += summary.semanticFailures;
-    totalDeterministicFailures += summary.deterministicFailures;
+    totalDriftedTests += summary.driftedTests;
   }
 
   const aggregatePercent = totalTests > 0
-    ? ((totalZodFailures + totalSemanticFailures + totalDeterministicFailures) / totalTests) * 100
+    ? (totalDriftedTests / totalTests) * 100
     : 0;
 
   return {
@@ -97,6 +97,7 @@ function computeSuiteDrift(
   let zodFailures = 0;
   let semanticFailures = 0;
   let deterministicFailures = 0;
+  let driftedTests = 0;
 
   for (const result of results) {
     const zodFailed = result.zodResults.some(r => !r.passed);
@@ -106,11 +107,13 @@ function computeSuiteDrift(
     if (zodFailed) zodFailures++;
     if (semanticFailed) semanticFailures++;
     if (deterministicFailed) deterministicFailures++;
+    // A test is drifted if it failed in ANY category — counted once.
+    if (zodFailed || semanticFailed || deterministicFailed) driftedTests++;
   }
 
   const totalTests = results.length;
   const driftPercent = totalTests > 0
-    ? ((zodFailures + semanticFailures + deterministicFailures) / totalTests) * 100
+    ? (driftedTests / totalTests) * 100
     : 0;
 
   return {
@@ -119,6 +122,7 @@ function computeSuiteDrift(
     zodFailures,
     semanticFailures,
     deterministicFailures,
+    driftedTests,
     driftPercent,
   };
 }

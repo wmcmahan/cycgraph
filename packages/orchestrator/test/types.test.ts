@@ -433,6 +433,17 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(parsed.max_backoff_ms).toBe(60000);
     });
 
+    test('rejects an unbounded max_retries (cost-exhaustion guard)', () => {
+      // Each retry is an LLM call — a huge/infinite/NaN value must not parse.
+      expect(() => FailurePolicySchema.parse({ max_retries: 1_000_000_000 })).toThrow();
+      expect(() => FailurePolicySchema.parse({ max_retries: Infinity })).toThrow();
+      expect(() => FailurePolicySchema.parse({ max_retries: NaN })).toThrow();
+      expect(() => FailurePolicySchema.parse({ max_retries: -1 })).toThrow();
+      // The legitimate range still parses.
+      expect(FailurePolicySchema.parse({ max_retries: 0 }).max_retries).toBe(0);
+      expect(FailurePolicySchema.parse({ max_retries: 10 }).max_retries).toBe(10);
+    });
+
     test('should validate backoff strategy enum', () => {
       expect(() =>
         FailurePolicySchema.parse({ backoff_strategy: 'invalid' })

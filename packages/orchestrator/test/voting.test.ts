@@ -254,8 +254,9 @@ describe('Voting/Consensus', () => {
     const runner = new GraphRunner(graph, state);
     const finalState = await runner.run();
 
-    // 3 voters × 25 tokens each = 75
-    expect(finalState.total_tokens_used).toBeGreaterThanOrEqual(75);
+    // 3 voters × 25 = 75, counted exactly once. Exact equality guards against
+    // the fan-out double-count regression (previously 150).
+    expect(finalState.total_tokens_used).toBe(75);
   });
 
   test('should error without voting_config', async () => {

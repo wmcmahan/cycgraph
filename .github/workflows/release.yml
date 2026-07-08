@@ -13,9 +13,11 @@ concurrency:
 permissions:
   contents: write       # bot pushes the Version Packages PR + tags
   pull-requests: write  # bot opens/updates the Version Packages PR
+  id-token: write       # OIDC token for npm publish --provenance (sigstore attestation)
 
 env:
-  NODE_VERSION: '24'
+  # Match the CI job's Node version; provenance needs npm >= 9.5 (Node 18+).
+  NODE_VERSION: '22'
 
 jobs:
   release:
@@ -72,3 +74,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Publish with sigstore provenance. npm honors this env for every
+          # `npm publish` changesets runs; requires the id-token:write permission
+          # above so npm can mint the OIDC attestation.
+          NPM_CONFIG_PROVENANCE: 'true'

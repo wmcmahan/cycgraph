@@ -98,6 +98,19 @@ function getCompiledExpression(expression: string): ReturnType<typeof compileExp
   return fn;
 }
 
+/**
+ * Whether a filtrex expression references `memory.<key>` at an identifier
+ * boundary (i.e. `key` is not merely a substring of a longer identifier).
+ *
+ * Used by strict_taint detection: `memory.userName` must not count as a
+ * reference to a tainted key named `user`. The key is regex-escaped because
+ * memory keys are arbitrary strings.
+ */
+function referencesMemoryKey(expression: string, key: string): boolean {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`memory\\.${escaped}(?![A-Za-z0-9_])`).test(expression);
+}
+
 // ─── Public API ─────────────────────────────────────────────────────
 
 /**
@@ -129,12 +142,15 @@ export function evaluateCondition(
       try {
         const expression = normalizeConditionExpression(condition.condition);
 
-        // Check for tainted keys referenced in the condition expression
+        // Check for tainted keys referenced in the condition expression.
+        // Match `memory.<key>` at an identifier boundary so a short tainted key
+        // (e.g. "e") doesn't spuriously match every expression — critical now
+        // that strict_taint actually rejects on a match.
         const taintRegistry = getTaintRegistry(state.memory);
         const taintedKeys = Object.keys(taintRegistry);
         if (taintedKeys.length > 0) {
           const taintedKeysInExpr = taintedKeys.filter(
-            key => expression.includes(`memory.${key}`) || expression.includes(key),
+            key => referencesMemoryKey(expression, key),
           );
           if (taintedKeysInExpr.length > 0) {
             if (options?.strict_taint) {
@@ -183,6 +199,7 @@ export function evaluateCondition(
       return evaluateCondition(
         { type: 'conditional', condition: condition.condition, value: condition.value },
         state,
+        options,
       );
 
     default:

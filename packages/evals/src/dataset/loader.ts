@@ -9,6 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
@@ -63,6 +64,19 @@ export function loadGoldenTrajectories(
 
   const compressedPath = resolve(goldenDir, entry.file);
   const compressed = readFileSync(compressedPath);
+
+  // Verify the dataset matches the manifest's recorded checksum before trusting
+  // it. The writer records this sha256; skipping the check let a tampered or
+  // corrupted golden file load silently, defeating the checksum's only purpose.
+  const actualSha256 = createHash('sha256').update(compressed).digest('hex');
+  if (actualSha256 !== entry.sha256) {
+    throw new Error(
+      `Golden dataset for suite "${suite}" failed integrity check: manifest sha256 ` +
+        `${entry.sha256} != file ${actualSha256} (${entry.file}). The dataset is ` +
+        `corrupt or out of sync with the manifest.`,
+    );
+  }
+
   const sqliteBuffer = gunzipSync(compressed);
 
   const db = new Database(sqliteBuffer);

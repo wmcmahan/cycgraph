@@ -8,7 +8,7 @@
  * @module consolidation/conflict-detector
  */
 
-import type { MemoryStore } from '../interfaces/memory-store.js';
+import { QUARANTINE_TAG, type MemoryStore } from '../interfaces/memory-store.js';
 import type { MemoryIndex } from '../interfaces/memory-index.js';
 import type { SemanticFact } from '../schemas/semantic.js';
 
@@ -28,7 +28,16 @@ export interface ConflictResolutionReport {
 }
 
 export interface ConflictDetectorOptions {
-  /** Auto-resolve temporal supersession (default: true). */
+  /**
+   * Auto-resolve temporal supersession as a side effect of {@link
+   * ConflictDetector.detectConflicts} (default: **false**).
+   *
+   * Detection is read-only by default: a "detect" method must not mutate the
+   * store. When enabled, `detectConflicts` invalidates the older fact of each
+   * superseding pair inline — but the recommended flow is to leave this off and
+   * resolve explicitly via {@link ConflictDetector.autoResolveAll}, so callers
+   * see the conflicts before any write happens.
+   */
   autoResolveSupersession?: boolean;
   /** Cosine similarity threshold for contradiction detection (default: 0.8). */
   embeddingThreshold?: number;
@@ -76,7 +85,7 @@ export class ConflictDetector {
   ) {}
 
   async detectConflicts(facts?: SemanticFact[]): Promise<Conflict[]> {
-    const allFacts = facts ?? await this.store.findFacts({ include_invalidated: false, limit: 10_000 });
+    const allFacts = facts ?? await this.store.findFacts({ include_invalidated: false, exclude_tags: [QUARANTINE_TAG], limit: 10_000 });
     const activeFacts = allFacts.filter((f) => !f.invalidated_by);
     const conflicts: Conflict[] = [];
     const pairKeys = new Set<string>();
@@ -114,8 +123,9 @@ export class ConflictDetector {
       }
     }
 
-    // 2. Temporal supersession
-    const autoResolve = this.options.autoResolveSupersession ?? true;
+    // 2. Temporal supersession. Detection is read-only by default; resolution
+    // happens only when a caller explicitly opts in (see the option docs).
+    const autoResolve = this.options.autoResolveSupersession ?? false;
     for (const [, group] of byEntity) {
       for (let i = 0; i < group.length; i++) {
         for (let j = i + 1; j < group.length; j++) {
@@ -156,6 +166,9 @@ export class ConflictDetector {
       for (const { item: candidate } of similar) {
         if (candidate.id === fact.id) continue;
         if (candidate.invalidated_by) continue;
+        // The index holds all facts (incl. quarantined); a poisoned fact must
+        // not generate conflicts against trusted ones.
+        if ((candidate.tags ?? []).includes(QUARANTINE_TAG)) continue;
 
         const pk = makePairKey(fact.id, candidate.id);
         if (pairKeys.has(pk)) continue;
@@ -238,19 +251,25 @@ export class ConflictDetector {
 
       if (effectivePolicy === 'negation-invalidates-positive') {
         if (conflict.type === 'negation') {
-          const aHasNeg = this.containsNegation(conflict.factA.content);
-          // Invalidate the positive fact (the one WITHOUT negation)
-          if (aHasNeg) {
-            // A has negation, keep A, invalidate B (positive)
-            await this.resolveConflict(conflict, 'keep_a');
-            report.resolved++;
-            report.details.push({ conflict, action: 'negation kept, positive fact invalidated' });
+          // Respect temporal order first: a newer positive correction ("X is
+          // now safe") must survive a stale negation ("X is not safe"), and a
+          // newer negation still invalidates an older positive. Only when the
+          // two share a timestamp does the policy's negation bias break the tie
+          // — otherwise a stale negation could silently kill a later fix.
+          const aTime = conflict.factA.valid_from.getTime();
+          const bTime = conflict.factB.valid_from.getTime();
+          let keep: 'keep_a' | 'keep_b';
+          let action: string;
+          if (aTime !== bTime) {
+            keep = aTime > bTime ? 'keep_a' : 'keep_b';
+            action = 'newer fact kept, older fact invalidated';
           } else {
-            // B has negation, keep B, invalidate A (positive)
-            await this.resolveConflict(conflict, 'keep_b');
-            report.resolved++;
-            report.details.push({ conflict, action: 'negation kept, positive fact invalidated' });
+            keep = this.containsNegation(conflict.factA.content) ? 'keep_a' : 'keep_b';
+            action = 'same timestamp: negation kept, positive fact invalidated';
           }
+          await this.resolveConflict(conflict, keep);
+          report.resolved++;
+          report.details.push({ conflict, action });
         } else if (conflict.type === 'supersession') {
           const resolution = this.resolveByTemporal(conflict);
           await this.resolveConflict(conflict, resolution.keep);

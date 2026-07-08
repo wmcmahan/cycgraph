@@ -185,6 +185,24 @@ describe('createAllocatorStage', () => {
     expect(result.segments[0].content).toContain('[truncated]');
   });
 
+  it('does not cut a surrogate pair when truncating emoji content', () => {
+    const stage = createAllocatorStage();
+    // Many emoji (each a UTF-16 surrogate PAIR) so truncation lands mid-pair.
+    const content = '😀'.repeat(500);
+    const segments = [makeSegment('a', content)];
+    const context = {
+      tokenCounter: counter,
+      budget: { maxTokens: 20, outputReserve: 0 } as BudgetConfig,
+    };
+
+    const out = stage.execute(segments, context).segments[0].content;
+    // No lone surrogate survived: the string round-trips through UTF-8 cleanly
+    // (a lone surrogate becomes U+FFFD, changing the byte length).
+    const roundTripped = Buffer.from(out, 'utf-8').toString('utf-8');
+    expect(roundTripped).toBe(out);
+    expect(out).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/); // no unpaired high surrogate
+  });
+
   it('returns empty string when budget is too small for suffix', () => {
     const stage = createAllocatorStage();
     const longContent = 'word '.repeat(100);

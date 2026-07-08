@@ -317,7 +317,44 @@ describe('Map-Reduce', () => {
     const runner = new GraphRunner(graph, state);
     const finalState = await runner.run();
 
-    // 3 workers × 30 tokens = 90 from merge_parallel_results, plus synthesizer tokens
-    expect(finalState.total_tokens_used).toBeGreaterThanOrEqual(90);
+    // 3 workers × 30 = 90 (counted once, via the runner's _track_tokens — the
+    // reducer must NOT also add them) + 30 synthesizer = 120. Exact equality
+    // guards against the fan-out double-count regression.
+    expect(finalState.total_tokens_used).toBe(120);
+  });
+
+  test('re-surfaces worker taint onto aggregate keys (no taint laundering)', async () => {
+    // A worker that used a tainted MCP tool emits `_taint_registry` in its
+    // updates. The merge buries the worker output under `${node}_results`; the
+    // parent registry must record that aggregate key as tainted, otherwise
+    // downstream routing/gating can't see the untrusted provenance.
+    const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+    (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number, _opts?: any) => {
+      const item = stateView.memory._map_item;
+      const outKey = `${agentId}_result`;
+      return {
+        id: uuidv4(),
+        idempotency_key: uuidv4(),
+        type: 'update_memory',
+        payload: {
+          updates: {
+            [outKey]: `processed: ${JSON.stringify(item)}`,
+            _taint_registry: {
+              [outKey]: { source: 'mcp_tool', tool_name: 'web_fetch', created_at: '2026-01-01T00:00:00.000Z' },
+            },
+          },
+        },
+        metadata: { node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt, token_usage: { totalTokens: 1 } },
+      };
+    });
+
+    const graph = createMapGraph({ static_items: ['a', 'b'] });
+    const runner = new GraphRunner(graph, createState());
+    const finalState = await runner.run();
+
+    const registry = finalState.memory._taint_registry as Record<string, unknown> | undefined;
+    expect(registry).toBeDefined();
+    // The aggregate key holding worker output is marked derived-tainted.
+    expect(registry!.mapper_results).toMatchObject({ source: 'derived' });
   });
 });

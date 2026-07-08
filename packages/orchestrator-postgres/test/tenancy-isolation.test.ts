@@ -89,6 +89,24 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
     expect(await providerB.loadGraph(graph.id)).toBeNull();
   });
 
+  test('tenant B cannot OVERWRITE tenant A\'s graph via a colliding id (upsert clobber guard)', async () => {
+    // `graphs.id` is a caller-supplied global PK and `definition` drives
+    // execution. Tenant B saving with A's id must not clobber A's row.
+    const graph = makeGraph();
+    await providerA.saveGraph(graph);
+    const original = await providerA.loadGraph(graph.id);
+    expect(original?.name).toBe('Tenant Graph');
+
+    // B attempts to hijack the id with a different definition/name.
+    const hijack = { ...makeGraph(graph.id), name: 'Hijacked by B' };
+    await providerB.saveGraph(hijack);
+
+    // A's graph is unchanged, and B still can't see it.
+    const afterA = await providerA.loadGraph(graph.id);
+    expect(afterA?.name).toBe('Tenant Graph');
+    expect(await providerB.loadGraph(graph.id)).toBeNull();
+  });
+
   test('tenant B cannot load tenant A\'s run or state', async () => {
     const graph = makeGraph();
     await providerA.saveGraph(graph);

@@ -40,6 +40,15 @@ export interface PipelineState {
   lastMetrics: PipelineMetrics;
   /** Turn counter (starts at 1). */
   turnNumber: number;
+  /**
+   * Fingerprint of the budget + model the cached outputs were produced under.
+   * Compressed output depends on the budget (allocator truncates to it) and the
+   * model (token counts, format selection) — NOT just segment content. If the
+   * caller changes budget/model between turns, every cached segment is stale
+   * (e.g. a segment compressed for an 8k budget must not be reused verbatim
+   * under a 2k budget → provider overflow), so the whole cache is invalidated.
+   */
+  configFingerprint: number;
 }
 
 /** Configuration for the incremental pipeline. */
@@ -68,6 +77,15 @@ function pruneStaleKeys<V>(map: Map<string, V>, validIds: Set<string>): void {
   for (const key of map.keys()) {
     if (!validIds.has(key)) map.delete(key);
   }
+}
+
+/**
+ * Fingerprint the compression config (budget + model) that cached outputs
+ * depend on. Two turns with identical segment content but a different budget or
+ * model must NOT reuse each other's cache.
+ */
+function fingerprintConfig(input: PipelineInput): number {
+  return fnv1a(JSON.stringify({ budget: input.budget, model: input.model ?? '' }));
 }
 
 // --- Implementation ---
@@ -128,12 +146,14 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
         currentHashes.set(seg.id, fnv1a(seg.content));
       }
 
+      const configFingerprint = fingerprintConfig(input);
       const { perSegmentStages, crossSegmentStages } = partitionStages(config.stages);
       const hasCrossSegmentStages = crossSegmentStages.length > 0;
 
-      // If no previous state or caching disabled: run all stages partitioned,
-      // caching per-segment outputs for future incremental runs.
-      if (!previousState || !enableCaching) {
+      // If no previous state, caching disabled, OR the budget/model changed
+      // since the cached run: run all stages fresh. Reusing cache across a
+      // budget/model change would return output sized for the OLD budget.
+      if (!previousState || !enableCaching || previousState.configFingerprint !== configFingerprint) {
         // Run per-segment stages on all segments
         const perSegmentOutputs = new Map<string, PromptSegment>();
         let perSegOrdered: PromptSegment[];
@@ -192,6 +212,7 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
           perSegmentOutputHashes,
           lastMetrics: metrics,
           turnNumber: (previousState?.turnNumber ?? 0) + 1,
+          configFingerprint,
         };
 
         // Defensive: ensure no stale segment keys survive
@@ -349,6 +370,7 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
         perSegmentOutputHashes,
         lastMetrics: metrics,
         turnNumber: previousState.turnNumber + 1,
+        configFingerprint,
       };
 
       // Defensive: ensure no stale segment keys survive

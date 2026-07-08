@@ -309,9 +309,22 @@ export class MCPConnectionManager implements ToolResolver {
     const allToolNames = new Map<string, string[]>(); // toolName → [serverIds]
 
     for (const { serverId, toolSet, filter } of mcpToolSets) {
+      // Least-privilege: without an explicit `tool_names` allowlist, the agent
+      // receives EVERY tool the server currently advertises — including any a
+      // compromised/updated server later injects (confused-deputy / privilege
+      // creep). Warn so this is an observable decision rather than silent.
+      if (!filter || filter.length === 0) {
+        logger.warn('mcp_tool_allowlist_absent', {
+          server_id: serverId,
+          granted_tool_count: Object.keys(toolSet).length,
+          hint: 'set tool_names to restrict which server tools this agent may call',
+        });
+      }
       const toolNames = filter ?? Object.keys(toolSet);
       for (const name of toolNames) {
-        if (!(name in toolSet)) {
+        // hasOwnProperty (not `in`): a `tool_names` entry of "toString" /
+        // "constructor" must not match an inherited prototype member.
+        if (!Object.prototype.hasOwnProperty.call(toolSet, name)) {
           logger.warn('filtered_tool_not_found', { server_id: serverId, tool_name: name });
           continue;
         }
@@ -333,7 +346,7 @@ export class MCPConnectionManager implements ToolResolver {
     for (const { serverId, toolSet, filter, toolTimeoutMs, semaphore } of mcpToolSets) {
       const toolNames = filter ?? Object.keys(toolSet);
       for (const name of toolNames) {
-        if (!(name in toolSet)) continue;
+        if (!Object.prototype.hasOwnProperty.call(toolSet, name)) continue;
 
         const tool = toolSet[name] as Record<string, unknown>;
         const wrappedTool = this.wrapToolWithTaint(tool, name, serverId, toolTimeoutMs, collector, semaphore);
@@ -611,6 +624,12 @@ export class MCPConnectionManager implements ToolResolver {
 
         this.toolBreakers?.recordSuccess(serverId, toolName);
 
+        // Bound the result size. A malicious/compromised server returning a
+        // multi-GB payload would otherwise be held in memory, fed into the LLM
+        // context, AND copied into the event log — a worker OOM that can take
+        // out co-tenant runs. Capping here stops all three.
+        result = MCPConnectionManager.enforceResultSize(result, toolName, serverId);
+
         const taintKey = `${serverId}:${toolName}`;
         const entry = {
           source: 'mcp_tool' as const,
@@ -625,6 +644,45 @@ export class MCPConnectionManager implements ToolResolver {
         return result;
       },
     };
+  }
+
+  /** Maximum serialized bytes accepted from a single MCP tool result. */
+  private static readonly MAX_RESULT_BYTES = 10 * 1024 * 1024; // 10 MB
+
+  /**
+   * Enforce {@link MAX_RESULT_BYTES} on a tool result. Oversized or
+   * unserializable results are replaced with a small error marker (surfaced to
+   * the LLM as a normal tool failure) instead of being propagated.
+   */
+  private static enforceResultSize(result: unknown, toolName: string, serverId: string): unknown {
+    let bytes: number;
+    if (typeof result === 'string') {
+      bytes = result.length;
+    } else {
+      let serialized: string | undefined;
+      try {
+        serialized = JSON.stringify(result);
+      } catch {
+        logger.warn('mcp_tool_result_unserializable', { server_id: serverId, tool_name: toolName });
+        return { error: `MCP tool "${toolName}" returned an unserializable result and was dropped.` };
+      }
+      bytes = serialized?.length ?? 0;
+    }
+
+    if (bytes > MCPConnectionManager.MAX_RESULT_BYTES) {
+      logger.warn('mcp_tool_result_oversized', {
+        server_id: serverId,
+        tool_name: toolName,
+        bytes,
+        cap: MCPConnectionManager.MAX_RESULT_BYTES,
+      });
+      return {
+        error:
+          `MCP tool "${toolName}" result (${bytes} bytes) exceeded the ` +
+          `${MCPConnectionManager.MAX_RESULT_BYTES}-byte limit and was dropped to protect worker memory.`,
+      };
+    }
+    return result;
   }
 
   /**

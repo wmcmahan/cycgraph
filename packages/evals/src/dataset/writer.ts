@@ -76,11 +76,15 @@ export function writeGoldenDataset(
   const compressed = gzipSync(sqliteBuffer);
   const sha256 = createHash('sha256').update(compressed).digest('hex');
 
-  // Write compressed file
+  // Write compressed file. The filename encodes the schema MAJOR version so
+  // datasets of different versions coexist — previously this was hardcoded to
+  // `-v1`, so seeding v2 silently overwrote the v1 bytes in place (no rollback,
+  // migrations mutated goldens irreversibly).
   const dataDir = resolve(goldenDir, 'data');
   mkdirSync(dataDir, { recursive: true });
 
-  const filename = `${suite}-v1.sqlite.gz`;
+  const major = /^(\d+)/.exec(schemaVersion)?.[1] ?? '1';
+  const filename = `${suite}-v${major}.sqlite.gz`;
   const filePath = resolve(dataDir, filename);
   writeFileSync(filePath, compressed);
 

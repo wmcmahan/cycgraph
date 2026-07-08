@@ -18,6 +18,7 @@ import { NodeConfigError, UnsupportedNodeTypeError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
 import { combineAbortSignals } from '../../utils/abort.js';
+import { aggregateParallelTaint } from '../../utils/taint.js';
 
 const logger = createLogger('runner.node.map');
 
@@ -198,6 +199,21 @@ export async function executeMapNode(
     }
   }
 
+  // Re-surface worker taint: any tainted worker output is buried under
+  // `${node.id}_results`, so mark the aggregate keys tainted in the parent
+  // registry (mergeMemory treats `_taint_registry` append-only).
+  const aggregateKeys = [
+    `${node.id}_results`,
+    `${node.id}_errors`,
+    `${node.id}_count`,
+    `${node.id}_error_count`,
+  ];
+  const taintUpdates = aggregateParallelTaint(
+    successResults.map(r => r.updates as Record<string, unknown> | undefined),
+    aggregateKeys,
+    node.id,
+  );
+
   return {
     id: uuidv4(),
     idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
@@ -208,6 +224,9 @@ export async function executeMapNode(
         [`${node.id}_errors`]: errorResults,
         [`${node.id}_count`]: successResults.length,
         [`${node.id}_error_count`]: errorResults.length,
+        ...(Object.keys(taintUpdates).length > 0
+          ? { _taint_registry: taintUpdates }
+          : {}),
       },
       total_tokens: totalTokens,
     },

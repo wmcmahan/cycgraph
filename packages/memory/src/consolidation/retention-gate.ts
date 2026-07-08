@@ -47,7 +47,7 @@
  */
 
 import { z } from 'zod';
-import type { MemoryStore } from '../interfaces/memory-store.js';
+import { QUARANTINE_TAG, type MemoryStore } from '../interfaces/memory-store.js';
 import type { SemanticFact } from '../schemas/semantic.js';
 import type { OutcomeLedger } from './outcome-ledger.js';
 import { welchLift, benjaminiHochberg } from '../utils/statistics.js';
@@ -191,6 +191,7 @@ export async function evaluateRetention(
   while (true) {
     const batch = await store.findFacts({
       tags: [cfg.candidate_tag],
+      exclude_tags: [QUARANTINE_TAG],
       include_invalidated: false,
       limit: batchSize,
       offset,

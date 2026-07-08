@@ -12,7 +12,7 @@
  * @module consolidation/memory-consolidator
  */
 
-import type { MemoryStore } from '../interfaces/memory-store.js';
+import { QUARANTINE_TAG, type MemoryStore } from '../interfaces/memory-store.js';
 import type { MemoryIndex } from '../interfaces/memory-index.js';
 import type { SemanticFact } from '../schemas/semantic.js';
 import type { Theme } from '../schemas/theme.js';
@@ -40,6 +40,20 @@ export interface ConsolidationOptions {
   logger?: ConsolidationLogger;
   /** Batch size for paginated fact loading (default 1000). */
   batchSize?: number;
+  /**
+   * Tag marking a gate-promoted (trusted) lesson. When deduplicating
+   * near-duplicates, a fact carrying this tag is never evicted in favor of one
+   * that lacks it — otherwise an unproven (or poisoned) near-duplicate written
+   * with a newer timestamp could invalidate a verified lesson. Default:
+   * `'verified'` (matches the retention gate's `verified_tag`).
+   */
+  verifiedTag?: string;
+  /**
+   * Tag marking an un-promoted candidate lesson. Dropped from the survivor when
+   * it is merged into a verified keeper, so the kept fact doesn't end up tagged
+   * both verified and candidate. Default: `'candidate'`.
+   */
+  candidateTag?: string;
 }
 
 export interface ConsolidationReport {
@@ -161,13 +175,19 @@ export class MemoryConsolidator {
     const facts: SemanticFact[] = [];
     let offset = 0;
     while (true) {
-      const batch = await this.store.findFacts({ include_invalidated: false, limit: batchSize, offset });
+      const batch = await this.store.findFacts({ include_invalidated: false, exclude_tags: [QUARANTINE_TAG], limit: batchSize, offset });
       facts.push(...batch);
       if (batch.length < batchSize) break;
       offset += batchSize;
     }
 
     const processed = new Set<string>();
+    // Accumulate merged keepers so a fact that absorbs several duplicates keeps
+    // ALL their evidence (emitting one putFact per candidate would let the last
+    // merge overwrite earlier ones). Losers are recorded separately and emitted
+    // once at the end.
+    const keepers = new Map<string, SemanticFact>();
+    const losers = new Map<string, { fact: SemanticFact; keeperId: string }>();
 
     for (const fact of facts) {
       if (!fact.embedding || processed.has(fact.id)) continue;
@@ -181,31 +201,87 @@ export class MemoryConsolidator {
         if (candidate.id === fact.id) continue;
         if (processed.has(candidate.id)) continue;
         if (candidate.invalidated_by) continue;
+        // The index holds all facts (incl. quarantined); never let a poisoned
+        // near-duplicate participate in a merge (it isn't in `facts` either).
+        if ((candidate.tags ?? []).includes(QUARANTINE_TAG)) continue;
 
-        const keepFact = this.pickKeeper(fact, candidate);
-        const loseFact = keepFact.id === fact.id ? candidate : fact;
+        // Compare against the fact's ACCUMULATED state if it already absorbed
+        // duplicates this pass, so keeper selection sees the merged evidence.
+        const factState = keepers.get(fact.id) ?? fact;
+        const keepFact = this.pickKeeper(factState, candidate);
+        const loseFact = keepFact.id === factState.id ? candidate : factState;
 
-        if (deleteMode === 'soft') {
-          mutations.push({ type: 'putFact', fact: { ...loseFact, invalidated_by: keepFact.id } });
-        } else {
-          mutations.push({ type: 'deleteFact', id: loseFact.id });
-        }
+        // Fold the loser's evidence into the keeper so a merge never loses
+        // retrieval signal: union source episodes and tags, sum access counts.
+        // Without this, deduping a verified lesson against a near-duplicate
+        // silently dropped its access history and provenance.
+        const merged = this.mergeIntoKeeper(keepFact, loseFact);
+        keepers.set(merged.id, merged);
+        keepers.delete(loseFact.id); // if the loser had been a keeper, retract it
+        losers.set(loseFact.id, { fact: loseFact, keeperId: keepFact.id });
 
         processed.add(loseFact.id);
         prunedFactIds.add(loseFact.id);
         report.factsDeduped++;
         report.totalReclaimed++;
+
+        // If `fact` itself just lost, stop comparing it against more candidates.
+        if (loseFact.id === fact.id) break;
       }
 
       processed.add(fact.id);
     }
+
+    // Emit accumulated merges, then the loser invalidations/deletes.
+    for (const keeper of keepers.values()) {
+      mutations.push({ type: 'putFact', fact: keeper });
+    }
+    for (const { fact: loser, keeperId } of losers.values()) {
+      if (deleteMode === 'soft') {
+        mutations.push({ type: 'putFact', fact: { ...loser, invalidated_by: keeperId } });
+      } else {
+        mutations.push({ type: 'deleteFact', id: loser.id });
+      }
+    }
   }
 
+  /**
+   * Choose which of two near-duplicate facts to keep. Priority, highest first:
+   *   1. A verified (gate-promoted) fact beats an unverified one — a fresh or
+   *      poisoned duplicate must never evict a proven lesson.
+   *   2. Higher access_count (more-used ⇒ more load-bearing).
+   *   3. More source episodes (more corroborating evidence).
+   *   4. Newer `valid_from` (tie-breaker only).
+   */
   private pickKeeper(a: SemanticFact, b: SemanticFact): SemanticFact {
+    const verifiedTag = this.options.verifiedTag ?? 'verified';
+    const aVerified = (a.tags ?? []).includes(verifiedTag);
+    const bVerified = (b.tags ?? []).includes(verifiedTag);
+    if (aVerified !== bVerified) return aVerified ? a : b;
+
+    const aAccess = a.access_count ?? 0;
+    const bAccess = b.access_count ?? 0;
+    if (aAccess !== bAccess) return aAccess > bAccess ? a : b;
+
     if (a.source_episode_ids.length !== b.source_episode_ids.length) {
       return a.source_episode_ids.length > b.source_episode_ids.length ? a : b;
     }
     return a.valid_from >= b.valid_from ? a : b;
+  }
+
+  /** Union the loser's evidence (episodes, tags, access count) into the keeper. */
+  private mergeIntoKeeper(keeper: SemanticFact, loser: SemanticFact): SemanticFact {
+    const verifiedTag = this.options.verifiedTag ?? 'verified';
+    const candidateTag = this.options.candidateTag ?? 'candidate';
+
+    const source_episode_ids = [...new Set([...keeper.source_episode_ids, ...loser.source_episode_ids])];
+    let tags = [...new Set([...(keeper.tags ?? []), ...(loser.tags ?? [])])];
+    // A verified survivor must not also carry the candidate tag — that would
+    // send it back through the gate as if unproven.
+    if (tags.includes(verifiedTag)) tags = tags.filter((t) => t !== candidateTag);
+    const access_count = (keeper.access_count ?? 0) + (loser.access_count ?? 0);
+
+    return { ...keeper, source_episode_ids, tags, access_count };
   }
 
   private async planDecay(
@@ -221,7 +297,7 @@ export class MemoryConsolidator {
     const allFacts: SemanticFact[] = [];
     let offset = 0;
     while (true) {
-      const batch = await this.store.findFacts({ include_invalidated: false, limit: batchSize, offset });
+      const batch = await this.store.findFacts({ include_invalidated: false, exclude_tags: [QUARANTINE_TAG], limit: batchSize, offset });
       allFacts.push(...batch);
       if (batch.length < batchSize) break;
       offset += batchSize;
