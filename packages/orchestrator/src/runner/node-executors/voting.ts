@@ -10,6 +10,7 @@ import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
 import { LESSON_PROVENANCE_KEY } from '../../utils/lesson-provenance.js';
 import { combineAbortSignals } from '../../utils/abort.js';
+import { aggregateParallelTaint } from '../../utils/taint.js';
 
 const logger = createLogger('runner.node.voting');
 
@@ -215,6 +216,15 @@ export async function executeVotingNode(
 
   const finalTotalTokens = totalTokens + extraTokens;
 
+  // Re-surface worker taint: tainted voter output is buried under the
+  // consensus/votes keys, so mark them tainted in the parent registry
+  // (mergeMemory treats `_taint_registry` append-only).
+  const taintUpdates = aggregateParallelTaint(
+    results.map(r => r.action?.payload.updates as Record<string, unknown> | undefined),
+    [`${node.id}_consensus`, `${node.id}_votes`],
+    node.id,
+  );
+
   return {
     id: uuidv4(),
     idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
@@ -225,6 +235,9 @@ export async function executeVotingNode(
         [`${node.id}_votes`]: votes,
         ...(Object.keys(lessonProvenance).length > 0
           ? { [LESSON_PROVENANCE_KEY]: lessonProvenance }
+          : {}),
+        ...(Object.keys(taintUpdates).length > 0
+          ? { _taint_registry: taintUpdates }
           : {}),
       },
       total_tokens: finalTotalTokens,

@@ -226,4 +226,22 @@ describe('jsonSchemaToZod', () => {
         .toEqual({ query: 'typescript', limit: 10, filters: ['docs'] });
     });
   });
+
+  describe('untrusted-manifest bounds', () => {
+    it('does not blow the stack on a deeply nested schema', () => {
+      // Build a schema nested far beyond the depth cap.
+      let schema: Record<string, unknown> = { type: 'string' };
+      for (let i = 0; i < 5000; i++) {
+        schema = { type: 'object', properties: { child: schema } };
+      }
+      // Converts without throwing (RangeError) — depth is bounded.
+      expect(() => jsonSchemaToZod(schema as never)).not.toThrow();
+    });
+
+    it('caps an object with an enormous number of properties', () => {
+      const properties: Record<string, unknown> = {};
+      for (let i = 0; i < 5000; i++) properties[`p${i}`] = { type: 'string' };
+      expect(() => jsonSchemaToZod({ type: 'object', properties } as never)).not.toThrow();
+    });
+  });
 });

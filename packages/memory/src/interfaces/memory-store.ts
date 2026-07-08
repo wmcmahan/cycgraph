@@ -32,7 +32,23 @@ export interface FactFilter {
    * the whole table client-side. Empty/undefined means "no tag filter".
    */
   tags?: readonly string[];
+  /**
+   * Exclude facts carrying **any** of these tags (AND-NOT semantics). Applied
+   * after `tags`. Used to keep quarantined/poisoned facts (see
+   * {@link QUARANTINE_TAG}) out of retrieval and consolidation without deleting
+   * them — a fact learned during a failed/poisoned run must not resurface as a
+   * trusted lesson. Empty/undefined means "no exclusion".
+   */
+  exclude_tags?: readonly string[];
 }
+
+/**
+ * Well-known tag marking a fact as quarantined: learned during a
+ * failed/poisoned/tainted run and therefore untrusted. Read and consolidation
+ * paths exclude it by default so a poisoned fact can never be retrieved as a
+ * lesson or promoted by the gate, while remaining recoverable for audit.
+ */
+export const QUARANTINE_TAG = 'quarantined';
 
 /** Filter options for relationship queries. */
 export interface RelationshipFilter {

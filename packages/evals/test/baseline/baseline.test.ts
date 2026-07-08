@@ -199,14 +199,34 @@ describe('compareBaseline', () => {
     expect(delta.regressions[0].deltaPercent).toBe(8);
   });
 
+  it('catches a sub-ceiling regression the drift ceiling would miss', () => {
+    // 0% → 3% is below a typical 5% drift ceiling, so the absolute gate never
+    // fires — but it IS a real regression. With the noise floor now well below
+    // the ceiling, the baseline comparison flags it.
+    const baseline = makeSnapshot({
+      aggregateDrift: 0,
+      suites: { orchestrator: makeSuiteEntry(0) },
+    });
+    const current = makeSnapshot({
+      aggregateDrift: 3,
+      suites: { orchestrator: makeSuiteEntry(3) },
+    });
+
+    const delta = compareBaseline(current, baseline);
+
+    expect(delta.hasRegression).toBe(true);
+    expect(delta.regressions[0].deltaPercent).toBe(3);
+  });
+
   it('ignores changes smaller than the noise floor', () => {
+    // Default noise floor is 1pp; a 0.5pp change is jitter, not a regression.
     const baseline = makeSnapshot({
       aggregateDrift: 1,
       suites: { orchestrator: makeSuiteEntry(1) },
     });
     const current = makeSnapshot({
-      aggregateDrift: 3,
-      suites: { orchestrator: makeSuiteEntry(3) },
+      aggregateDrift: 1.5,
+      suites: { orchestrator: makeSuiteEntry(1.5) },
     });
 
     const delta = compareBaseline(current, baseline);

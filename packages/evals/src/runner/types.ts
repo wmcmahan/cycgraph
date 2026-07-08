@@ -76,6 +76,13 @@ export interface SuiteDriftSummary {
   zodFailures: number;
   semanticFailures: number;
   deterministicFailures: number;
+  /**
+   * Number of tests that drifted — i.e. failed in AT LEAST ONE category. A
+   * test failing in several categories counts once, so `driftedTests` is the
+   * numerator of {@link driftPercent} (bounded by `totalTests`). The per-
+   * category counts above are for reporting only.
+   */
+  driftedTests: number;
   driftPercent: number;
 }
 

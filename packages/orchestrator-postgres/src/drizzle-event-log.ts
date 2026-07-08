@@ -226,6 +226,23 @@ export class DrizzleEventLogWriter implements EventLogWriter {
 
   async compact(run_id: string, beforeSequenceId: number): Promise<number> {
     return this.tx(async (tx) => {
+      // Fence the delete exactly like append: a reclaimed/stale worker must not
+      // be able to delete events belonging to the run a NEW claimant now owns
+      // (which would corrupt the new claimant's replay). Verify the claim epoch
+      // under FOR SHARE inside the same transaction as the delete.
+      if (this.fencing && this.fencing.run_id === run_id) {
+        const fencing = this.fencing;
+        const rows = await tx
+          .select({ claim_epoch: workflow_runs.claim_epoch })
+          .from(workflow_runs)
+          .where(and(eq(workflow_runs.id, run_id), this.tenantEq(workflow_runs.tenant_id)))
+          .for('share');
+        const current = rows[0]?.claim_epoch;
+        if (current !== undefined && current !== fencing.epoch) {
+          throw new StaleClaimError(run_id, fencing.epoch, current);
+        }
+      }
+
       const result = await tx
         .delete(workflow_events)
         .where(

@@ -261,6 +261,9 @@ export class DrizzleMemoryStore implements MemoryStore {
       .values({ ...this.tenantValues, ...values })
       .onConflictDoUpdate({
         target: memory_entities.id,
+        // Scope the UPDATE to the caller's tenant so a caller-supplied id
+        // collision can't overwrite another tenant's memory row.
+        setWhere: this.tenantEq(memory_entities.tenant_id),
         set: {
           name: values.name,
           entity_type: values.entity_type,
@@ -320,6 +323,7 @@ export class DrizzleMemoryStore implements MemoryStore {
       .values({ ...this.tenantValues, ...values })
       .onConflictDoUpdate({
         target: memory_relationships.id,
+        setWhere: this.tenantEq(memory_relationships.tenant_id),
         set: {
           source_id: values.source_id,
           target_id: values.target_id,
@@ -393,6 +397,7 @@ export class DrizzleMemoryStore implements MemoryStore {
       .values({ ...this.tenantValues, ...values })
       .onConflictDoUpdate({
         target: memory_episodes.id,
+        setWhere: this.tenantEq(memory_episodes.tenant_id),
         set: {
           topic: values.topic,
           messages: values.messages,
@@ -437,6 +442,7 @@ export class DrizzleMemoryStore implements MemoryStore {
         .values({ ...this.tenantValues, ...values })
         .onConflictDoUpdate({
           target: memory_facts.id,
+          setWhere: this.tenantEq(memory_facts.tenant_id),
           set: {
             content: values.content,
             source_episode_ids: values.source_episode_ids,
@@ -502,6 +508,14 @@ export class DrizzleMemoryStore implements MemoryStore {
           sql`${memory_facts.tags} ?| ARRAY[${sql.join(filter.tags.map((tag) => sql`${tag}`), sql`, `)}]::text[]`,
         );
       }
+      if (filter.exclude_tags && filter.exclude_tags.length > 0) {
+        // Negated `?|`: keep only facts that share NO element with the excluded
+        // set. Used to keep quarantined/poisoned lessons out of retrieval and
+        // consolidation. Same bound-param construction as the tags filter.
+        conditions.push(
+          sql`NOT (${memory_facts.tags} ?| ARRAY[${sql.join(filter.exclude_tags.map((tag) => sql`${tag}`), sql`, `)}]::text[])`,
+        );
+      }
       // Lesson-isolation boundary: tenant A's tagged facts must never match
       // tenant B's retrieval. Always last so it ANDs with every other filter.
       const t = this.tenantEq(memory_facts.tenant_id);
@@ -536,6 +550,7 @@ export class DrizzleMemoryStore implements MemoryStore {
       .values({ ...this.tenantValues, ...values })
       .onConflictDoUpdate({
         target: memory_themes.id,
+        setWhere: this.tenantEq(memory_themes.tenant_id),
         set: {
           label: values.label,
           description: values.description,

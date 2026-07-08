@@ -103,6 +103,24 @@ describe('Conflict Resolution Policies', () => {
     expect(negativeFact?.invalidated_by).toBeUndefined();
   });
 
+  // 4b. A NEWER positive correction survives a STALE negation (poisoning guard):
+  // "X is not safe" (old) must not invalidate a later "X is safe" (new).
+  it('negation-invalidates-positive: newer positive correction beats a stale negation', async () => {
+    const staleNegation = makeFact({ content: 'Endpoint is not safe to call', entity_ids: [ENTITY_A], valid_from: daysAgo(30) });
+    const newerPositive = makeFact({ content: 'Endpoint is safe to call', entity_ids: [ENTITY_A], valid_from: daysAgo(1) });
+    await store.putFact(staleNegation);
+    await store.putFact(newerPositive);
+
+    const conflict: Conflict = { factA: staleNegation, factB: newerPositive, type: 'negation', confidence: 0.8 };
+    const detector = new ConflictDetector(store, index);
+    const report = await detector.autoResolveAll([conflict], 'negation-invalidates-positive');
+
+    expect(report.resolved).toBe(1);
+    // The newer positive correction survives; the stale negation is invalidated.
+    expect((await store.getFact(newerPositive.id))?.invalidated_by).toBeUndefined();
+    expect((await store.getFact(staleNegation.id))?.invalidated_by).toBe(newerPositive.id);
+  });
+
   // 5. negation-invalidates-positive with supersession: uses temporal order (newer kept)
   it('negation-invalidates-positive uses temporal order for supersession', async () => {
     const older = makeFact({ content: 'Alice works at Acme Corp', entity_ids: [ENTITY_A], valid_from: daysAgo(30) });
@@ -247,9 +265,14 @@ describe('Conflict Resolution Policies', () => {
     const report2 = await detector.autoResolveAll([conflict], 'manual-review');
     expect(report2.details[0].action).toContain('manual review');
 
-    // Restore and test negation-invalidates-positive action
+    // Restore and test negation-invalidates-positive action. The negation here
+    // ("no longer works") is the NEWER fact, so it wins on recency — the action
+    // now reports the actual reason (recency), not a blanket "negation kept".
     await store.putFact(older); // restore
     const report3 = await detector.autoResolveAll([conflict], 'negation-invalidates-positive');
-    expect(report3.details[0].action).toContain('negation kept');
+    expect(report3.details[0].action).toContain('newer fact kept');
+    // And the positive (older) fact is the one invalidated.
+    const invalidated = await store.getFact(older.id);
+    expect(invalidated?.invalidated_by).toBe(newer.id);
   });
 });

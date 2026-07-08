@@ -9,7 +9,7 @@
  */
 
 import type { CompressionStage, PromptSegment, StageContext } from '../../pipeline/types.js';
-import { fnv1a } from './exact.js';
+import { fnv1a, isStructuredContent } from './exact.js';
 
 export interface FuzzyDedupResult {
   /** Items after deduplication. */
@@ -296,14 +296,19 @@ export function createFuzzyDedupStage(options?: FuzzyDedupOptions): CompressionS
     name: 'fuzzy-dedup',
     scope: 'cross-segment' as const,
     execute(segments: PromptSegment[], _context: StageContext) {
-      // Collect all paragraphs with their segment origin
+      // Collect all paragraphs with their segment origin. Structured segments
+      // (JSON / CSV) are excluded from the dedup pool entirely — dropping a
+      // near-duplicate structural line would corrupt them — and passed through
+      // unchanged during reassembly.
       const allParagraphs: { segIdx: number; text: string }[] = [];
-      const segmentMeta: { hasDoubleLine: boolean }[] = [];
+      const segmentMeta: { hasDoubleLine: boolean; structured: boolean }[] = [];
 
       for (let i = 0; i < segments.length; i++) {
         const seg = segments[i];
+        const structured = isStructuredContent(seg.content);
         const hasDoubleLine = seg.content.includes('\n\n');
-        segmentMeta.push({ hasDoubleLine });
+        segmentMeta.push({ hasDoubleLine, structured });
+        if (structured) continue;
         const paragraphs = hasDoubleLine ? seg.content.split('\n\n') : seg.content.split('\n');
         for (const para of paragraphs) {
           allParagraphs.push({ segIdx: i, text: para });
@@ -338,6 +343,8 @@ export function createFuzzyDedupStage(options?: FuzzyDedupOptions): CompressionS
       }
 
       const output = segments.map((seg, i) => {
+        // Structured segments were never added to the pool — return them as-is.
+        if (segmentMeta[i].structured) return seg;
         const kept = keptBySegment.get(i) ?? [];
         const separator = segmentMeta[i].hasDoubleLine ? '\n\n' : '\n';
         return { ...seg, content: kept.join(separator) };

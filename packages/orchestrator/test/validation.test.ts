@@ -75,6 +75,15 @@ describe('Graph Validation', () => {
 
       expect(result.warnings.some(w => w.includes("read_keys includes '*'"))).toBe(false);
     });
+
+    test('warns when a node uses wildcard write_keys (symmetric to read side)', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].write_keys = ['*'];
+      const result = validateGraph(graph);
+
+      expect(result.valid).toBe(true); // allowed, just discouraged
+      expect(result.warnings.some(w => w.includes("'start'") && w.includes("write_keys includes '*'"))).toBe(true);
+    });
   });
 
   describe('start node validation', () => {

@@ -597,6 +597,49 @@ describe('Reducers', () => {
       expect(newState.memory_drops[0]).toMatchObject({ key: 'big', reason: 'oversized' });
     });
 
+    test('mergeParallelResultsReducer does NOT add tokens (runner _track_tokens is sole accountant)', () => {
+      // Regression guard for the fan-out double-count: the runner dispatches a
+      // separate _track_tokens for the same fan-out action, so if the reducer
+      // also added payload.total_tokens, total_tokens_used would be 2×.
+      const state = { ...createBaseState(), total_tokens_used: 500 };
+      const action: Action = {
+        id: uuidv4(),
+        idempotency_key: uuidv4(),
+        type: 'merge_parallel_results',
+        payload: { updates: { r: 'ok' }, total_tokens: 90 },
+        metadata: { node_id: 'test', timestamp: new Date(), attempt: 1 },
+      };
+      const newState = rootReducer(state, action);
+      expect(newState.total_tokens_used).toBe(500);
+      expect(newState.memory.r).toBe('ok');
+    });
+
+    test('mergeParallelResultsReducer merges _taint_registry append-only', () => {
+      // Regression guard for taint laundering: fan-out executors re-surface
+      // worker taint onto aggregate keys; a merge must preserve prior taint and
+      // add the new entries, never replace the registry wholesale.
+      const state: WorkflowState = {
+        ...createBaseState(),
+        memory: { _taint_registry: { existing_key: { source: 'mcp_tool', created_at: 't0' } } },
+      };
+      const action: Action = {
+        id: uuidv4(),
+        idempotency_key: uuidv4(),
+        type: 'merge_parallel_results',
+        payload: {
+          updates: {
+            node_results: [{ index: 0 }],
+            _taint_registry: { node_results: { source: 'derived', agent_id: 'fanout', created_at: 't1' } },
+          },
+        },
+        metadata: { node_id: 'fanout', timestamp: new Date(), attempt: 1 },
+      };
+      const newState = rootReducer(state, action);
+      const registry = newState.memory._taint_registry as Record<string, unknown>;
+      expect(registry.existing_key).toBeDefined();
+      expect(registry.node_results).toMatchObject({ source: 'derived' });
+    });
+
     test('records non-serializable values as memory drops', () => {
       const state = createBaseState();
       const circular: Record<string, unknown> = {};

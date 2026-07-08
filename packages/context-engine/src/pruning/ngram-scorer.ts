@@ -66,9 +66,16 @@ export function createNGramScorer(options?: NGramScorerOptions): TokenScorer {
         return totalSurprisal / ngrams.length;
       });
 
-      // Min-max normalize to [0,1]
-      const min = Math.min(...rawScores);
-      const max = Math.max(...rawScores);
+      // Min-max normalize to [0,1]. Compute with a loop, NOT Math.min(...spread)
+      // — at token granularity `rawScores` can hold hundreds of thousands of
+      // entries, and spreading that many args overflows the call stack (turning
+      // the pruner into a silent passthrough on exactly its largest inputs).
+      let min = Infinity;
+      let max = -Infinity;
+      for (const s of rawScores) {
+        if (s < min) min = s;
+        if (s > max) max = s;
+      }
 
       const scored: ScoredToken[] = units.map((unit, i) => ({
         text: unit.text,

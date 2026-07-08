@@ -69,6 +69,14 @@ export class DrizzleMCPServerRegistry implements MCPServerRegistry {
       })
       .onConflictDoUpdate({
         target: mcp_servers.id,
+        // SECURITY: `mcp_servers.id` is a caller-supplied global PK (e.g.
+        // "github"). Without this tenant guard, tenant B calling
+        // saveServer({id:"github"}) would overwrite tenant A's transport — the
+        // command/URL connectToServer later spawns. `setWhere` scopes the
+        // UPDATE to the caller's own row; a cross-tenant id collision becomes a
+        // no-op instead of a clobber. (Follow-up: composite PK (tenant_id, id)
+        // would let B keep its own "github" row rather than silently no-op.)
+        setWhere: this.tenantEq(mcp_servers.tenant_id),
         set: {
           name: v.name,
           description: v.description ?? null,

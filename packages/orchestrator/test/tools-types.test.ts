@@ -201,6 +201,15 @@ describe('MCPTransportConfigSchema', () => {
       ['IPv6 link-local', 'http://[fe80::1]/'],
       ['IPv6 ULA', 'http://[fd00::1]/'],
       ['non-http scheme', 'ftp://example.com/'],
+      // Non-dotted-quad encodings of 127.0.0.1 / metadata that getaddrinfo
+      // still resolves — must not bypass the guard.
+      ['decimal-encoded loopback', 'http://2130706433/'],
+      ['hex-encoded loopback', 'http://0x7f000001/'],
+      ['octal-encoded loopback', 'http://0177.0.0.1/'],
+      ['short-form loopback', 'http://127.1/'],
+      ['decimal-encoded metadata', 'http://2852039166/'],
+      ['IPv4-mapped IPv6 hex loopback', 'http://[::ffff:7f00:1]/'],
+      ['IPv4-mapped IPv6 dotted metadata', 'http://[::ffff:169.254.169.254]/'],
     ] as const;
 
     for (const [label, url] of blocked) {

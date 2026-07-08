@@ -338,6 +338,11 @@ export class GraphRunner extends EventEmitter {
   private readonly autoRollback: boolean;
   private readonly allowImplicitCompletion: boolean;
 
+  // Routing options derived from the graph, forwarded to every getNextNode
+  // call. `strict_taint` makes edge conditions that reference tainted memory
+  // keys evaluate false, so a run never routes on untrusted data.
+  private readonly routingOptions: { strict_taint: boolean };
+
   // Budget-aware model resolver (optional)
   private readonly modelResolver?: ModelResolver;
 
@@ -431,6 +436,7 @@ export class GraphRunner extends EventEmitter {
     // Build O(1) lookup structures (edgeMap shape owned by router.ts)
     this.nodeMap = new Map(graph.nodes.map(n => [n.id, n]));
     this.edgeMap = buildEdgeMap(graph);
+    this.routingOptions = { strict_taint: graph.strict_taint === true };
 
     // Wire budget monitor with push-via-callback (preserves yield ordering).
     this.budget = new BudgetMonitor({
@@ -848,9 +854,24 @@ export class GraphRunner extends EventEmitter {
     yield* this.drainPendingEvents();
 
     // Log workflow_started event. Carries the reducer replay version so
-    // recovery can detect logs written under different reducer semantics.
+    // recovery can detect logs written under different reducer semantics, plus
+    // the run's limits/config — the event log is otherwise the ONLY record of
+    // them, and crash recovery from the log (no checkpoint) would otherwise
+    // resume with default limits (no token budget, max_iterations 50), silently
+    // disabling budget/iteration/timeout enforcement post-recovery.
     this.appendEvent('workflow_started', {
-      internal_payload: { replay_version: REPLAY_VERSION },
+      internal_payload: {
+        replay_version: REPLAY_VERSION,
+        config: {
+          goal: this.state.goal,
+          constraints: this.state.constraints,
+          max_iterations: this.state.max_iterations,
+          max_execution_time_ms: this.state.max_execution_time_ms,
+          max_retries: this.state.max_retries,
+          ...(this.state.max_token_budget !== undefined ? { max_token_budget: this.state.max_token_budget } : {}),
+          ...(this.state.budget_usd !== undefined ? { budget_usd: this.state.budget_usd } : {}),
+        },
+      },
     });
 
     // The `workflow.run` span is established by run(); stream() consumers can
@@ -914,7 +935,7 @@ export class GraphRunner extends EventEmitter {
             yield* this.drainPendingEvents();
             break;
           }
-          const skipNext = getNextNode(this.edgeMap, this.nodeMap, currentNode, this.state);
+          const skipNext = getNextNode(this.edgeMap, this.nodeMap, currentNode, this.state, this.routingOptions);
           if (!skipNext) {
             this.dispatchInternal('_complete');
             await this.persistState();
@@ -1128,6 +1149,18 @@ export class GraphRunner extends EventEmitter {
             await this.budget.checkThresholds(this.state);
             yield* this.drainPendingEvents();
           }
+          // Attribute this call's tokens/cost to its model for per-model
+          // billing rollups. Tracked even when cost is 0 (unknown pricing or
+          // local models) so token usage is still attributed.
+          const model = action.metadata.model;
+          if (model && (inputTokens > 0 || outputTokens > 0)) {
+            this.dispatchInternal('_track_model_usage', {
+              model,
+              input_tokens: inputTokens,
+              output_tokens: outputTokens,
+              cost_usd: actionCostUsd,
+            });
+          }
         }
 
         // Enforce per-node budget (max_tokens / max_cost_usd). Stops the
@@ -1269,7 +1302,7 @@ export class GraphRunner extends EventEmitter {
         // Determine next node from outgoing edges. We already returned above
         // if this were an end node, so reaching here with no match is a
         // dead-end: fail loud instead of silently "completing" a partial run.
-        let nextNode = getNextNode(this.edgeMap, this.nodeMap, currentNode, this.state);
+        let nextNode = getNextNode(this.edgeMap, this.nodeMap, currentNode, this.state, this.routingOptions);
         if (!nextNode) {
           if (this.allowImplicitCompletion) {
             logger.info('execution_complete', { graph_id: this.graph.id, run_id: this.state.run_id });
@@ -1600,6 +1633,12 @@ export class GraphRunner extends EventEmitter {
       if (cost > 0) {
         this.dispatchInternal('_track_cost', { cost_usd: cost });
       }
+      this.dispatchInternal('_track_model_usage', {
+        model: usage.model,
+        input_tokens: usage.inputTokens ?? 0,
+        output_tokens: usage.outputTokens ?? 0,
+        cost_usd: cost,
+      });
     }
   }
 
@@ -1883,7 +1922,7 @@ export class GraphRunner extends EventEmitter {
       // Approved: advance to the next node from the approval node.
       const approvalNode = this.graph.nodes.find(n => n.id === pendingApproval?.node_id);
       if (approvalNode) {
-        const nextNode = getNextNode(this.edgeMap, this.nodeMap, approvalNode, this.state);
+        const nextNode = getNextNode(this.edgeMap, this.nodeMap, approvalNode, this.state, this.routingOptions);
         if (nextNode) {
           this.dispatchInternal('_advance', { node_id: nextNode.id });
         }

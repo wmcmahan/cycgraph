@@ -94,29 +94,34 @@ export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
  * breaker for nodes that call unreliable external services.
  */
 export const FailurePolicySchema = z.object({
-  /** Maximum retry attempts before the node fails. */
-  max_retries: z.number().default(3),
+  /**
+   * Maximum retry attempts before the node fails. Bounded to [0, 10]: each
+   * attempt is an LLM call, so an unbounded value (`1e9`, `Infinity`) is the
+   * sharpest cost/budget-exhaustion lever a malicious or LLM-authored graph
+   * has. `.int()` also rejects `NaN`/floats.
+   */
+  max_retries: z.number().int().min(0).max(10).default(3),
   /** Backoff strategy between retries. */
   backoff_strategy: z.enum(['linear', 'exponential', 'fixed']).default('exponential'),
-  /** Initial delay between retries in milliseconds. */
-  initial_backoff_ms: z.number().default(1000),
+  /** Initial delay between retries in milliseconds. Bounded so a pathological value can't stall the scheduler. */
+  initial_backoff_ms: z.number().int().min(0).max(600_000).default(1000),
   /** Maximum delay between retries in milliseconds. */
-  max_backoff_ms: z.number().default(60000),
+  max_backoff_ms: z.number().int().min(0).max(3_600_000).default(60000),
 
   /** Circuit breaker (trip after repeated failures, auto-recover). */
   circuit_breaker: z.object({
     /** Whether the circuit breaker is enabled. */
     enabled: z.boolean().default(false),
     /** Open the circuit after this many consecutive failures. */
-    failure_threshold: z.number().default(5),
+    failure_threshold: z.number().int().min(1).max(1000).default(5),
     /** Close the circuit after this many consecutive successes. */
-    success_threshold: z.number().default(2),
+    success_threshold: z.number().int().min(1).max(1000).default(2),
     /** Half-open probe timeout in milliseconds. */
-    timeout_ms: z.number().default(60000),
+    timeout_ms: z.number().int().min(0).max(3_600_000).default(60000),
   }).optional(),
 
   /** Per-node execution timeout in milliseconds. */
-  timeout_ms: z.number().optional(),
+  timeout_ms: z.number().int().positive().max(86_400_000).optional(),
 });
 
 export type FailurePolicy = z.infer<typeof FailurePolicySchema>;
@@ -274,9 +279,9 @@ export type VotingConfig = z.infer<typeof VotingConfigSchema>;
  */
 export const SwarmConfigSchema = z.object({
   /** Node IDs of peer agents in the swarm. */
-  peer_nodes: z.array(z.string()),
-  /** Maximum handoffs before forcing completion. */
-  max_handoffs: z.number().min(1).default(10),
+  peer_nodes: z.array(z.string()).max(1000),
+  /** Maximum handoffs before forcing completion. Each handoff is an LLM turn, so it's capped. */
+  max_handoffs: z.number().int().min(1).max(1000).default(10),
   /** How peers are selected for handoff. */
   handoff_mode: z.enum(['agent_choice']).default('agent_choice'),
 });
@@ -425,7 +430,9 @@ export type VerifierExpressionConfig = z.infer<typeof VerifierExpressionConfigSc
 export const VerifierJsonPathAssertionSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('exists') }),
   z.object({ op: z.literal('equals'), value: z.unknown() }),
-  z.object({ op: z.literal('matches'), pattern: z.string() }),
+  // Pattern length is bounded to limit ReDoS surface; the matched value is
+  // also length-capped at runtime (see safeRegexTest in verifier.ts).
+  z.object({ op: z.literal('matches'), pattern: z.string().max(1000) }),
   z.object({ op: z.literal('gt'), value: z.number() }),
   z.object({ op: z.literal('gte'), value: z.number() }),
   z.object({ op: z.literal('lt'), value: z.number() }),
@@ -710,9 +717,9 @@ export const GraphNodeSchema = z.object({
    * Use `['*']` to grant full memory access (a validation warning flags it,
    * since it defeats state slicing). Supports dot-notation for nested keys.
    */
-  read_keys: z.array(z.string()).default([]),
+  read_keys: z.array(z.string()).max(1000).default([]),
   /** Memory keys this node may write (empty = deny-all). */
-  write_keys: z.array(z.string()).default([]),
+  write_keys: z.array(z.string()).max(1000).default([]),
   /**
    * Default memory key for orchestrator-managed text output.
    *
@@ -766,16 +773,19 @@ export const GraphSchema = z.object({
   description: z.string(),
 
   // ── Structure ──
+  // Arrays are capped so an oversized (untrusted / LLM-authored) graph can't
+  // force O(N+E) validation + Map/Set allocation over an unbounded structure
+  // before any publish gate runs. 10k nodes/edges is far beyond any real graph.
   /** All nodes in the graph. */
-  nodes: z.array(GraphNodeSchema),
+  nodes: z.array(GraphNodeSchema).max(10_000),
   /** Directed edges between nodes. */
-  edges: z.array(GraphEdgeSchema),
+  edges: z.array(GraphEdgeSchema).max(10_000),
 
   // ── Entry / Exit ──
   /** ID of the first node to execute. */
   start_node: z.string(),
   /** Terminal node IDs. */
-  end_nodes: z.array(z.string()),
+  end_nodes: z.array(z.string()).max(10_000),
 
   /**
    * When `true`, reject routing decisions that reference tainted memory keys.

@@ -183,4 +183,15 @@ describe('createNGramScorer', () => {
     expect(iToken).toBeDefined();
     expect(iToken!.score).toBeGreaterThanOrEqual(0);
   });
+
+  it('handles a very large input without a stack overflow', () => {
+    // At token granularity this produces hundreds of thousands of scores;
+    // Math.min(...spread) over that many args would throw RangeError (and the
+    // pipeline would silently stop pruning). The loop-based min/max must cope.
+    const tokenScorer = createNGramScorer({ granularity: 'token' });
+    const huge = 'word '.repeat(200_000);
+    expect(() => tokenScorer.score(huge)).not.toThrow();
+    const result = tokenScorer.score(huge);
+    expect(result.length).toBeGreaterThan(100_000);
+  });
 });

@@ -154,6 +154,10 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
       updated_at: now,
     }).onConflictDoUpdate({
       target: graphs.id,
+      // SECURITY: `graphs.id` is a caller-supplied global PK, and `definition`
+      // drives execution. Scope the UPDATE to the caller's tenant so tenant B
+      // can't overwrite tenant A's graph by supplying A's id.
+      setWhere: this.tenantEq(graphs.tenant_id),
       set: {
         name: graph.name,
         description: graph.description,
@@ -209,6 +213,9 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
       completed_at: isTerminal ? new Date() : null,
     }).onConflictDoUpdate({
       target: workflow_runs.id,
+      // Scope the UPDATE to the caller's tenant so a run id collision can't
+      // flip another tenant's run status.
+      setWhere: this.tenantEq(workflow_runs.tenant_id),
       set: {
         status,
         completed_at: isTerminal ? new Date() : null,
@@ -386,6 +393,8 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
           completed_at: isTerminal ? new Date() : null,
         }).onConflictDoUpdate({
           target: workflow_runs.id,
+          // Scope the UPDATE to the caller's tenant (see saveWorkflowRun).
+          setWhere: this.tenantEq(workflow_runs.tenant_id),
           set: {
             status,
             completed_at: isTerminal ? new Date() : null,

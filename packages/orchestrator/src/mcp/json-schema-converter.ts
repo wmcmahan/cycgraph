@@ -42,6 +42,14 @@ export interface JSONSchema {
 const logger = createLogger('mcp.schema');
 
 /**
+ * MCP tool schemas come from an untrusted server manifest. Bound the recursion
+ * depth and per-object breadth so a hostile deep/wide schema can't drive
+ * unbounded recursion or allocation while being converted.
+ */
+const MAX_SCHEMA_DEPTH = 32;
+const MAX_SCHEMA_PROPERTIES = 1000;
+
+/**
  * Convert a JSON Schema object to a Zod schema.
  *
  * This is the public entry point. It delegates to type-specific converters
@@ -51,10 +59,20 @@ const logger = createLogger('mcp.schema');
  * @returns Equivalent Zod schema for AI SDK compatibility.
  */
 export function jsonSchemaToZod(schema: JSONSchema): z.ZodType {
+  return convertWithDepth(schema, 0);
+}
+
+function convertWithDepth(schema: JSONSchema, depth: number): z.ZodType {
+  // Past the depth cap, stop recursing and accept anything. This bounds a
+  // hostile deeply-nested manifest without throwing.
+  if (depth >= MAX_SCHEMA_DEPTH) {
+    logger.warn('schema_depth_exceeded', { depth });
+    return z.any();
+  }
   try {
     switch (schema.type) {
       case 'object':
-        return convertObjectSchema(schema);
+        return convertObjectSchema(schema, depth);
 
       case 'string':
         return convertStringSchema(schema);
@@ -67,7 +85,7 @@ export function jsonSchemaToZod(schema: JSONSchema): z.ZodType {
         return z.boolean();
 
       case 'array':
-        return convertArraySchema(schema);
+        return convertArraySchema(schema, depth);
 
       default:
         logger.warn('unsupported_schema_type', { type: schema.type });
@@ -85,13 +103,19 @@ export function jsonSchemaToZod(schema: JSONSchema): z.ZodType {
  * Recursively converts each property, applies `.describe()` if a
  * description is present, and marks non-required properties as `.optional()`.
  */
-function convertObjectSchema(schema: JSONSchema): z.ZodObject<Record<string, z.ZodType>> {
+function convertObjectSchema(schema: JSONSchema, depth: number): z.ZodObject<Record<string, z.ZodType>> {
   const shape: Record<string, z.ZodType> = {};
   const properties = schema.properties ?? {};
   const required = schema.required ?? [];
 
-  for (const [key, propSchema] of Object.entries(properties)) {
-    let zodType = jsonSchemaToZod(propSchema);
+  // Cap the number of properties converted from an untrusted manifest.
+  const entries = Object.entries(properties).slice(0, MAX_SCHEMA_PROPERTIES);
+  if (Object.keys(properties).length > MAX_SCHEMA_PROPERTIES) {
+    logger.warn('schema_properties_capped', { count: Object.keys(properties).length, cap: MAX_SCHEMA_PROPERTIES });
+  }
+
+  for (const [key, propSchema] of entries) {
+    let zodType = convertWithDepth(propSchema, depth + 1);
 
     if (propSchema.description) {
       zodType = zodType.describe(propSchema.description);
@@ -126,10 +150,10 @@ function convertStringSchema(schema: JSONSchema): z.ZodType {
  *
  * Falls back to `z.array(z.any())` if no `items` schema is specified.
  */
-function convertArraySchema(schema: JSONSchema): z.ZodArray<z.ZodType> {
+function convertArraySchema(schema: JSONSchema, depth: number): z.ZodArray<z.ZodType> {
   if (!schema.items) {
     return z.array(z.any());
   }
 
-  return z.array(jsonSchemaToZod(schema.items));
+  return z.array(convertWithDepth(schema.items, depth + 1));
 }

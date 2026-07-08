@@ -172,6 +172,41 @@ async function runVerification(
   }
 }
 
+/** Longest input a verifier regex is tested against (bounds polynomial-ReDoS worst case). */
+const MAX_REGEX_INPUT = 10_000;
+
+/**
+ * Heuristic detector for the classic *exponential* ReDoS shape: a group whose
+ * last token is an unbounded quantifier and which is itself quantified —
+ * `(a+)+`, `(a*)*`, `(.+)+`, `(\d+){2,}`, etc. Catastrophic backtracking is
+ * undecidable in general, so this is not exhaustive, but it blocks the common
+ * exploit shapes that a length cap alone cannot (they explode at ~30 chars,
+ * far below any usable input cap).
+ */
+function hasNestedQuantifier(pattern: string): boolean {
+  return /[+*}]\s*\)\s*[+*]/.test(pattern) || /[+*}]\s*\)\s*\{\d*,?\d*\}/.test(pattern);
+}
+
+/**
+ * Test a user/architect-supplied regex against a (possibly tainted) value with
+ * ReDoS mitigations. The pattern length is schema-bounded; here we additionally
+ * (a) refuse nested-quantifier patterns outright (fail closed) so exponential
+ * backtracking can never run against a tainted value on the shared worker, and
+ * (b) cap the matched input to bound the remaining polynomial cases. Invalid or
+ * dangerous patterns simply cause the assertion to fail.
+ */
+function safeRegexTest(pattern: string, value: string): boolean {
+  if (hasNestedQuantifier(pattern)) {
+    logger.warn('verifier.regex_rejected_redos', { pattern });
+    return false;
+  }
+  try {
+    return new RegExp(pattern).test(value.slice(0, MAX_REGEX_INPUT));
+  } catch {
+    return false;
+  }
+}
+
 function evaluateAssertion(value: unknown, assertion: VerifierJsonPathAssertion): boolean {
   switch (assertion.op) {
     case 'exists':
@@ -179,7 +214,7 @@ function evaluateAssertion(value: unknown, assertion: VerifierJsonPathAssertion)
     case 'equals':
       return value === assertion.value;
     case 'matches':
-      return typeof value === 'string' && new RegExp(assertion.pattern).test(value);
+      return typeof value === 'string' && safeRegexTest(assertion.pattern, value);
     case 'gt':
       return typeof value === 'number' && value > assertion.value;
     case 'gte':

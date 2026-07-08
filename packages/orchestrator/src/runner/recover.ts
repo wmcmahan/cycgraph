@@ -118,6 +118,14 @@ export async function recoverGraphRunner(
     // event (sequence 0 is the run's _init dispatch).
     validateEventContiguity(runId, events, -1);
 
+    // Recover the run's limits/config from the `workflow_started` event. The
+    // event log is the only record of them without a checkpoint; falling back
+    // to defaults here would silently disable budget/iteration/timeout
+    // enforcement after recovery. Older logs (pre-config) fall back to the
+    // schema defaults, matching the prior behavior.
+    const startedEvent = events.find(e => e.event_type === 'workflow_started');
+    const cfg = (startedEvent?.internal_payload?.config ?? {}) as Partial<WorkflowState>;
+
     // Minimal pending state the reducers will transform into the
     // reconstructed state.
     startState = {
@@ -125,20 +133,23 @@ export async function recoverGraphRunner(
       workflow_id: graph.id,
       run_id: runId,
       status: 'pending',
-      goal: '',
-      constraints: [],
+      goal: cfg.goal ?? '',
+      constraints: cfg.constraints ?? [],
       memory: {},
       iteration_count: 0,
       retry_count: 0,
-      max_retries: 3,
+      max_retries: cfg.max_retries ?? 3,
       total_tokens_used: 0,
       total_input_tokens: 0,
       total_output_tokens: 0,
       total_cost_usd: 0,
+      model_breakdown: {},
       _cost_alert_thresholds_fired: [],
       visited_nodes: [],
-      max_iterations: 50,
-      max_execution_time_ms: 3600000,
+      max_iterations: cfg.max_iterations ?? 50,
+      max_execution_time_ms: cfg.max_execution_time_ms ?? 3600000,
+      ...(cfg.max_token_budget !== undefined ? { max_token_budget: cfg.max_token_budget } : {}),
+      ...(cfg.budget_usd !== undefined ? { budget_usd: cfg.budget_usd } : {}),
       compensation_stack: [],
       supervisor_history: [],
       memory_drops: [],

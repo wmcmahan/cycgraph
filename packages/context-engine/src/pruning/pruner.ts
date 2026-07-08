@@ -15,10 +15,11 @@ import type { ScoredToken, TokenScorer, ScorerContext } from './types.js';
  * Prune scored tokens to fit within a token budget.
  *
  * Algorithm:
- * 1. Sort by score descending (most important first)
- * 2. Greedily select tokens until budget is reached
- * 3. Re-sort selected tokens by original offset
- * 4. Join preserving whitespace structure
+ * 1. Always keep `protected` tokens (e.g. negations) — never budget-dropped
+ * 2. Sort the rest by score descending (most important first)
+ * 3. Greedily select tokens until budget is reached
+ * 4. Re-sort selected tokens by original offset
+ * 5. Join preserving whitespace structure
  */
 export function pruneByScore(
   tokens: ScoredToken[],
@@ -28,14 +29,25 @@ export function pruneByScore(
 ): string {
   if (tokens.length === 0) return '';
 
-  // Sort by importance (highest first)
-  const sorted = [...tokens].sort((a, b) => b.score - a.score);
-
-  // Greedily select tokens within budget.
-  // Track running token count incrementally to avoid O(n^2) re-counting.
+  // Protected tokens are kept unconditionally: dropping a negation ("not",
+  // "never", …) inverts meaning, which is worse than slightly exceeding a
+  // soft budget. They're selected first and their cost is charged up front.
   const selected: ScoredToken[] = [];
   let runningCount = 0;
+  for (const token of tokens) {
+    if (token.protected) {
+      selected.push(token);
+      runningCount += counter.countTokens(token.text, model);
+    }
+  }
 
+  // Sort the remaining tokens by importance (highest first).
+  const sorted = tokens
+    .filter(t => !t.protected)
+    .sort((a, b) => b.score - a.score);
+
+  // Greedily select tokens within the remaining budget.
+  // Track running token count incrementally to avoid O(n^2) re-counting.
   for (const token of sorted) {
     const tokenCount = counter.countTokens(token.text, model);
     if (runningCount + tokenCount <= maxTokens) {

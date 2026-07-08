@@ -68,6 +68,30 @@ const STOP_WORDS = new Set([
   'really', 'truly', 'clearly', 'obviously', 'apparently', 'seemingly',
 ]);
 
+// ─── Negations (never pruned) ─────────────────────────────────────
+
+/**
+ * Closed-class negation/polarity words. Several also appear in STOP_WORDS
+ * (so they still score low for ranking), but they must never be *dropped*:
+ * removing "not" from "do not delete the database" inverts the meaning. The
+ * scorer marks these `protected` so the pruner keeps them regardless of budget.
+ * Matched case-insensitively on the token with surrounding punctuation stripped.
+ */
+const NEGATION_WORDS = new Set([
+  'not', 'no', 'never', 'none', 'neither', 'nor', 'without', 'cannot',
+  "can't", "cant", "don't", "dont", "doesn't", "doesnt", "didn't", "didnt",
+  "won't", "wont", "wouldn't", "wouldnt", "shouldn't", "shouldnt",
+  "couldn't", "couldnt", "isn't", "isnt", "aren't", "arent", "wasn't",
+  "wasnt", "weren't", "werent", "hasn't", "hasnt", "haven't", "havent",
+  "hadn't", "hadnt", 'nothing', 'nobody', 'nowhere',
+]);
+
+/** Whether a raw token (with edge punctuation) is a negation word. */
+function isNegation(trimmed: string): boolean {
+  const normalized = trimmed.toLowerCase().replace(/^[^\w']+|[^\w']+$/g, '');
+  return NEGATION_WORDS.has(normalized);
+}
+
 // ─── Filler Phrases ───────────────────────────────────────────────
 
 const FILLER_PHRASES = [
@@ -171,6 +195,12 @@ export function createHeuristicScorer(options?: HeuristicScorerOptions): TokenSc
         // Whitespace tokens: neutral score
         if (trimmed === '') {
           return { text, score: 0.5, offset };
+        }
+
+        // Negations must never be pruned — dropping "not"/"never" inverts
+        // meaning. Keep them protected and score high so order is preserved.
+        if (isNegation(trimmed)) {
+          return { text, score: 1.0, offset, protected: true };
         }
 
         // Check if inside a filler phrase range

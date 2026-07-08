@@ -23,6 +23,7 @@ import { buildAgentMemoryOptions } from './memory-options.js';
 import { checkCompositeBudget, logCompositeBudgetStop } from './budget-guard.js';
 import { combineAbortSignals } from '../../utils/abort.js';
 import { mapWithConcurrency } from '../../utils/concurrency.js';
+import { aggregateParallelTaint } from '../../utils/taint.js';
 
 const logger = createLogger('runner.node.evolution');
 
@@ -146,6 +147,10 @@ export async function executeEvolutionNode(
   // Losers count too: a fact retrieved into a losing candidate's prompt was
   // still trialled by this run.
   const lessonProvenance: Record<string, unknown> = {};
+  // Worker updates (across all generations) that carried taint. Any tainted
+  // candidate output means the winner/population blobs are derived from
+  // untrusted data, so the aggregate keys must be marked tainted too.
+  const taintedWorkerUpdates: Record<string, unknown>[] = [];
 
   // Elitism: the top `elite_count` candidates of each generation are carried
   // UNCHANGED into the next generation's pool — not re-generated and not
@@ -251,10 +256,20 @@ export async function executeEvolutionNode(
       // Strip the provenance registry from candidate output so the fitness
       // judge never sees registry noise and the winner blob stays clean;
       // union it into the node-level accumulator instead.
-      const { [LESSON_PROVENANCE_KEY]: candidateProvenance, ...candidateOutput } =
-        result.action.payload.updates as Record<string, unknown>;
+      const rawUpdates = result.action.payload.updates as Record<string, unknown>;
+      const { [LESSON_PROVENANCE_KEY]: candidateProvenance, ...candidateOutput } = rawUpdates;
       if (candidateProvenance && typeof candidateProvenance === 'object' && !Array.isArray(candidateProvenance)) {
         Object.assign(lessonProvenance, candidateProvenance);
+      }
+      // Record any worker taint so the winner/population keys inherit it below.
+      const candidateRegistry = rawUpdates._taint_registry;
+      if (
+        candidateRegistry &&
+        typeof candidateRegistry === 'object' &&
+        !Array.isArray(candidateRegistry) &&
+        Object.keys(candidateRegistry).length > 0
+      ) {
+        taintedWorkerUpdates.push({ _taint_registry: candidateRegistry });
       }
       const usage = result.action.metadata.token_usage;
       const actionInputTokens = usage?.inputTokens ?? 0;
@@ -396,6 +411,18 @@ export async function executeEvolutionNode(
     }
   }
 
+  // Re-surface worker taint onto the aggregate output keys derived from
+  // candidate output (mergeMemory treats `_taint_registry` append-only).
+  const taintUpdates = aggregateParallelTaint(
+    taintedWorkerUpdates,
+    [
+      `${node.id}_winner`,
+      `${node.id}_winner_reasoning`,
+      `${node.id}_population`,
+    ],
+    node.id,
+  );
+
   return {
     id: uuidv4(),
     idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
@@ -421,6 +448,9 @@ export async function executeEvolutionNode(
         [`${node.id}_budget_stopped`]: budgetStopped,
         ...(Object.keys(lessonProvenance).length > 0
           ? { [LESSON_PROVENANCE_KEY]: lessonProvenance }
+          : {}),
+        ...(Object.keys(taintUpdates).length > 0
+          ? { _taint_registry: taintUpdates }
           : {}),
       },
       total_tokens: totalTokens,

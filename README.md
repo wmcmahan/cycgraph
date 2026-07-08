@@ -2,12 +2,12 @@
 
 # cycgraph
 
-**Agent workflows that get smarter every run.**
+**A TypeScript engine for cyclic LLM agent workflows with durable execution and cross-run memory.**
 
 [![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?label=%40cycgraph%2Forchestrator&color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
 [![CI](https://github.com/wmcmahan/cycgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/wmcmahan/cycgraph/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io)
 
 [📚 Documentation](https://flattop.io) &nbsp;·&nbsp; [📈 Compound Learning Benchmark](./packages/evals/examples/compound-learning-benchmark/) &nbsp;·&nbsp; [🧪 Examples](./packages/orchestrator/examples/) &nbsp;·&nbsp; [🐛 Issues](https://github.com/wmcmahan/cycgraph/issues)
@@ -16,69 +16,11 @@
 
 ---
 
-**cycgraph** is a TypeScript orchestration engine where workflows **learn from their own runs**. A `reflection` node distills each run's output into atomic lessons; a memory store persists them; and every future run retrieves them automatically into its prompts. The loop is measurable, reproducible, and guarded by production-safety primitives — per-node budgets, taint tracking, and human-in-the-loop gates — so letting a workflow improve itself doesn't mean letting it off the leash.
+**cycgraph** is a TypeScript orchestration engine for cyclic LLM agent workflows — loops, conditional routing, parallel fan-out, and nested subgraphs are native operations. Runs are durable (event-sourced replay, atomic state snapshots) and bounded by production-safety primitives: per-node budgets, zero-trust state slicing, taint tracking, and human-in-the-loop gates. Optional cross-run memory lets a `reflection` node distill lessons from one run that later runs retrieve automatically.
 
-And it's *measured*, not just animated — same model, same five topics, same order:
+## Safety primitives
 
-<div align="center">
-
-<img src="./packages/evals/examples/compound-learning-benchmark/chart.svg" alt="Fitness per run: a learning workflow climbs from 0.00 to 1.00 over five runs while an identical no-learning control stays flat" width="720"/>
-
-</div>
-
-The solid line above is a `research → critique → reflect` workflow whose researcher retrieves accumulated lessons before every run; the dashed line is the identical researcher with the loop disabled. Fitness is scored *outside* the workflow — half deterministic rubric checks, half a multi-sample LLM judge — and the agents never see the rubric or their scores. In our first recorded run the learning workflow went **0.00 → 1.00 in five runs** while the control averaged 0.18. Reproduce it for under $1: [`packages/evals/examples/compound-learning-benchmark`](./packages/evals/examples/compound-learning-benchmark/).
-
-
-## How the learning loop works
-
-```typescript
-import { GraphRunner, createGraph, createWorkflowState } from '@cycgraph/orchestrator';
-
-const graph = createGraph({
-  name: 'Learning Research Agent',
-  description: 'Researches a topic, reflects on lessons, compounds across runs',
-  nodes: [
-    {
-      id: 'research',
-      type: 'agent',
-      agent_id: RESEARCHER,
-      read_keys: ['goal'],
-      write_keys: ['notes'],
-      memory_query: { tags: ['lesson:research-v1'], max_facts: 20 },  // ← lessons in
-      budget: { max_cost_usd: 0.10 },                                  // ← hard cost cap
-    },
-    {
-      id: 'reflect',
-      type: 'reflection',                                              // ← lessons out
-      read_keys: ['notes'],
-      write_keys: ['reflect_reflection'],
-      reflection_config: {
-        source_keys: ['notes'],
-        extractor: { type: 'rule_based', min_sentence_length: 25 },
-        tags: ['lesson', 'lesson:research-v1'],
-      },
-    },
-  ],
-  edges: [{ source: 'research', target: 'reflect' }],
-  start_node: 'research',
-  end_nodes: ['reflect'],
-});
-
-const runner = (goal: string) => new GraphRunner(
-  graph,
-  createWorkflowState({ workflow_id: graph.id, goal }),
-  { memoryWriter, memoryRetriever },
-);
-
-await runner('Evaluating scientific source credibility').run();
-await runner('Evaluating news source credibility').run();  // run 2 knows what run 1 learned
-```
-
-The `reflection` node distills run output into tagged facts via your `memoryWriter`; any node carrying a `memory_query` gets matching facts rendered into a `## Relevant Memory` section of its prompt before execution — zero manual injection. Full runnable version with the memory adapters: [`examples/learning-research-agent`](./packages/orchestrator/examples/learning-research-agent/).
-
-## Guardrails that make self-improvement shippable
-
-A workflow that changes its own behavior needs harder rails than one that doesn't. These are first-class, not middleware:
+First-class node/graph configuration for running agents with guardrails, not middleware:
 
 - **Per-node budgets** — `budget: { max_tokens, max_cost_usd }` on every node. A runaway agent can't drain the workflow.
 - **Zero-trust state slicing** — `read_keys` / `write_keys` default to `[]`; every node sees only what it declares. The engine rejects undeclared writes.
@@ -87,17 +29,6 @@ A workflow that changes its own behavior needs harder rails than one that doesn'
 - **Eval-gated retention (verified lessons)** — lessons enter on trial and are kept only if runs that used them verifiably scored better; harmful ones are evicted on outcome evidence alone. In the [adversarial demo](./packages/evals/examples/eval-gated-learning/), three deliberately poisoned lessons cratered a run and the gate evicted all three two runs later — no human touched the store.
 - **Human-in-the-loop gates** — pause for approval and resume hours later from the exact checkpoint, surviving process restarts.
 - **MCP server registry** — stdio transports restricted to an allowlist, http/sse URLs SSRF-guarded, schemas re-validated on every read/write.
-
-## What makes cycgraph different
-
-| | cycgraph | Most agent frameworks |
-|---|---|---|
-| **Compound learning across runs** | First-class `reflection` node + `MemoryWriter` + tag-scoped retrieval, with a [reproducible benchmark](./packages/evals/examples/compound-learning-benchmark/). Agents that ran yesterday inform agents that run today. | Usually a separate vector-store integration you wire yourself |
-| **Per-node resource budgets** | `budget: { max_tokens, max_cost_usd }` on every node | Typically workflow-wide caps |
-| **Zero-trust state slicing** | Every node declares `read_keys` / `write_keys`. Taint tracking on external data, MCP server allowlists, prompt-injection guards. | Often middleware or hand-wired |
-| **Cyclic by design** | Loops, conditional routing, and nested subgraphs are native operations — not a DAG with backward-pointing edges bolted on. | DAG-shaped with workarounds |
-| **TypeScript-first** | Zod schemas at every boundary, strict mode throughout, MCP-native tool integration. | Mostly Python ecosystems with TS as a port |
-| **Durable execution** | Event-sourced replay, atomic state snapshots, saga compensation, HITL pauses that survive process restarts. | Varies by framework |
 
 ## Built-in patterns
 
@@ -117,14 +48,14 @@ Plus deterministic primitives: `verifier` (LLM-judge / filtrex expression / JSON
 
 ## What you get
 
-- **Compound learning across runs** — `reflection` node distills run output into atomic facts; future runs retrieve them via `memory_query` on any agent node. Backed by a temporal knowledge graph in `@cycgraph/memory`.
-- **Production-safety primitives** — per-node `budget`, `factSanitizer` for PII redaction, taint tracking, zero-trust `read_keys`/`write_keys`, prompt-injection guards.
 - **Cyclic graph engine** — loops, retries, conditional routing via [filtrex](https://github.com/joewalnes/filtrex), nested subgraphs, parallel fan-out/fan-in. **12 node types** — see the [Nodes reference](https://flattop.io/concepts/nodes/).
 - **Durable execution** — event-sourced replay, atomic state snapshots, saga compensation, auto-compaction.
+- **Production-safety primitives** — per-node `budget`, `factSanitizer` for PII redaction, taint tracking, zero-trust `read_keys`/`write_keys`, prompt-injection guards.
+- **Distributed execution** — `WorkflowWorker` + durable job queue for multi-process deployments, with crash recovery and run fencing (a reclaimed worker can't clobber the new owner).
 - **Streaming** — `stream()` async generator with real-time token deltas, tool-call events, and typed lifecycle events.
 - **MCP tools** — built-in default servers (web search, fetch), tool manifest caching, per-tool circuit breakers.
 - **Observability** — 17 lifecycle events, OpenTelemetry spans, Prometheus metrics, per-agent + per-workflow token/cost tracking.
-- **Distributed execution** — `WorkflowWorker` + durable job queue for multi-process deployments, with crash recovery and run fencing (a reclaimed worker can't clobber the new owner).
+- **Cross-run memory** — `reflection` node distills run output into atomic facts; future runs retrieve them via `memory_query` on any agent node. Backed by a temporal knowledge graph in `@cycgraph/memory`.
 
 ## Quick start
 

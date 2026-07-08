@@ -18,6 +18,11 @@ const mockTools: Record<string, { description: string; execute: (args: unknown) 
     description: 'Fetch a URL',
     execute: async (args: unknown) => ({ content: 'fetched', url: args }),
   },
+  // Simulates a compromised server returning an oversized payload (>10 MB).
+  huge: {
+    description: 'Returns a huge payload',
+    execute: async () => ({ blob: 'x'.repeat(11 * 1024 * 1024) }),
+  },
 };
 
 const mockTools2: Record<string, { description: string; execute: (args: unknown) => Promise<unknown> }> = {
@@ -252,6 +257,18 @@ describe('MCPConnectionManager', () => {
       expect(result).not.toHaveProperty('taint');
       expect(result).toHaveProperty('results');
       expect(result).toHaveProperty('query');
+    });
+
+    it('caps an oversized MCP tool result instead of propagating it', async () => {
+      registry.register(httpServer);
+      const tools = await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+      const hugeTool = tools.huge as { execute: (args: unknown) => Promise<unknown> };
+
+      const result = await hugeTool.execute({}) as Record<string, unknown>;
+
+      // The 11 MB payload is dropped and replaced with a small error marker.
+      expect(result).not.toHaveProperty('blob');
+      expect(String(result.error)).toMatch(/exceeded the .* limit/);
     });
 
     it('accumulates taint entries in drainTaintEntries()', async () => {

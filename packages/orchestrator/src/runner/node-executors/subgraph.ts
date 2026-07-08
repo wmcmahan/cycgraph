@@ -142,6 +142,7 @@ export async function executeSubgraphNode(
     total_input_tokens: 0,
     total_output_tokens: 0,
     total_cost_usd: 0,
+    model_breakdown: {},
     max_token_budget: remainingBudget,
     visited_nodes: [],
     max_iterations: config.max_iterations,

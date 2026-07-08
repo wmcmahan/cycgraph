@@ -248,5 +248,21 @@ describe('Conditional Edge Evaluation', () => {
 
       expect(evaluateCondition(condition, state, { strict_taint: true })).toBe(true);
     });
+
+    test('short tainted key does not spuriously match a longer identifier', () => {
+      // A tainted key "e" must not reject `memory.email == "x"`: the match is
+      // boundary-aware on `memory.<key>`, not a bare substring.
+      const condition: EdgeCondition = {
+        type: 'conditional',
+        condition: 'memory.email == "safe"',
+      };
+      const state = createMockState({
+        email: 'safe',
+        e: 'evil',
+        _taint_registry: { e: { source: 'mcp_tool', created_at: new Date().toISOString() } },
+      });
+
+      expect(evaluateCondition(condition, state, { strict_taint: true })).toBe(true);
+    });
   });
 });

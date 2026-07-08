@@ -7,9 +7,11 @@
  * 4% drift (still below a 5% ceiling) is a meaningful regression worth
  * flagging.
  *
- * The default noise floor (5 percentage points) is generous enough to
- * absorb sample-to-sample LLM jitter but small enough to catch real
- * regressions before they hit the ceiling.
+ * The default noise floor (1 percentage point) absorbs sample-to-sample LLM
+ * jitter while staying well BELOW the absolute drift ceiling (~5%). A noise
+ * floor equal to the ceiling was a blind spot: a suite drifting 0% → 4.9% was
+ * neither a regression (< floor) nor a ceiling failure (< ceiling), so
+ * sub-ceiling regressions were invisible.
  *
  * @module baseline/compare
  */
@@ -23,7 +25,8 @@ import type {
 export interface CompareBaselineOptions {
   /**
    * Minimum absolute percent change to count as a regression/improvement.
-   * Smaller deltas are noise and ignored. Defaults to 5 percentage points.
+   * Smaller deltas are noise and ignored. Defaults to 1 percentage point —
+   * kept well below the drift ceiling so sub-ceiling regressions are caught.
    */
   noiseFloor?: number;
 }
@@ -44,7 +47,7 @@ export function compareBaseline(
   baseline: BaselineSnapshot | null,
   options: CompareBaselineOptions = {},
 ): BaselineDelta {
-  const noiseFloor = options.noiseFloor ?? 5;
+  const noiseFloor = options.noiseFloor ?? 1;
 
   if (!baseline) {
     return {

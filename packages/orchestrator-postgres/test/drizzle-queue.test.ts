@@ -214,6 +214,30 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleWorkflowQueue', () => {
       ).rejects.toBeInstanceOf(StaleClaimError);
     });
 
+    test('a stale claimant cannot compact (delete) the new claimant\'s events', async () => {
+      const graphId = await seedGraph();
+      const runId = crypto.randomUUID();
+
+      await queue.enqueue({ type: 'start', run_id: runId, graph_id: graphId });
+      const firstClaim = await queue.dequeue('worker-1');
+      const staleOptions = createFencedRunnerOptions(firstClaim!);
+
+      // Worker 1 is reclaimed; worker 2 takes over and writes events.
+      await queue.nack(firstClaim!.id, 'simulated partition');
+      const secondClaim = await queue.dequeue('worker-2');
+      const freshOptions = createFencedRunnerOptions(secondClaim!);
+      await freshOptions.eventLog!.append({ run_id: runId, sequence_id: 0, event_type: 'workflow_started' });
+      await freshOptions.eventLog!.append({ run_id: runId, sequence_id: 1, event_type: 'node_started', node_id: 'x' });
+
+      // The stale worker must NOT be able to delete the new claimant's events
+      // (which would corrupt the new claimant's replay).
+      await expect(staleOptions.eventLog!.compact(runId, 1)).rejects.toBeInstanceOf(StaleClaimError);
+
+      // Events are intact.
+      const remaining = await freshOptions.eventLog!.loadEvents(runId);
+      expect(remaining.length).toBeGreaterThanOrEqual(2);
+    });
+
     test('unfenced writers are unaffected by claim epochs', async () => {
       const graphId = await seedGraph();
       const runId = crypto.randomUUID();

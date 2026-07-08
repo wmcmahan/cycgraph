@@ -68,7 +68,9 @@ export async function checkAssertion(
           : JSON.stringify(value).includes(JSON.stringify(assertion.expected));
       } else if (assertion.mode === 'regex') {
         try {
-          passed = typeof value === 'string' && new RegExp(assertion.pattern).test(value);
+          // Cap the matched input to bound ReDoS worst-case time (same
+          // mitigation as the runtime verifier's safeRegexTest).
+          passed = typeof value === 'string' && new RegExp(assertion.pattern).test(value.slice(0, 10_000));
         } catch {
           return {
             assertion,

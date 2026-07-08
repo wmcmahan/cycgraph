@@ -152,6 +152,21 @@ export const WorkflowStateSchema = z.object({
   /** Threshold percentages already fired (prevents duplicate alerts). */
   _cost_alert_thresholds_fired: z.array(z.number()).default([]),
 
+  // ── Per-model usage breakdown ──
+  /**
+   * Cumulative token/cost usage attributed per model id, populated on every
+   * LLM call so billing can break spend down by model. Token counts are the
+   * provider's reported usage; `cost_usd` is an estimate (tokens ×
+   * {@link MODEL_PRICING}, see {@link total_cost_usd}). `calls` counts the
+   * number of LLM invocations attributed to the model.
+   */
+  model_breakdown: z.record(z.string(), z.object({
+    input_tokens: z.number().default(0),
+    output_tokens: z.number().default(0),
+    cost_usd: z.number().default(0),
+    calls: z.number().default(0),
+  })).default({}),
+
   // ── Execution tracking ──
   /** Node IDs visited in execution order. */
   visited_nodes: z.array(z.string()).default([]),
@@ -478,6 +493,7 @@ export const InternalActionTypeSchema = z.enum([
   '_cancel',
   '_track_tokens',
   '_track_cost',
+  '_track_model_usage',
   '_fire_cost_threshold',
   '_budget_exceeded',
   '_push_compensation',

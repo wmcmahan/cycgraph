@@ -32,7 +32,7 @@
  * @module retrieval/gated-lesson-retriever
  */
 
-import type { MemoryStore } from '../interfaces/memory-store.js';
+import { QUARANTINE_TAG, type MemoryStore } from '../interfaces/memory-store.js';
 import type { SemanticFact } from '../schemas/semantic.js';
 import type { OutcomeLedger } from '../consolidation/outcome-ledger.js';
 
@@ -90,9 +90,12 @@ export async function retrieveGatedLessons(
   const candidateSlots = Math.min(options.candidate_slots ?? 2, maxFacts);
 
   // Scope tags use OR semantics in findFacts; status partitioning is
-  // done client-side so one query serves both pools.
+  // done client-side so one query serves both pools. Quarantined (poisoned)
+  // facts are excluded so a lesson from a failed/tainted run can never be
+  // retrieved as trusted guidance.
   const scoped = await store.findFacts({
     tags: options.tags,
+    exclude_tags: [QUARANTINE_TAG],
     include_invalidated: false,
     limit: 1000,
   });

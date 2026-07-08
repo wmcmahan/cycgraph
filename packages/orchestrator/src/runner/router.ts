@@ -31,6 +31,10 @@ const logger = createLogger('runner.router');
  * @param nodeMap - All nodes indexed by id.
  * @param currentNode - The node that just finished executing.
  * @param state - Current workflow state (used by edge conditions).
+ * @param options - Optional routing configuration.
+ * @param options.strict_taint - When `true` (from `graph.strict_taint`), edge
+ *   conditions that reference tainted memory keys evaluate to `false` so a run
+ *   never routes on untrusted data.
  * @returns The next node, or `null` if execution should terminate (no
  *   outgoing edges, or no edge condition matched).
  */
@@ -39,6 +43,7 @@ export function getNextNode(
   nodeMap: Map<string, GraphNode>,
   currentNode: GraphNode,
   state: WorkflowState,
+  options?: { strict_taint?: boolean },
 ): GraphNode | null {
   const outgoingEdges = edgeMap.get(currentNode.id);
 
@@ -47,7 +52,7 @@ export function getNextNode(
   }
 
   for (const edge of outgoingEdges) {
-    if (evaluateCondition(edge.condition, state)) {
+    if (evaluateCondition(edge.condition, state, options)) {
       const nextNode = nodeMap.get(edge.target);
       if (nextNode) {
         logger.debug('following_edge', { edge_id: edge.id, target: nextNode.id, from: currentNode.id });

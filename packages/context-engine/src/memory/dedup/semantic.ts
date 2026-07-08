@@ -106,6 +106,10 @@ export function createSemanticDedupStage(options: SemanticDedupOptions): Compres
 
   return {
     name: 'semantic-dedup',
+    // Clusters across ALL segments, so it must run on the full set — see the
+    // note in exact-dedup. Without this the incremental pipeline would only
+    // dedup within the fresh subset.
+    scope: 'cross-segment' as const,
     execute(segments: PromptSegment[], _context: StageContext) {
       if (!precomputed || precomputed.size === 0) {
         // No pre-computed embeddings — pass through (graceful degradation)

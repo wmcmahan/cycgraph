@@ -38,6 +38,7 @@ export class DrizzleUsageRecorder implements UsageRecorder {
       input_tokens: record.input_tokens,
       output_tokens: record.output_tokens,
       cost_usd: String(record.cost_usd),
+      model_breakdown: record.model_breakdown ?? null,
       duration_ms: record.duration_ms,
     }).onConflictDoNothing();
 
