@@ -243,7 +243,7 @@ describe('Evolution (DGM) Node', () => {
       mockEvaluateQuality.mockResolvedValue({
         score: 0.95,
         reasoning: 'Excellent candidate',
-        tokens_used: 20,
+        tokensUsed: 20,
       });
 
       const graph = createEvolutionGraph({ max_generations: 5, fitness_threshold: 0.9 });
@@ -263,7 +263,7 @@ describe('Evolution (DGM) Node', () => {
       mockEvaluateQuality.mockResolvedValue({
         score: 0.3,
         reasoning: 'Poor quality',
-        tokens_used: 20,
+        tokensUsed: 20,
       });
 
       const graph = createEvolutionGraph({
@@ -282,7 +282,7 @@ describe('Evolution (DGM) Node', () => {
     });
 
     test('stops early when the node token budget is reached mid-evolution (bounds overspend)', async () => {
-      mockEvaluateQuality.mockResolvedValue({ score: 0.3, reasoning: 'meh', tokens_used: 20 });
+      mockEvaluateQuality.mockResolvedValue({ score: 0.3, reasoning: 'meh', tokensUsed: 20 });
       setupDefaultAgentMock(); // resets candidateCallCount
 
       // Each gen spends ~150 tokens (3 candidates × 30 + 3 evals × 20). The
@@ -309,7 +309,7 @@ describe('Evolution (DGM) Node', () => {
       mockEvaluateQuality.mockResolvedValue({
         score: 0.5,
         reasoning: 'Mediocre',
-        tokens_used: 20,
+        tokensUsed: 20,
       });
 
       const graph = createEvolutionGraph({
@@ -332,7 +332,7 @@ describe('Evolution (DGM) Node', () => {
       mockEvaluateQuality.mockImplementation(async () => {
         evaluationCount++;
         // Return improving scores to prevent stagnation
-        return { score: 0.3 + evaluationCount * 0.01, reasoning: 'ok', tokens_used: 10 };
+        return { score: 0.3 + evaluationCount * 0.01, reasoning: 'ok', tokensUsed: 10 };
       });
 
       const graph = createEvolutionGraph({
@@ -366,7 +366,7 @@ describe('Evolution (DGM) Node', () => {
     });
 
     test('should not inject parent context in generation 0', async () => {
-      mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Great', tokens_used: 10 });
+      mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Great', tokensUsed: 10 });
 
       const graph = createEvolutionGraph({ max_generations: 1, population_size: 2 });
       const state = createState();
@@ -383,7 +383,7 @@ describe('Evolution (DGM) Node', () => {
     });
 
     test('should track total tokens across all generations', async () => {
-      mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Good', tokens_used: 20 });
+      mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Good', tokensUsed: 20 });
 
       const graph = createEvolutionGraph({
         max_generations: 1,
@@ -402,7 +402,7 @@ describe('Evolution (DGM) Node', () => {
     });
 
     test('should pass temperature override with linear interpolation', async () => {
-      mockEvaluateQuality.mockResolvedValue({ score: 0.3, reasoning: 'ok', tokens_used: 10 });
+      mockEvaluateQuality.mockResolvedValue({ score: 0.3, reasoning: 'ok', tokensUsed: 10 });
 
       const graph = createEvolutionGraph({
         max_generations: 3,
@@ -428,16 +428,16 @@ describe('Evolution (DGM) Node', () => {
         (call: any[]) => call[1].memory._evolution_generation === 2
       );
 
-      // Check temperature_override in options (5th arg)
-      expect(gen0Calls[0][4].temperature_override).toBeCloseTo(1.0, 5);
-      expect(gen1Calls[0][4].temperature_override).toBeCloseTo(0.5, 5);
-      expect(gen2Calls[0][4].temperature_override).toBeCloseTo(0.0, 5);
+      // Check temperatureOverride in options (5th arg)
+      expect(gen0Calls[0][4].temperatureOverride).toBeCloseTo(1.0, 5);
+      expect(gen1Calls[0][4].temperatureOverride).toBeCloseTo(0.5, 5);
+      expect(gen2Calls[0][4].temperatureOverride).toBeCloseTo(0.0, 5);
     });
 
     test('should handle all candidates failing in best_effort mode', async () => {
       // All agents throw
       mockExecuteAgent.mockRejectedValue(new Error('Agent failure'));
-      mockEvaluateQuality.mockResolvedValue({ score: 0.5, reasoning: 'ok', tokens_used: 10 });
+      mockEvaluateQuality.mockResolvedValue({ score: 0.5, reasoning: 'ok', tokensUsed: 10 });
 
       const graph = createEvolutionGraph({
         max_generations: 2,
@@ -476,7 +476,7 @@ describe('Evolution (DGM) Node', () => {
         evalCall++;
         // Different scores for different candidates
         const score = 0.4 + (evalCall % 3) * 0.1;
-        return { score, reasoning: `Score ${score}`, tokens_used: 15 };
+        return { score, reasoning: `Score ${score}`, tokensUsed: 15 };
       });
 
       const graph = createEvolutionGraph({
@@ -513,7 +513,7 @@ describe('Evolution (DGM) Node', () => {
         evalCount++;
         // Candidates get different scores
         const score = 0.3 + (evalCount % 3) * 0.15;
-        return { score, reasoning: `Score ${score}`, tokens_used: 10 };
+        return { score, reasoning: `Score ${score}`, tokensUsed: 10 };
       });
 
       const graph = createEvolutionGraph({
@@ -540,7 +540,7 @@ describe('Evolution (DGM) Node', () => {
       mockEvaluateQuality.mockImplementation(async () => {
         evalCount++;
         const score = 0.4 + (evalCount % 3) * 0.1;
-        return { score, reasoning: `Score ${score}`, tokens_used: 10 };
+        return { score, reasoning: `Score ${score}`, tokensUsed: 10 };
       });
 
       const graph = createEvolutionGraph({
@@ -561,7 +561,7 @@ describe('Evolution (DGM) Node', () => {
     });
 
     test('tournament_size = population_size degenerates to rank selection', async () => {
-      mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Good', tokens_used: 10 });
+      mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Good', tokensUsed: 10 });
 
       const graph = createEvolutionGraph({
         selection_strategy: 'tournament',
@@ -580,7 +580,7 @@ describe('Evolution (DGM) Node', () => {
     });
 
     test('roulette with all-zero fitness falls back to first candidate', async () => {
-      mockEvaluateQuality.mockResolvedValue({ score: 0.0, reasoning: 'Zero', tokens_used: 10 });
+      mockEvaluateQuality.mockResolvedValue({ score: 0.0, reasoning: 'Zero', tokensUsed: 10 });
 
       const graph = createEvolutionGraph({
         selection_strategy: 'roulette',
@@ -605,7 +605,7 @@ describe('Evolution (DGM) Node', () => {
         evalCount++;
         // Different scores so parent selection varies by strategy
         const score = 0.3 + (evalCount % 3) * 0.2;
-        return { score, reasoning: 'ok', tokens_used: 10 };
+        return { score, reasoning: 'ok', tokensUsed: 10 };
       });
 
       const graph = createEvolutionGraph({

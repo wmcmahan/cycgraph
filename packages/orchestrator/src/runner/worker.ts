@@ -20,12 +20,13 @@ import type { GraphRunnerOptions, HumanResponse } from './graph-runner.js';
 import type { WorkflowQueue, WorkflowJob } from '../persistence/queue-interfaces.js';
 import type { PersistenceProvider } from '../persistence/interfaces.js';
 import { StaleClaimError } from '../persistence/errors.js';
+import { EventLogCorruptionError } from './errors.js';
 import type { EventLogWriter } from '../db/event-log.js';
 import { EventSequenceConflictError } from '../db/event-log.js';
 import type { WorkflowState } from '../types/state.js';
 import { createLogger } from '../utils/logger.js';
 
-const logger = createLogger('worker');
+const logger = createLogger('runner.worker');
 
 /** Workflow statuses that mean a run is finished and its job can be acked. */
 const TERMINAL_JOB_STATUSES: WorkflowState['status'][] = [
@@ -187,9 +188,9 @@ export class WorkflowWorker extends EventEmitter {
     }
 
     // Hard-cancel runners that outlived the grace period. cancel() aborts
-    // in-flight LLM calls via the runner's AbortController — the old code
-    // released jobs while their runners were still executing, opening a
-    // split-brain window where another worker could claim the same run.
+    // in-flight LLM calls via the runner's AbortController; releasing a job
+    // while its runner is still executing would open a split-brain window
+    // where another worker could claim the same run.
     for (const [jobId, { runner }] of this.activeJobs.entries()) {
       if (runner) {
         logger.warn('cancelling_runner_past_grace_period', {
@@ -262,7 +263,7 @@ export class WorkflowWorker extends EventEmitter {
         const promise = this.processJob(job);
         const heartbeatTimer = setInterval(async () => {
           try {
-            await this.queue.heartbeat(job.id);
+            await this.queue.heartbeat(job.id, undefined, this.workerId);
           } catch (err) {
             logger.error('heartbeat_error', { job_id: job.id, error: (err as Error).message });
           }
@@ -285,7 +286,7 @@ export class WorkflowWorker extends EventEmitter {
       // 1. Load graph
       const graph = await this.persistence.loadGraph(job.graph_id);
       if (!graph) {
-        await this.queue.nack(job.id, `Graph not found: ${job.graph_id}`);
+        await this.queue.nack(job.id, `Graph not found: ${job.graph_id}`, this.workerId);
         this.emit('job:failed', { jobId: job.id, runId: job.run_id, error: 'Graph not found' });
         return;
       }
@@ -324,13 +325,33 @@ export class WorkflowWorker extends EventEmitter {
       let runner: GraphRunner;
 
       if (latestSeqId >= 0) {
-        // Events exist — recover from event log replay
-        runner = await GraphRunner.recover(
-          graph,
-          job.run_id,
-          this.eventLog,
-          runnerOptions,
-        );
+        // Events exist — recover from event log replay.
+        try {
+          runner = await GraphRunner.recover(
+            graph,
+            job.run_id,
+            this.eventLog,
+            runnerOptions,
+          );
+        } catch (err) {
+          // A sequence gap (a lost append) makes replay unsafe, so recover()
+          // refuses. But the state SNAPSHOT is authoritative on its own — the
+          // event log is only the replay *path*, not the source of truth. If a
+          // valid snapshot exists, resume from it instead of dead-lettering a
+          // run whose progress we can still recover. With no snapshot the run
+          // is genuinely unrecoverable — rethrow.
+          if (err instanceof EventLogCorruptionError && latestSnapshot) {
+            logger.warn('recovery_event_log_corrupt_using_snapshot', {
+              job_id: job.id,
+              run_id: job.run_id,
+              snapshot_iteration: latestSnapshot.iteration_count,
+              error: (err as Error).message,
+            });
+            runner = new GraphRunner(graph, latestSnapshot, runnerOptions);
+          } else {
+            throw err;
+          }
+        }
 
         // Reconcile: if the snapshot is strictly ahead of the replayed state,
         // some events were lost — resume from the snapshot to avoid silently
@@ -390,12 +411,12 @@ export class WorkflowWorker extends EventEmitter {
       // 6. Route based on result status
       if (result.status === 'waiting') {
         // HITL pause — release without penalty (paused until a resume job)
-        await this.queue.release(job.id);
+        await this.queue.release(job.id, this.workerId);
         this.emit('job:released', { jobId: job.id, runId: job.run_id });
         logger.info('job_released_hitl', { job_id: job.id, run_id: job.run_id });
       } else if (TERMINAL_JOB_STATUSES.includes(result.status)) {
         // Terminal status — mark completed
-        await this.queue.ack(job.id);
+        await this.queue.ack(job.id, this.workerId);
         this.emit('job:completed', { jobId: job.id, runId: job.run_id });
         logger.info('job_completed', { job_id: job.id, run_id: job.run_id, status: result.status });
       } else {
@@ -433,7 +454,7 @@ export class WorkflowWorker extends EventEmitter {
       }
 
       try {
-        await this.queue.nack(job.id, errorMsg);
+        await this.queue.nack(job.id, errorMsg, this.workerId);
 
         // Check if it was dead-lettered
         const updatedJob = await this.queue.getJob(job.id);

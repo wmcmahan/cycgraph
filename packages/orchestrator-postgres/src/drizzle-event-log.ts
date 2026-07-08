@@ -86,6 +86,30 @@ export class DrizzleEventLogWriter implements EventLogWriter {
     return this.tenant ? withTenant(this.tenant.tenant_id, fn) : db.transaction(fn);
   }
 
+  /**
+   * Fencing guard shared by append / checkpoint / compact: throw
+   * {@link StaleClaimError} if this writer's claim epoch no longer matches the
+   * run's current epoch. A reclaimed/stale worker must not be able to append
+   * events, write a checkpoint, OR compact — any of which corrupts the new
+   * claimant's replay (the checkpoint especially, since `loadCheckpoint`
+   * anchors recovery on the highest sequence_id). Verified under `FOR SHARE`
+   * inside the caller's transaction so the check and the write are atomic.
+   * No-op when fencing is unset or targets a different run.
+   */
+  private async assertClaimEpoch(tx: Queryer, run_id: string): Promise<void> {
+    if (!this.fencing || this.fencing.run_id !== run_id) return;
+    const fencing = this.fencing;
+    const rows = await tx
+      .select({ claim_epoch: workflow_runs.claim_epoch })
+      .from(workflow_runs)
+      .where(and(eq(workflow_runs.id, run_id), this.tenantEq(workflow_runs.tenant_id)))
+      .for('share');
+    const current = rows[0]?.claim_epoch;
+    if (current !== undefined && current !== fencing.epoch) {
+      throw new StaleClaimError(run_id, fencing.epoch, current);
+    }
+  }
+
   async append(event: NewWorkflowEvent): Promise<void> {
     const values = {
       ...this.tenantValues,
@@ -100,20 +124,11 @@ export class DrizzleEventLogWriter implements EventLogWriter {
     };
     try {
       if (this.fencing && this.fencing.run_id === event.run_id) {
-        const fencing = this.fencing;
         // FOR SHARE allows concurrent appends from the legitimate claimant
         // while conflicting with the FOR UPDATE epoch bump in dequeue — the
         // epoch check and the insert are atomic.
         await this.tx(async (tx) => {
-          const rows = await tx
-            .select({ claim_epoch: workflow_runs.claim_epoch })
-            .from(workflow_runs)
-            .where(and(eq(workflow_runs.id, event.run_id), this.tenantEq(workflow_runs.tenant_id)))
-            .for('share');
-          const current = rows[0]?.claim_epoch;
-          if (current !== undefined && current !== fencing.epoch) {
-            throw new StaleClaimError(event.run_id, fencing.epoch, current);
-          }
+          await this.assertClaimEpoch(tx, event.run_id);
           await tx.insert(workflow_events).values(values);
         });
       } else {
@@ -171,6 +186,12 @@ export class DrizzleEventLogWriter implements EventLogWriter {
     // workflow with frequent checkpoints. Cap is enforced per run_id, so
     // pruning one run never affects another.
     await this.tx(async (tx) => {
+      // Fence exactly like append/compact: a reclaimed worker must not write a
+      // checkpoint for a run a NEW claimant now owns — `loadCheckpoint` anchors
+      // recovery on the highest sequence_id, so a stale checkpoint would make
+      // the new claimant resume from rolled-back/divergent state.
+      await this.assertClaimEpoch(tx, run_id);
+
       await tx.insert(workflow_checkpoints).values({
         ...this.tenantValues,
         run_id,
@@ -228,20 +249,8 @@ export class DrizzleEventLogWriter implements EventLogWriter {
     return this.tx(async (tx) => {
       // Fence the delete exactly like append: a reclaimed/stale worker must not
       // be able to delete events belonging to the run a NEW claimant now owns
-      // (which would corrupt the new claimant's replay). Verify the claim epoch
-      // under FOR SHARE inside the same transaction as the delete.
-      if (this.fencing && this.fencing.run_id === run_id) {
-        const fencing = this.fencing;
-        const rows = await tx
-          .select({ claim_epoch: workflow_runs.claim_epoch })
-          .from(workflow_runs)
-          .where(and(eq(workflow_runs.id, run_id), this.tenantEq(workflow_runs.tenant_id)))
-          .for('share');
-        const current = rows[0]?.claim_epoch;
-        if (current !== undefined && current !== fencing.epoch) {
-          throw new StaleClaimError(run_id, fencing.epoch, current);
-        }
-      }
+      // (which would corrupt the new claimant's replay).
+      await this.assertClaimEpoch(tx, run_id);
 
       const result = await tx
         .delete(workflow_events)

@@ -58,6 +58,10 @@ function makeDeps(overrides: Partial<ArchitectToolDeps> = {}): ArchitectToolDeps
   return {
     saveGraph: vi.fn().mockResolvedValue(undefined),
     loadGraph: vi.fn().mockResolvedValue(null),
+    // Publishing is now secure-by-default (denied with no gate); the general
+    // harness opts into unguarded publishing so non-gate tests exercise the
+    // happy path. Fail-closed behavior is asserted explicitly below.
+    allowUnguardedPublish: true,
     ...overrides,
   };
 }
@@ -119,7 +123,7 @@ describe('executeArchitectTool', () => {
       expect(generateWorkflow).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: 'Add a review step',
-          current_graph: expect.objectContaining({ id: 'existing' }),
+          currentGraph: expect.objectContaining({ id: 'existing' }),
         }),
       );
     });
@@ -208,6 +212,49 @@ describe('executeArchitectTool', () => {
 
       expect(result).toHaveProperty('status', 'published');
       expect(deps.saveGraph).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails closed when no gate and no opt-out are configured (does not persist)', async () => {
+      // Secure-by-default: an unconfigured host must NOT publish. Neither
+      // canPublish nor allowUnguardedPublish is set here.
+      const deps = makeDeps({ allowUnguardedPublish: false });
+      initArchitectTools(deps);
+
+      const result = await executeArchitectTool('architect_publish_workflow', {
+        graph: makeGraph(),
+      });
+
+      expect(result).toHaveProperty('error');
+      expect((result as { error: string }).error).toContain('no publish gate is configured');
+      expect(deps.saveGraph).not.toHaveBeenCalled();
+    });
+
+    it('allowUnguardedPublish: true permits publishing without a gate', async () => {
+      const deps = makeDeps({ allowUnguardedPublish: true });
+      initArchitectTools(deps);
+
+      const result = await executeArchitectTool('architect_publish_workflow', {
+        graph: makeGraph(),
+      });
+
+      expect(result).toHaveProperty('status', 'published');
+      expect(deps.saveGraph).toHaveBeenCalledTimes(1);
+    });
+
+    it('canPublish gate overrides allowUnguardedPublish (gate wins)', async () => {
+      const deps = makeDeps({
+        allowUnguardedPublish: true,
+        canPublish: () => 'policy says no',
+      });
+      initArchitectTools(deps);
+
+      const result = await executeArchitectTool('architect_publish_workflow', {
+        graph: makeGraph(),
+      });
+
+      expect(result).toHaveProperty('error');
+      expect((result as { error: string }).error).toContain('policy says no');
+      expect(deps.saveGraph).not.toHaveBeenCalled();
     });
 
     it('returns error when graph exists and overwrite is false', async () => {

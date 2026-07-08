@@ -16,8 +16,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { ensureSaveToMemory } from './agent.js';
 import { createLogger } from '../../utils/logger.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { buildNodeCallbacks } from './node-callbacks.js';
 import { checkCompositeBudget, logCompositeBudgetStop } from './budget-guard.js';
 
 const logger = createLogger('runner.node.annealing');
@@ -41,18 +43,18 @@ export async function executeAnnealingLoop(
   ctx: NodeExecutorContext,
 ): Promise<Action> {
   const config = node.annealing_config!;
-  const agent_id = node.agent_id!;
+  const agentId = node.agent_id!;
 
   logger.info('annealing_loop_start', {
     node_id: node.id,
-    agent_id,
+    agent_id: agentId,
     max_iterations: config.max_iterations,
     threshold: config.threshold,
   });
 
-  const agentConfig = await ctx.deps.loadAgent(agent_id);
-  const { modelOverride } = resolveModelForAgent(agentConfig, agent_id, node.id, ctx);
-  const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), agent_id);
+  const agentConfig = await ctx.deps.loadAgent(agentId);
+  const { modelOverride } = resolveModelForAgent(agentConfig, agentId, node.id, ctx);
+  const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), agentId);
 
   let bestAction: Action | null = null;
   let bestScore = -1;
@@ -95,15 +97,15 @@ export async function executeAnnealingLoop(
       },
     };
 
-    const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, node.id) : undefined;
-    const action = await ctx.deps.executeAgent(agent_id, annealingView, tools, attempt, {
-      temperature_override: temperature,
-      node_id: node.id,
+    const { onToken } = buildNodeCallbacks(node.id, ctx);
+    const action = await ctx.deps.executeAgent(agentId, annealingView, tools, attempt, {
+      temperatureOverride: temperature,
+      nodeId: node.id,
       abortSignal: ctx.abortSignal,
       onToken,
       drainTaintEntries: ctx.deps.drainTaintEntries,
-      ...(modelOverride ? { model_override: modelOverride } : {}),
-      ...(node.default_write_key ? { default_write_key: node.default_write_key } : {}),
+      ...(modelOverride ? { modelOverride } : {}),
+      ...(node.default_write_key ? { defaultWriteKey: node.default_write_key } : {}),
       ...buildAgentMemoryOptions(node, ctx),
     });
 
@@ -118,7 +120,7 @@ export async function executeAnnealingLoop(
         action.payload.updates,
       );
       score = evalResult.score;
-      evalTokens = evalResult.tokens_used;
+      evalTokens = evalResult.tokensUsed;
     } else {
       try {
         const results = JSONPath({ path: config.score_path, json: action.payload });
@@ -173,7 +175,7 @@ export async function executeAnnealingLoop(
   // Fall back to a no-op action if no iteration succeeded
   const result = bestAction ?? {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'update_memory',
     payload: { updates: {} },
     metadata: { node_id: node.id, timestamp: new Date(), attempt },

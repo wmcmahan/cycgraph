@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { buildSystemPrompt } from '../src/agent/agent-executor/prompts.js';
-import { buildSupervisorSystemPrompt } from '../src/agent/supervisor-executor/prompt.js';
+import { buildSupervisorSystemPrompt } from '../src/agent/supervisor-executor/prompts.js';
 import type { ContextCompressor, ContextCompressionMetrics } from '../src/agent/context-compressor.js';
 import type { AgentConfig } from '../src/agent/types.js';
 import type { StateView, WorkflowState } from '../src/types/state.js';

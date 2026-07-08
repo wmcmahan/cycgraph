@@ -12,6 +12,7 @@ import type { Action, StateView } from '../../types/state.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 
 const logger = createLogger('runner.node.router');
 
@@ -38,7 +39,7 @@ export async function executeRouterNode(
 
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'update_memory',
     payload: {
       updates: {},

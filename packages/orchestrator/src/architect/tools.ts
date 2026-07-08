@@ -59,7 +59,7 @@ export const architectToolDefinitions: Record<string, ToolDefinition> = {
       'Returns a Graph JSON for review. Pass current_graph to modify an existing workflow.',
     parameters: z.object({
       prompt: z.string().describe('Natural language description of the workflow to create or change to make'),
-      current_graph: z.record(z.string(), z.unknown()).optional().describe('Optional: existing graph JSON to modify'),
+      currentGraph: z.record(z.string(), z.unknown()).optional().describe('Optional: existing graph JSON to modify'),
     }),
   },
 
@@ -94,15 +94,27 @@ export interface ArchitectToolDeps {
   saveGraph: (graph: Graph) => Promise<void>;
   loadGraph: (graphId: string) => Promise<Graph | null>;
   /**
-   * Optional publish gate. When provided, `architect_publish_workflow`
-   * calls it AFTER the graph passes schema + referential validation but
-   * BEFORE `saveGraph`. Return `false` (or a string reason) to deny the
-   * publish — e.g. to require human approval, check a privileged
-   * credential, or apply policy. Without it, any agent holding the
-   * `architect_publish_workflow` tool can publish executable graphs, so
-   * gating is strongly recommended for untrusted/agent-driven callers.
+   * Publish gate. When provided, `architect_publish_workflow` calls it AFTER
+   * the graph passes schema + referential validation but BEFORE `saveGraph`.
+   * Return `true` to allow; return `false` (or a string reason) to deny —
+   * e.g. to require human approval, check a privileged credential, or apply
+   * policy.
+   *
+   * SECURITY (secure-by-default): `architect_publish_workflow` is
+   * agent-reachable, so publishing is **denied** when neither this gate nor
+   * {@link allowUnguardedPublish} is set — a prompt-injected agent on an
+   * unconfigured host cannot publish executable graphs. Wire this for any
+   * untrusted/agent-driven caller.
    */
   canPublish?: (graph: Graph) => Promise<boolean | string> | boolean | string;
+  /**
+   * Explicit opt-out of the secure-by-default publish gate. When `true` AND
+   * no {@link canPublish} is provided, publishing proceeds unguarded. Intended
+   * only for trusted single-tenant / local deployments where every caller of
+   * the architect tools is already trusted. Ignored when `canPublish` is set
+   * (the gate always wins).
+   */
+  allowUnguardedPublish?: boolean;
 }
 
 let _deps: ArchitectToolDeps | null = null;
@@ -163,7 +175,7 @@ async function handleDraftWorkflow(args: Record<string, unknown>) {
 
   const result = await generateWorkflow({
     prompt,
-    current_graph: currentGraph as Graph | undefined,
+    currentGraph: currentGraph as Graph | undefined,
   });
 
   return {
@@ -224,7 +236,11 @@ async function handlePublishWorkflow(args: Record<string, unknown>) {
     };
   }
 
-  // Optional host-controlled gate (human approval, privileged credential, policy).
+  // Publish authorization — secure-by-default. A configured gate always wins;
+  // otherwise publishing is DENIED unless the host explicitly opted into
+  // unguarded publishing. This closes the confused-deputy path where a
+  // prompt-injected agent holding the tool publishes an executable graph on a
+  // host that never wired a gate.
   if (_deps.canPublish) {
     const decision = await _deps.canPublish(typedGraph);
     if (decision !== true) {
@@ -236,6 +252,15 @@ async function handlePublishWorkflow(args: Record<string, unknown>) {
         graph_id: typedGraph.id,
       };
     }
+  } else if (!_deps.allowUnguardedPublish) {
+    logger.warn('tool_publish_denied_no_gate', { graph_id: typedGraph.id });
+    return {
+      error:
+        'Publish denied: no publish gate is configured. Wire ArchitectToolDeps.canPublish ' +
+        '(recommended for agent-driven callers) or set allowUnguardedPublish: true to permit ' +
+        'unguarded publishing on a trusted host.',
+      graph_id: typedGraph.id,
+    };
   }
 
   await _deps.saveGraph(typedGraph);

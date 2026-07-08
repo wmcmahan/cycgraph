@@ -368,10 +368,10 @@ describe('Durable Execution — Event Sourcing', () => {
 
       // Recover — sequenceId should be set past all replayed events
       const runner2 = await GraphRunner.recover(graph, state.run_id, eventLog);
-      // The recovered runner's sequenceId is internal, but we can verify by
-      // checking that calling getEventLog() works
+      // The recovered runner's sequence counter is internal (owned by the
+      // EventLogCoordinator) — reach through to verify it advanced past the log.
       expect(runner2.getEventLog()).toBe(eventLog);
-      expect(runner2['sequenceId']).toBe(maxSeqBefore + 1);
+      expect(runner2['events'].nextSequenceId).toBe(maxSeqBefore + 1);
     });
   });
 

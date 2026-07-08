@@ -22,10 +22,12 @@ import { v4 as uuidv4 } from 'uuid';
 
 import type { GraphNode, VerifierConfig, VerificationResult, VerifierJsonPathAssertion } from '../../types/graph.js';
 import type { Action, StateView } from '../../types/state.js';
-import { FILTREX_COMPILE_OPTIONS, normalizeConditionExpression } from '../conditions.js';
+import { FILTREX_COMPILE_OPTIONS, normalizeConditionExpression } from '../../utils/condition-expression.js';
 import { createLogger } from '../../utils/logger.js';
 import { NodeConfigError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
+import { VerificationFailedError } from './errors.js';
 
 const logger = createLogger('runner.node.verifier');
 
@@ -77,7 +79,7 @@ export async function executeVerifierNode(
 
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'update_memory',
     payload: {
       updates: {
@@ -106,7 +108,7 @@ async function runVerification(
   stateView: StateView,
   ctx: NodeExecutorContext,
 ): Promise<VerificationRun> {
-  const evaluated_at = new Date().toISOString();
+  const evaluatedAt = new Date().toISOString();
 
   switch (config.type) {
     case 'llm_judge': {
@@ -125,9 +127,9 @@ async function runVerification(
           reasoning: evalResult.reasoning,
           score: evalResult.score,
           threshold: config.pass_threshold,
-          evaluated_at,
+          evaluated_at: evaluatedAt,
         },
-        tokensUsed: evalResult.tokens_used,
+        tokensUsed: evalResult.tokensUsed,
       };
     }
 
@@ -143,7 +145,7 @@ async function runVerification(
           reasoning: passed
             ? `expression "${config.expression}" evaluated truthy`
             : `expression "${config.expression}" evaluated falsy`,
-          evaluated_at,
+          evaluated_at: evaluatedAt,
         },
         tokensUsed: 0,
       };
@@ -164,7 +166,7 @@ async function runVerification(
             ? `assertion ${assertionDescription(config.assertion)} at ${config.path} passed`
             : `assertion ${assertionDescription(config.assertion)} at ${config.path} failed (value=${safeStringify(value)})`,
           extracted_value: value,
-          evaluated_at,
+          evaluated_at: evaluatedAt,
         },
         tokensUsed: 0,
       };
@@ -253,19 +255,4 @@ function safeStringify(value: unknown): string {
   }
 }
 
-// ─── Errors ─────────────────────────────────────────────────────────
-
-/**
- * Thrown by `executeVerifierNode` when verification fails and the
- * verifier is configured with `throw_on_fail: true`. The node's
- * `failure_policy` decides whether to retry or escalate.
- */
-export class VerificationFailedError extends Error {
-  constructor(
-    public readonly nodeId: string,
-    public readonly result: VerificationResult,
-  ) {
-    super(`Verification failed for node "${nodeId}": ${result.reasoning}`);
-    this.name = 'VerificationFailedError';
-  }
-}
+// VerificationFailedError lives in './errors.js' (node-executor errors module).

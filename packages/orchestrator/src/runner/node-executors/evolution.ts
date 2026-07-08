@@ -16,10 +16,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger.js';
 import { NodeConfigError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 import { ensureSaveToMemory } from './agent.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { LESSON_PROVENANCE_KEY } from '../../utils/lesson-provenance.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { buildNodeCallbacks } from './node-callbacks.js';
 import { checkCompositeBudget, logCompositeBudgetStop } from './budget-guard.js';
 import { combineAbortSignals } from '../../utils/abort.js';
 import { mapWithConcurrency } from '../../utils/concurrency.js';
@@ -93,7 +95,7 @@ interface ScoredCandidate {
   /** Evaluator's reasoning. */
   reasoning: string;
   /** Total tokens consumed (generation + evaluation). */
-  tokens_used: number;
+  tokensUsed: number;
   /** True if this candidate was carried forward unchanged from a prior generation (elitism). */
   is_elite?: boolean;
 }
@@ -231,7 +233,7 @@ export async function executeEvolutionNode(
         const agentConfig = await ctx.deps.loadAgent(task.node.agent_id!);
         const { modelOverride } = resolveModelForAgent(agentConfig, task.node.agent_id!, task.node.id, ctx);
         const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), task.node.agent_id!);
-        const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, task.node.id) : undefined;
+        const { onToken } = buildNodeCallbacks(task.node.id, ctx);
         // Combine the workflow-level signal with the per-task timeout signal
         // so a task_timeout_ms actually aborts the underlying LLM call instead
         // of leaving it running (and burning uncounted tokens) in the background.
@@ -241,10 +243,10 @@ export async function executeEvolutionNode(
           task.stateView,
           tools,
           attempt,
-          { temperature_override: temperature, node_id: task.node.id, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { model_override: modelOverride } : {}), ...(task.node.default_write_key ? { default_write_key: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) },
+          { temperatureOverride: temperature, nodeId: task.node.id, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { modelOverride } : {}), ...(task.node.default_write_key ? { defaultWriteKey: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) },
         );
       },
-      { max_concurrency: config.max_concurrency, error_strategy: config.error_strategy, task_timeout_ms: config.task_timeout_ms },
+      { maxConcurrency: config.max_concurrency, errorStrategy: config.error_strategy, taskTimeoutMs: config.task_timeout_ms },
     );
 
     // First pass (sequential, cheap): keep successful candidates and fold their
@@ -281,7 +283,7 @@ export async function executeEvolutionNode(
       if (!observedModel && typeof result.action.metadata.model === 'string') {
         observedModel = result.action.metadata.model;
       }
-      produced.push({ index: result.task_index, output: candidateOutput, tokens: actionTokens });
+      produced.push({ index: result.taskIndex, output: candidateOutput, tokens: actionTokens });
     }
 
     // Fail fast on misconfiguration before issuing any evaluator calls. Prefer
@@ -314,7 +316,7 @@ export async function executeEvolutionNode(
         ...cand,
         fitness: evalResult.score,
         reasoning: evalResult.reasoning,
-        evalTokens: evalResult.tokens_used,
+        evalTokens: evalResult.tokensUsed,
       };
     });
 
@@ -329,7 +331,7 @@ export async function executeEvolutionNode(
         output: r.output,
         fitness: r.fitness,
         reasoning: r.reasoning,
-        tokens_used: r.tokens,
+        tokensUsed: r.tokens,
       });
     }
 
@@ -425,7 +427,7 @@ export async function executeEvolutionNode(
 
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'merge_parallel_results',
     payload: {
       updates: {
@@ -442,7 +444,7 @@ export async function executeEvolutionNode(
           index: c.index,
           fitness: c.fitness,
           reasoning: c.reasoning,
-          tokens_used: c.tokens_used,
+          tokens_used: c.tokensUsed,
           ...(c.is_elite ? { is_elite: true } : {}),
         })),
         [`${node.id}_budget_stopped`]: budgetStopped,

@@ -160,7 +160,7 @@ describe('Self-Annealing Loops', () => {
     let evalCalls = 0;
     mockEvaluateQuality.mockImplementation(async () => {
       evalCalls++;
-      return { score: evalCalls >= 2 ? 0.9 : 0.5, reasoning: 'test', tokens_used: 20 };
+      return { score: evalCalls >= 2 ? 0.9 : 0.5, reasoning: 'test', tokensUsed: 20 };
     });
 
     const graph = createAnnealingGraph({
@@ -209,9 +209,9 @@ describe('Self-Annealing Loops', () => {
     const calls = (executeAgent as any).mock.calls;
     expect(calls.length).toBeGreaterThanOrEqual(2);
     // First call should have initial temperature
-    expect(calls[0][4].temperature_override).toBeCloseTo(1.0, 5);
+    expect(calls[0][4].temperatureOverride).toBeCloseTo(1.0, 5);
     // Last call should have final temperature
-    expect(calls[calls.length - 1][4].temperature_override).toBeCloseTo(0.2, 5);
+    expect(calls[calls.length - 1][4].temperatureOverride).toBeCloseTo(0.2, 5);
   });
 
   test('should stop on diminishing returns', async () => {

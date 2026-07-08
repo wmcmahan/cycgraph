@@ -38,11 +38,11 @@ export interface GenerateWorkflowOptions {
   /** Natural language description of the desired workflow. */
   prompt: string;
   /** Optional existing graph to modify (for iterative refinement). */
-  current_graph?: Graph;
+  currentGraph?: Graph;
   /** Agent ID whose model config to use (default: `"architect-agent"`). */
-  architect_agent_id?: string;
+  architectAgentId?: string;
   /** Max self-correction attempts on validation failure (default: `2`). */
-  max_retries?: number;
+  maxRetries?: number;
 }
 
 /** Result of a successful workflow generation. */
@@ -64,10 +64,10 @@ export interface GenerateWorkflowResult {
  *
  * Supports two modes:
  * - **Create**: Generate a new graph from scratch.
- * - **Modify**: Provide `current_graph` to refine an existing graph.
+ * - **Modify**: Provide `currentGraph` to refine an existing graph.
  *
  * On validation failure, the errors are fed back to the LLM for
- * self-correction up to `max_retries` times.
+ * self-correction up to `maxRetries` times.
  *
  * @param options - Generation options.
  * @returns The generated graph with metadata.
@@ -78,26 +78,26 @@ export async function generateWorkflow(
 ): Promise<GenerateWorkflowResult> {
   const {
     prompt,
-    current_graph,
-    architect_agent_id = 'architect-agent',
-    max_retries = 2,
+    currentGraph,
+    architectAgentId = 'architect-agent',
+    maxRetries = 2,
   } = options;
 
-  const isModification = Boolean(current_graph);
+  const isModification = Boolean(currentGraph);
   logger.info('generation_started', { prompt: prompt.slice(0, 100), is_modification: isModification });
 
-  const config = await agentFactory.loadAgent(architect_agent_id);
+  const config = await agentFactory.loadAgent(architectAgentId);
   const model = agentFactory.getModel(config);
 
   let lastError: string | null = null;
   let attempts = 0;
 
-  for (let attempt = 0; attempt <= max_retries; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     attempts = attempt + 1;
 
     let userMessage: string;
-    if (isModification && current_graph) {
-      const graphSnapshot = graphToLLMSnapshot(current_graph);
+    if (isModification && currentGraph) {
+      const graphSnapshot = graphToLLMSnapshot(currentGraph);
       userMessage = `Here is the EXISTING workflow graph:\n\n${JSON.stringify(graphSnapshot, null, 2)}\n\nThe user wants to modify it:\n${prompt}\n\nOutput the COMPLETE modified graph (not just the changes).`;
     } else {
       userMessage = `Design a workflow graph for:\n\n${prompt}`;
@@ -118,7 +118,7 @@ export async function generateWorkflow(
 
       logger.info('llm_output_received', { attempt: attempts, name: llmGraph.name });
 
-      const graph = llmGraphToGraph(llmGraph, current_graph?.id);
+      const graph = llmGraphToGraph(llmGraph, currentGraph?.id);
       const validation = validateGraph(graph);
 
       if (!validation.valid) {

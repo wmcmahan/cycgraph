@@ -329,6 +329,62 @@ describe('WorkflowWorker', () => {
     expect(finalState!.status).toBe('completed');
   });
 
+  // A GAP in the event log (a lost middle append) makes replay-based
+  // recover() throw EventLogCorruptionError. A run with a valid snapshot must
+  // NOT be dead-lettered — the worker falls back to the snapshot.
+  test('recovery: event-log gap falls back to the snapshot instead of dead-lettering', async () => {
+    const graph: Graph = {
+      id: uuidv4(),
+      name: 'Gap Graph',
+      nodes: [
+        makeNode({ id: 'a', agent_id: 'a' }),
+        makeNode({ id: 'b', agent_id: 'b' }),
+      ],
+      edges: [{ id: 'a->b', source: 'a', target: 'b', condition: { type: 'always' as const } }],
+      start_node: 'a',
+      end_nodes: ['b'],
+    } as Graph;
+    await persistence.saveGraph(graph);
+
+    const runId = uuidv4();
+
+    // Produce a real event log, then drop a MIDDLE event to create a sequence
+    // gap (contiguity broken → recover() will refuse).
+    const liveState = createTestState({ workflow_id: graph.id, run_id: runId, goal: 'test' });
+    await new GraphRunner(graph, liveState, { eventLog }).run();
+    const events = eventLog.getEventsForRun(runId);
+    expect(events.length).toBeGreaterThan(3);
+    events.splice(2, 1); // remove one middle event → gap
+
+    // A valid snapshot captures the run's progress.
+    await persistence.saveWorkflowSnapshot(createTestState({
+      workflow_id: graph.id,
+      run_id: runId,
+      goal: 'test',
+      status: 'running',
+      current_node: 'b',
+      visited_nodes: ['a'],
+      iteration_count: 10,
+      memory: { a_result: 'from-snapshot' },
+    }));
+
+    await queue.enqueue({ type: 'start', run_id: runId, graph_id: graph.id });
+
+    const workerEvents: string[] = [];
+    const w = createWorker();
+    w.on('job:completed', () => workerEvents.push('completed'));
+    w.on('job:failed', () => workerEvents.push('failed'));
+
+    await w.start();
+    await waitFor(() => workerEvents.length > 0);
+
+    // The run completed from the snapshot — NOT failed/dead-lettered.
+    expect(workerEvents).toContain('completed');
+    const finalState = await persistence.loadLatestWorkflowState(runId);
+    expect(finalState!.memory.a_result).toBe('from-snapshot');
+    expect(finalState!.status).toBe('completed');
+  });
+
   test('resume job: recover → applyHumanResponse → run → ack', async () => {
     const graph = createSimpleGraph();
     await persistence.saveGraph(graph);

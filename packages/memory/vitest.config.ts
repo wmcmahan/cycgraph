@@ -8,6 +8,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
+      // Regression ratchet: floors sit a few points below measured coverage
+      // (94/85/96/96 as of 2026-07) so a meaningful drop fails CI while normal
+      // churn doesn't. Raise as coverage improves; never lower to pass a build.
+      thresholds: {
+        statements: 90,
+        branches: 80,
+        functions: 90,
+        lines: 92,
+      },
     },
   },
 });

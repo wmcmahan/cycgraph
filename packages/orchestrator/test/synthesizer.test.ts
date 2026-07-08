@@ -171,7 +171,7 @@ describe('executeSynthesizerNode (agent-powered)', () => {
       expect.any(Object),
       expect.any(Object),
       1,
-      expect.objectContaining({ node_id: 'synth-1' }),
+      expect.objectContaining({ nodeId: 'synth-1' }),
     );
     expect(result.type).toBe('update_memory');
   });

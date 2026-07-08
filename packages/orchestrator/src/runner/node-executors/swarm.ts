@@ -15,8 +15,10 @@ import { createLogger } from '../../utils/logger.js';
 import { NodeConfigError } from '../errors.js';
 import { ensureSaveToMemory } from './agent.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { buildNodeCallbacks } from './node-callbacks.js';
 
 const logger = createLogger('runner.node.swarm');
 
@@ -42,11 +44,11 @@ export async function executeSwarmAgentNode(
   ctx: NodeExecutorContext,
 ): Promise<Action> {
   const config = node.swarm_config!;
-  const agent_id = node.agent_id!;
+  const agentId = node.agent_id!;
 
   logger.info('swarm_agent_executing', {
     node_id: node.id,
-    agent_id,
+    agent_id: agentId,
     peer_nodes: config.peer_nodes,
   });
 
@@ -64,17 +66,17 @@ export async function executeSwarmAgentNode(
     },
   };
 
-  const agentConfig = await ctx.deps.loadAgent(agent_id);
-  const { modelOverride } = resolveModelForAgent(agentConfig, agent_id, node.id, ctx);
-  const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), agent_id);
-  const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, node.id) : undefined;
-  const action = await ctx.deps.executeAgent(agent_id, swarmView, tools, attempt, {
-    node_id: node.id,
+  const agentConfig = await ctx.deps.loadAgent(agentId);
+  const { modelOverride } = resolveModelForAgent(agentConfig, agentId, node.id, ctx);
+  const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), agentId);
+  const { onToken } = buildNodeCallbacks(node.id, ctx);
+  const action = await ctx.deps.executeAgent(agentId, swarmView, tools, attempt, {
+    nodeId: node.id,
     abortSignal: ctx.abortSignal,
     onToken,
     drainTaintEntries: ctx.deps.drainTaintEntries,
-    ...(modelOverride ? { model_override: modelOverride } : {}),
-    ...(node.default_write_key ? { default_write_key: node.default_write_key } : {}),
+    ...(modelOverride ? { modelOverride } : {}),
+    ...(node.default_write_key ? { defaultWriteKey: node.default_write_key } : {}),
     ...buildAgentMemoryOptions(node, ctx),
   });
 
@@ -96,7 +98,7 @@ export async function executeSwarmAgentNode(
 
     return {
       id: uuidv4(),
-      idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+      idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
       type: 'handoff',
       payload: {
         node_id: delegation.peer_node_id,
@@ -110,7 +112,7 @@ export async function executeSwarmAgentNode(
       },
       metadata: {
         node_id: node.id,
-        agent_id,
+        agent_id: agentId,
         timestamp: new Date(),
         attempt,
       },

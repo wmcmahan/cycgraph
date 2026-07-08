@@ -256,6 +256,24 @@ describe('Map-Reduce', () => {
     await expect(runner.run()).rejects.toThrow('worker node');
   });
 
+  // A resolved item count above the cap must fail loudly rather
+  // than fan out an unbounded number of LLM calls.
+  test('should fail loudly when resolved items exceed max_items (no silent truncation)', async () => {
+    const graph = createMapGraph({ static_items: ['a', 'b', 'c'], max_items: 2 });
+    const state = createState();
+
+    const runner = new GraphRunner(graph, state);
+    await expect(runner.run()).rejects.toThrow(/at most 2 items/);
+  });
+
+  test('items_path resolving above max_items also fails loudly', async () => {
+    const graph = createMapGraph({ items_path: '$.memory.items', max_items: 2 });
+    const state = createState({ items: [1, 2, 3, 4, 5] });
+
+    const runner = new GraphRunner(graph, state);
+    await expect(runner.run()).rejects.toThrow(/at most 2 items/);
+  });
+
   test('synthesizer node should merge results', async () => {
     const graph = createMapGraph({ static_items: ['a', 'b'] });
     const state = createState();

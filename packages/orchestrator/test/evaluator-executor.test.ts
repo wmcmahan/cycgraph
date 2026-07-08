@@ -148,7 +148,7 @@ describe('evaluateQualityExecutor', () => {
     expect(result.score).toBe(0.8);
     expect(result.reasoning).toBe('Good quality');
     expect(result.suggestions).toBe('Minor fixes');
-    expect(result.tokens_used).toBe(150);
+    expect(result.tokensUsed).toBe(150);
   });
 
   it('returns 0 tokens when usage is missing', async () => {
@@ -161,7 +161,7 @@ describe('evaluateQualityExecutor', () => {
     const { evaluateQualityExecutor } = await import('../src/agent/evaluator-executor/executor.js');
     const result = await evaluateQualityExecutor('eval-1', 'goal', 'output');
 
-    expect(result.tokens_used).toBe(0);
+    expect(result.tokensUsed).toBe(0);
   });
 
   it('propagates errors from generateText', async () => {

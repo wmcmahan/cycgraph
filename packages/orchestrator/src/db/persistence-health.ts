@@ -12,6 +12,7 @@
 import type { PersistenceProvider } from '../persistence/interfaces.js';
 import type { WorkflowState } from '../types/state.js';
 import { createLogger } from '../utils/logger.js';
+import { CycgraphError } from '../errors.js';
 
 const logger = createLogger('db.persistence');
 
@@ -151,7 +152,7 @@ export async function persistWorkflow(
  * throw new PersistenceUnavailableError('DB unreachable after 3 failures');
  * ```
  */
-export class PersistenceUnavailableError extends Error {
+export class PersistenceUnavailableError extends CycgraphError {
   constructor(message: string) {
     super(message);
     this.name = 'PersistenceUnavailableError';

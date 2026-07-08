@@ -29,7 +29,7 @@ export interface ExtractionResult {
   /** Optional explanation of how the facts were chosen. */
   reasoning?: string;
   /** Total tokens consumed by the extraction call. */
-  tokens_used: number;
+  tokensUsed: number;
 }
 
 /** Default cap on the number of facts the LLM may return per call. */
@@ -47,31 +47,31 @@ const ExtractionSchema = z.object({
 /**
  * Run the LLM extractor.
  *
- * @param extractor_agent_id - The registry ID of the extractor agent.
+ * @param extractorAgentId - The registry ID of the extractor agent.
  * @param source - Source text to distill (string or serialisable object).
- * @param max_facts - Soft cap requested in the prompt; the LLM may return fewer.
+ * @param maxFacts - Soft cap requested in the prompt; the LLM may return fewer.
  * @param instruction - Optional override instruction passed to the prompt.
  * @returns The extraction result with facts, reasoning, and token usage.
  */
 export async function extractFactsExecutor(
-  extractor_agent_id: string,
+  extractorAgentId: string,
   source: unknown,
-  max_facts: number = DEFAULT_MAX_FACTS,
+  maxFacts: number = DEFAULT_MAX_FACTS,
   instruction?: string,
 ): Promise<ExtractionResult> {
   return withSpan(tracer, 'extractor.extract', async (span) => {
-    span.setAttribute('extractor.agent_id', extractor_agent_id);
-    span.setAttribute('extractor.max_facts', max_facts);
+    span.setAttribute('extractor.agent_id', extractorAgentId);
+    span.setAttribute('extractor.max_facts', maxFacts);
 
-    const agentConfig = await agentFactory.loadAgent(extractor_agent_id);
+    const agentConfig = await agentFactory.loadAgent(extractorAgentId);
     const model = agentFactory.getModel(agentConfig);
 
     const systemPrompt = createExtractorSystemPrompt(agentConfig, instruction);
-    const prompt = createExtractorPrompt(source, max_facts, instruction);
+    const prompt = createExtractorPrompt(source, maxFacts, instruction);
 
     logger.info('extracting', {
-      extractor_agent_id,
-      max_facts,
+      extractor_agent_id: extractorAgentId,
+      max_facts: maxFacts,
       source_kind: typeof source,
     });
 
@@ -83,7 +83,7 @@ export async function extractFactsExecutor(
       ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
     });
 
-    const tokens_used = usage?.totalTokens ?? 0;
+    const tokensUsed = usage?.totalTokens ?? 0;
 
     // Trim then clamp to the requested cap — the schema allows up to 50
     // so the LLM can return a few extras, but we always honour the caller's
@@ -91,21 +91,21 @@ export async function extractFactsExecutor(
     const facts = extraction.facts
       .map((f) => f.trim())
       .filter((f) => f.length > 0)
-      .slice(0, max_facts);
+      .slice(0, maxFacts);
 
     logger.info('extraction_complete', {
-      extractor_agent_id,
+      extractor_agent_id: extractorAgentId,
       facts_returned: facts.length,
-      tokens_used,
+      tokens_used: tokensUsed,
     });
 
     span.setAttribute('extractor.facts_returned', facts.length);
-    span.setAttribute('extractor.tokens', tokens_used);
+    span.setAttribute('extractor.tokens', tokensUsed);
 
     return {
       facts,
       reasoning: extraction.reasoning,
-      tokens_used,
+      tokensUsed,
     };
   });
 }

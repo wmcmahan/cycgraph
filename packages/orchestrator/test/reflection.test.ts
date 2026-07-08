@@ -60,7 +60,7 @@ const mockExtract = vi.fn<
     source: unknown,
     max_facts?: number,
     instruction?: string,
-  ) => Promise<{ facts: string[]; reasoning?: string; tokens_used: number }>
+  ) => Promise<{ facts: string[]; reasoning?: string; tokensUsed: number }>
 >();
 vi.mock('../src/agent/extractor-executor/executor', () => ({
   extractFactsExecutor: (
@@ -77,7 +77,7 @@ import { ReflectionConfigSchema, GraphNodeSchema, NodeTypeSchema } from '../src/
 import type { Graph } from '../src/types/graph.js';
 import type { MemoryWriter } from '../src/agent/memory-writer.js';
 import { validateGraph } from '../src/validation/graph-validator.js';
-import { MemoryWriterMissingError } from '../src/runner/node-executors/reflection.js';
+import { MemoryWriterMissingError } from '../src/runner/node-executors/errors.js';
 import { createTestState, makeNode } from './helpers/factories.js';
 
 // ─── Schema ─────────────────────────────────────────────────────────
@@ -556,7 +556,7 @@ describe('llm reflection extractor', () => {
   it('calls extractFactsExecutor with the configured agent_id, source corpus, max_facts, and instruction', async () => {
     mockExtract.mockResolvedValueOnce({
       facts: ['Prefer primary sources to summaries.', 'Cite the publication date.'],
-      tokens_used: 1337,
+      tokensUsed: 1337,
     });
     const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({
       fact_ids: facts.map((_, i) => `f-${i}`),
@@ -584,7 +584,7 @@ describe('llm reflection extractor', () => {
   it('persists each returned fact with provenance.source="agent" and configured tags', async () => {
     mockExtract.mockResolvedValueOnce({
       facts: ['Prefer primary sources.', 'Cite the publication date.'],
-      tokens_used: 800,
+      tokensUsed: 800,
     });
     const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({
       fact_ids: facts.map((_, i) => `f-${i}`),
@@ -611,7 +611,7 @@ describe('llm reflection extractor', () => {
   it('attaches entities from entity_keys onto every llm-extracted fact', async () => {
     mockExtract.mockResolvedValueOnce({
       facts: ['One lesson.', 'Another lesson.'],
-      tokens_used: 500,
+      tokensUsed: 500,
     });
     const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({
       fact_ids: facts.map((_, i) => `f-${i}`),
@@ -636,7 +636,7 @@ describe('llm reflection extractor', () => {
   it('writes the ReflectionResult envelope and threads fact_ids back from the writer', async () => {
     mockExtract.mockResolvedValueOnce({
       facts: ['A.', 'A longer lesson worth keeping.'],
-      tokens_used: 250,
+      tokensUsed: 250,
     });
     const memoryWriter = vi.fn<MemoryWriter>(async () => ({
       fact_ids: ['db-id-1', 'db-id-2'],
@@ -658,7 +658,7 @@ describe('llm reflection extractor', () => {
   it('threads llm token usage into the workflow total', async () => {
     mockExtract.mockResolvedValueOnce({
       facts: ['One lesson.'],
-      tokens_used: 4242,
+      tokensUsed: 4242,
     });
     const memoryWriter = vi.fn<MemoryWriter>(async () => ({ fact_ids: ['f-0'] }));
 
@@ -680,7 +680,7 @@ describe('llm reflection extractor', () => {
   });
 
   it('does not call the writer when the llm returns zero facts', async () => {
-    mockExtract.mockResolvedValueOnce({ facts: [], tokens_used: 100 });
+    mockExtract.mockResolvedValueOnce({ facts: [], tokensUsed: 100 });
     const memoryWriter = vi.fn<MemoryWriter>(async () => ({ fact_ids: [] }));
 
     const state = createTestState({ memory: { draft: 'some draft' } });

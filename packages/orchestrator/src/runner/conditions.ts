@@ -13,60 +13,17 @@
  * @module runner/conditions
  */
 
-import { compileExpression, useDotAccessOperatorAndOptionalChaining } from 'filtrex';
+import { compileExpression } from 'filtrex';
 import type { EdgeCondition } from '../types/graph.js';
 import type { WorkflowState } from '../types/state.js';
 import { createLogger } from '../utils/logger.js';
 import { getTaintRegistry } from '../utils/taint.js';
 import { FILTREX_CACHE_SIZE } from '../runtime-config.js';
+// Compile options + normalization live in utils so the graph validator can
+// share them without a validation → runner dependency.
+import { FILTREX_COMPILE_OPTIONS, normalizeConditionExpression } from '../utils/condition-expression.js';
 
 const logger = createLogger('runner.conditions');
-
-// ─── Filtrex Configuration ──────────────────────────────────────────
-
-/**
- * Shared filtrex compile options. Used by both the runtime evaluator
- * and the graph validator so that `validateGraph()` rejects exactly the
- * set of expressions that `evaluateCondition()` cannot evaluate.
- */
-export const FILTREX_EXTRA_FUNCTIONS = {
-  length: (val: unknown) =>
-    Array.isArray(val) ? val.length : typeof val === 'string' ? val.length : 0,
-  lower: (val: unknown) =>
-    typeof val === 'string' ? val.toLowerCase() : val,
-  upper: (val: unknown) =>
-    typeof val === 'string' ? val.toUpperCase() : val,
-  typeof: (val: unknown) =>
-    val === null ? 'null' : typeof val,
-  includes: (arr: unknown, val: unknown) =>
-    Array.isArray(arr) ? arr.includes(val) : false,
-  number: (val: unknown) => {
-    const n = Number(val);
-    return Number.isNaN(n) ? 0 : n;
-  },
-} as const;
-
-export const FILTREX_COMPILE_OPTIONS = {
-  customProp: useDotAccessOperatorAndOptionalChaining,
-  extraFunctions: FILTREX_EXTRA_FUNCTIONS,
-} as const;
-
-/**
- * Normalize a condition expression to the form that `filtrex` accepts.
- *
- * Applied identically by the validator (load time) and the runtime evaluator
- * so that an expression which passes validation will compile at runtime.
- *
- * Transformations:
- *   - Strip a leading `$.` (legacy JSONPath compatibility).
- *   - Replace single-quoted string literals with double quotes.
- */
-export function normalizeConditionExpression(expression: string): string {
-  let normalized = expression;
-  if (normalized.startsWith('$.')) normalized = normalized.slice(2);
-  normalized = normalized.replace(/'/g, '"');
-  return normalized;
-}
 
 // ─── Expression Cache ───────────────────────────────────────────────
 

@@ -13,6 +13,7 @@ import { createLogger } from '../../utils/logger.js';
 import type { NodeExecutorContext } from './context.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { buildNodeCallbacks } from './node-callbacks.js';
 
 const logger = createLogger('runner.node.supervisor');
 
@@ -42,6 +43,8 @@ export async function executeSupervisorNode(
     modelOverride = result.modelOverride;
   }
 
+  const { onContextCompressed } = buildNodeCallbacks(node.id, ctx);
+
   return ctx.deps.executeSupervisor(
     node,
     stateView,
@@ -49,16 +52,9 @@ export async function executeSupervisorNode(
     attempt,
     {
       abortSignal: ctx.abortSignal,
-      ...(modelOverride ? { model_override: modelOverride } : {}),
+      ...(modelOverride ? { modelOverride } : {}),
       contextCompressor: ctx.contextCompressor,
-      onContextCompressed: ctx.onContextCompressed
-        ? (metrics) => ctx.onContextCompressed!({
-            tokensIn: metrics.totalTokensIn,
-            tokensOut: metrics.totalTokensOut,
-            reductionPercent: metrics.reductionPercent,
-            durationMs: metrics.totalDurationMs,
-          }, node.id)
-        : undefined,
+      onContextCompressed,
       ...buildAgentMemoryOptions(node, ctx),
     },
   );

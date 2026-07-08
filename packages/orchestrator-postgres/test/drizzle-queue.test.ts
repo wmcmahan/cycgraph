@@ -19,7 +19,9 @@ import { eq } from 'drizzle-orm';
 describe.skipIf(!isDatabaseAvailable())('DrizzleWorkflowQueue', () => {
   setupDatabaseTests();
 
-  const queue = new DrizzleWorkflowQueue();
+  // Zero retry backoff so nack→re-dequeue is immediate across the mechanics
+  // tests below. Retry backoff has its own dedicated test.
+  const queue = new DrizzleWorkflowQueue({ retryBackoffMs: 0 });
 
   async function seedGraph(): Promise<string> {
     const db = await getDb();
@@ -148,6 +150,26 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleWorkflowQueue', () => {
     expect(await queue.dequeue('worker-2')).toBeNull();
   });
 
+  // Lifecycle ops verify ownership — a stale worker cannot ack/nack/release a
+  // job a new worker now owns.
+  test('lifecycle ops are scoped to the owning worker', async () => {
+    const graphId = await seedGraph();
+    const jobId = await queue.enqueue({ type: 'start', run_id: crypto.randomUUID(), graph_id: graphId });
+    await queue.dequeue('worker-1'); // owned by worker-1
+
+    // A different worker cannot mutate it.
+    await queue.ack(jobId, 'worker-2');
+    expect((await queue.getJob(jobId))!.status).toBe('active');
+    await queue.nack(jobId, 'boom', 'worker-2');
+    expect((await queue.getJob(jobId))!.status).toBe('active');
+    await queue.release(jobId, 'worker-2');
+    expect((await queue.getJob(jobId))!.status).toBe('active');
+
+    // The legitimate owner still can.
+    await queue.ack(jobId, 'worker-1');
+    expect((await queue.getJob(jobId))!.status).toBe('completed');
+  });
+
   test('reclaimExpired returns timed-out active jobs to waiting', async () => {
     const graphId = await seedGraph();
     const jobId = await queue.enqueue({
@@ -162,6 +184,58 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleWorkflowQueue', () => {
     const reclaimed = await queue.reclaimExpired();
     expect(reclaimed).toBe(1);
     expect((await queue.getJob(jobId))!.status).toBe('waiting');
+  });
+
+  // A worker that dies hard (SIGKILL/OOM, no ack/nack) must not loop
+  // forever. Each reclaim is a failed attempt; after max_attempts the job is
+  // dead-lettered instead of being reclaimed and re-dequeued endlessly.
+  test('reclaimExpired dead-letters a poison-pill job after max_attempts', async () => {
+    const graphId = await seedGraph();
+    const jobId = await queue.enqueue({
+      type: 'start',
+      run_id: crypto.randomUUID(),
+      graph_id: graphId,
+      max_attempts: 2,
+      visibility_timeout_ms: 1,
+    });
+
+    // Claim → worker dies hard → visibility expires → reclaim (attempt 1 < 2).
+    await queue.dequeue('worker-1');
+    await new Promise(r => setTimeout(r, 10));
+    await queue.reclaimExpired();
+    expect((await queue.getJob(jobId))!.status).toBe('waiting');
+
+    // Claim again → dies again → reclaim (attempt 2 >= 2 → dead_letter).
+    await queue.dequeue('worker-2');
+    await new Promise(r => setTimeout(r, 10));
+    await queue.reclaimExpired();
+    expect((await queue.getJob(jobId))!.status).toBe('dead_letter');
+
+    // The loop is broken — a dead-lettered job is never claimed again.
+    expect(await queue.dequeue('worker-3')).toBeNull();
+  });
+
+  // A nacked job backs off — it is not immediately re-dequeuable, so a
+  // fast-failing job doesn't burn its attempts in a tight loop.
+  test('retry backoff delays re-visibility of a nacked job', async () => {
+    const backoffQueue = new DrizzleWorkflowQueue({ retryBackoffMs: 10_000 });
+    const graphId = await seedGraph();
+    const jobId = await backoffQueue.enqueue({
+      type: 'start',
+      run_id: crypto.randomUUID(),
+      graph_id: graphId,
+      max_attempts: 3,
+    });
+
+    await backoffQueue.dequeue('worker-1'); // attempt 1
+    await backoffQueue.nack(jobId, 'transient');
+
+    // Waiting, but not yet visible → dequeue skips it.
+    const job = await backoffQueue.getJob(jobId);
+    expect(job!.status).toBe('waiting');
+    expect(job!.visible_at).not.toBeNull();
+    expect(job!.visible_at!.getTime()).toBeGreaterThan(Date.now());
+    expect(await backoffQueue.dequeue('worker-2')).toBeNull();
   });
 
   test('heartbeat extends visibility for active jobs', async () => {
@@ -236,6 +310,29 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleWorkflowQueue', () => {
       // Events are intact.
       const remaining = await freshOptions.eventLog!.loadEvents(runId);
       expect(remaining.length).toBeGreaterThanOrEqual(2);
+    });
+
+    // checkpoint() was the one write path that skipped the epoch check.
+    // A stale checkpoint would become the recovery anchor (loadCheckpoint reads
+    // the highest sequence_id), silently resuming the new claimant from
+    // rolled-back/divergent state.
+    test('a stale claimant cannot write a checkpoint for the new claimant\'s run', async () => {
+      const graphId = await seedGraph();
+      const runId = crypto.randomUUID();
+
+      await queue.enqueue({ type: 'start', run_id: runId, graph_id: graphId });
+      const firstClaim = await queue.dequeue('worker-1');
+      const staleOptions = createFencedRunnerOptions(firstClaim!);
+
+      await queue.nack(firstClaim!.id, 'simulated partition');
+      const secondClaim = await queue.dequeue('worker-2');
+      const freshOptions = createFencedRunnerOptions(secondClaim!);
+
+      const state = createWorkflowState({ workflow_id: graphId, run_id: runId, goal: 'checkpoint fencing' });
+
+      // The new claimant checkpoints fine; the stale claimant is rejected.
+      await expect(freshOptions.eventLog!.checkpoint(runId, 5, state)).resolves.toBeUndefined();
+      await expect(staleOptions.eventLog!.checkpoint(runId, 9, state)).rejects.toBeInstanceOf(StaleClaimError);
     });
 
     test('unfenced writers are unaffected by claim epochs', async () => {

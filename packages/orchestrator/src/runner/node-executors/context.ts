@@ -86,15 +86,15 @@ export interface ExecutorDependencies {
     tools: Record<string, unknown>,
     attempt: number,
     options?: {
-      temperature_override?: number;
-      node_id?: string;
+      temperatureOverride?: number;
+      nodeId?: string;
       abortSignal?: AbortSignal;
       onToken?: (token: string) => void;
       onToolCall?: (event: { toolName: string; toolCallId: string; args: unknown }) => void;
       onToolCallComplete?: (event: { toolName: string; toolCallId: string; durationMs: number; success: boolean; error?: string }) => void;
       drainTaintEntries?: (tools?: Record<string, unknown>) => Map<string, TaintMetadata>;
       /** Override the model from agent config (used by budget-aware model resolution). */
-      model_override?: string;
+      modelOverride?: string;
       /** Context compressor for memory serialization in prompts. */
       contextCompressor?: ContextCompressor;
       /** Callback fired when context compression runs. */
@@ -102,7 +102,7 @@ export interface ExecutorDependencies {
       /** Memory retriever for injecting relevant facts into prompts. */
       memoryRetriever?: MemoryRetriever;
       /** Per-node retrieval directive (paired with `memoryRetriever`). */
-      memory_query?: {
+      memoryQuery?: {
         text?: string;
         entityIds?: string[];
         tags?: string[];
@@ -125,7 +125,7 @@ export interface ExecutorDependencies {
     attempt: number,
     options?: {
       abortSignal?: AbortSignal;
-      model_override?: string;
+      modelOverride?: string;
       /** Context compressor for memory serialization in prompts. */
       contextCompressor?: ContextCompressor;
       /** Callback fired when context compression runs. */
@@ -133,7 +133,7 @@ export interface ExecutorDependencies {
       /** Memory retriever for injecting relevant facts into the routing prompt. */
       memoryRetriever?: MemoryRetriever;
       /** Per-node retrieval directive (paired with `memoryRetriever`). */
-      memory_query?: {
+      memoryQuery?: {
         text?: string;
         entityIds?: string[];
         tags?: string[];
@@ -148,7 +148,7 @@ export interface ExecutorDependencies {
     goal: string,
     data: unknown,
     instruction?: string,
-  ) => Promise<{ score: number; reasoning: string; tokens_used: number }>;
+  ) => Promise<{ score: number; reasoning: string; tokensUsed: number }>;
 
   /**
    * Extract a bounded list of atomic facts from source text via an LLM.
@@ -157,9 +157,9 @@ export interface ExecutorDependencies {
   extractFactsExecutor: (
     extractorAgentId: string,
     source: unknown,
-    max_facts?: number,
+    maxFacts?: number,
     instruction?: string,
-  ) => Promise<{ facts: string[]; reasoning?: string; tokens_used: number }>;
+  ) => Promise<{ facts: string[]; reasoning?: string; tokensUsed: number }>;
 
   /**
    * Resolve structured tool sources into AI SDK tool objects.

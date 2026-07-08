@@ -27,7 +27,7 @@ export {
   FILTREX_EXTRA_FUNCTIONS,
   FILTREX_COMPILE_OPTIONS,
   normalizeConditionExpression,
-} from './runner/conditions.js';
+} from './utils/condition-expression.js';
 
 // Low-level retry/backoff helpers.
 export { calculateBackoff, sleep } from './runner/helpers.js';

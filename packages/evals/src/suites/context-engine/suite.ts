@@ -380,7 +380,9 @@ function runEntityPreservationEval(): TestCaseResults {
   });
   const content = 'Alice from Acme Corp reported that the very basic and essentially simple findings indicate a total cost of $42,000 for the deployment.';
   const segments: PromptSegment[] = [
-    { id: 'mem', content, role: 'memory', priority: 1, locked: false },
+    // Prose content: token-pruning applies to prose roles only (structured
+    // 'memory'/'tools' segments are protected from corruption).
+    { id: 'mem', content, role: 'history', priority: 1, locked: false },
   ];
   const result = pipeline.compress({
     segments,
@@ -418,7 +420,9 @@ function runPhase2PipelineEval(): TestCaseResults {
     ],
   });
   const segments: PromptSegment[] = [
-    { id: 'mem', content, role: 'memory', priority: 1, locked: false },
+    // Prose content: token-pruning applies to prose roles only (structured
+    // 'memory'/'tools' segments are protected from corruption).
+    { id: 'mem', content, role: 'history', priority: 1, locked: false },
   ];
   const result = pipeline.compress({
     segments,
@@ -450,7 +454,8 @@ function runHeuristicReductionEval(): TestCaseResults {
     stages: [createHeuristicPruningStage()],
   });
   const segments: PromptSegment[] = [
-    { id: 'mem', content: verbose, role: 'memory', priority: 1, locked: false },
+    // Prose content: token-pruning applies to prose roles only.
+    { id: 'mem', content: verbose, role: 'history', priority: 1, locked: false },
   ];
   const result = pipeline.compress({
     segments,

@@ -55,16 +55,16 @@ export interface MemoryWriterResult {
  *
  * @param facts - Facts to persist.
  * @param options - Optional constraints.
- * @param options.idempotency_key - Deduplication scope for this write,
+ * @param options.idempotencyKey - Deduplication scope for this write,
  *   formatted `run_id:node_id:iteration`. The same key is passed again when
  *   the write repeats for the same node execution — after a node retry or
  *   crash recovery. Implementations SHOULD treat a repeated key as
  *   "already written" (skip or upsert) instead of inserting again,
  *   otherwise every retry permanently duplicates facts in long-term memory.
- * @param options.batch_size - Reserved for batch tuning.
+ * @param options.batchSize - Reserved for batch tuning.
  * @returns Result containing the IDs of the persisted facts.
  */
 export type MemoryWriter = (
   facts: MemoryWriterFact[],
-  options?: { batch_size?: number; idempotency_key?: string },
+  options?: { batchSize?: number; idempotencyKey?: string },
 ) => Promise<MemoryWriterResult>;

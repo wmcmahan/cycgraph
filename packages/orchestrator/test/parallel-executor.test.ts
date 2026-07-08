@@ -41,8 +41,8 @@ describe('Parallel Executor', () => {
     const executeFn = vi.fn(async (task: ParallelTask) => makeAction(task.node.id));
 
     const results = await executeParallel(tasks, executeFn, {
-      max_concurrency: 10,
-      error_strategy: 'best_effort',
+      maxConcurrency: 10,
+      errorStrategy: 'best_effort',
     });
 
     expect(results).toHaveLength(3);
@@ -50,7 +50,7 @@ describe('Parallel Executor', () => {
     expect(executeFn).toHaveBeenCalledTimes(3);
   });
 
-  test('should respect max_concurrency batching', async () => {
+  test('should respect maxConcurrency batching', async () => {
     const tasks = Array.from({ length: 6 }, (_, i) => makeTask(`t${i}`));
     let maxConcurrent = 0;
     let currentConcurrent = 0;
@@ -64,8 +64,8 @@ describe('Parallel Executor', () => {
     });
 
     await executeParallel(tasks, executeFn, {
-      max_concurrency: 2,
-      error_strategy: 'best_effort',
+      maxConcurrency: 2,
+      errorStrategy: 'best_effort',
     });
 
     expect(maxConcurrent).toBeLessThanOrEqual(2);
@@ -79,8 +79,8 @@ describe('Parallel Executor', () => {
     });
 
     const results = await executeParallel(tasks, executeFn, {
-      max_concurrency: 10,
-      error_strategy: 'best_effort',
+      maxConcurrency: 10,
+      errorStrategy: 'best_effort',
     });
 
     expect(results).toHaveLength(3);
@@ -100,8 +100,8 @@ describe('Parallel Executor', () => {
 
     await expect(
       executeParallel(tasks, executeFn, {
-        max_concurrency: 10,
-        error_strategy: 'fail_fast',
+        maxConcurrency: 10,
+        errorStrategy: 'fail_fast',
       })
     ).rejects.toThrow('Fast fail');
   });
@@ -111,11 +111,11 @@ describe('Parallel Executor', () => {
     const executeFn = vi.fn(async () => makeAction('a'));
 
     const results = await executeParallel(tasks, executeFn, {
-      max_concurrency: 1,
-      error_strategy: 'best_effort',
+      maxConcurrency: 1,
+      errorStrategy: 'best_effort',
     });
 
-    expect(results[0].tokens_used).toBe(100);
+    expect(results[0].tokensUsed).toBe(100);
   });
 
   test('passes a per-task abort signal that fires on timeout', async () => {
@@ -133,9 +133,9 @@ describe('Parallel Executor', () => {
     });
 
     await executeParallel(tasks, executeFn, {
-      max_concurrency: 1,
-      error_strategy: 'best_effort',
-      task_timeout_ms: 20,
+      maxConcurrency: 1,
+      errorStrategy: 'best_effort',
+      taskTimeoutMs: 20,
     });
 
     // The signal is provided to executeFn and is aborted when the task times out.
@@ -146,49 +146,49 @@ describe('Parallel Executor', () => {
   test('should handle empty task list', async () => {
     const executeFn = vi.fn();
     const results = await executeParallel([], executeFn, {
-      max_concurrency: 5,
-      error_strategy: 'best_effort',
+      maxConcurrency: 5,
+      errorStrategy: 'best_effort',
     });
 
     expect(results).toHaveLength(0);
     expect(executeFn).not.toHaveBeenCalled();
   });
 
-  test('should assign correct task_index to results', async () => {
+  test('should assign correct taskIndex to results', async () => {
     const tasks = [makeTask('x'), makeTask('y'), makeTask('z')];
     const executeFn = vi.fn(async (task: ParallelTask) => makeAction(task.node.id));
 
     const results = await executeParallel(tasks, executeFn, {
-      max_concurrency: 10,
-      error_strategy: 'best_effort',
+      maxConcurrency: 10,
+      errorStrategy: 'best_effort',
     });
 
-    expect(results.map(r => r.task_index).sort()).toEqual([0, 1, 2]);
-    expect(results.map(r => r.node_id).sort()).toEqual(['x', 'y', 'z']);
+    expect(results.map(r => r.taskIndex).sort()).toEqual([0, 1, 2]);
+    expect(results.map(r => r.nodeId).sort()).toEqual(['x', 'y', 'z']);
   });
 
   test('should carry per-item stateView correctly', async () => {
     const task: ParallelTask = {
       ...makeTask('worker'),
-      input_item: { text: 'hello' },
-      item_index: 0,
+      inputItem: { text: 'hello' },
+      itemIndex: 0,
     };
 
     const executeFn = vi.fn(async (t: ParallelTask) => {
-      expect(t.input_item).toEqual({ text: 'hello' });
-      expect(t.item_index).toBe(0);
+      expect(t.inputItem).toEqual({ text: 'hello' });
+      expect(t.itemIndex).toBe(0);
       return makeAction(t.node.id);
     });
 
     await executeParallel([task], executeFn, {
-      max_concurrency: 1,
-      error_strategy: 'best_effort',
+      maxConcurrency: 1,
+      errorStrategy: 'best_effort',
     });
 
     expect(executeFn).toHaveBeenCalledTimes(1);
   });
 
-  test('should timeout individual tasks with task_timeout_ms', async () => {
+  test('should timeout individual tasks with taskTimeoutMs', async () => {
     const tasks = [makeTask('fast'), makeTask('slow')];
     const executeFn = vi.fn(async (task: ParallelTask) => {
       if (task.node.id === 'slow') {
@@ -199,14 +199,14 @@ describe('Parallel Executor', () => {
     });
 
     const results = await executeParallel(tasks, executeFn, {
-      max_concurrency: 10,
-      error_strategy: 'best_effort',
-      task_timeout_ms: 50,
+      maxConcurrency: 10,
+      errorStrategy: 'best_effort',
+      taskTimeoutMs: 50,
     });
 
     expect(results).toHaveLength(2);
-    const fast = results.find(r => r.node_id === 'fast');
-    const slow = results.find(r => r.node_id === 'slow');
+    const fast = results.find(r => r.nodeId === 'fast');
+    const slow = results.find(r => r.nodeId === 'slow');
     expect(fast?.success).toBe(true);
     expect(slow?.success).toBe(false);
     expect(slow?.error).toMatch(/timed out/);
@@ -220,8 +220,8 @@ describe('Parallel Executor', () => {
     });
 
     const results = await executeParallel(tasks, executeFn, {
-      max_concurrency: 10,
-      error_strategy: 'best_effort',
+      maxConcurrency: 10,
+      errorStrategy: 'best_effort',
       // task_timeout_ms intentionally omitted
     });
 

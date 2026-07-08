@@ -12,7 +12,7 @@
 import { createLogger } from '../../utils/logger.js';
 import { sanitizeString } from './sanitizers.js';
 
-const logger = createLogger('agent.executor');
+const logger = createLogger('agent.executor.memory');
 
 /**
  * Extract memory updates from an agent's response and tool calls.

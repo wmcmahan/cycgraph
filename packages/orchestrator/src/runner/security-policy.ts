@@ -19,9 +19,15 @@
  * @module runner/security-policy
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import type { GraphNode } from '../types/graph.js';
-import type { WorkflowState } from '../types/state.js';
+import type { WorkflowState, Action } from '../types/state.js';
 import type { TaintRegistry } from '../types/state.js';
+import { getTaintRegistry } from '../utils/taint.js';
+import { createLogger } from '../utils/logger.js';
+import { CycgraphError } from '../errors.js';
+
+const logger = createLogger('runner.security-policy');
 
 /** What the policy decided to do about a (tainted, sensitive) node. */
 export type SecurityPolicyEffect = 'allow' | 'monitor' | 'block' | 'require_approval';
@@ -67,7 +73,7 @@ export type SecurityPolicy = (ctx: SecurityPolicyContext) => SecurityPolicyDecis
  * Thrown when a policy returns `block`. Routed through the runner's normal
  * failure path, so the run ends `failed` with this message (fail-closed).
  */
-export class SecurityPolicyViolationError extends Error {
+export class SecurityPolicyViolationError extends CycgraphError {
   readonly node_id: string;
   readonly sensitivity?: string[];
   constructor(node_id: string, reason: string, sensitivity?: string[]) {
@@ -76,6 +82,122 @@ export class SecurityPolicyViolationError extends Error {
     this.node_id = node_id;
     this.sensitivity = sensitivity;
   }
+}
+
+/** Payload of the runner's `security:policy` audit event (every non-`allow` decision). */
+export interface SecurityPolicyEventPayload {
+  run_id: string;
+  node_id: string;
+  effect: 'monitor' | 'block' | 'require_approval';
+  sensitivity?: string[];
+  tainted_keys: string[];
+  reason?: string;
+  rule_id?: string;
+  timestamp: number;
+}
+
+/**
+ * Consult the security policy for a node about to execute.
+ *
+ * Returns a `request_human_input` gate action to inject (pausing the run
+ * for approval), or `undefined` to let the node run normally. Throws
+ * {@link SecurityPolicyViolationError} when the policy decision is `block`
+ * (the run's failure path turns this into a fail-closed `workflow:failed`).
+ *
+ * Only consulted for nodes that read tainted data; a node reading nothing
+ * untrusted is always allowed without invoking the policy.
+ */
+export function evaluateSecurityPolicy(args: {
+  node: GraphNode;
+  state: WorkflowState;
+  policy: SecurityPolicy;
+  /** Surfaces every non-allow decision so the host can audit it durably. */
+  emitPolicyEvent: (payload: SecurityPolicyEventPayload) => void;
+}): Action | undefined {
+  const { node, state, policy } = args;
+
+  // A prior human approval for this node (recorded on resume) lets it run
+  // exactly once. The flag persists for the run, so a node revisited in a
+  // loop after approval is not re-gated — a known v1 limitation.
+  const approved = (state.memory._policy_approved ?? {}) as Record<string, boolean>;
+  if (approved[node.id]) return undefined;
+
+  const registry = getTaintRegistry(state.memory);
+  const taintedReadKeys = readableTaintedKeys(node, registry);
+  if (taintedReadKeys.length === 0) return undefined;
+
+  const decision = policy({
+    node,
+    state,
+    tainted_read_keys: taintedReadKeys,
+  });
+  if (!decision || decision.effect === 'allow') return undefined;
+
+  args.emitPolicyEvent({
+    run_id: state.run_id,
+    node_id: node.id,
+    effect: decision.effect,
+    sensitivity: decision.sensitivity,
+    tainted_keys: taintedReadKeys,
+    reason: decision.reason,
+    rule_id: decision.rule_id,
+    timestamp: Date.now(),
+  });
+
+  if (decision.effect === 'monitor') {
+    logger.warn('security_policy_flagged', {
+      run_id: state.run_id,
+      node_id: node.id,
+      sensitivity: decision.sensitivity,
+      tainted_keys: taintedReadKeys,
+      reason: decision.reason,
+    });
+    return undefined;
+  }
+
+  if (decision.effect === 'block') {
+    throw new SecurityPolicyViolationError(
+      node.id,
+      decision.reason
+        ?? `Blocked by security policy: untrusted data reaching a sensitive action at node "${node.id}"`,
+      decision.sensitivity,
+    );
+  }
+
+  // require_approval → inject an approval gate BEFORE the node runs. Tagged
+  // `policy_gate` so the resume path re-enters this node (rather than
+  // advancing past it) once a human approves.
+  logger.info('security_policy_gated', {
+    run_id: state.run_id,
+    node_id: node.id,
+    sensitivity: decision.sensitivity,
+    tainted_keys: taintedReadKeys,
+  });
+  return {
+    id: uuidv4(),
+    idempotency_key: `policy_gate:${node.id}:${state.iteration_count}`,
+    type: 'request_human_input',
+    payload: {
+      waiting_for: 'human_approval',
+      pending_approval: {
+        node_id: node.id,
+        policy_gate: true,
+        prompt_message: decision.prompt
+          ?? `Security policy: node "${node.id}" uses untrusted data to perform a sensitive action. Approve to proceed.`,
+        review_data: {
+          reason: decision.reason,
+          sensitivity: decision.sensitivity,
+          rule_id: decision.rule_id,
+          tainted_keys: taintedReadKeys,
+        },
+      },
+    },
+    metadata: {
+      node_id: node.id,
+      timestamp: new Date(),
+      attempt: 1,
+    },
+  };
 }
 
 /**

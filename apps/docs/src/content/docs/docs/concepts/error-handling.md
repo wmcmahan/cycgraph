@@ -47,7 +47,7 @@ These fail **before any node runs** (a pre-flight check at the start of `run()`)
 
 ### Routing errors — dead-end detection
 
-- `NoMatchingEdgeError` — Execution reached a node that is **not** a declared end node, yet no outgoing edge's condition matched (e.g. a typo'd filtrex condition that evaluates to `false`). Previously this silently completed the workflow having executed only part of the graph; it now fails loud. Set `allow_implicit_completion: true` on `GraphRunnerOptions` for the legacy silent-completion behavior.
+- `NoMatchingEdgeError` — Execution reached a node that is **not** a declared end node, yet no outgoing edge's condition matched (e.g. a typo'd filtrex condition that evaluates to `false`). Previously this silently completed the workflow having executed only part of the graph; it now fails loud. Set `allowImplicitCompletion: true` on `GraphRunnerOptions` for the legacy silent-completion behavior.
 
 ### Runtime errors — retry or degrade
 
@@ -132,7 +132,7 @@ Any success resets the counter to 0.
 
 For workflows with side effects (e.g. API calls, database writes), nodes can declare compensating actions that undo their work on failure.
 
-Nodes with `requires_compensation: true` push an entry onto the `compensation_stack` in state after successful execution. On failure, if `auto_rollback: true` is set on the `GraphRunner` options, the engine executes compensation entries in LIFO order and transitions the workflow to `cancelled` status.
+Nodes with `requires_compensation: true` push an entry onto the `compensation_stack` in state after successful execution. On failure, if `autoRollback: true` is set on the `GraphRunner` options, the engine executes compensation entries in LIFO order and transitions the workflow to `cancelled` status.
 
 ```typescript
 const graph = createGraph({
@@ -164,13 +164,13 @@ const graph = createGraph({
 });
 
 const runner = new GraphRunner(graph, state, {
-  auto_rollback: true, // execute compensation stack on failure
+  autoRollback: true, // execute compensation stack on failure
 });
 ```
 
-A node with `requires_compensation: true` pushes a compensation entry onto the `compensation_stack` after successful execution. The host application is responsible for registering the compensating tool calls — the orchestrator does not infer them from the forward action. If `reserve_inventory` fails and `auto_rollback: true` is set, the engine drains the stack in LIFO order (calling each registered compensator) and transitions the workflow to `cancelled`.
+A node with `requires_compensation: true` pushes a compensation entry onto the `compensation_stack` after successful execution. The host application is responsible for registering the compensating tool calls — the orchestrator does not infer them from the forward action. If `reserve_inventory` fails and `autoRollback: true` is set, the engine drains the stack in LIFO order (calling each registered compensator) and transitions the workflow to `cancelled`.
 
-When `auto_rollback` is `false` (the default), the compensation stack is preserved in state but not executed — the host application decides how to handle rollback.
+When `autoRollback` is `false` (the default), the compensation stack is preserved in state but not executed — the host application decides how to handle rollback.
 
 ### Graceful shutdown
 

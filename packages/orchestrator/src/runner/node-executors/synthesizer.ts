@@ -13,8 +13,10 @@ import type { Action, StateView } from '../../types/state.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 import { ensureSaveToMemory } from './agent.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { buildNodeCallbacks } from './node-callbacks.js';
 
 const logger = createLogger('runner.node.synthesizer');
 
@@ -39,13 +41,13 @@ export async function executeSynthesizerNode(
   if (node.agent_id) {
     const agentConfig = await ctx.deps.loadAgent(node.agent_id);
     const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), node.agent_id);
-    const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, node.id) : undefined;
+    const { onToken } = buildNodeCallbacks(node.id, ctx);
     return ctx.deps.executeAgent(node.agent_id, stateView, tools, attempt, {
-      node_id: node.id,
+      nodeId: node.id,
       abortSignal: ctx.abortSignal,
       onToken,
       drainTaintEntries: ctx.deps.drainTaintEntries,
-      ...(node.default_write_key ? { default_write_key: node.default_write_key } : {}),
+      ...(node.default_write_key ? { defaultWriteKey: node.default_write_key } : {}),
       ...buildAgentMemoryOptions(node, ctx),
     });
   }
@@ -60,7 +62,7 @@ export async function executeSynthesizerNode(
 
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'update_memory',
     payload: {
       updates: { [`${node.id}_synthesis`]: merged },

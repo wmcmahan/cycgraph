@@ -8,6 +8,8 @@
  * @module agent-executor/errors
  */
 
+import { CycgraphError } from '../../errors.js';
+
 /**
  * Thrown when an agent attempts to write to a memory key it does not
  * have permission for, as defined by the agent's `write_keys` config.
@@ -19,7 +21,7 @@
  * );
  * ```
  */
-export class PermissionDeniedError extends Error {
+export class PermissionDeniedError extends CycgraphError {
   constructor(message: string) {
     super(message);
     this.name = 'PermissionDeniedError';
@@ -46,7 +48,7 @@ export interface PartialUsage {
   model?: string;
 }
 
-export class AgentTimeoutError extends Error {
+export class AgentTimeoutError extends CycgraphError {
   /** Tokens spent before the timeout, if the provider surfaced them. */
   readonly partialUsage?: PartialUsage;
   constructor(agent_id: string, timeout_ms: number, partialUsage?: PartialUsage) {
@@ -69,7 +71,7 @@ export class AgentTimeoutError extends Error {
  * // access original via error.cause
  * ```
  */
-export class AgentExecutionError extends Error {
+export class AgentExecutionError extends CycgraphError {
   /** Tokens spent before the failure, if the provider surfaced them. */
   readonly partialUsage?: PartialUsage;
   /**

@@ -1,7 +1,7 @@
 /**
  * graph-runner.rollback.test.ts
  *
- * Tests for auto_rollback option (task 1.5), approval gate timeout
+ * Tests for autoRollback option (task 1.5), approval gate timeout
  * enforcement (task 1.6), and graceful shutdown (task 4.4).
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
@@ -149,11 +149,11 @@ const createState = (overrides: Partial<WorkflowState> = {}): WorkflowState => (
 
 describe('GraphRunner — Auto-Rollback on Failure', () => {
   /**
-   * When auto_rollback is true and a node fails after a compensatable node
+   * When autoRollback is true and a node fails after a compensatable node
    * has pushed compensation actions, rollback() should execute in LIFO order
    * and the workflow should end in 'cancelled' status (not 'failed').
    */
-  test('should run LIFO compensation and set status to cancelled with auto_rollback: true', async () => {
+  test('should run LIFO compensation and set status to cancelled with autoRollback: true', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Auto Rollback', description: '',
       nodes: [
@@ -176,13 +176,13 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
     const persistSpy = vi.fn().mockResolvedValue(undefined);
     const runner = new GraphRunner(graph, createState(), {
       persistStateFn: persistSpy,
-      auto_rollback: true,
+      autoRollback: true,
     });
 
     const rollbackSpy = vi.fn();
     runner.on('workflow:rollback', rollbackSpy);
 
-    // auto_rollback catches the error internally; run() should still throw
+    // autoRollback catches the error internally; run() should still throw
     // because the workflow is not in a completed state
     try {
       await runner.run();
@@ -205,10 +205,10 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
   });
 
   /**
-   * Default behavior (auto_rollback: false): compensation should NOT run
+   * Default behavior (autoRollback: false): compensation should NOT run
    * on failure. Status should be 'failed'.
    */
-  test('should NOT run compensation with auto_rollback: false (default)', async () => {
+  test('should NOT run compensation with autoRollback: false (default)', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'No Auto Rollback', description: '',
       nodes: [
@@ -252,7 +252,7 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
   });
 
   /**
-   * auto_rollback with no compensation entries should skip rollback
+   * autoRollback with no compensation entries should skip rollback
    * and proceed with normal failure handling.
    */
   test('should skip rollback when compensation stack is empty', async () => {
@@ -273,7 +273,7 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
     const failedSpy = vi.fn();
     const runner = new GraphRunner(graph, createState(), {
       persistStateFn: persistSpy,
-      auto_rollback: true,
+      autoRollback: true,
     });
     runner.on('workflow:failed', failedSpy);
 

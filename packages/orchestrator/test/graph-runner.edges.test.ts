@@ -377,8 +377,8 @@ describe('GraphRunner — No Matching Edge', () => {
     await expect(runner.run()).rejects.toThrow(/no outgoing edge/);
   });
 
-  test('allow_implicit_completion restores legacy silent completion', async () => {
-    const runner = new GraphRunner(deadEndGraph(), createState(), { allow_implicit_completion: true });
+  test('allowImplicitCompletion restores legacy silent completion', async () => {
+    const runner = new GraphRunner(deadEndGraph(), createState(), { allowImplicitCompletion: true });
     const final = await runner.run();
 
     expect(final.status).toBe('completed');

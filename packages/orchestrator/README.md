@@ -16,8 +16,6 @@
 
 ---
 
-> **Status:** Semver applies (0.x rules: breaking changes only arrive with a minor bump). Core primitives (graph engine, durable execution, memory, eval-gated learning, MCP integration) are covered by an extensive test suite and exercised by the runnable examples.
-
 Define multi-step agent workflows declaratively, run them with durable execution, and let them **distill what they learned** into a persistent knowledge store that future runs retrieve automatically. Cyclic loops, dynamic supervisors, population-based evolution, and human-in-the-loop gates ship as first-class node types, not framework extensions.
 
 ## What you get in this package

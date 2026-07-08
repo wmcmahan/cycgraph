@@ -37,6 +37,8 @@ import { createLogger } from '../../utils/logger.js';
 import { sanitizeString } from '../../agent/agent-executor/sanitizers.js';
 import { NodeConfigError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
+import { MemoryWriterMissingError } from './errors.js';
 
 const logger = createLogger('runner.node.reflection');
 
@@ -158,7 +160,7 @@ async function extractRuleBased(
   if (sanitized.length === 0) return [];
 
   const result = await writer(sanitized, {
-    idempotency_key: writeIdempotencyKey(node, stateView, ctx),
+    idempotencyKey: writeIdempotencyKey(node, stateView, ctx),
   });
   return result.fact_ids;
 }
@@ -205,7 +207,7 @@ async function extractViaLLM(
   );
 
   if (extraction.facts.length === 0) {
-    return { factIds: [], tokensUsed: extraction.tokens_used };
+    return { factIds: [], tokensUsed: extraction.tokensUsed };
   }
 
   const entities = collectEntityRefs(config.entity_keys, stateView.memory);
@@ -226,13 +228,13 @@ async function extractViaLLM(
 
   const sanitized = await applySanitizer(facts, node.id, ctx);
   if (sanitized.length === 0) {
-    return { factIds: [], tokensUsed: extraction.tokens_used };
+    return { factIds: [], tokensUsed: extraction.tokensUsed };
   }
 
   const result = await writer(sanitized, {
-    idempotency_key: writeIdempotencyKey(node, stateView, ctx),
+    idempotencyKey: writeIdempotencyKey(node, stateView, ctx),
   });
-  return { factIds: result.fact_ids, tokensUsed: extraction.tokens_used };
+  return { factIds: result.fact_ids, tokensUsed: extraction.tokensUsed };
 }
 
 /**
@@ -408,7 +410,7 @@ function buildReflectionAction(
   const resultKey = config.result_key ?? `${node.id}_reflection`;
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'update_memory',
     payload: {
       updates: {
@@ -429,20 +431,5 @@ function buildReflectionAction(
   };
 }
 
-// ─── Errors ─────────────────────────────────────────────────────────
-
-/**
- * Thrown when a reflection node executes without a `memoryWriter` having
- * been injected on the runner. Reflection requires the writer — there is
- * no useful fallback (in-process memory would be lost on restart).
- */
-export class MemoryWriterMissingError extends Error {
-  constructor(public readonly nodeId: string) {
-    super(
-      `Reflection node "${nodeId}" requires a memoryWriter on GraphRunnerOptions ` +
-        `but none was provided`,
-    );
-    this.name = 'MemoryWriterMissingError';
-  }
-}
+// MemoryWriterMissingError lives in './errors.js' (node-executor errors module).
 

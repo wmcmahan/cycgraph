@@ -30,9 +30,11 @@ import type { StateView, Action } from '../../types/state.js';
 import { createLogger } from '../../utils/logger.js';
 import { getTracer, withSpan } from '../../utils/tracing.js';
 import { v4 as uuidv4 } from 'uuid';
-import type { TaintMetadata, LessonProvenanceEntry } from '../../types/state.js';
+import type { TaintMetadata } from '../../types/state.js';
 import { getTaintRegistry, propagateDerivedTaint } from '../../utils/taint.js';
-import { LESSON_PROVENANCE_KEY } from '../../utils/lesson-provenance.js';
+import { LESSON_PROVENANCE_KEY, mintLessonProvenance } from '../../utils/lesson-provenance.js';
+import { retrieveForPrompt } from '../retrieve-for-prompt.js';
+import { resolveEffectiveModelConfig } from '../model-override.js';
 import { buildSystemPrompt, buildTaskPrompt } from './prompts.js';
 import { DEFAULT_AGENT_TIMEOUT_MS } from '../constants.js';
 import { extractMemoryUpdates } from './memory.js';
@@ -69,14 +71,14 @@ interface AgentStep {
 /**
  * Execute a single agent invocation against the LLM.
  *
- * @param agent_id - The database ID of the agent to execute.
+ * @param agentId - The database ID of the agent to execute.
  * @param stateView - The current workflow state, scoped to this agent's read permissions.
  * @param rawTools - Tool definitions to expose to the LLM.
  * @param attempt - The current attempt number (1-based, increments on retry).
  * @param options - Optional execution configuration.
- * @param options.temperature_override - Override the agent's configured temperature.
- * @param options.node_id - The graph node ID, used to derive the fallback memory key.
- * @param options.timeout_ms - Override the default agent timeout.
+ * @param options.temperatureOverride - Override the agent's configured temperature.
+ * @param options.nodeId - The graph node ID, used to derive the fallback memory key.
+ * @param options.timeoutMs - Override the default agent timeout.
  * @param options.abortSignal - External cancellation signal (e.g. workflow cancellation).
  * @param options.onToken - Callback invoked for each streamed token (best-effort).
  * @param options.onToolCall - Callback invoked when a tool call starts executing. Receives tool name, args, and call ID.
@@ -86,17 +88,17 @@ interface AgentStep {
  * @throws {AgentExecutionError} If the LLM call fails for any other reason.
  */
 export async function executeAgent(
-  agent_id: string,
+  agentId: string,
   stateView: StateView,
   rawTools: Record<string, unknown>,
   attempt: number,
   options?: {
     /** Override the agent's configured temperature. */
-    temperature_override?: number;
+    temperatureOverride?: number;
     /** The graph node ID, used to derive the fallback memory key. */
-    node_id?: string;
+    nodeId?: string;
     /** Override the default agent timeout. */
-    timeout_ms?: number;
+    timeoutMs?: number;
     /** External cancellation signal (e.g. workflow cancellation). */
     abortSignal?: AbortSignal;
     /** Callback invoked for each streamed token (best-effort). */
@@ -108,13 +110,13 @@ export async function executeAgent(
     /** Callback invoked to drain taint entries from tools. */
     drainTaintEntries?: (tools?: Record<string, unknown>) => Map<string, TaintMetadata>;
     /** Override the model from agent config (used by budget-aware model resolution). */
-    model_override?: string;
+    modelOverride?: string;
     /** Context compressor for memory serialization in prompts. */
     contextCompressor?: import('../context-compressor.js').ContextCompressor;
     /** Callback fired when context compression runs. */
     onContextCompressed?: (metrics: import('../context-compressor.js').ContextCompressionMetrics) => void;
     /** Default write key from node config for orchestrator-managed text output. */
-    default_write_key?: string;
+    defaultWriteKey?: string;
     /**
      * Memory retriever to call before prompt construction. Combined with
      * `memory_query` and rendered into the system prompt's Relevant Memory section.
@@ -126,7 +128,7 @@ export async function executeAgent(
      * `buildSystemPrompt`. Defaults `text` to `stateView.goal` if neither
      * `text` nor `entityIds` is set.
      */
-    memory_query?: {
+    memoryQuery?: {
       text?: string;
       entityIds?: string[];
       tags?: string[];
@@ -137,41 +139,29 @@ export async function executeAgent(
   }
 ): Promise<Action> {
   return withSpan(tracer, 'agent.execute', async (span) => {
-    span.setAttribute('agent.id', agent_id);
+    span.setAttribute('agent.id', agentId);
     span.setAttribute('agent.attempt', attempt);
 
     const startTime = Date.now();
 
     // Load agent config (cached)
-    const config = await agentFactory.loadAgent(agent_id);
+    const config = await agentFactory.loadAgent(agentId);
 
     // Budget-aware model resolution: use override if provided, else config.model
-    const validatedOverride = options?.model_override && typeof options.model_override === 'string' && options.model_override.trim().length > 0
-      ? options.model_override
-      : undefined;
-
-    if (options?.model_override && !validatedOverride) {
-      logger.warn('invalid_model_override', {
-        agent_id,
-        node_id: options?.node_id,
-        model_override: options.model_override,
-        fallback_model: config.model,
-      });
-    }
-
-    const effectiveConfig = validatedOverride
-      ? { ...config, model: validatedOverride }
-      : config;
+    const effectiveConfig = resolveEffectiveModelConfig(config, options?.modelOverride, {
+      agentId,
+      nodeId: options?.nodeId,
+    });
     const model = agentFactory.getModel(effectiveConfig);
 
-    const tools = buildToolSet(rawTools, agent_id);
+    const tools = buildToolSet(rawTools, agentId);
     const hasSaveToMemoryTool = 'save_to_memory' in tools;
 
     // Resolve memory retrieval (best-effort — failures must never block
     // execution; the agent still gets the workflow-state memory below).
     const retrievedMemory = await retrieveForPrompt(
       options?.memoryRetriever,
-      options?.memory_query,
+      options?.memoryQuery,
       stateView,
       effectiveConfig.model,
     );
@@ -187,10 +177,10 @@ export async function executeAgent(
     const taskPrompt = buildTaskPrompt(stateView, attempt);
 
     logger.info('executing', {
-      agent_id,
+      agent_id: agentId,
       agent_name: config.name,
       model: effectiveConfig.model,
-      ...(options?.model_override ? { original_model: config.model } : {}),
+      ...(options?.modelOverride ? { original_model: config.model } : {}),
       attempt,
       tool_count: Object.keys(tools).length,
     });
@@ -198,7 +188,7 @@ export async function executeAgent(
     // AbortController with configurable timeout to prevent hung LLM calls.
     // If an external abort signal is provided (workflow cancellation), combine
     // it with the internal timeout so either can abort the stream.
-    const timeoutMs = options?.timeout_ms ?? DEFAULT_AGENT_TIMEOUT_MS;
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
     const { timeoutId, controller } = createAbortControllerWithTimeout(timeoutMs);
 
     // Combine external cancellation signal with internal timeout
@@ -219,7 +209,7 @@ export async function executeAgent(
         tools,
         stopWhen: stepCountIs(config.maxSteps),
         abortSignal: combinedSignal,
-        ...(options?.temperature_override !== undefined ? { temperature: options.temperature_override } : {}),
+        ...(options?.temperatureOverride !== undefined ? { temperature: options.temperatureOverride } : {}),
         ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
         ...(options?.onToolCall ? {
           experimental_onToolCallStart: (event) => {
@@ -275,24 +265,24 @@ export async function executeAgent(
       if (error instanceof Error && error.name === 'AbortError') {
         const duration = Date.now() - startTime;
         logger.error('agent_timeout', error, {
-          agent_id,
+          agent_id: agentId,
           timeout_ms: timeoutMs,
           duration_ms: duration,
         });
         span.setAttribute('agent.error', 'timeout');
-        throw new AgentTimeoutError(agent_id, timeoutMs, partialUsage);
+        throw new AgentTimeoutError(agentId, timeoutMs, partialUsage);
       }
 
       // Structured error handling — log and re-wrap
       const duration = Date.now() - startTime;
       logger.error('agent_execution_failed', error, {
-        agent_id,
+        agent_id: agentId,
         model: config.model,
         attempt,
         duration_ms: duration,
       });
       span.setAttribute('agent.error', error instanceof Error ? error.message : String(error));
-      throw new AgentExecutionError(agent_id, error, partialUsage, classifyRetryable(error));
+      throw new AgentExecutionError(agentId, error, partialUsage, classifyRetryable(error));
     } finally {
       clearTimeout(timeoutId);
     }
@@ -320,12 +310,12 @@ export async function executeAgent(
     // Log individual tool calls for observability
     for (const call of toolCalls) {
       logger.info('tool_called', {
-        agent_id,
+        agent_id: agentId,
         tool_name: call.toolName,
         tool_call_id: call.toolCallId,
       });
       logger.debug('tool_call_detail', {
-        agent_id,
+        agent_id: agentId,
         tool_name: call.toolName,
         tool_call_id: call.toolCallId,
         args: call.input ?? call.args,
@@ -333,8 +323,8 @@ export async function executeAgent(
     }
 
     // Extract memory updates from tool results
-    const fallbackKey = options?.node_id ? `${options.node_id}_output` : 'agent_response';
-    const memoryUpdates = extractMemoryUpdates(text, toolCalls, config.write_keys, fallbackKey, options?.default_write_key);
+    const fallbackKey = options?.nodeId ? `${options.nodeId}_output` : 'agent_response';
+    const memoryUpdates = extractMemoryUpdates(text, toolCalls, config.write_keys, fallbackKey, options?.defaultWriteKey);
 
     // Apply MCP taint: if any MCP tools were called during this execution,
     // mark all output memory keys as tainted by MCP tool origin.
@@ -346,7 +336,7 @@ export async function executeAgent(
     // Propagate taint: if any input memory keys were tainted, mark outputs as derived-tainted
     const outputKeys = Object.keys(memoryUpdates);
     if (outputKeys.length > 0) {
-      const taintUpdates = propagateDerivedTaint(stateView.memory, outputKeys, agent_id);
+      const taintUpdates = propagateDerivedTaint(stateView.memory, outputKeys, agentId);
 
       // Merge MCP direct taint: when MCP tools were called and taint entries exist,
       // apply mcp_tool taint to all output keys (we can't trace which specific
@@ -360,7 +350,7 @@ export async function executeAgent(
             source: 'mcp_tool',
             tool_name: [...new Set(mcpToolCalls.map((c) => c.toolName))].join(','),
             server_id: firstEntry.server_id,
-            agent_id,
+            agent_id: agentId,
             created_at: new Date().toISOString(),
           };
         }
@@ -369,10 +359,10 @@ export async function executeAgent(
       // Retrieval taint: when untrusted retrieved content (RAG over external /
       // user documents) was injected into this prompt, mark the outputs so a
       // poisoned document can't drive a downstream sensitive action ungated.
-      if (options?.memory_query?.untrusted && (retrievedMemory?.facts?.length ?? 0) > 0) {
+      if (options?.memoryQuery?.untrusted && (retrievedMemory?.facts?.length ?? 0) > 0) {
         for (const key of outputKeys) {
           if (key === '_taint_registry') continue;
-          taintUpdates[key] = { source: 'retrieval', agent_id, created_at: new Date().toISOString() };
+          taintUpdates[key] = { source: 'retrieval', agent_id: agentId, created_at: new Date().toISOString() };
         }
       }
 
@@ -383,24 +373,15 @@ export async function executeAgent(
     }
 
     // Record lesson provenance: which retrieved facts were injected into
-    // this prompt. Minted here (action-creation time) so replay reproduces
-    // the entry verbatim — same discipline as TaintMetadata.created_at.
-    // Only facts whose retriever supplied an `id` are attributable.
-    // Added AFTER the taint block so the registry key never counts as an
-    // agent output for taint propagation, and recorded even when the agent
-    // wrote nothing beyond the fallback key.
-    const injectedFactIds = (retrievedMemory?.facts ?? [])
-      .map((f) => f.id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0);
-    if (injectedFactIds.length > 0) {
-      memoryUpdates[LESSON_PROVENANCE_KEY] = {
-        [uuidv4()]: {
-          node_id: options?.node_id ?? agent_id,
-          agent_id,
-          fact_ids: injectedFactIds,
-          retrieved_at: new Date().toISOString(),
-        } satisfies LessonProvenanceEntry,
-      };
+    // this prompt. Added AFTER the taint block so the registry key never
+    // counts as an agent output for taint propagation, and recorded even
+    // when the agent wrote nothing beyond the fallback key.
+    const lessonProvenance = mintLessonProvenance(retrievedMemory, {
+      nodeId: options?.nodeId ?? agentId,
+      agentId,
+    });
+    if (lessonProvenance) {
+      memoryUpdates[LESSON_PROVENANCE_KEY] = lessonProvenance;
     }
 
     // Collect tool execution metadata separately — not stored in memory
@@ -424,13 +405,13 @@ export async function executeAgent(
         updates: memoryUpdates,
       },
       metadata: {
-        node_id: agent_id,
-        agent_id: agent_id,
+        node_id: agentId,
+        agent_id: agentId,
         model: effectiveConfig.model,
-        ...(options?.model_override ? {
+        ...(options?.modelOverride ? {
           model_resolution: {
             original_model: config.model,
-            resolved_model: options.model_override,
+            resolved_model: options.modelOverride,
           },
         } : {}),
         timestamp: new Date(),
@@ -442,7 +423,7 @@ export async function executeAgent(
     };
 
     logger.info('completed', {
-      agent_id,
+      agent_id: agentId,
       duration_ms: duration,
       tool_calls: toolCalls.length,
       tool_names: [...new Set(toolCalls.map((c) => c.toolName))].join(','),
@@ -466,55 +447,6 @@ export async function executeAgent(
 
     return action;
   });
-}
-
-/**
- * Resolve memory for the upcoming agent prompt via the injected
- * `memoryRetriever`. Best-effort: any failure is logged and swallowed so
- * a downed knowledge store never blocks the workflow. Returns `null` when
- * no retriever or no query is provided.
- *
- * Defaults `text` to `stateView.goal` when neither `text` nor `entityIds`
- * is set on the query so RAG-style use cases work with `memory_query: {}`.
- */
-async function retrieveForPrompt(
-  retriever: import('../memory-retriever.js').MemoryRetriever | undefined,
-  rawQuery:
-    | { text?: string; entityIds?: string[]; tags?: string[]; maxFacts?: number }
-    | undefined,
-  stateView: StateView,
-  model: string,
-): Promise<import('../memory-retriever.js').MemoryRetrievalResult | null> {
-  if (!retriever || !rawQuery) return null;
-
-  const query: { text?: string; entityIds?: string[]; tags?: string[] } = {};
-  if (rawQuery.text) query.text = rawQuery.text;
-  if (rawQuery.entityIds && rawQuery.entityIds.length > 0) query.entityIds = rawQuery.entityIds;
-  if (rawQuery.tags && rawQuery.tags.length > 0) query.tags = rawQuery.tags;
-
-  // Default text to goal so RAG-style use (`memory_query: {}`) needs zero
-  // configuration. Skip the fallback when tags or entityIds are present —
-  // those queries are intentional and adding a goal-derived text would
-  // muddy the retriever's intent.
-  if (
-    query.text === undefined &&
-    query.entityIds === undefined &&
-    query.tags === undefined
-  ) {
-    query.text = stateView.goal;
-  }
-
-  try {
-    return await retriever(query, {
-      ...(rawQuery.maxFacts !== undefined ? { maxFacts: rawQuery.maxFacts } : {}),
-      model,
-    });
-  } catch (err) {
-    logger.warn('memory_retriever_failed', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
 }
 
 /**

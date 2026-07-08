@@ -175,7 +175,7 @@ describe('executeAgent', () => {
 
     const action = await executeAgent('test-agent', makeStateView(), {}, 1, {
       memoryRetriever,
-      memory_query: { text: 'lookup', untrusted: true },
+      memoryQuery: { text: 'lookup', untrusted: true },
     });
 
     const updates = action.payload.updates as Record<string, any>;
@@ -195,7 +195,7 @@ describe('executeAgent', () => {
 
     const action = await executeAgent('test-agent', makeStateView(), {}, 1, {
       memoryRetriever,
-      memory_query: { text: 'lookup' }, // untrusted not set
+      memoryQuery: { text: 'lookup' }, // untrusted not set
     });
 
     const updates = action.payload.updates as Record<string, any>;

@@ -254,6 +254,67 @@ describe('Subgraph Execution', () => {
     expect(finalState.status).toBe('completed');
   });
 
+  // ── subgraph USD cost propagation & enforcement ──
+
+  // A child graph with one agent node that spends $2.50 (1M gpt-4o input
+  // tokens @ $2.50/Mtok). Parent wraps it in a single subgraph node.
+  function createCostyChildAndParent() {
+    const childGraph: Graph = {
+      id: 'child-graph', name: 'costly child', description: 'spends money',
+      nodes: [{
+        id: 'child-agent', type: 'agent', agent_id: 'a1',
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'child-agent', end_nodes: ['child-agent'],
+    };
+    const parentGraph: Graph = {
+      id: 'parent-graph', name: 'parent', description: 'wraps a costly child',
+      nodes: [{
+        id: 'sub-node', type: 'subgraph',
+        subgraph_config: { subgraph_id: 'child-graph', input_mapping: {}, output_mapping: {}, max_iterations: 50 },
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sub-node', end_nodes: ['sub-node'],
+    };
+    (executeAgent as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: uuidv4(), idempotency_key: uuidv4(), type: 'update_memory',
+      payload: { updates: { child_result: 'done' } },
+      metadata: {
+        node_id: 'child-agent', agent_id: 'a1', timestamp: new Date(), attempt: 1,
+        model: 'gpt-4o',
+        token_usage: { inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000 },
+      },
+    });
+    return { childGraph, parentGraph };
+  }
+
+  it('rolls the child subgraph cost into the parent total_cost_usd', async () => {
+    const { childGraph, parentGraph } = createCostyChildAndParent();
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+    const state = createTestState({ budget_usd: 100 });
+
+    const finalState = await new GraphRunner(parentGraph, state, { loadGraphFn }).run();
+
+    expect(finalState.status).toBe('completed');
+    // Child spent $2.50; before the fix the parent saw $0.
+    expect(finalState.total_cost_usd).toBeCloseTo(2.5, 5);
+  });
+
+  it('enforces the parent USD budget against child subgraph spend', async () => {
+    const { childGraph, parentGraph } = createCostyChildAndParent();
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+    // Remaining budget ($1) is less than the child's $2.50 spend.
+    const state = createTestState({ budget_usd: 1 });
+
+    await expect(
+      new GraphRunner(parentGraph, state, { loadGraphFn }).run(),
+    ).rejects.toThrow(/budget exceeded/i);
+  });
+
   it('detects subgraph cycles (A -> B -> A)', async () => {
     // Child graph that tries to invoke parent graph as subgraph
     const childGraph: Graph = {

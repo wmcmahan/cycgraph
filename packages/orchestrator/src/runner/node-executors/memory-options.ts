@@ -23,7 +23,7 @@ import type { NodeExecutorContext } from './context.js';
  */
 export interface AgentMemoryOptions {
   memoryRetriever?: MemoryRetriever;
-  memory_query?: {
+  memoryQuery?: {
     text?: string;
     entityIds?: string[];
     tags?: string[];
@@ -38,7 +38,7 @@ export interface AgentMemoryOptions {
  *
  * - Omits `memoryRetriever` when the runner has none → the executor
  *   won't bother fetching.
- * - Omits `memory_query` when the node hasn't declared one → the
+ * - Omits `memoryQuery` when the node hasn't declared one → the
  *   executor skips retrieval entirely (no goal-default).
  */
 export function buildAgentMemoryOptions(
@@ -50,7 +50,7 @@ export function buildAgentMemoryOptions(
     out.memoryRetriever = ctx.memoryRetriever;
   }
   if (node.memory_query) {
-    out.memory_query = {
+    out.memoryQuery = {
       text: node.memory_query.text,
       entityIds: node.memory_query.entity_ids,
       tags: node.memory_query.tags,

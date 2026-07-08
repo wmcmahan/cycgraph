@@ -4,6 +4,8 @@
  * @module supervisor-executor/errors
  */
 
+import { CycgraphError } from '../../errors.js';
+
 /**
  * Thrown when a supervisor node is missing its required `supervisor_config`.
  *
@@ -12,7 +14,7 @@
  * throw new SupervisorConfigError('sup-1', 'supervisor_config is required');
  * ```
  */
-export class SupervisorConfigError extends Error {
+export class SupervisorConfigError extends CycgraphError {
   constructor(
     public readonly supervisorId: string,
     message: string,
@@ -33,7 +35,7 @@ export class SupervisorConfigError extends Error {
  * throw new SupervisorRoutingError('sup-1', 'rogue-node', ['worker-a', 'worker-b']);
  * ```
  */
-export class SupervisorRoutingError extends Error {
+export class SupervisorRoutingError extends CycgraphError {
   constructor(
     public readonly supervisorId: string,
     public readonly chosenNode: string,

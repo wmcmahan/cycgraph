@@ -5,9 +5,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger.js';
 import { NodeConfigError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 import { ensureSaveToMemory } from './agent.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
+import { buildNodeCallbacks } from './node-callbacks.js';
 import { LESSON_PROVENANCE_KEY } from '../../utils/lesson-provenance.js';
 import { combineAbortSignals } from '../../utils/abort.js';
 import { aggregateParallelTaint } from '../../utils/taint.js';
@@ -93,11 +95,11 @@ export async function executeVotingNode(
       const agentConfig = await ctx.deps.loadAgent(task.node.agent_id!);
       const { modelOverride } = resolveModelForAgent(agentConfig, task.node.agent_id!, task.node.id, ctx);
       const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), task.node.agent_id!);
-      const onToken = ctx.onToken ? (t: string) => ctx.onToken!(t, task.node.id) : undefined;
+      const { onToken } = buildNodeCallbacks(task.node.id, ctx);
       const abortSignal = combineAbortSignals(ctx.abortSignal, taskSignal);
-      return ctx.deps.executeAgent(task.node.agent_id!, task.stateView, tools, attempt, { node_id: task.node.id, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { model_override: modelOverride } : {}), ...(task.node.default_write_key ? { default_write_key: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) });
+      return ctx.deps.executeAgent(task.node.agent_id!, task.stateView, tools, attempt, { nodeId: task.node.id, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { modelOverride } : {}), ...(task.node.default_write_key ? { defaultWriteKey: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) });
     },
-    { max_concurrency: config.voter_agent_ids.length, error_strategy: 'best_effort', task_timeout_ms: config.task_timeout_ms },
+    { maxConcurrency: config.voter_agent_ids.length, errorStrategy: 'best_effort', taskTimeoutMs: config.task_timeout_ms },
   );
 
   // Extract votes from action payloads. Lesson provenance recorded by each
@@ -113,7 +115,7 @@ export async function executeVotingNode(
       Object.assign(lessonProvenance, voterProvenance);
     }
     const vote = updates[config.vote_key] ?? updates['agent_response'];
-    const agentIdx = result.task_index;
+    const agentIdx = result.taskIndex;
     votes.push({
       agent_id: config.voter_agent_ids[agentIdx],
       vote,
@@ -206,7 +208,7 @@ export async function executeVotingNode(
         'Select the best vote and explain why.',
       );
       consensus = evalResult.reasoning;
-      extraTokens = evalResult.tokens_used;
+      extraTokens = evalResult.tokensUsed;
       // Evaluator currently reports only totalTokens; attribute conservatively
       // to output so the cost path still computes a non-zero figure.
       totalOutputTokens += extraTokens;
@@ -227,7 +229,7 @@ export async function executeVotingNode(
 
   return {
     id: uuidv4(),
-    idempotency_key: `${node.id}:${ctx.state.iteration_count}:${attempt}`,
+    idempotency_key: nodeIdempotencyKey(node, ctx, attempt),
     type: 'merge_parallel_results',
     payload: {
       updates: {

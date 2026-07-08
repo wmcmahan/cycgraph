@@ -1,7 +1,7 @@
 /**
  * Integration tests for budget-aware model resolution.
  *
- * Tests the full wiring: agent node executor → model resolver → executeAgent model_override.
+ * Tests the full wiring: agent node executor → model resolver → executeAgent modelOverride.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { executeAgentNode } from '../src/runner/node-executors/agent.js';
@@ -137,7 +137,7 @@ describe('executeAgentNode — model resolution', () => {
     warnFn.mockClear();
   });
 
-  it('passes model_override when resolver returns a result', async () => {
+  it('passes modelOverride when resolver returns a result', async () => {
     const deps = makeDeps({
       loadAgent: vi.fn().mockResolvedValue({
         tools: [],
@@ -164,12 +164,12 @@ describe('executeAgentNode — model resolution', () => {
       expect.any(Object),
       1,
       expect.objectContaining({
-        model_override: 'claude-opus-4-8',
+        modelOverride: 'claude-opus-4-8',
       }),
     );
   });
 
-  it('does NOT pass model_override when agent has no model_preference', async () => {
+  it('does NOT pass modelOverride when agent has no model_preference', async () => {
     const deps = makeDeps({
       loadAgent: vi.fn().mockResolvedValue({
         tools: [],
@@ -189,12 +189,12 @@ describe('executeAgentNode — model resolution', () => {
 
     await executeAgentNode(node, makeStateView(), 1, ctx);
 
-    // Should NOT have model_override in options
+    // Should NOT have modelOverride in options
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
-    expect(callArgs.model_override).toBeUndefined();
+    expect(callArgs.modelOverride).toBeUndefined();
   });
 
-  it('does NOT pass model_override when no resolver is configured', async () => {
+  it('does NOT pass modelOverride when no resolver is configured', async () => {
     const deps = makeDeps({
       loadAgent: vi.fn().mockResolvedValue({
         tools: [],
@@ -213,7 +213,7 @@ describe('executeAgentNode — model resolution', () => {
     await executeAgentNode(node, makeStateView(), 1, ctx);
 
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
-    expect(callArgs.model_override).toBeUndefined();
+    expect(callArgs.modelOverride).toBeUndefined();
   });
 
   it('logs a warning when model_preference is set but no resolver configured', async () => {
@@ -259,8 +259,8 @@ describe('executeAgentNode — model resolution', () => {
 
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
     // Should have been downgraded from opus to sonnet or haiku
-    expect(callArgs.model_override).toBeDefined();
-    expect(callArgs.model_override).not.toBe('claude-opus-4-8');
+    expect(callArgs.modelOverride).toBeDefined();
+    expect(callArgs.modelOverride).not.toBe('claude-opus-4-8');
   });
 
   it('fires onModelResolved callback when resolution occurs', async () => {
@@ -320,7 +320,7 @@ describe('executeAgentNode — model resolution', () => {
 
     // resolver returns null → no override → falls back to config.model
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
-    expect(callArgs.model_override).toBeUndefined();
+    expect(callArgs.modelOverride).toBeUndefined();
   });
 
   it('security: agent cannot influence resolution via memory writes', async () => {
@@ -359,15 +359,15 @@ describe('executeAgentNode — model resolution', () => {
     // Should downgrade due to tight budget (0.01 remaining),
     // regardless of memory.budget_usd value
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
-    expect(callArgs.model_override).toBeDefined();
-    expect(callArgs.model_override).not.toBe('claude-opus-4-8');
+    expect(callArgs.modelOverride).toBeDefined();
+    expect(callArgs.modelOverride).not.toBe('claude-opus-4-8');
   });
 });
 
 // ─── Supervisor Node: Model Resolution ────────────────────────────
 
 describe('executeSupervisorNode — model resolution', () => {
-  it('passes model_override to executeSupervisor when resolver fires', async () => {
+  it('passes modelOverride to executeSupervisor when resolver fires', async () => {
     const deps = makeDeps({
       loadAgent: vi.fn().mockResolvedValue({
         tools: [],
@@ -400,12 +400,12 @@ describe('executeSupervisorNode — model resolution', () => {
       expect.any(Array),
       1,
       expect.objectContaining({
-        model_override: 'claude-sonnet-4-6',
+        modelOverride: 'claude-sonnet-4-6',
       }),
     );
   });
 
-  it('does NOT pass model_override when supervisor has no model_preference', async () => {
+  it('does NOT pass modelOverride when supervisor has no model_preference', async () => {
     const deps = makeDeps({
       loadAgent: vi.fn().mockResolvedValue({
         tools: [],
@@ -433,6 +433,6 @@ describe('executeSupervisorNode — model resolution', () => {
     await executeSupervisorNode(node, makeStateView(), 1, ctx);
 
     const callArgs = (deps.executeSupervisor as ReturnType<typeof vi.fn>).mock.calls[0][4];
-    expect(callArgs.model_override).toBeUndefined();
+    expect(callArgs.modelOverride).toBeUndefined();
   });
 });

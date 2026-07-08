@@ -7,10 +7,12 @@
  * @module runner/errors
  */
 
+import { CycgraphError } from '../errors.js';
+
 /**
  * Thrown when a workflow exceeds its configured token budget.
  */
-export class BudgetExceededError extends Error {
+export class BudgetExceededError extends CycgraphError {
   constructor(
     /** Tokens consumed at the time of breach. */
     public readonly tokensUsed: number,
@@ -28,7 +30,7 @@ export class BudgetExceededError extends Error {
  * not engage failure_policy retry, since retrying a too-expensive call
  * would just compound the spend.
  */
-export class NodeBudgetExceededError extends Error {
+export class NodeBudgetExceededError extends CycgraphError {
   constructor(
     /** Node identifier that exceeded its budget. */
     public readonly nodeId: string,
@@ -50,7 +52,7 @@ export class NodeBudgetExceededError extends Error {
 /**
  * Thrown when a workflow exceeds its configured execution time.
  */
-export class WorkflowTimeoutError extends Error {
+export class WorkflowTimeoutError extends CycgraphError {
   constructor(
     /** The workflow definition ID. */
     public readonly workflowId: string,
@@ -67,13 +69,14 @@ export class WorkflowTimeoutError extends Error {
 /**
  * Thrown when a node is missing required configuration for its type.
  */
-export class NodeConfigError extends Error {
+export class NodeConfigError extends CycgraphError {
   constructor(
     public readonly nodeId: string,
     public readonly nodeType: string,
     public readonly missingField: string,
+    options?: ErrorOptions,
   ) {
-    super(`${nodeType} node "${nodeId}" is missing ${missingField}`);
+    super(`${nodeType} node "${nodeId}" is missing ${missingField}`, options);
     this.name = 'NodeConfigError';
   }
 }
@@ -81,7 +84,7 @@ export class NodeConfigError extends Error {
 /**
  * Thrown when a circuit breaker is open and the timeout has not elapsed.
  */
-export class CircuitBreakerOpenError extends Error {
+export class CircuitBreakerOpenError extends CycgraphError {
   constructor(
     public readonly nodeId: string,
   ) {
@@ -93,7 +96,7 @@ export class CircuitBreakerOpenError extends Error {
 /**
  * Thrown when event log recovery fails due to missing or corrupt events.
  */
-export class EventLogCorruptionError extends Error {
+export class EventLogCorruptionError extends CycgraphError {
   constructor(
     public readonly runId: string,
   ) {
@@ -105,7 +108,7 @@ export class EventLogCorruptionError extends Error {
 /**
  * Thrown when a node type is not recognized by the graph runner.
  */
-export class UnsupportedNodeTypeError extends Error {
+export class UnsupportedNodeTypeError extends CycgraphError {
   constructor(
     public readonly nodeType: string,
   ) {
@@ -122,9 +125,9 @@ export class UnsupportedNodeTypeError extends Error {
  * had only executed part of the graph. Failing loud surfaces the dead-end.
  *
  * Opt back into the legacy silent-completion behavior with
- * `GraphRunnerOptions.allow_implicit_completion = true`.
+ * `GraphRunnerOptions.allowImplicitCompletion = true`.
  */
-export class NoMatchingEdgeError extends Error {
+export class NoMatchingEdgeError extends CycgraphError {
   constructor(
     public readonly nodeId: string,
   ) {
