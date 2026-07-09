@@ -13,6 +13,7 @@
     "retrieval"
   ],
   "type": "module",
+  "sideEffects": false,
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -52,7 +53,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.3.5",
-    "typescript": "^5.9.3",
+    "typescript": "7.0.2",
     "vitest": "^4.0.18",
     "zod": "^4.3.6"
   }
