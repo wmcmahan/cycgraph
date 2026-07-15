@@ -112,7 +112,7 @@ const pipeline = createPipeline({
 
 const result = pipeline.compress({
   segments: [
-    { id: 'query', content: userQuery, role: 'query', priority: 10, locked: true },
+    { id: 'query', content: userQuery, role: 'custom', priority: 10, locked: true },
     { id: 'memory', content: serialize(memory), role: 'memory', priority: 5 },
   ],
   budget: { maxTokens: 4096, outputReserve: 512 },

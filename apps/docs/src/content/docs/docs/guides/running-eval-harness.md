@@ -64,12 +64,17 @@ See [Drift & Baselines](/docs/concepts/drift-and-baselines/) for what counts as 
 | Flag | Type | Default | What it does |
 |---|---|---|---|
 | `--mode` | `local \| ci` | `local` | Picks provider, concurrency, sample defaults |
-| `--suite` | suite name | (all) | Restricts to one suite — `orchestrator`, `memory`, `context-engine`, `integration` |
+| `--suite` | suite name | 3 core suites | Restricts to one suite. Default runs `context-engine`, `memory`, `orchestrator`; `integration` is accepted but drives no goldens (see note). |
 | `--samples` | int | 1 local / 3 ci | Number of independent semantic samples per test |
+| `--sut-model` | string | `claude-sonnet-4-6` | Model driving the system-under-test (SUT) on the semantic track |
 | `--deterministic-only` | flag | false | Skip the semantic track entirely |
 | `--baseline` | flag | false | Load + compare + persist `golden/baselines/main-latest.json` |
 | `--baseline-noise-floor` | float | `5.0` | Minimum pp delta to flag as a regression |
 | `--commit` | string | (auto) | Short git SHA stamped onto a new baseline snapshot |
+
+:::note
+`--suite integration` is a valid flag, but no golden dataset ships for it — the manifest only carries goldens for `orchestrator`, `memory`, and `context-engine` (18 trajectories each), and `integration` is excluded from the default suite set. Selecting it runs nothing against goldens until you record integration trajectories.
+:::
 
 ### Combining flags
 

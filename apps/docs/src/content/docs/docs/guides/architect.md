@@ -14,7 +14,7 @@ The `generateWorkflow()` function takes a prompt and returns a validated `Graph`
 ```typescript
 import { generateWorkflow } from '@cycgraph/orchestrator';
 
-const { graph, metadata } = await generateWorkflow({
+const { graph, warnings } = await generateWorkflow({
   prompt: 'Monitor Hacker News for AI news, summarize daily, post to Slack',
 });
 
@@ -33,9 +33,9 @@ const { graph, metadata } = await generateWorkflow({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `prompt` | `string` | *required* | Natural language description of the desired workflow. |
-| `current_graph` | `Graph` | — | Existing graph to modify (enables iterative refinement). |
-| `architect_agent_id` | `string` | `'architect-agent'` | Agent ID whose model config to use for generation. |
-| `max_retries` | `number` | `2` | Max self-correction attempts on validation failure. |
+| `currentGraph` | `Graph` | — | Existing graph to modify (enables iterative refinement). |
+| `architectAgentId` | `string` | `'architect-agent'` | Agent ID whose model config to use for generation. |
+| `maxRetries` | `number` | `2` | Max self-correction attempts on validation failure. |
 
 ### Return value
 
@@ -54,7 +54,7 @@ Pass an existing graph alongside a follow-up prompt to modify it. The Architect 
 ```typescript
 const { graph: updatedGraph } = await generateWorkflow({
   prompt: 'Add a Slack notification step after the summarizer',
-  current_graph: existingGraph,
+  currentGraph: existingGraph,
 });
 ```
 
@@ -68,7 +68,7 @@ Once you have a graph, use it like any other — create state and run:
 import { GraphRunner, createWorkflowState } from '@cycgraph/orchestrator';
 
 const state = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Summarize today\'s top AI news from Hacker News',
 });
 
@@ -124,7 +124,7 @@ const ARCHITECT_AGENT_ID = registry.register({
   name: 'Workflow Designer',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt:
+  systemPrompt:
     'You design and manage automation workflows. ' +
     'Use architect_draft_workflow to create or modify graphs, ' +
     'architect_publish_workflow to save them, ' +
@@ -134,7 +134,7 @@ const ARCHITECT_AGENT_ID = registry.register({
     { type: 'builtin', name: 'architect_publish_workflow' },
     { type: 'builtin', name: 'architect_get_workflow' },
   ],
-  permissions: { read_keys: ['*'], write_keys: ['*'] },
+  permissions: { readKeys: ['*'], writeKeys: ['*'] },
 });
 ```
 
@@ -147,7 +147,7 @@ You:   "We need a workflow that scrapes competitors' pricing pages and sends a S
 Agent: [calls architect_draft_workflow] → generates graph
 Agent: "Here's what I designed: 3 nodes (scraper → analyzer → notifier)..."
 You:   "Add error retries to the scraper node"
-Agent: [calls architect_draft_workflow with current_graph] → refined graph
+Agent: [calls architect_draft_workflow with currentGraph] → refined graph
 Agent: "Updated. Want me to publish it?"
 You:   "Yes"
 Agent: [calls architect_publish_workflow] → saved to registry

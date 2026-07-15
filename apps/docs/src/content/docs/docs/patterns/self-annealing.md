@@ -31,11 +31,55 @@ flowchart TB
 - **Data extraction validation**: Extracting unstructured data into strict JSON, where an evaluator checks for missing fields or hallucinations and forces a retry.
 - **Any task where one output must meet a rigid quality bar.** If you want to explore multiple distinct creative approaches simultaneously, use [Evolution](/docs/patterns/evolution/) instead.
 
-## Implementation example
+## Built-in temperature annealing (`annealingConfig`)
 
-This example demonstrates a self-annealing loop where a Writer drafts content, an Evaluator scores it, and the loop repeats until the score hits `0.8` or higher, before passing the approved draft to a Publisher. 
+For the common case — refining a **single agent's** output by dropping its temperature each pass — the engine ships a built-in primitive. Attach an `annealingConfig` block to an `agent` node and the runner runs the generate → score → refine loop internally, with no extra nodes or edges to wire.
 
-See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/eval-loop/eval-loop.ts).
+```typescript
+{
+  id: 'refine',
+  type: 'agent',
+  agentId: WRITER_ID,
+  readKeys: ['goal', 'constraints'],
+  writeKeys: ['draft'],
+  annealingConfig: {
+    // Option A: an evaluator agent scores each pass's memory updates
+    // against the workflow goal.
+    evaluatorAgentId: EVALUATOR_ID,
+    // Option B: omit the evaluator and let the agent score itself — a
+    // `save_to_memory('score', …)` write lands at `updates.score`
+    // (add 'score' to the node's writeKeys):
+    // scorePath: '$.updates.score',
+    threshold: 0.8,                 // stop once the best score reaches this
+    maxIterations: 5,               // hard cap on passes
+    initialTemperature: 1.0,        // first pass — broad exploration
+    finalTemperature: 0.2,          // last pass — focused refinement
+    diminishingReturnsDelta: 0.02,  // stop early if a pass improves < this
+  },
+}
+```
+
+Each iteration runs the agent at a temperature interpolated linearly from `initialTemperature` down to `finalTemperature`, scores the result, and keeps the best-scoring attempt. With `evaluatorAgentId` set, an evaluator agent scores the pass's memory updates against the workflow goal; without it, the `scorePath` JSONPath is evaluated against the pass's action payload — agent memory writes land under `updates`, so a self-scoring agent that calls `save_to_memory('score', …)` pairs with `scorePath: '$.updates.score'` (the schema default `'$.score'` reads the payload root, above where memory writes land, so set `scorePath` explicitly when self-scoring).
+
+The loop stops as soon as any one of these is met: the best score reaches `threshold`, an improving pass raises the best score by less than `diminishingReturnsDelta`, `maxIterations` passes complete, or accumulated spend crosses a node/workflow budget cap between iterations. The node injects `_annealing_iteration` and `_annealing_temperature` into the agent's state view on every pass — and, from the second pass on, `_annealing_feedback` carrying the previous best score — so the prompt can react to where it sits in the schedule.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `evaluatorAgentId` | — | Agent that scores each pass's memory updates against the goal. If unset, the score is extracted via `scorePath`. |
+| `scorePath` | `'$.score'` | JSONPath evaluated against the pass's action payload when no evaluator is set. Memory writes land under `updates` — use `'$.updates.score'` to read a `save_to_memory('score', …)` write. |
+| `threshold` | `0.8` | Quality score (0–1) that ends the loop. |
+| `maxIterations` | `5` | Hard cap on refinement passes. |
+| `initialTemperature` | `1.0` | Temperature for the first pass. |
+| `finalTemperature` | `0.2` | Temperature the schedule converges toward. |
+| `diminishingReturnsDelta` | `0.02` | Stop early if a pass improves the best score by less than this. |
+
+Reach for `annealingConfig` when a single agent should refine its own output on a dropping-temperature schedule. Use the **manual conditional-edge loop** below when you need distinct producer and evaluator nodes, custom routing (e.g. escalating to a stronger model after repeated failures), or a Publisher / handoff step after the quality gate.
+
+## Manual alternative: conditional-edge loop
+
+When you want separate producer and evaluator nodes — or a Publisher step after the gate — wire the loop yourself with `conditional` edges. Here a Writer drafts content, an Evaluator scores it, and the loop repeats until the score hits `0.8` or higher, before passing the approved draft to a Publisher.
+
+Two runnable examples demonstrate this explicit-edge shape: [`eval-loop`](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/eval-loop/eval-loop.ts) — the minimal three-node conditional cycle shown below — and [`prompt-builder`](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/prompt-builder/prompt-builder.ts), a fuller self-annealing workflow that refines a vague goal into a structured prompt before handing off to a supervisor.
 
 ### 1. The Agents
 
@@ -50,7 +94,7 @@ const WRITER_ID = registry.register({
   name: 'Writer Agent',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a skilled writer.',
     'Your task: write a concise, engaging explanation of the given topic for a general audience.',
     'If memory.feedback and memory.suggestions are present, you are revising a previous draft — use that feedback to improve.',
@@ -59,8 +103,8 @@ const WRITER_ID = registry.register({
   temperature: 0.7,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
-    write_keys: ['draft'],
+    readKeys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
+    writeKeys: ['draft'],
   },
 });
 
@@ -68,7 +112,7 @@ const EVALUATOR_ID = registry.register({
   name: 'Evaluator Agent',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a writing evaluator.',
     'Read the draft and score it on clarity, accuracy, engagement, and conciseness.',
     'You MUST call save_to_memory THREE times:',
@@ -81,8 +125,8 @@ const EVALUATOR_ID = registry.register({
   temperature: 0.3,
   tools: [],
   permissions: {
-    read_keys: ['goal', 'constraints', 'draft'],
-    write_keys: ['score', 'feedback', 'suggestions'],
+    readKeys: ['goal', 'constraints', 'draft'],
+    writeKeys: ['score', 'feedback', 'suggestions'],
   },
 });
 ```
@@ -101,16 +145,16 @@ const graph = createGraph({
     {
       id: 'writer',
       type: 'agent',
-      agent_id: WRITER_ID,
-      read_keys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
-      write_keys: ['draft'],
+      agentId: WRITER_ID,
+      readKeys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
+      writeKeys: ['draft'],
     },
     {
       id: 'evaluator',
       type: 'agent',
-      agent_id: EVALUATOR_ID,
-      read_keys: ['goal', 'constraints', 'draft'],
-      write_keys: ['score', 'feedback', 'suggestions'],
+      agentId: EVALUATOR_ID,
+      readKeys: ['goal', 'constraints', 'draft'],
+      writeKeys: ['score', 'feedback', 'suggestions'],
     },
     // ... define 'publisher' node ...
   ],
@@ -137,8 +181,8 @@ const graph = createGraph({
       condition: { type: 'conditional', condition: 'number(memory.score) >= 0.8' },
     },
   ],
-  start_node: 'writer',
-  end_nodes: ['publisher'],
+  startNode: 'writer',
+  endNodes: ['publisher'],
 });
 ```
 
@@ -148,4 +192,4 @@ const graph = createGraph({
 
 Because LLMs can get stuck failing to fix a problem, the Self-Annealing loop needs a safety valve. 
 
-Pass a `max_iterations` limit when creating the initial `WorkflowState` object (e.g. `max_iterations: 20`). The state automatically tracks the `iteration_count` across the entire workflow. If execution exceeds this limit, the orchestrator halts the run and transitions the workflow to `failed` to prevent runaway API costs.
+Pass a `maxIterations` limit when creating the initial `WorkflowState` object (e.g. `maxIterations: 20`). The state automatically tracks the `iteration_count` across the entire workflow. If execution exceeds this limit, the orchestrator halts the run and transitions the workflow to `failed` to prevent runaway API costs.

@@ -7,7 +7,7 @@ cycgraph can dynamically choose which LLM model to use for each agent at runtime
 
 ## How it works
 
-1. An agent declares `model_preference: 'high'` (or `medium` / `low`) instead of relying solely on its static `model` field
+1. An agent declares `modelPreference: 'high'` (or `medium` / `low`) instead of relying solely on its static `model` field
 2. You provide a **tier map** that maps each tier to concrete models per provider
 3. Before each agent execution, the engine's **model resolver** checks the remaining budget and picks the best model the workflow can afford
 4. If no resolver is configured, the agent's static `model` is used as a fallback
@@ -41,27 +41,27 @@ You only need to include the tiers and providers your workflow uses. If a tier/p
 
 ## Configuring agents
 
-Set `model_preference` on the agent config. The `model` field still serves as the fallback when no resolver is configured or the tier can't be resolved:
+Set `modelPreference` on the agent config. The `model` field still serves as the fallback when no resolver is configured or the tier can't be resolved:
 
 ```typescript
 const researcherId = registry.register({
   name: 'Researcher',
   model: 'claude-sonnet-4-6',      // fallback
-  model_preference: 'high',                // prefers high-tier when budget allows
+  modelPreference: 'high',                 // prefers high-tier when budget allows
   provider: 'anthropic',
-  system_prompt: 'You are a research specialist...',
-  tools: [{ type: 'mcp', server_id: 'web-search' }],
-  permissions: { read_keys: ['topic'], write_keys: ['notes'] },
+  systemPrompt: 'You are a research specialist...',
+  tools: [{ type: 'mcp', serverId: 'web-search' }],
+  permissions: { readKeys: ['topic'], writeKeys: ['notes'] },
 });
 
 const formatterId = registry.register({
   name: 'Formatter',
   model: 'claude-haiku-4-5-20251001',      // fallback
-  model_preference: 'low',                  // always use cheapest tier
+  modelPreference: 'low',                   // always use cheapest tier
   provider: 'anthropic',
-  system_prompt: 'You format text into clean markdown...',
+  systemPrompt: 'You format text into clean markdown...',
   tools: [],
-  permissions: { read_keys: ['draft'], write_keys: ['formatted'] },
+  permissions: { readKeys: ['draft'], writeKeys: ['formatted'] },
 });
 ```
 
@@ -144,7 +144,7 @@ The resolver estimates call cost before execution using conservative token budge
 | `medium` | 2,300 | 1,150 |
 | `low` | 1,150 | 575 |
 
-These include a ~15% headroom buffer. If the agent uses Anthropic extended thinking (`provider_options.anthropic.thinking.budgetTokens`), those tokens are added to the input estimate.
+These include a ~15% headroom buffer. If the agent uses Anthropic extended thinking (`providerOptions.anthropic.thinking.budgetTokens`), those tokens are added to the input estimate.
 
 Unknown models are assigned a conservative fallback cost of $0.05 per call (fail-closed).
 
@@ -195,21 +195,21 @@ const registry = new InMemoryAgentRegistry();
 const researcherId = registry.register({
   name: 'Researcher',
   model: 'claude-sonnet-4-6',
-  model_preference: 'high',
+  modelPreference: 'high',
   provider: 'anthropic',
-  system_prompt: 'You research topics thoroughly.',
+  systemPrompt: 'You research topics thoroughly.',
   tools: [],
-  permissions: { read_keys: ['goal'], write_keys: ['research'] },
+  permissions: { readKeys: ['goal'], writeKeys: ['research'] },
 });
 
 const writerId = registry.register({
   name: 'Writer',
   model: 'claude-sonnet-4-6',
-  model_preference: 'medium',
+  modelPreference: 'medium',
   provider: 'anthropic',
-  system_prompt: 'You write clear, concise summaries.',
+  systemPrompt: 'You write clear, concise summaries.',
   tools: [],
-  permissions: { read_keys: ['research'], write_keys: ['summary'] },
+  permissions: { readKeys: ['research'], writeKeys: ['summary'] },
 });
 
 configureAgentFactory(registry);
@@ -219,20 +219,20 @@ const graph = createGraph({
   name: 'Budget-Aware Research',
   description: 'Research a topic, then summarize it under a budget.',
   nodes: [
-    { id: 'research', type: 'agent', agent_id: researcherId, read_keys: ['goal'], write_keys: ['research'] },
-    { id: 'write',    type: 'agent', agent_id: writerId,     read_keys: ['research'], write_keys: ['summary'] },
+    { id: 'research', type: 'agent', agentId: researcherId, readKeys: ['goal'], writeKeys: ['research'] },
+    { id: 'write',    type: 'agent', agentId: writerId,     readKeys: ['research'], writeKeys: ['summary'] },
   ],
   edges: [{ source: 'research', target: 'write' }],
-  start_node: 'research',
-  end_nodes: ['write'],
+  startNode: 'research',
+  endNodes: ['write'],
 });
 
 // 5. Build state and run with the resolver
 const persistence = new InMemoryPersistenceProvider();
 const state = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Research and summarize quantum computing',
-  budget_usd: 0.50,
+  budgetUsd: 0.50,
 });
 
 const runner = new GraphRunner(graph, state, {
@@ -249,7 +249,7 @@ for await (const event of runner.stream()) {
 
 ## Limitations
 
-- **Architect unaware** — the Workflow Architect does not yet generate graphs with `model_preference` set; you must configure it via the registry
+- **Architect unaware** — the Workflow Architect does not yet generate graphs with `modelPreference` set; you must configure it via the registry
 - **Single-step lookahead** — the resolver estimates cost for one call at a time, not the remaining workflow
 
 ## Security

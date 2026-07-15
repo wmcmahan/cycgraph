@@ -14,7 +14,7 @@ cycgraph solves this with a **Cyclic State Graph**: nodes that can loop, revisit
 ## What you get
 
 - **Cyclic graph engine** — loops, retries, conditional routing, nested subgraphs, parallel fan-out.
-- **Nine built-in patterns** — [Supervisor](/docs/patterns/supervisor/), [Swarm](/docs/patterns/swarm/), [Evolution](/docs/patterns/evolution/), [Reflection](/docs/patterns/reflection/), [Self-Annealing](/docs/patterns/self-annealing/), [Voting / Consensus](/docs/patterns/voting/), [Verifier](/docs/patterns/verifier/), [Map-Reduce](/docs/patterns/map-reduce/), [Human-in-the-Loop](/docs/patterns/human-in-the-loop/) — each a first-class node type, with router, synthesizer, and subgraph primitives to compose your own.
+- **Built-in patterns** — [Supervisor](/docs/patterns/supervisor/), [Swarm](/docs/patterns/swarm/), [Evolution](/docs/patterns/evolution/), [Reflection](/docs/patterns/reflection/), [Self-Annealing](/docs/patterns/self-annealing/), [Voting / Consensus](/docs/patterns/voting/), [Verifier](/docs/patterns/verifier/), [Map-Reduce](/docs/patterns/map-reduce/), [Human-in-the-Loop](/docs/patterns/human-in-the-loop/) — each a first-class node type, with router, synthesizer, and subgraph primitives to compose your own.
 - **Durable execution** — every action persisted; runs survive crashes via event-sourced replay.
 - **Zero-trust security** — per-node `read_keys` / `write_keys`, taint tracking on all external data, MCP server allowlist.
 - **Budget guardrails** — token, cost (USD), iteration, and wall-clock limits, all enforced at the engine.

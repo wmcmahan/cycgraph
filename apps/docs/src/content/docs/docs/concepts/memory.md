@@ -30,7 +30,7 @@ Parallel to the hierarchy, a **knowledge graph** stores entities (nodes) and rel
 | 2 | SemanticFacts | Atomic facts distilled from episodes |
 | 3 | Themes | Clusters of related facts |
 
-Queries start at the theme level and drill down only as needed, reducing token usage by up to 50% compared to flat retrieval.
+Queries start at the theme level and drill down only as needed, reducing token usage compared to flat retrieval.
 
 ## Knowledge graph
 
@@ -296,7 +296,9 @@ const memoryRetriever = async (query, options) => {
     limit: options?.maxFacts ?? 20,
   });
   return {
-    facts: result.facts.map(f => ({ content: f.content, validFrom: f.valid_from })),
+    // `id` passthrough feeds lesson provenance (eval-gated learning);
+    // omitting it silently disables outcome attribution.
+    facts: result.facts.map(f => ({ content: f.content, validFrom: f.valid_from, id: f.id })),
     entities: result.entities.map(e => ({ name: e.name, type: e.entity_type })),
     themes: result.themes.map(t => ({ label: t.label })),
   };
@@ -309,13 +311,13 @@ const graph = createGraph({
     {
       id: 'researcher',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['goal'],
-      write_keys: ['notes'],
+      agentId: RESEARCHER_ID,
+      readKeys: ['goal'],
+      writeKeys: ['notes'],
       // This is the directive that activates the retriever.
-      memory_query: {
+      memoryQuery: {
         tags: ['lesson'],   // retrieve facts tagged 'lesson'
-        max_facts: 10,
+        maxFacts: 10,
       },
     },
     // ...
@@ -332,10 +334,10 @@ The runner calls `memoryRetriever` once before building the agent's prompt, then
 
 | Shape | Behaviour |
 |---|---|
-| `memory_query: {}` | Defaults `text` to `stateView.goal` — RAG-style with zero config. |
-| `memory_query: { tags: [...] }` | Tag-only retrieval. No text fallback. |
-| `memory_query: { entity_ids: [...] }` | Knowledge-graph subgraph extraction. |
-| `memory_query: { text: '...' }` | Explicit semantic search text. |
+| `memoryQuery: {}` | Defaults `text` to `stateView.goal` — RAG-style with zero config. |
+| `memoryQuery: { tags: [...] }` | Tag-only retrieval. No text fallback. |
+| `memoryQuery: { entityIds: [...] }` | Knowledge-graph subgraph extraction. |
+| `memoryQuery: { text: '...' }` | Explicit semantic search text. |
 
 ### Writing: `memoryWriter` + `reflection` nodes
 

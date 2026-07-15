@@ -302,6 +302,7 @@ Used by `agent`, `supervisor`, and any wrapper-agent node (annealing, map worker
 | `entityIds` | `string[]` | — | Seed entity IDs for knowledge-graph subgraph extraction. |
 | `tags` | `string[]` | — | Restrict matches to facts carrying at least one of these tags. |
 | `maxFacts` | `number` | — | Soft cap on facts injected into the prompt. |
+| `untrusted` | `boolean` | `false` | Treat retrieved content as untrusted (e.g. RAG over user-uploaded or web documents). When `true` and facts are injected, the agent's outputs are marked tainted (`source: 'retrieval'`) so a poisoned document can't drive a downstream sensitive action ungated. Leave `false` for trusted internal knowledge / the agent's own reflection memory. |
 
 **Routing rule:** if `text`, `entityIds`, or `tags` is set, retrieval uses that knob explicitly. Only when **none** of them are set does the runtime default `text` to `stateView.goal` (zero-config RAG). Voting and evolution nodes propagate `memoryQuery` automatically to their synthetic sub-nodes.
 

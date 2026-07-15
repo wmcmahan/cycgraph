@@ -50,13 +50,13 @@ const graph = createGraph({
     {
       id: 'review',
       type: 'approval',
-      read_keys: ['*'],
-      write_keys: ['*', 'control_flow'],
-      approval_config: {
-        approval_type: 'human_review',
-        prompt_message: 'Please review the draft before publication.',
-        review_keys: ['draft'], // The specific memory keys the human needs to see
-        timeout_ms: 300_000,    // Hard timeout if the human never responds
+      readKeys: ['*'],
+      writeKeys: ['*', 'control_flow'],
+      approvalConfig: {
+        approvalType: 'human_review',
+        promptMessage: 'Please review the draft before publication.',
+        reviewKeys: ['draft'], // The specific memory keys the human needs to see
+        timeoutMs: 300_000,    // Hard timeout if the human never responds
       },
     },
     // ... publisher agent node ...
@@ -65,8 +65,8 @@ const graph = createGraph({
     { source: 'write', target: 'review' },
     { source: 'review', target: 'publish' },
   ],
-  start_node: 'write',
-  end_nodes: ['publish'],
+  startNode: 'write',
+  endNodes: ['publish'],
 });
 ```
 
@@ -123,7 +123,7 @@ When the workflow resumes:
 
 ## Approval gate timeouts
 
-When `timeout_ms` is set on an approval node, the engine sets `waiting_timeout_at` on the workflow state to the current time plus the timeout duration. This creates a hard deadline for human response.
+When `timeoutMs` is set on an approval node, the engine sets `waiting_timeout_at` on the workflow state to the current time plus the timeout duration. This creates a hard deadline for human response.
 
 If the workflow is resumed after the deadline has expired, the engine transitions the workflow to `timeout` status immediately with a `WorkflowTimeoutError` — the human's response is discarded and execution does not continue. This prevents workflows from waiting indefinitely for human approval that may never come.
 
@@ -131,11 +131,11 @@ If the workflow is resumed after the deadline has expired, the engine transition
 {
   id: 'review',
   type: 'approval',
-  approval_config: {
-    approval_type: 'human_review',
-    prompt_message: 'Approve deployment to production?',
-    review_keys: ['deployment_plan'],
-    timeout_ms: 600_000,  // 10-minute deadline
+  approvalConfig: {
+    approvalType: 'human_review',
+    promptMessage: 'Approve deployment to production?',
+    reviewKeys: ['deployment_plan'],
+    timeoutMs: 600_000,  // 10-minute deadline
   },
 }
 ```

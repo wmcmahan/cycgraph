@@ -20,7 +20,7 @@ flowchart TB
     Agg --> Consensus(["Consensus"])
 ```
 
-1. **Fan out**: every agent in `voter_agent_ids` runs the task in parallel, each writing its answer to `vote_key`.
+1. **Fan out**: every agent in `voterAgentIds` runs the task in parallel, each writing its answer to `voteKey`.
 2. **Collect**: the node gathers each voter's payload (votes are compared by a canonical, order-independent serialization, so structurally-equal answers count as equal).
 3. **Aggregate**: the chosen `strategy` reduces the votes to a single consensus.
 4. **Write**: the result is written back to memory for downstream nodes.
@@ -31,40 +31,40 @@ flowchart TB
 |----------|--------------------------|
 | `majority_vote` (default) | The answer returned by the most voters wins. |
 | `weighted_vote` | Votes are summed using per-agent `weights`; highest total wins. |
-| `llm_judge` | A `judge_agent_id` reviews all votes and decides the consensus. |
+| `llm_judge` | A `judgeAgentId` reviews all votes and decides the consensus. |
 
 ## Implementation example
 
-The `voting` node type requires a `voting_config` block listing the voters and the aggregation strategy.
+The `voting` node type requires a `votingConfig` block listing the voters and the aggregation strategy.
 
 ```typescript
 {
   id: 'classify',
   type: 'voting',
-  read_keys: ['ticket_text'],
-  write_keys: ['classify_consensus', 'classify_votes'],
-  voting_config: {
-    voter_agent_ids: [CLASSIFIER_A, CLASSIFIER_B, CLASSIFIER_C],
+  readKeys: ['ticket_text'],
+  writeKeys: ['classify_consensus', 'classify_votes'],
+  votingConfig: {
+    voterAgentIds: [CLASSIFIER_A, CLASSIFIER_B, CLASSIFIER_C],
     strategy: 'majority_vote',
-    vote_key: 'category',
+    voteKey: 'category',
     quorum: 2,
   },
 }
 ```
 
-For a `weighted_vote`, supply `weights` keyed by agent ID; for `llm_judge`, supply a `judge_agent_id`:
+For a `weighted_vote`, supply `weights` keyed by agent ID; for `llm_judge`, supply a `judgeAgentId`:
 
 ```typescript
-voting_config: {
-  voter_agent_ids: [JUNIOR, SENIOR, STAFF],
+votingConfig: {
+  voterAgentIds: [JUNIOR, SENIOR, STAFF],
   strategy: 'weighted_vote',
-  vote_key: 'verdict',
+  voteKey: 'verdict',
   weights: { [JUNIOR]: 1, [SENIOR]: 2, [STAFF]: 3 },
 }
 ```
 
 :::note
-Each voter is an independent agent run. A `memory_query` declared on the voting node propagates to every voter, so they all see the same retrieved memory. Use `task_timeout_ms` to guard against a single hung voter stalling the round.
+Each voter is an independent agent run. A `memoryQuery` declared on the voting node propagates to every voter, so they all see the same retrieved memory. Use `taskTimeoutMs` to guard against a single hung voter stalling the round.
 :::
 
 ## Outputs
@@ -74,7 +74,7 @@ The node writes two keys into `WorkflowState.memory`:
 - `{nodeId}_consensus` — the aggregated answer.
 - `{nodeId}_votes` — the full array of individual votes (for auditing and traceability).
 
-Both must be declared in the node's `write_keys`.
+Both must be declared in the node's `writeKeys`.
 
 ## When to use it
 

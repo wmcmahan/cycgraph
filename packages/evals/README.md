@@ -4,11 +4,11 @@
 
 **Regression-test harness for agent workflows. Deterministic + LLM-as-judge assertions, multi-sample evaluation, baseline drift gates.**
 
-[![npm](https://img.shields.io/npm/v/@cycgraph/evals?color=cb3837)](https://www.npmjs.com/package/@cycgraph/evals)
+[[![npm](https://img.shields.io/npm/v/@cycgraph/evals?color=cb3837)](https://www.npmjs.com/package/@cycgraph/evals)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 
-[📚 Documentation](https://flattop.io/concepts/eval-harness/) &nbsp;·&nbsp; [📖 Assertions reference](https://flattop.io/concepts/eval-assertions/) &nbsp;·&nbsp; [📐 Drift and baselines](https://flattop.io/concepts/drift-and-baselines/)
+[📚 Documentation](https://flattop.io/docs/concepts/eval-harness/) &nbsp;·&nbsp; [📖 Assertions reference](https://flattop.io/docs/concepts/eval-assertions/) &nbsp;·&nbsp; [📐 Drift and baselines](https://flattop.io/docs/concepts/drift-and-baselines/)
 
 </div>
 
@@ -16,14 +16,14 @@
 
 Quality-assurance gate for the `@cycgraph/*` packages. Detects when a change in one package silently degrades the reasoning, schema-compliance, or observable behaviour of another — and tells you whether the regression is real or just sample noise.
 
-This README is the **quick-start + API at-a-glance**. For concepts (drift gates, baseline persistence, sample stability), recording workflows, and extension recipes, see the [Eval Harness section](https://flattop.io/concepts/eval-harness/) of the docs site.
+This README is the **quick-start + API at-a-glance**. For concepts (drift gates, baseline persistence, sample stability), recording workflows, and extension recipes, see the [Eval Harness section](https://flattop.io/docs/concepts/eval-harness/) of the docs site.
 
 ## What it gives you
 
 - **54 golden trajectories** across 3 suites (`orchestrator`, `memory`, `context-engine`) with stable IDs and provenance.
 - **Two assertion tracks**:
   - **Deterministic** — pure library calls (no LLM): segmentation, dedup, budget, subgraph, conflict detection, etc.
-  - **Semantic** — LLM-as-judge with three built-in rubric metrics (`answer_relevancy`, `faithfulness`, `logical_coherence`) plus three reference-free metrics (`instruction_following`, `output_quality`, `safety`).
+  - **Semantic** — LLM-as-judge with three built-in rubric metrics (`answer_relevancy`, `faithfulness`, `logical_coherence`). Three reference-free metrics (`instruction_following`, `output_quality`, `safety`) are exposed but not yet wired into a default suite.
 - **Multi-sample evaluation** — distinguishes flaky LLM responses from genuine regressions.
 - **Baseline persistence** — compares each run against the prior committed state and flags regressions that hide under the absolute drift ceiling.
 - **Recording infrastructure** — re-record any trajectory by running the input through the real System-Under-Test; goldens become observable behaviour, not hand-authored intent.
@@ -155,14 +155,7 @@ console.log(formatBaselineDelta(delta));
 
 ### Recording
 
-```typescript
-import {
-  runOrchestratorSut, runMemorySut, runContextEngineSut,
-  buildSupervisorGraph, buildSingleAgentGraph, buildBranchingGraph,
-  buildRetryGraph, createFlakyFetch, createRateLimitedCall,
-  planForTrajectory,
-} from '@cycgraph/evals';
-```
+Recording runs through the `scripts/record-goldens.ts` script (see [Re-record goldens](#re-record-goldens) above) — it drives each input through the real System-Under-Test and rewrites the golden dataset. The SUT layer it uses (`runOrchestratorSut`, `runMemorySut`, `runContextEngineSut`, the `build*Graph` builders, `planForTrajectory`, the retry-tool fixtures) is **not** part of the package barrel; it lives under `src/sut/` and is consumed by the recording script via relative imports.
 
 ### Dataset
 
@@ -248,7 +241,8 @@ Covers assertions, dataset I/O, schema migration, SUT dispatch, multi-sample eva
 - [`@cycgraph/orchestrator`](../orchestrator/) — the system under test
 - [`@cycgraph/memory`](../memory/) — knowledge-graph SUT
 - [`@cycgraph/context-engine`](../context-engine/) — compression SUT
-- Orchestrator's [internal `runEval`](https://flattop.io/observability/evals/) — lightweight per-graph assertion framework (different from this package's regression harness)
+- Orchestrator's [internal `runEval`](https://flattop.io/docs/observability/evals/) — lightweight per-graph assertion framework (different from this package's regression harness)
+- [`examples/eval-gated-learning/`](./examples/eval-gated-learning/) — runnable demo of the eval-gated retention loop (poisoned lessons evicted on outcome evidence)
 
 ## Contributing
 

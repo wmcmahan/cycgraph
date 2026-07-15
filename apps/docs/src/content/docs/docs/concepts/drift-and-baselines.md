@@ -104,11 +104,12 @@ The default 5pp noise floor absorbs sample-to-sample LLM jitter. Tighten it via 
 
 ### Persistence rules
 
-A baseline is overwritten when **both** conditions hold:
+A baseline is overwritten when **all three** conditions hold:
 1. The current run passed the absolute drift gate
 2. The current run did not regress against the prior baseline
+3. The current run's `aggregateDrift` is **not worse** than the prior baseline's (`current.aggregateDrift <= baseline.aggregateDrift`)
 
-This avoids the goalpost-moving failure mode: if the gate fails or the run regressed, the prior baseline stays put so the next run still has a meaningful comparison.
+This avoids the goalpost-moving failure mode: if the gate fails or the run regressed, the prior baseline stays put so the next run still has a meaningful comparison. The third condition is the anti-boiling-frog guard — the baseline moves *down* on genuine improvement or holds, but never ratchets upward, so drift creeping up by less than the noise floor each run can't quietly reset the anchor higher every time.
 
 ### Reading a baseline delta
 

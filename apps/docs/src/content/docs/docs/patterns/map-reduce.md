@@ -55,7 +55,7 @@ const RESEARCHER_ID = registry.register({
   name: 'Researcher Agent',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a research specialist focused on a single sub-topic.',
     'Your assigned sub-topic is provided in _map_item.',
     'Produce concise, factual research notes about your specific sub-topic.',
@@ -63,14 +63,14 @@ const RESEARCHER_ID = registry.register({
   temperature: 0.5,
   tools: [],
   // We explicitly grant access to the injected _map_item variable
-  permissions: { read_keys: ['_map_item', 'goal'], write_keys: ['research'] },
+  permissions: { readKeys: ['_map_item', 'goal'], writeKeys: ['research'] },
 });
 
 const SYNTHESIZER_ID = registry.register({
   name: 'Synthesizer Agent',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a synthesis specialist.',
     'You receive parallel research results in mapper_results (an array of objects).',
     'Combine all research into a single, coherent summary that covers every sub-topic.',
@@ -78,7 +78,7 @@ const SYNTHESIZER_ID = registry.register({
   temperature: 0.4,
   tools: [],
   // We explicitly grant access to the array of mapped outputs
-  permissions: { read_keys: ['goal', 'mapper_results'], write_keys: ['summary'] },
+  permissions: { readKeys: ['goal', 'mapper_results'], writeKeys: ['summary'] },
 });
 ```
 
@@ -96,45 +96,45 @@ const graph = createGraph({
     {
       id: 'mapper',
       type: 'map',
-      read_keys: ['*'],
-      write_keys: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
-      map_reduce_config: {
-        worker_node_id: 'researcher',       // The ID of the node to fan out to
-        items_path: '$.memory.topics',      // JSONPath to the input array
-        max_concurrency: 5,                 // Parallel execution limit
-        error_strategy: 'best_effort',      // Continue to synthesis even if some fail
+      readKeys: ['*'],
+      writeKeys: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
+      mapReduceConfig: {
+        workerNodeId: 'researcher',         // The ID of the node to fan out to
+        itemsPath: '$.memory.topics',       // JSONPath to the input array
+        maxConcurrency: 5,                  // Parallel execution limit
+        errorStrategy: 'best_effort',       // Continue to synthesis even if some fail
       },
     },
-    // The worker node definition (targeted by worker_node_id)
+    // The worker node definition (targeted by workerNodeId)
     {
       id: 'researcher',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['_map_item', 'goal'],
-      write_keys: ['research'],
+      agentId: RESEARCHER_ID,
+      readKeys: ['_map_item', 'goal'],
+      writeKeys: ['research'],
     },
     // The synthesizer node definition
     {
       id: 'synthesizer',
       type: 'synthesizer',
-      agent_id: SYNTHESIZER_ID,
-      read_keys: ['goal', 'mapper_results'],
-      write_keys: ['summary'],
+      agentId: SYNTHESIZER_ID,
+      readKeys: ['goal', 'mapper_results'],
+      writeKeys: ['summary'],
     },
   ],
   edges: [
     { source: 'splitter', target: 'mapper' },
     { source: 'mapper', target: 'synthesizer' },
   ],
-  start_node: 'splitter',
-  end_nodes: ['synthesizer'],
+  startNode: 'splitter',
+  endNodes: ['synthesizer'],
 });
 ```
 
 ## Core concepts
 
 ### Understanding map variables
-When the map node launches your parallel workers, it intercepts their memory view and forcibly injects specific metadata variables into their scope. You must explicitly request these in your `read_keys` to make them visible to the LLM:
+When the map node launches your parallel workers, it intercepts their memory view and forcibly injects specific metadata variables into their scope. You must explicitly request these in your `readKeys` to make them visible to the LLM:
 - `_map_item`: The specific string, object, or number being processed by this worker.
 - `_map_index`: Which position in the array this item occupies (e.g. `0`, `1`, `2`).
 - `_map_total`: The total size of the input array.
