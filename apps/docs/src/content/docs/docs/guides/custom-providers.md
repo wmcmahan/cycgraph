@@ -39,18 +39,26 @@ providers.register('groq', (modelId) => groq(modelId), {
 
 ### Ollama (local)
 
-The simplest way to add Ollama support is the built-in helper:
+The simplest way to add Ollama support is the built-in `registerOllamaProvider` helper. It takes the registry, a **model factory**, and optional overrides. Ollama exposes an OpenAI-compatible API, so `@ai-sdk/openai` works as the factory:
 
 ```typescript
 import { registerOllamaProvider } from '@cycgraph/orchestrator';
+import { createOpenAI } from '@ai-sdk/openai';
 
-registerOllamaProvider(providers, {
-  models: ['llama3.2', 'mistral', 'codellama'],
-  // baseURL defaults to 'http://localhost:11434/api'
-});
+registerOllamaProvider(
+  providers,
+  ({ baseURL }) => {
+    const provider = createOpenAI({ baseURL: `${baseURL}/v1`, apiKey: 'ollama' });
+    return (modelId) => provider.chat(modelId);
+  },
+  {
+    models: ['llama3.2', 'mistral', 'codellama'],
+    // baseUrl defaults to 'http://localhost:11434'
+  },
+);
 ```
 
-Under the hood this uses `@ai-sdk/openai` with Ollama's OpenAI-compatible endpoint. If you prefer the dedicated Ollama provider package, you can register it manually:
+The base URL is resolved from `baseUrl` → the `OLLAMA_BASE_URL` env var → `http://localhost:11434`. If you prefer the dedicated Ollama provider package, you can skip the helper and register it manually:
 
 ```typescript
 import { createOllama } from 'ollama-ai-provider-v2';
@@ -83,30 +91,30 @@ const FAST_AGENT = registry.register({
   name: 'Fast Researcher',
   model: 'llama-3.3-70b-versatile',
   provider: 'groq',
-  system_prompt: 'You are a research specialist...',
+  systemPrompt: 'You are a research specialist...',
   tools: [],
-  permissions: { read_keys: ['goal'], write_keys: ['notes'] },
+  permissions: { readKeys: ['goal'], writeKeys: ['notes'] },
 });
 ```
 
 ## Provider options
 
-Some providers support additional options (extended thinking, structured output modes, etc.). Pass these via `provider_options` on the agent config:
+Some providers support additional options (extended thinking, structured output modes, etc.). Pass these via `providerOptions` on the agent config:
 
 ```typescript
 const THINKING_AGENT = registry.register({
   name: 'Deep Thinker',
   model: 'claude-opus-4-8',
   provider: 'anthropic',
-  provider_options: {
+  providerOptions: {
     thinking: {
       type: 'enabled',
       budgetTokens: 12000,
     },
   },
-  system_prompt: 'You solve complex problems step by step...',
+  systemPrompt: 'You solve complex problems step by step...',
   tools: [],
-  permissions: { read_keys: ['*'], write_keys: ['*'] },
+  permissions: { readKeys: ['*'], writeKeys: ['*'] },
 });
 ```
 
@@ -121,9 +129,9 @@ const AGENT = registry.register({
   name: 'Inferred Provider Agent',
   model: 'llama-3.3-70b-versatile',
   // provider: omitted — inferred automatically
-  system_prompt: '...',
+  systemPrompt: '...',
   tools: [],
-  permissions: { read_keys: ['*'], write_keys: ['*'] },
+  permissions: { readKeys: ['*'], writeKeys: ['*'] },
 });
 ```
 

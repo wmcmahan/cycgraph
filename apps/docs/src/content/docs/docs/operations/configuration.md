@@ -9,7 +9,7 @@ cycgraph exposes operational tuning through environment variables (read once at 
 
 ## Runtime config (env vars)
 
-All values are validated against `RuntimeConfigSchema` in `@cycgraph/orchestrator/runtime-config`. **Out-of-bounds values throw at module load** rather than producing a broken cache size or negative timeout.
+All values are validated against `RuntimeConfigSchema` (`src/runtime-config.ts`) once at module load. **Out-of-bounds values throw at startup** rather than producing a broken cache size or negative timeout.
 
 | Env var | Default | Bounds | Purpose |
 | --- | --- | --- | --- |
@@ -40,9 +40,9 @@ Passed to `new GraphRunner(graph, state, options)`. Source: `runner/graph-runner
 
 | Option | Type | Default | Purpose |
 | --- | --- | --- | --- |
-| `persistence` | `PersistenceProvider` | in-memory | Graph + state storage backend |
-| `eventLog` | `EventLogWriter` | in-memory | Append-only event log + checkpoints |
-| `usageRecorder` | `UsageRecorder` | noop | Cost / token recorder |
+| `persistStateFn` | `(state: WorkflowState) => Promise<void>` | none | Persist a state snapshot after each step (wire to a `PersistenceProvider`) |
+| `loadGraphFn` | `(graphId: string) => Promise<Graph \| null>` | none | Load subgraph definitions by ID |
+| `eventLog` | `EventLogWriter` | in-memory (noop) | Append-only event log + checkpoints |
 | `toolResolver` | `ToolResolver` | none | MCP tool resolution (`MCPConnectionManager` recommended) |
 | `contextCompressor` | `ContextCompressor` | none | Compress memory before prompt injection |
 | `memoryRetriever` | `MemoryRetriever` | none | Pull facts from the hierarchical memory graph. Only fires for nodes that declare a `memory_query` directive. |
@@ -52,7 +52,7 @@ Passed to `new GraphRunner(graph, state, options)`. Source: `runner/graph-runner
 | `rateLimiter` | `RateLimiter` | none | Awaited before every LLM call (agent / supervisor / evaluator) to pace a run inside a provider's budget. The implementation may delay (throttle) or throw (hard ceiling — surfaces as the node's error, follows its `failure_policy`). Abortable; propagated into subgraphs. |
 | `compactionInterval` | `number` | `1000` | Events between automatic event-log compactions (checkpoint + delete-behind, recovery-safe) when an `eventLog` is wired. **Defaults on** so a long run can't grow the log unbounded; set `0` to retain full history and compact manually via `compactEvents()`. |
 | `persistDeltaFn` | `(patch: StatePatch) => Promise<void>` | none | Differential persistence — when set with `persistStateFn`, the runner sends patches here and full snapshots to `persistStateFn`. A failed write rolls back the delta baseline so no patch is lost. |
-| `middleware` | `RunnerMiddleware[]` | `[]` | `beforeNodeExecute` / `afterReduce` hooks |
+| `middleware` | `GraphRunnerMiddleware[]` | `[]` | `beforeNodeExecute` / `afterReduce` hooks |
 | `allowImplicitCompletion` | `boolean` | `false` | When a non-end node has no outgoing edge whose condition matches, the runner fails the run with `NoMatchingEdgeError` (a dead-end is almost always a routing bug). Set `true` to restore the legacy behavior of silently completing the workflow at that node. |
 
 A pre-flight wiring check runs at the start of every `run()`: a graph containing a `reflection` node with no `memoryWriter`, or a node declaring MCP tool sources with no `toolResolver`, fails immediately (before any node executes) instead of mid-run. A `memory_query` directive with no `memoryRetriever` logs a warning.

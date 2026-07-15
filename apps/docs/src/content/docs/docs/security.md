@@ -20,11 +20,11 @@ const WRITER_ID = registry.register({
   name: 'Writer',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: '...',
+  systemPrompt: '...',
   tools: [],
   permissions: {
-    read_keys: ['goal', 'research_notes'],   // can only read these
-    write_keys: ['draft'],                    // can only write this
+    readKeys: ['goal', 'research_notes'],   // can only read these
+    writeKeys: ['draft'],                    // can only write this
   },
 });
 ```
@@ -44,11 +44,11 @@ const WRITER_ID = registry.register({
   name: 'Writer',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: '...',
+  systemPrompt: '...',
   tools: [],
   permissions: {
-    read_keys: ['user.name', 'user.email'],  // only these nested paths
-    write_keys: ['draft'],
+    readKeys: ['user.name', 'user.email'],  // only these nested paths
+    writeKeys: ['draft'],
   },
 });
 ```
@@ -101,11 +101,11 @@ By default, tainted data in routing decisions produces a warning. Set `strict_ta
 ```typescript
 const graph = createGraph({
   name: 'High Security Workflow',
-  strict_taint: true,  // reject tainted data in routing decisions
+  strictTaint: true,  // reject tainted data in routing decisions
   nodes: [ /* ... */ ],
   edges: [ /* ... */ ],
-  start_node: 'start',
-  end_nodes: ['end'],
+  startNode: 'start',
+  endNodes: ['end'],
 });
 ```
 
@@ -123,9 +123,9 @@ Set `max_token_budget` on the workflow state. The engine tracks `total_tokens_us
 
 ```typescript
 const state = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: '...',
-  max_token_budget: 50_000,
+  maxTokenBudget: 50_000,
 });
 ```
 
@@ -135,17 +135,17 @@ Set `budget_usd` for dollar-denominated limits. The engine calculates costs usin
 
 ```typescript
 const state = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: '...',
-  budget_usd: 1.00,
+  budgetUsd: 1.00,
 });
 ```
 
 At 100%, execution halts with `BudgetExceededError`. Listen for threshold events to add monitoring:
 
 ```typescript
-runner.on('budget:threshold_reached', ({ percentage, total_cost_usd }) => {
-  console.warn(`Budget ${percentage}% reached: $${total_cost_usd}`);
+runner.on('budget:threshold_reached', ({ threshold_pct, cost_usd, budget_usd }) => {
+  console.warn(`Budget ${threshold_pct}% reached: $${cost_usd.toFixed(4)} of $${budget_usd}`);
 });
 ```
 
@@ -157,9 +157,9 @@ See [Cost & Budget Tracking](/docs/concepts/cost-tracking/) for model pricing de
 
 ```typescript
 const state = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: '...',
-  max_iterations: 20,
+  maxIterations: 20,
 });
 ```
 
@@ -169,9 +169,9 @@ const state = createWorkflowState({
 
 ```typescript
 const state = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: '...',
-  max_execution_time_ms: 120_000,  // 2 minutes
+  maxExecutionTimeMs: 120_000,  // 2 minutes
 });
 ```
 
@@ -194,7 +194,7 @@ Server connection configs (URLs, commands, auth headers) live in the **MCP Serve
 ```typescript
 // Agent config — no transport details, no secrets
 tools: [
-  { type: 'mcp', server_id: 'web-search' },
+  { type: 'mcp', serverId: 'web-search' },
 ]
 ```
 
@@ -207,7 +207,7 @@ await registry.saveServer({
   id: 'admin-tools',
   name: 'Admin Tools',
   transport: { type: 'http', url: 'https://internal.example.com/admin' },
-  allowed_agents: ['admin-agent-001'],
+  allowedAgents: ['admin-agent-001'],
 });
 ```
 

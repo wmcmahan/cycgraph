@@ -51,11 +51,11 @@ async function main() {
     name: 'Research Writer',
     model: 'claude-sonnet-4-6',
     provider: 'anthropic',
-    system_prompt: 'You are an expert technical writer. Produce a concise summary of the goal.',
+    systemPrompt: 'You are an expert technical writer. Produce a concise summary of the goal.',
     temperature: 0.7,
-    max_steps: 3,
+    maxSteps: 3,
     tools: [],
-    permissions: { read_keys: ['goal'], write_keys: ['draft'] },
+    permissions: { readKeys: ['goal'], writeKeys: ['draft'] },
   });
 
   configureAgentFactory(registry);
@@ -68,21 +68,21 @@ async function main() {
       {
         id: 'write_node',
         type: 'agent',
-        agent_id: writerId,
-        read_keys: ['goal'],
-        write_keys: ['draft'],
+        agentId: writerId,
+        readKeys: ['goal'],
+        writeKeys: ['draft'],
       },
     ],
     edges: [],
-    start_node: 'write_node',
-    end_nodes: ['write_node'],
+    startNode: 'write_node',
+    endNodes: ['write_node'],
   });
 
   // Initialize state
   const state = createWorkflowState({
-    workflow_id: graph.id,
+    workflowId: graph.id,
     goal: 'Explain how transformers work in AI.',
-    max_execution_time_ms: 60_000,
+    maxExecutionTimeMs: 60_000,
   });
 
   // Set up in-memory persistence

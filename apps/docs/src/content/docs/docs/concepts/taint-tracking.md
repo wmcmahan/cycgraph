@@ -130,11 +130,11 @@ Setting `strict_taint: true` on the graph upgrades warnings to hard rejections. 
 const graph = createGraph({
   name: 'Strict Taint Example',
   description: 'Routes to a fallback agent when external (tainted) data would otherwise drive the decision.',
-  strict_taint: true, // reject tainted data in routing
+  strictTaint: true, // reject tainted data in routing
   nodes: [
-    { id: 'fetch', type: 'tool', tool_id: 'web_search', read_keys: ['*'], write_keys: ['search_results'] },
-    { id: 'analyze', type: 'agent', agent_id: ANALYST_ID, read_keys: ['search_results'], write_keys: ['analysis'] },
-    { id: 'fallback', type: 'agent', agent_id: FALLBACK_ID, read_keys: ['goal'], write_keys: ['analysis'] },
+    { id: 'fetch', type: 'tool', toolId: 'web_search', readKeys: ['*'], writeKeys: ['search_results'] },
+    { id: 'analyze', type: 'agent', agentId: ANALYST_ID, readKeys: ['search_results'], writeKeys: ['analysis'] },
+    { id: 'fallback', type: 'agent', agentId: FALLBACK_ID, readKeys: ['goal'], writeKeys: ['analysis'] },
   ],
   edges: [
     {
@@ -144,8 +144,8 @@ const graph = createGraph({
     },
     { source: 'fetch', target: 'fallback' }, // taken when strict_taint rejects the condition
   ],
-  start_node: 'fetch',
-  end_nodes: ['analyze', 'fallback'],
+  startNode: 'fetch',
+  endNodes: ['analyze', 'fallback'],
 });
 ```
 

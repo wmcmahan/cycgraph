@@ -269,7 +269,7 @@ const contextCompressor = (sanitizedMemory, options) => {
 const runner = new GraphRunner(graph, state, { contextCompressor });
 ```
 
-Without a context compressor, the orchestrator falls back to `JSON.stringify` with a 128KB byte cap.
+Without a context compressor, the orchestrator falls back to `JSON.stringify` with a 50KB byte cap.
 
 ## Provider interfaces
 

@@ -11,13 +11,13 @@ If your first cycgraph workflow doesn't behave the way you expect, this page lis
 
 ```
 npm warn EBADENGINE Unsupported engine {
-  package: '@cycgraph/orchestrator@0.2.0',
-  required: { node: '>=24.0.0' },
-  current: { node: 'v22.x.x' }
+  package: '@cycgraph/orchestrator@0.6.0',
+  required: { node: '>=22.0.0' },
+  current: { node: 'v20.x.x' }
 }
 ```
 
-cycgraph requires **Node.js 24+**. Upgrade Node (e.g. `nvm install 24 && nvm use 24`) and reinstall.
+cycgraph requires **Node.js 22+**. Upgrade Node (e.g. `nvm install 22 && nvm use 22`) and reinstall.
 
 ### `Cannot find module` / missing `.js` extensions
 
@@ -95,13 +95,13 @@ Workflow-wide token budget breached. Either raise `state.max_token_budget` or, m
 ### `NodeBudgetExceededError: Node "X" exceeded max_tokens`
 
 A single node breached its `budget` cap. Unlike `BudgetExceededError`, this one fires per-attempt — retries do not stack toward the cap. Common culprits:
-- LLM reflection extractor without `max_facts` cap.
-- Annealing loop with a high `max_iterations`.
+- LLM reflection extractor without `maxFacts` cap.
+- Annealing loop with a high `maxIterations`.
 - Agent with bloated `tools` array driving up input tokens.
 
 ### `WorkflowTimeoutError: Workflow ... timed out after Xms`
 
-Wall-clock cap (`state.max_execution_time_ms`, default 5min) reached. Either raise it or break the work into smaller subgraphs.
+Wall-clock cap (`state.max_execution_time_ms`, default 1 hour / `3_600_000`ms) reached. Either raise it or break the work into smaller subgraphs.
 
 ### `NoMatchingEdgeError: node "X" has no outgoing edge whose condition matched`
 
@@ -113,7 +113,7 @@ A graph contains a `reflection` node but `GraphRunnerOptions.memoryWriter` is un
 
 ### `MCPServerNotFoundError: MCP server "X" not registered`
 
-A node declared `tools: [{ type: 'mcp', server_id: 'X' }]` but the server isn't in the `MCPServerRegistry`. Either call `registerDefaultMCPServers()` (gives you `web-search` and `fetch`) or register your custom servers explicitly.
+A node declared `tools: [{ type: 'mcp', serverId: 'X' }]` but the server isn't in the `MCPServerRegistry`. Either call `registerDefaultMCPServers()` (gives you `web-search` and `fetch`) or register your custom servers explicitly.
 
 ### `MCPAccessDeniedError`
 
@@ -125,20 +125,20 @@ These don't throw — your workflow just behaves differently than you expect.
 
 ### `memoryRetriever` wired but never called
 
-The retriever is **per-node opt-in**. It only fires for nodes that declare a `memory_query` directive. Without that, the option is silently a no-op.
+The retriever is **per-node opt-in**. It only fires for nodes that declare a `memoryQuery` directive. Without that, the option is silently a no-op.
 
 ```typescript
 // ❌ memoryRetriever wired but nothing pulls from it
 new GraphRunner(graph, state, { memoryRetriever });
 
-// ✅ Researcher node declares memory_query — retriever fires
+// ✅ Researcher node declares memoryQuery — retriever fires
 {
   id: 'researcher',
   type: 'agent',
-  agent_id: RESEARCHER_ID,
-  read_keys: ['goal'],
-  write_keys: ['notes'],
-  memory_query: { tags: ['lesson'], max_facts: 10 },
+  agentId: RESEARCHER_ID,
+  readKeys: ['goal'],
+  writeKeys: ['notes'],
+  memoryQuery: { tags: ['lesson'], maxFacts: 10 },
 }
 ```
 

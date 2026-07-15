@@ -23,22 +23,22 @@ const RESEARCHER_ID = registry.register({
   name: 'Research Agent',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: 'You are a research specialist. Investigate the topic and produce thorough research notes.',
+  systemPrompt: 'You are a research specialist. Investigate the topic and produce thorough research notes.',
   temperature: 0.5,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
-  permissions: { read_keys: ['goal', 'constraints'], write_keys: ['research_notes'] },
+  permissions: { readKeys: ['goal', 'constraints'], writeKeys: ['research_notes'] },
 });
 
 const WRITER_ID = registry.register({
   name: 'Writer Agent',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: 'You are a writer. Read the research notes from memory and produce a clear, engaging summary.',
+  systemPrompt: 'You are a writer. Read the research notes from memory and produce a clear, engaging summary.',
   temperature: 0.7,
-  max_steps: 3,
+  maxSteps: 3,
   tools: [],
-  permissions: { read_keys: ['goal', 'research_notes'], write_keys: ['draft'] },
+  permissions: { readKeys: ['goal', 'research_notes'], writeKeys: ['draft'] },
 });
 
 // Wire the registry into the global factory
@@ -64,18 +64,18 @@ const graph = createGraph({
     {
       id: 'research',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['research_notes'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
+      agentId: RESEARCHER_ID,
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['research_notes'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
     },
     {
       id: 'write',
       type: 'agent',
-      agent_id: WRITER_ID,
-      read_keys: ['goal', 'research_notes'],
-      write_keys: ['draft'],
-      failure_policy: { max_retries: 2, backoff_strategy: 'exponential', initial_backoff_ms: 1000, max_backoff_ms: 60000 },
+      agentId: WRITER_ID,
+      readKeys: ['goal', 'research_notes'],
+      writeKeys: ['draft'],
+      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
     },
   ],
 
@@ -87,8 +87,8 @@ const graph = createGraph({
     },
   ],
 
-  start_node: 'research',
-  end_nodes: ['write'],
+  startNode: 'research',
+  endNodes: ['write'],
 });
 ```
 
@@ -100,10 +100,10 @@ Use the `createWorkflowState` helper to automatically generate the `run_id`, tim
 import { createWorkflowState } from '@cycgraph/orchestrator';
 
 const initialState = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Explain how large language models work, including transformers, attention mechanisms, and training data.',
   constraints: ['Keep the final draft under 300 words', 'Use plain language suitable for a general audience'],
-  max_execution_time_ms: 120_000,
+  maxExecutionTimeMs: 120_000,
 });
 ```
 

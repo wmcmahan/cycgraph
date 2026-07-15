@@ -13,7 +13,7 @@ The infrastructure under reflection — `@cycgraph/memory`'s temporal knowledge 
 flowchart LR
     subgraph R1["RUN 1 — cold start"]
         direction LR
-        Goal1[Goal 1] --> Researcher1["🔬 Researcher\n(memory_query.tags)"]
+        Goal1[Goal 1] --> Researcher1["🔬 Researcher\n(memoryQuery.tags)"]
         Researcher1 -- "research_notes" --> Reflect1["🪞 Reflection\n(rule_based)"]
     end
 
@@ -32,8 +32,8 @@ flowchart LR
 
 Each run follows the same loop:
 1. Productive nodes (research, write, analyse) produce output into workflow state.
-2. The reflection node reads `source_keys` from state, extracts facts, attaches tags + provenance, and calls `memoryWriter`.
-3. On the next run, agents whose nodes declare `memory_query: { tags: [...] }` have those facts rendered into a `## Relevant Memory` section in their system prompt.
+2. The reflection node reads `sourceKeys` from state, extracts facts, attaches tags + provenance, and calls `memoryWriter`.
+3. On the next run, agents whose nodes declare `memoryQuery: { tags: [...] }` have those facts rendered into a `## Relevant Memory` section in their system prompt.
 
 ## When to use this pattern
 
@@ -120,7 +120,7 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
 
 ### 2. The graph
 
-The researcher node carries `memory_query: { tags: [LESSON_TAG] }` so the retriever fires before its prompt. The reflection node lives after it and writes back with the same tag.
+The researcher node carries `memoryQuery: { tags: [LESSON_TAG] }` so the retriever fires before its prompt. The reflection node lives after it and writes back with the same tag.
 
 ```typescript
 import { createGraph, GraphRunner } from '@cycgraph/orchestrator';
@@ -132,26 +132,26 @@ const graph = createGraph({
     {
       id: 'research',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['goal', 'constraints'],
-      write_keys: ['research_notes'],
-      memory_query: { tags: [LESSON_TAG], max_facts: 20 },
+      agentId: RESEARCHER_ID,
+      readKeys: ['goal', 'constraints'],
+      writeKeys: ['research_notes'],
+      memoryQuery: { tags: [LESSON_TAG], maxFacts: 20 },
     },
     {
       id: 'reflect',
       type: 'reflection',
-      read_keys: ['research_notes'],
-      write_keys: ['research_notes_reflection'],
-      reflection_config: {
-        source_keys: ['research_notes'],
-        extractor: { type: 'rule_based', min_sentence_length: 25 },
+      readKeys: ['research_notes'],
+      writeKeys: ['research_notes_reflection'],
+      reflectionConfig: {
+        sourceKeys: ['research_notes'],
+        extractor: { type: 'rule_based', minSentenceLength: 25 },
         tags: ['lesson', LESSON_TAG],
       },
     },
   ],
   edges: [{ source: 'research', target: 'reflect' }],
-  start_node: 'research',
-  end_nodes: ['reflect'],
+  startNode: 'research',
+  endNodes: ['reflect'],
 });
 
 const runner = new GraphRunner(graph, state, { memoryWriter, memoryRetriever });
@@ -159,14 +159,14 @@ const runner = new GraphRunner(graph, state, { memoryWriter, memoryRetriever });
 
 ## Extractor variants
 
-The `extractor` discriminator on `reflection_config` picks the strategy:
+The `extractor` discriminator on `reflectionConfig` picks the strategy:
 
 ### `rule_based`
 
-Deterministic sentence-level extraction. Splits the concatenated source memory values into sentences, filters by `min_sentence_length`, dedupes (case-insensitive), emits one fact per unique sentence. **No LLM call** — free and predictable.
+Deterministic sentence-level extraction. Splits the concatenated source memory values into sentences, filters by `minSentenceLength`, dedupes (case-insensitive), emits one fact per unique sentence. **No LLM call** — free and predictable.
 
 ```typescript
-extractor: { type: 'rule_based', min_sentence_length: 25 }
+extractor: { type: 'rule_based', minSentenceLength: 25 }
 ```
 
 Use when source content is already structured as discrete sentences (agent notes, bullet lists).
@@ -178,8 +178,8 @@ Calls an extractor agent that distills the source into a bounded list of atomic,
 ```typescript
 extractor: {
   type: 'llm',
-  agent_id: REFLECTOR_ID,
-  max_facts: 5,
+  agentId: REFLECTOR_ID,
+  maxFacts: 5,
   instruction: 'Extract methodology lessons only.',  // optional override
 }
 ```
@@ -190,11 +190,11 @@ Use when source content is freeform prose, or when you need the LLM to filter wh
 
 ### Tags scope retrieval
 
-The `tags` field on `reflection_config` is applied to every fact written by the node. When a downstream node declares `memory_query: { tags: [...] }`, only facts carrying at least one matching tag come back. Namespace tags by graph (`graph:research-v1`), category (`methodology`, `failure`), or both. This lets multiple graphs share a memory store without polluting each other's retrieval.
+The `tags` field on `reflectionConfig` is applied to every fact written by the node. When a downstream node declares `memoryQuery: { tags: [...] }`, only facts carrying at least one matching tag come back. Namespace tags by graph (`graph:research-v1`), category (`methodology`, `failure`), or both. This lets multiple graphs share a memory store without polluting each other's retrieval.
 
 ### Entities and the knowledge graph
 
-`reflection_config.entity_keys` declares memory keys whose values name entities the produced facts relate to. The reflection executor reads those values and includes them as entity references on each written fact so the lesson stays reachable via entity-driven retrieval (`memory_query: { entity_ids: [...] }`).
+`reflectionConfig.entityKeys` declares memory keys whose values name entities the produced facts relate to. The reflection executor reads those values and includes them as entity references on each written fact so the lesson stays reachable via entity-driven retrieval (`memoryQuery: { entityIds: [...] }`).
 
 ### Sanitising facts before persistence
 
@@ -226,22 +226,22 @@ The sanitizer **fails closed** by default: if it throws (a downed PII service, a
 
 ### Capping reflection cost with `budget`
 
-LLM-based reflection (`extractor: { type: 'llm' }`) can run away on long source content. Combine `reflection_config.extractor.max_facts` with a per-node `budget` to cap both output size and spend:
+LLM-based reflection (`extractor: { type: 'llm' }`) can run away on long source content. Combine `reflectionConfig.extractor.maxFacts` with a per-node `budget` to cap both output size and spend:
 
 ```typescript
 {
   id: 'reflect',
   type: 'reflection',
-  read_keys: ['research_notes'],
-  write_keys: ['reflect_reflection'],
-  reflection_config: {
-    source_keys: ['research_notes'],
-    extractor: { type: 'llm', agent_id: REFLECTOR_ID, max_facts: 5 },
+  readKeys: ['research_notes'],
+  writeKeys: ['reflect_reflection'],
+  reflectionConfig: {
+    sourceKeys: ['research_notes'],
+    extractor: { type: 'llm', agentId: REFLECTOR_ID, maxFacts: 5 },
     tags: ['lesson'],
   },
   budget: {
-    max_tokens: 20_000,
-    max_cost_usd: 0.05,
+    maxTokens: 20_000,
+    maxCostUsd: 0.05,
   },
 }
 ```
@@ -251,8 +251,8 @@ Breaching either cap throws `NodeBudgetExceededError` — the reflection fails f
 ### Cost considerations
 
 - `rule_based` extraction is free (no LLM call). It's the right default for most reflection use cases.
-- `llm` extraction costs one extractor call per run. Cap `max_facts` (default 10) to bound output token cost.
-- The retriever side is free if your memory store is in-process. Production stores (`DrizzleMemoryStore`) cost a single Postgres + pgvector query per node-with-`memory_query`.
+- `llm` extraction costs one extractor call per run. Cap `maxFacts` (default 10) to bound output token cost.
+- The retriever side is free if your memory store is in-process. Production stores (`DrizzleMemoryStore`) cost a single Postgres + pgvector query per node-with-`memoryQuery`.
 
 ### Production swap
 
@@ -286,9 +286,9 @@ Three pieces wire it together:
 **1. Tag new lessons as candidates** — purely a config change:
 
 ```typescript
-reflection_config: {
-  source_keys: ['critique'],
-  extractor: { type: 'rule_based', min_sentence_length: 25 },
+reflectionConfig: {
+  sourceKeys: ['critique'],
+  extractor: { type: 'rule_based', minSentenceLength: 25 },
   tags: ['lesson', 'graph:my-graph-v1', 'candidate'],  // ← on trial
 }
 ```

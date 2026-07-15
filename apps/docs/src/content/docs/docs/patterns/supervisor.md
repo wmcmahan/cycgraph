@@ -20,7 +20,7 @@ flowchart TB
 ```
 
 1. **Initial Goal**: The workflow receives an open-ended goal (e.g., "Write a comprehensive report").
-2. **First Routing Decision**: The Supervisor assigns the first step to the most appropriate specialist node in its `managed_nodes` list (e.g., `research`).
+2. **First Routing Decision**: The Supervisor assigns the first step to the most appropriate specialist node in its `managedNodes` list (e.g., `research`).
 3. **Execution & Return**: The `research` node executes, and control returns directly to the Supervisor via a cyclic return edge.
 4. **Subsequent Routing**: The Supervisor reviews the new state of the memory, decides what is missing, and delegates again (e.g., to `write`).
 5. **Completion**: Once the goal is met, the Supervisor routes the final execution to the `__done__` sentinel, terminating the graph.
@@ -38,7 +38,7 @@ const SUPERVISOR_ID = registry.register({
   name: 'Supervisor Agent',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a project supervisor coordinating a team of specialists to produce a high-quality article.',
     'You have three team members: "research" (gathers facts), "write" (produces drafts), and "edit" (polishes prose).',
     'Review the current state and decide which specialist should work next.',
@@ -49,15 +49,15 @@ const SUPERVISOR_ID = registry.register({
   temperature: 0.3,
   tools: [],
   permissions: {
-    read_keys: ['*'], // The supervisor needs to see everything to make good routing decisions
-    write_keys: ['*'],
+    readKeys: ['*'], // The supervisor needs to see everything to make good routing decisions
+    writeKeys: ['*'],
   },
 });
 ```
 
 ### 2. The Supervisor node
 
-The `supervisor` node type requires a `supervisor_config` block defining which node IDs it is permitted to route work to.
+The `supervisor` node type requires a `supervisorConfig` block defining which node IDs it is permitted to route work to.
 
 ```typescript
 import { createGraph } from '@cycgraph/orchestrator';
@@ -68,12 +68,12 @@ const graph = createGraph({
     {
       id: 'supervisor',
       type: 'supervisor',
-      agent_id: SUPERVISOR_ID,
-      read_keys: ['*'],
-      write_keys: ['*'],
-      supervisor_config: {
-        managed_nodes: ['research', 'write', 'edit'],
-        max_iterations: 10,
+      agentId: SUPERVISOR_ID,
+      readKeys: ['*'],
+      writeKeys: ['*'],
+      supervisorConfig: {
+        managedNodes: ['research', 'write', 'edit'],
+        maxIterations: 10,
       },
     },
     // ... define the 'research', 'write', and 'edit' agent nodes ...
@@ -100,8 +100,8 @@ const graph = createGraph({
     { source: 'write', target: 'supervisor' },
     { source: 'edit', target: 'supervisor' },
   ],
-  start_node: 'supervisor',
-  end_nodes: [],  // Termination is handled dynamically by routing to __done__
+  startNode: 'supervisor',
+  endNodes: [],  // Termination is handled dynamically by routing to __done__
 });
 ```
 

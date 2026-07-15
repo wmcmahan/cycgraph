@@ -15,8 +15,8 @@ import { createGraph } from '@cycgraph/orchestrator';
 const graph = createGraph({
   name: "Research Pipeline",
   description: "Searches the web and writes a summary",
-  start_node: "researcher",
-  end_nodes: ["writer"],
+  startNode: "researcher",
+  endNodes: ["writer"],
   nodes: [
     // ... Node definitions ...
   ],

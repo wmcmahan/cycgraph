@@ -37,9 +37,9 @@ Set `max_token_budget` on the initial workflow state. The runner throws `BudgetE
 
 ```typescript
 const state = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Summarize quarterly reports',
-  max_token_budget: 100_000,
+  maxTokenBudget: 100_000,
 });
 ```
 
@@ -49,9 +49,9 @@ Set `budget_usd` on the initial workflow state. The runner enforces this with th
 
 ```typescript
 const state = createWorkflowState({
-  workflow_id: graph.id,
+  workflowId: graph.id,
   goal: 'Research and write an article',
-  budget_usd: 0.50,
+  budgetUsd: 0.50,
 });
 ```
 
@@ -65,9 +65,9 @@ registry.register({
   model: 'claude-opus-4-8',
   // ...
   permissions: {
-    read_keys: ['*'],
-    write_keys: ['*'],
-    budget_usd: 0.10,
+    readKeys: ['*'],
+    writeKeys: ['*'],
+    budgetUsd: 0.10,
   },
 });
 ```
@@ -102,7 +102,7 @@ At 100%, the workflow is terminated with `BudgetExceededError` and status transi
 
 ## Budget-aware model resolution
 
-When agents use `model_preference` and a `ModelResolver` is configured, the engine automatically selects the most capable model that fits within the remaining budget. This works hand-in-hand with the budget system described above.
+When agents use `modelPreference` and a `ModelResolver` is configured, the engine automatically selects the most capable model that fits within the remaining budget. This works hand-in-hand with the budget system described above.
 
 Before each agent execution, the resolver:
 

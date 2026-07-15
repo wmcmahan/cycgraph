@@ -20,6 +20,7 @@ Runnable examples for `@cycgraph/orchestrator`.
 | [human-in-the-loop](./human-in-the-loop/) | Approval Gate | 3-node pipeline with approval gate: Writer drafts, human reviews, Publisher finalizes |
 | [map-reduce](./map-reduce/) | Map-Reduce | 4-node fan-out: Splitter decomposes a topic, Map fans out to parallel Researchers, Synthesizer merges results |
 | [evolution](./evolution/) | Evolution (DGM) | Population-based Darwinian selection: parallel candidates, fitness scoring, temperature annealing, stagnation detection |
+| [evolution-regex](./evolution-regex/) | Evolution (deterministic fitness) | Same evolution node, but a deterministic `fitnessFunction` replaces the LLM judge — evolves a regex scored by running it against fixed test cases (no judge variance, no scoring token cost) |
 | [voting](./voting/) | Voting / Consensus | 3 voter agents evaluate a technical proposal independently; majority-vote aggregation with quorum enforcement |
 | [verifier-fix-loop](./verifier-fix-loop/) | Verifier + Fix Loop | Deterministic verifier gates an LLM extraction; failures route to a fixer that uses verifier feedback |
 | [learning-research-agent](./learning-research-agent/) | Reflection (Compound Learning) | Same graph runs twice on related goals — reflection extracts lessons after run 1, future runs retrieve them via `memory_query` |

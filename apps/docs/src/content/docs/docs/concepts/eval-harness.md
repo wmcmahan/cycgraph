@@ -47,6 +47,8 @@ LLM judges are non-deterministic. A single low-scoring run can tank the gate; a 
 
 See [Drift & Baselines](/docs/concepts/drift-and-baselines/) for how flaky-vs-regressed is distinguished in the report.
 
+For a runnable, adversarially-tested demonstration of eval-gated learning (poisoned lessons evicted on outcome evidence), see `packages/evals/examples/eval-gated-learning/`.
+
 ## Related
 
 - [Eval Assertions](/docs/concepts/eval-assertions/) — the four assertion families and when to use each

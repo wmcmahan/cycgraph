@@ -71,7 +71,7 @@ const WRITER_ID = registry.register({
   name: 'Candidate Writer',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'You are a creative writer.',
     'Write a poem based on the prompt.',
     'If `_evolution_parent` is provided, use it as a starting point. The parent scored `_evolution_parent_fitness`—aim to do better.',
@@ -80,26 +80,26 @@ const WRITER_ID = registry.register({
   // Temperature is overridden by the evolution node dynamically
   temperature: 1.0, 
   tools: [],
-  permissions: { read_keys: ['prompt'], write_keys: ['poem'] },
+  permissions: { readKeys: ['prompt'], writeKeys: ['poem'] },
 });
 
 const EVALUATOR_ID = registry.register({
   name: 'Fitness Evaluator',
   model: 'claude-sonnet-4-6',
   provider: 'anthropic',
-  system_prompt: [
+  systemPrompt: [
     'Evaluate the poem strictly on its metrical structure and emotional impact.',
     'Return a single number between 0.0 and 1.0 representing the quality score.',
   ].join(' '),
   temperature: 0.1,
   tools: [],
-  permissions: { read_keys: ['poem'], write_keys: ['score'] },
+  permissions: { readKeys: ['poem'], writeKeys: ['score'] },
 });
 ```
 
 ### 2. The Evolution Node
 
-The `evolution` node type requires an `evolution_config` block that dictates the population size, selection strategy, and stopping conditions.
+The `evolution` node type requires an `evolutionConfig` block that dictates the population size, selection strategy, and stopping conditions.
 
 ```typescript
 import { createGraph } from '@cycgraph/orchestrator';
@@ -110,24 +110,24 @@ const graph = createGraph({
     {
       id: 'evolve-poem',
       type: 'evolution',
-      read_keys: ['*'],
-      write_keys: ['*'],
-      evolution_config: {
-        candidate_agent_id: WRITER_ID,
-        evaluator_agent_id: EVALUATOR_ID,
-        population_size: 5,        // Parallel candidates per generation
-        max_generations: 10,       // Hard limit
-        fitness_threshold: 0.9,    // Early exit score
-        stagnation_generations: 3, // Exit if no improvement
-        selection_strategy: 'rank',// Always select the top scorer
-        initial_temperature: 1.0,  // Exploration (Generation 0)
-        final_temperature: 0.3,    // Exploitation (Final Generation)
+      readKeys: ['*'],
+      writeKeys: ['*'],
+      evolutionConfig: {
+        candidateAgentId: WRITER_ID,
+        evaluatorAgentId: EVALUATOR_ID,
+        populationSize: 5,         // Parallel candidates per generation
+        maxGenerations: 10,        // Hard limit
+        fitnessThreshold: 0.9,     // Early exit score
+        stagnationGenerations: 3,  // Exit if no improvement
+        selectionStrategy: 'rank', // Always select the top scorer
+        initialTemperature: 1.0,   // Exploration (Generation 0)
+        finalTemperature: 0.3,     // Exploitation (Final Generation)
       },
     },
   ],
   edges: [],
-  start_node: 'evolve-poem',
-  end_nodes: ['evolve-poem'],
+  startNode: 'evolve-poem',
+  endNodes: ['evolve-poem'],
 });
 ```
 
@@ -143,18 +143,18 @@ The evaluator's critique of the parent is also injected as `_evolution_parent_re
 
 ### Elitism
 
-`elite_count` (default `1`) carries the top N candidates of each generation forward **unchanged** — not re-generated, not re-scored. This guarantees the best-so-far can never be lost to a noisy generation, so `${nodeId}_fitness_history` is monotonic (it climbs or holds, never dips), and it saves the LLM calls those slots would have cost (each generation after the first issues `population_size - elite_count` candidate calls). Set `elite_count: 0` to breed every candidate fresh instead.
+`eliteCount` (default `1`) carries the top N candidates of each generation forward **unchanged** — not re-generated, not re-scored. This guarantees the best-so-far can never be lost to a noisy generation, so `${nodeId}_fitness_history` is monotonic (it climbs or holds, never dips), and it saves the LLM calls those slots would have cost (each generation after the first issues `populationSize - eliteCount` candidate calls). Set `eliteCount: 0` to breed every candidate fresh instead.
 
 ### Cost considerations
 
 Evolution executes many LLM calls. With a population size of 5 and max generations of 10, you trigger up to 50 candidate executions plus 50 evaluations — easily 100x the cost of a single-shot generation.
 
-Both candidate generation **and** evaluator scoring run in parallel, bounded by `max_concurrency` — a generation takes roughly one evaluation's wall-clock rather than scoring candidates one at a time.
+Both candidate generation **and** evaluator scoring run in parallel, bounded by `maxConcurrency` — a generation takes roughly one evaluation's wall-clock rather than scoring candidates one at a time.
 
 Two safeguards keep this manageable:
 
-- Set `error_strategy: 'best_effort'` so a single API failure within a generation doesn't kill the entire run.
-- Set a conservative `fitness_threshold` and `stagnation_generations` so the loop exits as soon as quality plateaus.
+- Set `errorStrategy: 'best_effort'` so a single API failure within a generation doesn't kill the entire run.
+- Set a conservative `fitnessThreshold` and `stagnationGenerations` so the loop exits as soon as quality plateaus.
 
 ### Outputs
 

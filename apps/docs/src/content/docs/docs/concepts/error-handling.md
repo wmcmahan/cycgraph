@@ -141,26 +141,26 @@ const graph = createGraph({
     {
       id: 'charge_payment',
       type: 'tool',
-      tool_id: 'stripe_charge',
-      read_keys: ['order'],
-      write_keys: ['payment_result'],
-      requires_compensation: true,
+      toolId: 'stripe_charge',
+      readKeys: ['order'],
+      writeKeys: ['payment_result'],
+      requiresCompensation: true,
     },
     {
       id: 'reserve_inventory',
       type: 'tool',
-      tool_id: 'inventory_reserve',
-      read_keys: ['order'],
-      write_keys: ['reservation'],
-      requires_compensation: true,
+      toolId: 'inventory_reserve',
+      readKeys: ['order'],
+      writeKeys: ['reservation'],
+      requiresCompensation: true,
     },
     // ... more nodes ...
   ],
   edges: [
     { source: 'charge_payment', target: 'reserve_inventory' },
   ],
-  start_node: 'charge_payment',
-  end_nodes: ['confirm_order'],
+  startNode: 'charge_payment',
+  endNodes: ['confirm_order'],
 });
 
 const runner = new GraphRunner(graph, state, {

@@ -60,7 +60,7 @@ This is the second structural difference. In cycgraph these are engine-enforced,
 
 ## What LangGraph does better today
 
-Worth being explicit about: LangGraph has years of production hardening, an enormous integration catalog through the LangChain ecosystem, first-party Python support, a managed deployment platform, and a community large enough that most questions are already answered on Stack Overflow. cycgraph is at `0.2.0` (first stable release) with 2,400+ tests and runnable examples for every pattern — solid foundations, small community. If ecosystem maturity is your top criterion, LangGraph is the safer pick today.
+Worth being explicit about: LangGraph has years of production hardening, an enormous integration catalog through the LangChain ecosystem, first-party Python support, a managed deployment platform, and a community large enough that most questions are already answered on Stack Overflow. cycgraph is at `0.6.0` (early releases) with 2,400+ tests and runnable examples for every pattern — solid foundations, small community. If ecosystem maturity is your top criterion, LangGraph is the safer pick today.
 
 ## Try the difference
 

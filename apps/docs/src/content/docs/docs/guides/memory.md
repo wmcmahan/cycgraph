@@ -109,28 +109,28 @@ Passing `tags` pushes the filter into the store rather than scanning facts clien
 :::
 
 :::caution[memoryRetriever is opt-in per node]
-The runner only calls `memoryRetriever` when an agent or supervisor node declares a `memory_query` directive. Without that, the retriever sits dormant and the option is silently a no-op. Add `memory_query` to every node that should receive retrieved memory:
+The runner only calls `memoryRetriever` when an agent or supervisor node declares a `memoryQuery` directive. Without that, the retriever sits dormant and the option is silently a no-op. Add `memoryQuery` to every node that should receive retrieved memory:
 
 ```typescript
 {
   id: 'researcher',
   type: 'agent',
-  agent_id: RESEARCHER_ID,
-  read_keys: ['goal'],
-  write_keys: ['notes'],
-  memory_query: {
+  agentId: RESEARCHER_ID,
+  readKeys: ['goal'],
+  writeKeys: ['notes'],
+  memoryQuery: {
     tags: ['lesson'],   // tag-only retrieval
-    max_facts: 10,
+    maxFacts: 10,
   },
 }
 ```
 
 Query shapes:
 
-- `memory_query: {}` — defaults `text` to `stateView.goal` (zero-config RAG).
-- `memory_query: { tags: [...] }` — tag-only filter; no goal fallback.
-- `memory_query: { entity_ids: [...] }` — knowledge-graph subgraph extraction.
-- `memory_query: { text: '...' }` — explicit semantic query.
+- `memoryQuery: {}` — defaults `text` to `stateView.goal` (zero-config RAG).
+- `memoryQuery: { tags: [...] }` — tag-only filter; no goal fallback.
+- `memoryQuery: { entityIds: [...] }` — knowledge-graph subgraph extraction.
+- `memoryQuery: { text: '...' }` — explicit semantic query.
 
 Voting and evolution nodes propagate their `memory_query` automatically to every voter / candidate sub-node.
 :::
@@ -185,26 +185,26 @@ const graph = createGraph({
     {
       id: 'researcher',
       type: 'agent',
-      agent_id: RESEARCHER_ID,
-      read_keys: ['goal'],
-      write_keys: ['research_notes'],
-      memory_query: { tags: ['lesson'], max_facts: 10 },
+      agentId: RESEARCHER_ID,
+      readKeys: ['goal'],
+      writeKeys: ['research_notes'],
+      memoryQuery: { tags: ['lesson'], maxFacts: 10 },
     },
     {
       id: 'reflect',
       type: 'reflection',
-      read_keys: ['research_notes'],
-      write_keys: ['research_notes_reflection'],
-      reflection_config: {
-        source_keys: ['research_notes'],
-        extractor: { type: 'rule_based', min_sentence_length: 25 },
+      readKeys: ['research_notes'],
+      writeKeys: ['research_notes_reflection'],
+      reflectionConfig: {
+        sourceKeys: ['research_notes'],
+        extractor: { type: 'rule_based', minSentenceLength: 25 },
         tags: ['lesson', 'graph:research-v1'],
       },
     },
   ],
   edges: [{ source: 'researcher', target: 'reflect' }],
-  start_node: 'researcher',
-  end_nodes: ['reflect'],
+  startNode: 'researcher',
+  endNodes: ['reflect'],
 });
 
 const runner = new GraphRunner(graph, state, { memoryRetriever, memoryWriter });
@@ -316,8 +316,12 @@ await ledger.recordOutcome({
 // Periodically (e.g. every N runs):
 const gate = await evaluateRetention(store, ledger, {
   min_trials: 3,
+  decision_rule: 'inference', // default — statistically-controlled Welch test ('margin' is the legacy point-estimate rule)
   promote_margin: 0.05,   // → tag rewritten candidate → verified
   evict_margin: 0.05,     // → invalidated_by: 'eval-gate:harmful'
+  promote_confidence: 0.9, // required P(lift > promote_margin) to promote (default 0.9)
+  evict_confidence: 0.9,   // required P(lift < −evict_margin) to evict (default 0.9)
+  noise_floor_sd: 0.1,     // set to your judge's per-run SD (default 0.1)
   max_baseline_runs: 40,  // undecided by then → 'eval-gate:no_lift'
 });
 ```

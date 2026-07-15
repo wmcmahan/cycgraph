@@ -19,15 +19,15 @@ flowchart TB
 1. A producer node writes a value to a memory key.
 2. The `verifier` node evaluates that key against its configured check.
 3. It writes a structured `VerificationResult` plus a flat `_passed` boolean to memory.
-4. **By default the verifier always succeeds** — downstream edges route on the `_passed` key (explicit-edge routing). Set `throw_on_fail: true` to instead throw on failure and trigger the node's `failure_policy` retry.
+4. **By default the verifier always succeeds** — downstream edges route on the `_passed` key (explicit-edge routing). Set `throwOnFail: true` to instead throw on failure and trigger the node's `failurePolicy` retry.
 
 ### Variants
 
-The `verifier_config` is a discriminated union on `type`:
+The `verifierConfig` is a discriminated union on `type`:
 
 | Variant | Check | Cost |
 |---------|-------|------|
-| `llm_judge` | An evaluator agent scores `target_key` (0–1); passes when the score ≥ `pass_threshold`. | One LLM call |
+| `llm_judge` | An evaluator agent scores `targetKey` (0–1); passes when the score ≥ `passThreshold`. | One LLM call |
 | `expression` | A [filtrex](https://github.com/m93a/filtrex) expression over `{ memory, goal }`; passes when truthy. | Free, deterministic |
 | `jsonpath` | Extracts a value via JSONPath, then applies a deterministic assertion (`gt`, `equals`, `matches`, `exists`, …). | Free, deterministic |
 
@@ -39,15 +39,15 @@ The `verifier_config` is a discriminated union on `type`:
 {
   id: 'check_quality',
   type: 'verifier',
-  read_keys: ['draft'],
-  write_keys: ['quality_verification', 'quality_verification_passed'],
-  verifier_config: {
+  readKeys: ['draft'],
+  writeKeys: ['quality_verification', 'quality_verification_passed'],
+  verifierConfig: {
     type: 'llm_judge',
-    target_key: 'draft',
-    evaluator_agent_id: CRITIC_ID,
-    pass_threshold: 0.8,
-    evaluation_criteria: 'Score for factual accuracy and clarity.',
-    result_key: 'quality_verification',
+    targetKey: 'draft',
+    evaluatorAgentId: CRITIC_ID,
+    passThreshold: 0.8,
+    evaluationCriteria: 'Score for factual accuracy and clarity.',
+    resultKey: 'quality_verification',
   },
 }
 ```
@@ -65,15 +65,15 @@ edges: [
 
 ```typescript
 // Expression: the draft must be substantial
-verifier_config: {
+verifierConfig: {
   type: 'expression',
   expression: 'length(memory.draft) > 280',
 }
 
 // JSONPath assertion: every line item must be positive
-verifier_config: {
+verifierConfig: {
   type: 'jsonpath',
-  target_key: 'extracted_invoice',
+  targetKey: 'extracted_invoice',
   path: '$.line_items[*].amount',
   assertion: { op: 'gt', value: 0 },
 }
@@ -81,10 +81,10 @@ verifier_config: {
 
 ## Outputs
 
-The node writes two keys, both of which must appear in `write_keys`:
+The node writes two keys, both of which must appear in `writeKeys`:
 
-- `{result_key}` (defaults to `{nodeId}_verification`) — the structured `VerificationResult`: `{ type, passed, reasoning, score?, threshold?, extracted_value?, evaluated_at }`.
-- `{result_key}_passed` — a flat boolean, for ergonomic edge conditions.
+- `{resultKey}` (defaults to `{nodeId}_verification`) — the structured `VerificationResult`: `{ type, passed, reasoning, score?, threshold?, extracted_value?, evaluated_at }`.
+- `{resultKey}_passed` — a flat boolean, for ergonomic edge conditions.
 
 ## When to use it
 
