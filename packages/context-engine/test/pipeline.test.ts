@@ -59,6 +59,26 @@ function createFailingStage(): CompressionStage {
   };
 }
 
+/** Stage that drops segments by id. */
+function createDroppingStage(idsToDrop: string[]): CompressionStage {
+  return {
+    name: 'dropping-stage',
+    execute(segments: PromptSegment[]) {
+      return { segments: segments.filter(s => !idsToDrop.includes(s.id)) };
+    },
+  };
+}
+
+/** Stage that appends a new segment. */
+function createAddingStage(segment: PromptSegment): CompressionStage {
+  return {
+    name: 'adding-stage',
+    execute(segments: PromptSegment[]) {
+      return { segments: [...segments, segment] };
+    },
+  };
+}
+
 // --- Tests ---
 
 describe('createPipeline', () => {
@@ -160,6 +180,64 @@ describe('createPipeline', () => {
     expect(result.sourceMap).toBeUndefined();
   });
 
+  it('attributes content changes to the stages that made them', () => {
+    const pipeline = createPipeline({
+      stages: [createWhitespaceRemover(), createUppercaser()],
+      debug: true,
+    });
+    const segments = [
+      makeSegment({ id: 'a', content: 'hello    world' }), // changed by both
+      makeSegment({ id: 'b', content: 'CLEAN' }),          // changed by neither
+    ];
+    const result = pipeline.compress({ segments, budget: makeBudget() });
+
+    const a = result.sourceMap!.find(e => e.segmentId === 'a')!;
+    const b = result.sourceMap!.find(e => e.segmentId === 'b')!;
+    expect(a.changedBy).toEqual(['whitespace-remover', 'uppercaser']);
+    expect(b.changedBy).toEqual([]);
+  });
+
+  it('marks removed segments in the source map and excludes them from output', () => {
+    const pipeline = createPipeline({
+      stages: [createDroppingStage(['b']), createUppercaser()],
+      debug: true,
+    });
+    const segments = [
+      makeSegment({ id: 'a', content: 'keep' }),
+      makeSegment({ id: 'b', content: 'drop me' }),
+    ];
+    const result = pipeline.compress({ segments, budget: makeBudget() });
+
+    // The dropped segment is NOT resurrected in the output
+    expect(result.segments.map(s => s.id)).toEqual(['a']);
+    expect(result.segments[0].content).toBe('KEEP');
+
+    const b = result.sourceMap!.find(e => e.segmentId === 'b')!;
+    expect(b.removed).toBe(true);
+    expect(b.removedBy).toBe('dropping-stage');
+    expect(b.original).toBe('drop me');
+    expect(b.compressed).toBe('');
+  });
+
+  it('marks stage-added segments in the source map and includes them in output', () => {
+    const added = makeSegment({ id: 'summary', content: 'a summary' });
+    const pipeline = createPipeline({
+      stages: [createAddingStage(added), createUppercaser()],
+      debug: true,
+    });
+    const segments = [makeSegment({ id: 'a', content: 'original' })];
+    const result = pipeline.compress({ segments, budget: makeBudget() });
+
+    expect(result.segments.map(s => s.id)).toEqual(['a', 'summary']);
+    expect(result.segments[1].content).toBe('A SUMMARY');
+
+    const entry = result.sourceMap!.find(e => e.segmentId === 'summary')!;
+    expect(entry.addedBy).toBe('adding-stage');
+    expect(entry.original).toBe('');
+    expect(entry.compressed).toBe('A SUMMARY');
+    expect(entry.changedBy).toEqual(['uppercaser']);
+  });
+
   it('excludes locked segments from debug source map', () => {
     const pipeline = createPipeline({
       stages: [createUppercaser()],
@@ -173,6 +251,46 @@ describe('createPipeline', () => {
 
     expect(result.sourceMap).toHaveLength(1);
     expect(result.sourceMap![0].segmentId).toBe('mem');
+  });
+
+  it('warns when the budget exceeds the model context window', () => {
+    const warnings: string[] = [];
+    const pipeline = createPipeline({
+      stages: [],
+      logger: { warn: m => warnings.push(m) },
+    });
+
+    // gemma profile: 8192-token context window
+    pipeline.compress({
+      segments: [makeSegment({ id: 'a', content: 'hello' })],
+      budget: makeBudget({ maxTokens: 100_000 }),
+      model: 'gemma-2-9b',
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('context window');
+    expect(warnings[0]).toContain('8192');
+  });
+
+  it('subtracts locked segment tokens from the budget stages receive', () => {
+    let seenMaxTokens: number | undefined;
+    const budgetSpy: CompressionStage = {
+      name: 'budget-spy',
+      execute(segments, context) {
+        seenMaxTokens = context.budget.maxTokens;
+        return { segments };
+      },
+    };
+
+    const pipeline = createPipeline({ stages: [budgetSpy] });
+    // DefaultTokenCounter with no model: 4 chars/token → 40 chars = 10 tokens
+    const segments = [
+      makeSegment({ id: 'sys', content: 'x'.repeat(40), locked: true }),
+      makeSegment({ id: 'mem', content: 'mutable' }),
+    ];
+    pipeline.compress({ segments, budget: makeBudget({ maxTokens: 100 }) });
+
+    expect(seenMaxTokens).toBe(90);
   });
 
   it('validates budget config with zod', () => {

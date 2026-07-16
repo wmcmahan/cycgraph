@@ -27,6 +27,21 @@ describe('serializeTabular', () => {
     expect(result).toBe('@name @meta\nAlice "x=1,y=2"');
   });
 
+  it('preserves deeply nested cell values as JSON instead of [object Object]', () => {
+    const result = serializeTabular([
+      { id: 1, meta: { tags: ['x', 'y'], deep: { z: 1 } } },
+    ]);
+    expect(result).not.toContain('[object Object]');
+    expect(result).toContain('{""z"":1}'); // JSON inside a quoted cell ("" = escaped quote)
+    expect(result).toContain('[""x"",""y""]');
+  });
+
+  it('preserves objects inside array cells as JSON', () => {
+    const result = serializeTabular([{ id: 1, items: [{ a: 1 }, { b: 2 }] }]);
+    expect(result).not.toContain('[object Object]');
+    expect(result).toContain('{""a"":1}');
+  });
+
   it('returns empty string for empty array', () => {
     expect(serializeTabular([])).toBe('');
   });
@@ -93,6 +108,12 @@ describe('serializeFlatObject', () => {
 
   it('returns empty string for empty object', () => {
     expect(serializeFlatObject({})).toBe('');
+  });
+
+  it('quotes string values containing newlines to preserve line structure', () => {
+    const result = serializeFlatObject({ name: 'Alice', bio: 'line one\nline two' });
+    expect(result.split('\n')).toHaveLength(2); // still one line per key
+    expect(result).toContain('bio: "line one\\nline two"');
   });
 
   it('produces fewer characters than JSON', () => {

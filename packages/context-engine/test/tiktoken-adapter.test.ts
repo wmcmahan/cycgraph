@@ -22,4 +22,46 @@ describe('createTiktokenCounter', () => {
     expect(typeof counter.countTokens).toBe('function');
     expect(counter.countTokens('one two three four five')).toBe(5);
   });
+
+  it('memoizes repeated texts (encode called once per unique text)', () => {
+    let calls = 0;
+    const counter = createTiktokenCounter(text => {
+      calls++;
+      return mockEncode(text);
+    });
+
+    expect(counter.countTokens('hello world')).toBe(2);
+    expect(counter.countTokens('hello world')).toBe(2);
+    expect(counter.countTokens('hello world')).toBe(2);
+    expect(calls).toBe(1);
+  });
+
+  it('evicts least-recently-used entries beyond cacheSize', () => {
+    let calls = 0;
+    const counter = createTiktokenCounter(
+      text => { calls++; return [text.length]; },
+      { cacheSize: 2 },
+    );
+
+    counter.countTokens('a');
+    counter.countTokens('b');
+    counter.countTokens('a'); // refresh 'a' — 'b' is now LRU
+    counter.countTokens('c'); // evicts 'b'
+    expect(calls).toBe(3);
+    counter.countTokens('a'); // still cached
+    expect(calls).toBe(3);
+    counter.countTokens('b'); // was evicted → re-encoded
+    expect(calls).toBe(4);
+  });
+
+  it('disables memoization with cacheSize 0', () => {
+    let calls = 0;
+    const counter = createTiktokenCounter(
+      () => { calls++; return [1]; },
+      { cacheSize: 0 },
+    );
+    counter.countTokens('x');
+    counter.countTokens('x');
+    expect(calls).toBe(2);
+  });
 });

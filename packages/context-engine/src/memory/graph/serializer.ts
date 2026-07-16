@@ -10,6 +10,7 @@
 
 import type { CompressionStage, PromptSegment, StageContext } from '../../pipeline/types.js';
 import type { GraphEntity, GraphRelationship } from '../hierarchy/types.js';
+import { needsQuoting, quoteValue } from '../../format/strategies/tabular.js';
 
 export interface GraphSerializerOptions {
   /** Force a specific serialization mode. */
@@ -68,6 +69,8 @@ export function serializeGraph(
 export function createGraphSerializerStage(options?: GraphSerializerOptions): CompressionStage {
   return {
     name: 'graph-serializer',
+    // Each segment is transformed independently — safe for per-segment caching.
+    scope: 'per-segment' as const,
     execute(segments: PromptSegment[], _context: StageContext) {
       return {
         segments: segments.map(seg => {
@@ -101,15 +104,26 @@ function detectMode(entities: GraphEntity[]): 'tabular' | 'adjacency' {
     byType.set(e.entity_type, list);
   }
 
-  // Tabular if at least one type group has uniform attribute keys
+  // Tabular only if EVERY multi-entity type group has uniform attribute keys —
+  // the tabular renderer reads each group's columns from its first entity, so
+  // a ragged group would silently drop attributes. Adjacency is lossless.
+  // Keys are fingerprinted via JSON so a key containing the join delimiter
+  // can't collide (same fix as format/detector.ts).
+  let anyUniform = false;
   for (const [, group] of byType) {
     if (group.length < 2) continue;
-    const refKeys = Object.keys(group[0].attributes).sort().join(',');
-    const uniform = group.every(e => Object.keys(e.attributes).sort().join(',') === refKeys);
-    if (uniform && refKeys.length > 0) return 'tabular';
+    const firstKeys = Object.keys(group[0].attributes).sort();
+    const fingerprint = JSON.stringify(firstKeys);
+    const uniform = group.every(
+      e => JSON.stringify(Object.keys(e.attributes).sort()) === fingerprint,
+    );
+    if (!uniform) return 'adjacency';
+    // A uniform group with zero attributes is only vacuously uniform — a
+    // @name-only table isn't evidence that tabular mode pays off.
+    if (firstKeys.length > 0) anyUniform = true;
   }
 
-  return 'adjacency';
+  return anyUniform ? 'tabular' : 'adjacency';
 }
 
 // ─── Tabular Serialization ────────────────────────────────────────
@@ -139,8 +153,8 @@ function serializeTabularGraph(
     lines.push(`@name ${attrKeys.map(k => `@${k}`).join(' ')}`);
 
     for (const e of limited) {
-      const values = attrKeys.map(k => formatValue(e.attributes[k]));
-      lines.push(`${e.name} ${values.join(' ')}`);
+      const values = attrKeys.map(k => formatCell(e.attributes[k]));
+      lines.push(`${formatCell(e.name)} ${values.join(' ')}`);
     }
     lines.push('');
   }
@@ -153,7 +167,7 @@ function serializeTabularGraph(
     for (const r of limited) {
       const source = nameMap.get(r.source_id) ?? r.source_id;
       const target = nameMap.get(r.target_id) ?? r.target_id;
-      lines.push(`${source} ${r.relation_type} ${target} ${r.weight}`);
+      lines.push(`${formatCell(source)} ${formatCell(r.relation_type)} ${formatCell(target)} ${r.weight}`);
     }
   }
 
@@ -213,4 +227,14 @@ function formatValue(v: unknown): string {
   if (v === null || v === undefined) return '_';
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   return String(v);
+}
+
+/**
+ * Format a value for a space-delimited table cell. Entity names and attribute
+ * values routinely contain spaces ("Alice Johnson") — without quoting, every
+ * column after them misaligns.
+ */
+function formatCell(v: unknown): string {
+  const raw = formatValue(v);
+  return needsQuoting(raw) ? quoteValue(raw) : raw;
 }

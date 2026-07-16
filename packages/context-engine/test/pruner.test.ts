@@ -113,6 +113,11 @@ describe('createPruningStage', () => {
     },
   };
 
+  it('declares cross-segment scope (budget shares + allContent span all segments)', () => {
+    const stage = createPruningStage(simpleScorer);
+    expect(stage.scope).toBe('cross-segment');
+  });
+
   it('reduces segment content when over budget', () => {
     const stage = createPruningStage(simpleScorer);
     const verbose = 'The very important research findings indicate that we should proceed';

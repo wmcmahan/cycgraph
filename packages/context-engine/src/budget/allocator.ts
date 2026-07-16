@@ -11,11 +11,28 @@
 
 import type { TokenCounter } from '../providers/types.js';
 import type { CompressionStage, PromptSegment, BudgetConfig, StageContext } from '../pipeline/types.js';
+import type { TokenScorer } from '../pruning/types.js';
 import { countSegmentTokens } from './counter.js';
+import { pruneByScore, isTokenPruneUnsafe } from '../pruning/pruner.js';
+import { createHeuristicScorer } from '../pruning/heuristic.js';
 
 export interface AllocatorStageOptions {
   /** Custom suffix appended to truncated segments (default: '\n... [truncated]'). */
   truncationSuffix?: string;
+  /**
+   * How over-budget PROSE segments are cut down (default: 'importance').
+   *
+   * - `'importance'`: score tokens (heuristic scorer) and keep the most
+   *   important ones in original order — entities, numbers, and negations
+   *   survive; leading filler doesn't. Position-blind.
+   * - `'tail'`: keep the prefix, cut the tail (legacy behavior).
+   *
+   * Structured segments (memory/tools roles, JSON content) always use tail
+   * truncation — token-level pruning would corrupt them.
+   */
+  truncation?: 'importance' | 'tail';
+  /** Scorer for importance-aware truncation (default: heuristic scorer). */
+  scorer?: TokenScorer;
 }
 
 export interface AllocationResult {
@@ -167,13 +184,27 @@ export function allocateBudget(
 }
 
 /**
- * Create a pipeline stage that enforces budget allocations by truncating
+ * Create a pipeline stage that enforces budget allocations by cutting
  * segments that exceed their allocation.
+ *
+ * Enforcement is importance-aware for prose by default: an over-budget
+ * segment keeps its most important tokens (entities, quantities, protected
+ * negations) rather than its earliest ones — position-based tail truncation
+ * would silently undo the upstream pruner's importance decisions. Structured
+ * segments always tail-truncate (token pruning corrupts them).
  */
 export function createAllocatorStage(options?: AllocatorStageOptions): CompressionStage {
   const truncationSuffix = options?.truncationSuffix ?? '\n... [truncated]';
+  const truncation = options?.truncation ?? 'importance';
+  // Lazily created: the scorer is only needed when a prose segment overflows.
+  let scorer: TokenScorer | undefined = options?.scorer;
+
   return {
     name: 'budget-allocator',
+    // Allocations are computed from ALL segments' priorities and sizes (with
+    // surplus redistribution) — running on a subset (incremental pipeline)
+    // would hand each fresh segment an inflated share of the budget.
+    scope: 'cross-segment' as const,
     execute(segments: PromptSegment[], context: StageContext) {
       const { allocations } = allocateBudget(
         segments,
@@ -189,14 +220,46 @@ export function createAllocatorStage(options?: AllocatorStageOptions): Compressi
         const currentTokens = context.tokenCounter.countTokens(seg.content, context.model);
         if (currentTokens <= budget) return seg;
 
-        // Truncate to fit budget
-        const truncated = truncateToTokens(seg.content, budget, context.tokenCounter, context.model, truncationSuffix);
-        return { ...seg, content: truncated };
+        if (truncation === 'tail' || isTokenPruneUnsafe(seg)) {
+          const truncated = truncateToTokens(seg.content, budget, context.tokenCounter, context.model, truncationSuffix);
+          return { ...seg, content: truncated };
+        }
+
+        scorer ??= createHeuristicScorer();
+        const condensed = condenseByImportance(
+          seg,
+          budget,
+          scorer,
+          context,
+          truncationSuffix,
+        );
+        return { ...seg, content: condensed };
       });
 
       return { segments: output };
     },
   };
+}
+
+/**
+ * Enforce a budget on a prose segment by keeping its most important tokens
+ * (in original order) instead of its earliest ones. The suffix marker is
+ * appended so reduced content stays visible, with its cost reserved.
+ */
+function condenseByImportance(
+  seg: PromptSegment,
+  maxTokens: number,
+  scorer: TokenScorer,
+  context: StageContext,
+  truncationSuffix: string,
+): string {
+  const suffixTokens = context.tokenCounter.countTokens(truncationSuffix, context.model);
+  const contentBudget = maxTokens - suffixTokens;
+  if (contentBudget <= 0) return '';
+
+  const scored = scorer.score(seg.content, { role: seg.role });
+  const pruned = pruneByScore(scored, contentBudget, context.tokenCounter, context.model);
+  return pruned + truncationSuffix;
 }
 
 /**

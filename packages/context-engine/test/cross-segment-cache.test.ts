@@ -26,7 +26,7 @@ function makeBudget(overrides?: Partial<BudgetConfig>): BudgetConfig {
 function createUppercaser(): CompressionStage {
   return {
     name: 'uppercaser',
-    // scope is undefined -> defaults to 'per-segment'
+    scope: 'per-segment',
     execute(segments: PromptSegment[]) {
       return {
         segments: segments.map(s => ({ ...s, content: s.content.toUpperCase() })),
@@ -39,6 +39,7 @@ function createUppercaser(): CompressionStage {
 function createPrefixer(prefix: string): CompressionStage {
   return {
     name: 'prefixer',
+    scope: 'per-segment',
     execute(segments: PromptSegment[]) {
       return {
         segments: segments.map(s => ({ ...s, content: `${prefix}${s.content}` })),
@@ -86,6 +87,7 @@ function createTrackedCrossStage(): CompressionStage & { callCount: number } {
 function createTrackedPerSegStage(): CompressionStage & { callCount: number; lastSegmentIds: string[] } {
   const stage = {
     name: 'tracked-per-seg',
+    scope: 'per-segment' as const,
     callCount: 0,
     lastSegmentIds: [] as string[],
     execute(segments: PromptSegment[]) {
@@ -237,10 +239,12 @@ describe('cross-segment cache awareness', () => {
     expect(turn3.freshSegmentCount).toBe(1);
   });
 
-  it('scope defaults to per-segment when omitted', () => {
+  it('scope defaults to cross-segment when omitted (safe: correct but uncached)', () => {
+    const executions: string[][] = [];
     const stage: CompressionStage = {
       name: 'no-scope',
       execute(segments) {
+        executions.push(segments.map(s => s.id));
         return {
           segments: segments.map(s => ({ ...s, content: `${s.content}!` })),
         };
@@ -249,11 +253,7 @@ describe('cross-segment cache awareness', () => {
 
     expect(stage.scope).toBeUndefined();
 
-    // It should behave as per-segment in the pipeline
-    const crossStage = createTrackedCrossStage();
-    const pipeline = createIncrementalPipeline({
-      stages: [stage, crossStage],
-    });
+    const pipeline = createIncrementalPipeline({ stages: [stage] });
 
     const segA = makeSegment({ id: 'a', content: 'hello' });
     const segB = makeSegment({ id: 'b', content: 'world' });
@@ -261,13 +261,12 @@ describe('cross-segment cache awareness', () => {
 
     const turn1 = pipeline.compress({ segments: [segA, segB], budget });
 
-    // Change only A
+    // Change only A — an undeclared-scope stage must re-run on ALL segments,
+    // never on just the fresh subset (per-segment caching is opt-in).
     const segAChanged = makeSegment({ id: 'a', content: 'changed' });
-    const turn2 = pipeline.compress({ segments: [segAChanged, segB], budget }, turn1.state);
+    pipeline.compress({ segments: [segAChanged, segB], budget }, turn1.state);
 
-    // B's per-segment output should be cached (the no-scope stage is per-segment)
-    expect(turn2.cachedSegmentCount).toBe(1);
-    expect(turn2.freshSegmentCount).toBe(1);
+    expect(executions).toEqual([['a', 'b'], ['a', 'b']]);
   });
 
   it('first turn (no state): runs everything, caches per-segment outputs', () => {

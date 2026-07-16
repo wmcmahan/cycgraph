@@ -9,6 +9,12 @@ function makeSegment(id: string, content: string, opts?: Partial<PromptSegment>)
   return { id, content, role: 'memory', priority: 1, locked: false, ...opts };
 }
 
+describe('createAllocatorStage scope', () => {
+  it('declares cross-segment scope (allocations span all segments)', () => {
+    expect(createAllocatorStage().scope).toBe('cross-segment');
+  });
+});
+
 describe('allocateBudget', () => {
   it('distributes budget evenly with equal priorities', () => {
     const segments = [
@@ -125,6 +131,61 @@ describe('allocateBudget', () => {
     const result = allocateBudget([], budget, counter);
     expect(result.allocations.size).toBe(0);
     expect(result.overflow).toHaveLength(0);
+  });
+});
+
+describe('createAllocatorStage importance-aware truncation', () => {
+  // Filler-heavy prose with critical facts at the END — position-based tail
+  // truncation kills exactly these; importance-based enforcement keeps them.
+  const proseWithTrailingFacts = [
+    'It should be noted that in order to reach any kind of decision here, the team essentially had to basically review the entire landscape of options in terms of the overall strategy and methodology and approach.',
+    'Additionally it is worth mentioning that at the end of the day the process was quite thorough and generally very comprehensive in most respects overall.',
+    'The approved vendor is MERIDIAN-7 with a contract value of $1,284,500.',
+    'Deployment must never bypass the compliance sandbox.',
+  ].join(' ');
+
+  function compressProse(options?: Parameters<typeof createAllocatorStage>[0]) {
+    const stage = createAllocatorStage(options);
+    const segments = [makeSegment('a', proseWithTrailingFacts, { role: 'history' })];
+    const context = {
+      tokenCounter: counter,
+      budget: { maxTokens: 40, outputReserve: 0 } as BudgetConfig,
+    };
+    return stage.execute(segments, context).segments[0].content;
+  }
+
+  it('keeps trailing entities, amounts, and negations over leading filler', () => {
+    const output = compressProse();
+    expect(output).toContain('MERIDIAN-7');
+    expect(output).toContain('$1,284,500');
+    expect(output).toContain('never');
+    // The budget was enforced — output is much smaller than input
+    expect(counter.countTokens(output)).toBeLessThan(counter.countTokens(proseWithTrailingFacts) / 2);
+  });
+
+  it('appends the truncation marker in importance mode', () => {
+    expect(compressProse()).toContain('[truncated]');
+  });
+
+  it('tail mode preserves the legacy prefix-keeping behavior', () => {
+    const output = compressProse({ truncation: 'tail' });
+    // Prefix survives; the trailing facts are gone
+    expect(output).toContain('It should be noted');
+    expect(output).not.toContain('MERIDIAN-7');
+  });
+
+  it('structured (memory-role) segments always tail-truncate', () => {
+    const stage = createAllocatorStage();
+    const structured = 'row1,value1\nrow2,value2\n' + 'rowN,valueN\n'.repeat(50);
+    const segments = [makeSegment('m', structured, { role: 'memory' })];
+    const context = {
+      tokenCounter: counter,
+      budget: { maxTokens: 20, outputReserve: 0 } as BudgetConfig,
+    };
+    const output = stage.execute(segments, context).segments[0].content;
+    // Clean prefix cut, not token-pruned soup
+    expect(output.startsWith('row1,value1')).toBe(true);
+    expect(output).toContain('[truncated]');
   });
 });
 

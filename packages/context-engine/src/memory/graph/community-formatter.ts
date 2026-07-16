@@ -67,6 +67,8 @@ export function formatCommunities(
 export function createCommunityFormatterStage(options?: CommunityFormatOptions): CompressionStage {
   return {
     name: 'community-formatter',
+    // Each segment is transformed independently — safe for per-segment caching.
+    scope: 'per-segment' as const,
     execute(segments: PromptSegment[], _context: StageContext) {
       return {
         segments: segments.map(seg => {

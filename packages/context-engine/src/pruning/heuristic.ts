@@ -127,6 +127,7 @@ const ENTITY_PATTERNS = [
   /^[a-z]+[A-Z]/, // camelCase
   /^[a-z]+_[a-z]+/, // snake_case
   /^[A-Z]{2,}$/, // ACRONYMS
+  /^[A-Z][A-Z0-9-]+$/, // Uppercase identifiers (MERIDIAN-7, SOC-2, GPT-4)
   /^@\w+/, // @handles or @headers
   /^\$[\d.,]+/, // Dollar amounts
 ];

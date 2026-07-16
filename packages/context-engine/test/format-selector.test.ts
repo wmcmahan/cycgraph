@@ -32,6 +32,27 @@ describe('selectFormat', () => {
     expect(result.useCompactJson).toBe(true);
     expect(result.dataShape).toBe('json');
   });
+
+  it('distinguishes auto from nested-only in dataShape', () => {
+    expect(selectFormat('claude-sonnet-4-6').dataShape).toBe('auto');
+    expect(selectFormat('unknown-model').dataShape).toBe('auto');
+  });
+
+  it('resolves customProfiles before built-ins', () => {
+    const result = selectFormat('my-local-model', {
+      customProfiles: {
+        'my-local': {
+          family: 'my-local',
+          supportsTabular: false,
+          prefersJson: false,
+          maxContextTokens: 8192,
+          supportsCaching: false,
+        },
+      },
+    });
+    expect(result.dataShape).toBe('nested');
+    expect(result.useCompactJson).toBe(false);
+  });
 });
 
 describe('createFormatSelectorStage', () => {
@@ -99,6 +120,35 @@ describe('createFormatSelectorStage', () => {
     const result = stage.execute(segments, context);
     // Should pass through unchanged — contentType tag signals specialized formatter
     expect(result.segments[0].content).toBe(json);
+  });
+
+  it('forces nested format when a custom profile disallows tabular', () => {
+    const stage = createFormatSelectorStage({
+      customProfiles: {
+        'my-local': {
+          family: 'my-local',
+          supportsTabular: false,
+          prefersJson: false,
+          maxContextTokens: 8192,
+          supportsCaching: false,
+        },
+      },
+    });
+    // Tabular-shaped data — auto-detect would emit an @-header table
+    const json = JSON.stringify([
+      { name: 'Alice', score: 92 },
+      { name: 'Bob', score: 87 },
+    ]);
+    const segments = [makeSegment('a', json)];
+    const context = {
+      tokenCounter: counter,
+      budget: { maxTokens: 4096, outputReserve: 0 } as BudgetConfig,
+      model: 'my-local-model',
+    };
+
+    const result = stage.execute(segments, context);
+    expect(result.segments[0].content).not.toContain('@name');
+    expect(result.segments[0].content).toContain('- name: Alice');
   });
 
   it('has name format-selector', () => {

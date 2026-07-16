@@ -15,17 +15,34 @@ import { serialize } from '../format/serializer.js';
 import { resolveModelProfile, type ModelProfile } from './model-profiles.js';
 
 export interface FormatSelectorOptions {
-  /** Custom model profiles (merged with defaults). */
+  /** Custom model profiles, matched by prefix before the built-ins. */
   customProfiles?: Record<string, ModelProfile>;
   /** Override: force JSON output regardless of model. */
   forceJson?: boolean;
 }
 
 export interface FormatSelection {
-  /** Data shape to use for general data. */
-  dataShape: DataShape | 'json';
+  /**
+   * Format decision: `'json'` = compact JSON, `'nested'` = force the nested
+   * strategy (model can't read tabular), `'auto'` = detect shape per value.
+   */
+  dataShape: DataShape | 'json' | 'auto';
   /** Whether to use compact JSON (no indent) instead of custom formats. */
   useCompactJson: boolean;
+}
+
+/** Resolve a profile, checking custom profiles (by prefix) before built-ins. */
+function resolveProfile(
+  model?: string,
+  customProfiles?: Record<string, ModelProfile>,
+): ModelProfile | undefined {
+  if (model && customProfiles) {
+    const lower = model.toLowerCase();
+    for (const [prefix, profile] of Object.entries(customProfiles)) {
+      if (lower.startsWith(prefix.toLowerCase())) return profile;
+    }
+  }
+  return resolveModelProfile(model);
 }
 
 /**
@@ -33,18 +50,18 @@ export interface FormatSelection {
  *
  * - Models with `prefersJson: true` → compact JSON
  * - Models without tabular support → nested only
- * - Default → auto-detect shape (Phase 1 behavior)
+ * - Default / unknown model → auto-detect shape
  */
 export function selectFormat(model?: string, options?: FormatSelectorOptions): FormatSelection {
   if (options?.forceJson) {
     return { dataShape: 'json', useCompactJson: true };
   }
 
-  const profile = resolveModelProfile(model);
+  const profile = resolveProfile(model, options?.customProfiles);
 
   if (!profile) {
     // No profile — fall back to auto-detect
-    return { dataShape: 'nested', useCompactJson: false };
+    return { dataShape: 'auto', useCompactJson: false };
   }
 
   if (profile.prefersJson) {
@@ -56,7 +73,7 @@ export function selectFormat(model?: string, options?: FormatSelectorOptions): F
   }
 
   // Full support — use auto-detect
-  return { dataShape: 'nested', useCompactJson: false };
+  return { dataShape: 'auto', useCompactJson: false };
 }
 
 /**
@@ -70,6 +87,8 @@ export function selectFormat(model?: string, options?: FormatSelectorOptions): F
 export function createFormatSelectorStage(options?: FormatSelectorOptions): CompressionStage {
   return {
     name: 'format-selector',
+    // Each segment is transformed independently — safe for per-segment caching.
+    scope: 'per-segment' as const,
     execute(segments: PromptSegment[], context: StageContext) {
       const selection = selectFormat(context.model, options);
 
@@ -89,7 +108,12 @@ export function createFormatSelectorStage(options?: FormatSelectorOptions): Comp
               return { ...seg, content: JSON.stringify(parsed) };
             }
 
-            // Use serialize with auto-detection or forced shape
+            if (selection.dataShape === 'nested') {
+              // Model can't read tabular — force the nested strategy
+              return { ...seg, content: serialize(parsed, { forceShape: 'nested' }) };
+            }
+
+            // Auto-detect shape
             const shape = detectShape(parsed);
             return { ...seg, content: serialize(parsed, { forceShape: shape }) };
           } catch {

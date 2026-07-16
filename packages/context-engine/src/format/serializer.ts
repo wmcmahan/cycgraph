@@ -55,6 +55,8 @@ export function serialize(data: unknown, options?: FormatOptions): string {
 export function createFormatStage(options?: FormatOptions): CompressionStage {
   return {
     name: 'format-compression',
+    // Each segment is transformed independently — safe for per-segment caching.
+    scope: 'per-segment' as const,
     execute(segments: PromptSegment[], _context: StageContext) {
       return {
         segments: segments.map(seg => {

@@ -11,21 +11,23 @@ The engine is a standalone package with zero orchestrator dependencies. It works
 
 ```
 Input Segments (system, memory, tools, history, user)
-  |  Cache-Aware Prefix Locking
+  |  Cache-Aware Prefix Locking            (pre-processor)
+  |  -- per-segment stages --
   |  Memory Hierarchy Formatting
   |  Model-Aware Format Selection
   |  Format Compression (JSON -> compact)
+  |  CoT Distillation (reasoning trace eviction)
+  |  -- cross-segment stages --
   |  Exact Deduplication (hash-based)
   |  Fuzzy Deduplication (trigram similarity)
   |  Semantic Deduplication (embedding-based)
-  |  CoT Distillation (reasoning trace eviction)
   |  Self-Information Pruning (surprisal-based)
   |  Heuristic Pruning (rule-based)
   |  Budget Allocation (priority-weighted)
 Output Segments (compressed, within token budget)
 ```
 
-Each stage is independent and composable. Use the full pipeline, a single stage, or the optimizer presets.
+Each stage is independent and composable. Use the full pipeline, a single stage, or the optimizer presets. Stages are grouped by **scope**: per-segment stages transform each segment independently; cross-segment stages (dedup, pruning, allocation) depend on all segments at once. Keep per-segment stages first — the incremental pipeline executes the two groups as separate phases, and matching that order keeps batch and incremental output identical.
 
 ## Segments
 
@@ -39,6 +41,8 @@ All content enters the pipeline as **segments** — typed chunks with a role, pr
 | `priority` | `number` | Higher priority segments get more of the token budget (default: 1) |
 | `locked` | `boolean` | Locked segments bypass all compression stages (default: false) |
 
+Locked segments still occupy the context window: the pipeline charges their tokens against `budget.maxTokens` before stages run, so mutable segments are sized to what actually remains. When a `model` is supplied and its profile is known, the pipeline also warns (via the logger) if the budget exceeds the model's context window.
+
 ## Pipeline presets
 
 The optimizer provides three presets that compose the right stages automatically:
@@ -46,8 +50,10 @@ The optimizer provides three presets that compose the right stages automatically
 | Preset | Stages | Typical Latency | Reduction |
 |--------|--------|----------------|-----------|
 | `fast` | Format + exact dedup + allocator | 2-5ms | 15-25% |
-| `balanced` | Fast + fuzzy dedup + heuristic + CoT distillation | 10-20ms | 30-45% |
+| `balanced` | Fast + CoT distillation + fuzzy dedup + heuristic pruning | 10-20ms | 30-45% |
 | `maximum` | Balanced + hierarchy/graph formatters + format selector | 50-200ms | 40-60% |
+
+In `maximum` with a `model` supplied, the format selector replaces the generic format stage — it serializes JSON per the model's capability profile (including compact JSON for small models), so the generic stage would only rewrite its output. The returned `stages` array exposes the composed stage objects for reuse with `createIncrementalPipeline`.
 
 ```typescript
 import { createOptimizedPipeline } from '@cycgraph/context-engine';
@@ -69,7 +75,7 @@ console.log(`${result.metrics.reductionPercent.toFixed(1)}% reduction`);
 
 ## Incremental pipeline
 
-For multi-turn workflows, the incremental pipeline caches compressed output for unchanged segments between turns. Only segments whose content hash has changed are re-compressed.
+For multi-turn workflows, the incremental pipeline caches compressed output for unchanged segments between turns. Only segments whose hash has changed are re-compressed. The hash covers every cache-relevant field — `content`, `priority`, `locked`, and `metadata` — and the whole cache is invalidated if the budget or model changes between turns.
 
 ```typescript
 import { createIncrementalPipeline, createFormatStage } from '@cycgraph/context-engine';
@@ -91,7 +97,13 @@ const turn2 = pipeline.compress(
 console.log(`Cached: ${turn2.cachedSegmentCount}, Fresh: ${turn2.freshSegmentCount}`);
 ```
 
-Stages with `scope: 'cross-segment'` (like fuzzy dedup) are re-run only when per-segment stage **outputs** actually change — not just when inputs change. The pipeline tracks per-segment output hashes between turns: if a segment's input changes but its compressed output is identical to the previous turn, cross-segment stages are skipped entirely. Per-segment stages (the default) cache independently.
+Cross-segment stages (like fuzzy dedup) are re-run only when per-segment stage **outputs** actually change — not just when inputs change. The pipeline tracks per-segment output hashes between turns: if a segment's input changes but its compressed output is identical to the previous turn, cross-segment stages are skipped entirely.
+
+Scope is a declaration each stage makes:
+
+- **Undeclared scope defaults to `'cross-segment'`** — the safe assumption. The stage always sees all segments; it just doesn't get per-segment caching.
+- Declare `scope: 'per-segment'` only when each segment's output depends solely on that segment's own content. This opts the stage into independent caching. A stage with any state spanning segments (a `seen` set, budget shares, corpus statistics) must not declare it.
+- Stages run in two phases: all per-segment stages, then all cross-segment stages. A config that interleaves them (a per-segment stage after a cross-segment one) executes in a different order than the batch pipeline would — the incremental pipeline logs a warning at construction when it detects this. Order per-segment stages first.
 
 ## Scoring and pruning
 
@@ -171,11 +183,24 @@ This stage operates on segments with `role: 'memory'` containing JSON memory pay
 
 The budget allocator distributes tokens across segments by priority weight. Locked segments get their exact token count; remaining budget is split proportionally among mutable segments.
 
+Enforcement is **importance-aware for prose**: an over-budget segment keeps its most important tokens (entities, quantities, protected negations) in original order rather than its earliest ones — position-based tail truncation would delete trailing facts while keeping leading filler. Structured segments (memory/tools roles, JSON) always tail-truncate cleanly instead, since token pruning would corrupt them. Pass `truncation: 'tail'` to `createAllocatorStage` for the legacy prefix-keeping behavior, or `scorer` to swap the importance model.
+
 ```typescript
 import { allocateBudget, DefaultTokenCounter } from '@cycgraph/context-engine';
 
 const counter = new DefaultTokenCounter();
 const allocations = allocateBudget(segments, { maxTokens: 4096, outputReserve: 1024 }, counter);
+```
+
+### Cache-aware locking
+
+`applyCachePolicy` marks system/tools segments as `locked` before compression so provider prompt caches see byte-identical prefixes. Pass the target `model` and the policy consults its profile: providers without a prompt cache (`supportsCaching: false`) get no locks added — locking trades compression for cache stability, which buys nothing without a cache. Pre-existing locks are always preserved.
+
+```typescript
+import { applyCachePolicy } from '@cycgraph/context-engine';
+
+const locked = applyCachePolicy(segments, { model: 'claude-sonnet-4-6' });
+const result = pipeline.compress({ segments: locked, budget });
 ```
 
 ### Cache diagnostics
@@ -188,6 +213,17 @@ import { diagnoseCacheStability, computeSegmentHashMap } from '@cycgraph/context
 const previousHashes = computeSegmentHashMap(lastTurnSegments);
 const diagnostics = diagnoseCacheStability(currentSegments, previousHashes);
 // diagnostics.hitRate, diagnostics.unstableSegments, diagnostics.recommendations
+```
+
+Two cross-turn measures are available. `measureCacheHitRate` is set-based — the fraction of locked content that is byte-identical, ignoring position (an upper bound). `measurePrefixStability` is prefix-faithful: a change or reorder at position *k* counts everything after *k* as invalidated, matching how provider prompt caches actually behave.
+
+```typescript
+import { computePrefixHashList, measurePrefixStability } from '@cycgraph/context-engine';
+
+const stability = measurePrefixStability(
+  computePrefixHashList(currentSegments),
+  computePrefixHashList(lastTurnSegments),
+);
 ```
 
 ### Circuit breaker
@@ -222,6 +258,27 @@ const pipeline = createPipeline({
 ```
 
 Stage errors and timeout warnings are routed through the logger instead of being silently swallowed.
+
+The logger is also threaded into every stage via `StageContext.logger`, so stage-level diagnostics (e.g. dedup item caps) land in the same place. Must-see warnings fall back to `console.warn` when no logger is configured.
+
+### Debug source maps
+
+With `debug: true`, the result includes per-segment provenance:
+
+```typescript
+const pipeline = createPipeline({ stages: [...], debug: true });
+const result = pipeline.compress({ segments, budget });
+
+for (const entry of result.sourceMap ?? []) {
+  // entry.original / entry.compressed — content before and after
+  // entry.changedBy — stages that modified this segment, in order
+  // entry.removed / entry.removedBy — set if a stage dropped the segment
+  // entry.addedBy — set if a stage introduced the segment
+  // entry.fromCache — incremental pipeline: provenance computed on an earlier turn
+}
+```
+
+Provenance is segment-level (whole-content snapshots with stage attribution), not token-level. The incremental pipeline threads it across cached turns, so a fully-cached turn still reports how its output was derived.
 
 ### Pipeline timeout
 
@@ -277,7 +334,7 @@ The engine uses dependency injection for optional capabilities:
 
 | Interface | Purpose | Built-in |
 |-----------|---------|----------|
-| `TokenCounter` | Count tokens per model | `DefaultTokenCounter` (character ratio estimates) |
+| `TokenCounter` | Count tokens per model | `DefaultTokenCounter` (character ratio estimates); `createTiktokenCounter(encode)` wraps a BPE encoder with LRU memoization for exact counts |
 | `CompressionProvider` | ML-based token importance | Implement against your inference server (Ollama, vLLM, etc.) |
 | `EmbeddingProvider` | Vector embeddings for semantic dedup | (consumer-provided) |
 | `SummarizationProvider` | LLM-based summarization | (consumer-provided) |

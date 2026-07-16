@@ -73,7 +73,10 @@ export class DefaultTokenCounter implements TokenCounter {
 
 /**
  * Compression provider that returns uniform importance scores.
- * Effectively a no-op — all tokens scored equally, so no pruning occurs.
+ * NOT a no-op under budget pressure: with uniform scores no token outranks
+ * another, so segments already within budget pass through unchanged, but
+ * over-budget segments degrade to simple truncation (the pruner's stable
+ * sort keeps earlier tokens on ties).
  */
 export class NoopCompressionProvider implements CompressionProvider {
   async scoreTokenImportance(tokens: string[]): Promise<number[]> {

@@ -62,4 +62,10 @@ describe('detectShape', () => {
   it('detects array with null elements as mixed', () => {
     expect(detectShape([null, { name: 'Alice' }])).toBe('mixed');
   });
+
+  it('does not collide keys containing the old join delimiter', () => {
+    // A single key "a,b" must not fingerprint-match the two keys "a" and "b" —
+    // a false tabular match drops row values under the missing column.
+    expect(detectShape([{ 'a,b': 1 }, { a: 2, b: 3 }])).toBe('mixed');
+  });
 });

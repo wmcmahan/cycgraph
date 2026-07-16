@@ -43,6 +43,20 @@ function makeNoopStage(): CompressionStage {
 }
 
 describe('createCircuitBreaker', () => {
+  it('propagates the wrapped stage scope', () => {
+    const tracker = createLatencyTracker();
+    const crossStage: CompressionStage = {
+      name: 'cross',
+      scope: 'cross-segment',
+      execute: segments => ({ segments }),
+    };
+
+    // Losing scope would make the incremental pipeline run a wrapped
+    // cross-segment stage on the fresh subset only.
+    expect(createCircuitBreaker(crossStage, tracker).scope).toBe('cross-segment');
+    expect(createCircuitBreaker(makeNoopStage(), tracker).scope).toBeUndefined();
+  });
+
   it('executes inner stage during warmup period', () => {
     const tracker = createLatencyTracker();
     const inner = makeCompressingStage();

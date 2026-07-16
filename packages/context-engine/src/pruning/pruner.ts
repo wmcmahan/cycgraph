@@ -99,8 +99,11 @@ function looksStructured(content: string): boolean {
  * structured content. Gates on role first (format-independent — survives the
  * format stage rewriting JSON into a compact non-JSON shape), with a JSON
  * content sniff as a backstop for structured data in an unexpected role.
+ *
+ * Shared with the budget allocator, which uses it to choose between
+ * importance-aware pruning (prose) and tail truncation (structured).
  */
-function isTokenPruneUnsafe(seg: PromptSegment): boolean {
+export function isTokenPruneUnsafe(seg: PromptSegment): boolean {
   return STRUCTURED_ROLES.has(seg.role) || looksStructured(seg.content);
 }
 
@@ -115,6 +118,11 @@ function isTokenPruneUnsafe(seg: PromptSegment): boolean {
 export function createPruningStage(scorer: TokenScorer): CompressionStage {
   return {
     name: 'score-pruning',
+    // Budget shares are computed from ALL segments' token counts, and scorers
+    // receive `allContent` for cross-segment frequency/corpus analysis.
+    // Running on a subset (incremental pipeline) would hand each fresh segment
+    // an inflated budget share and skew scores vs the batch pipeline.
+    scope: 'cross-segment' as const,
     execute(segments: PromptSegment[], context: StageContext) {
       const totalBudget = context.budget.maxTokens - (context.budget.outputReserve ?? 0);
       const allContent = segments.map(s => s.content);

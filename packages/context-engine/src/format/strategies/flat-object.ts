@@ -28,5 +28,10 @@ export function serializeFlatObject(data: Record<string, unknown>): string {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return '_';
   if (value instanceof Date) return value.toISOString();
+  // Only reachable via forceShape (auto-detection guarantees primitives):
+  // preserve structure as JSON rather than degrading to '[object Object]'.
+  if (typeof value === 'object') return JSON.stringify(value);
+  // A raw newline would break the line-per-key structure — quote it away.
+  if (typeof value === 'string' && value.includes('\n')) return JSON.stringify(value);
   return String(value);
 }

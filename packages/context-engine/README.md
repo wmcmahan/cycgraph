@@ -29,7 +29,7 @@ npm install @cycgraph/context-engine
 - **Composable stages** — mix and match: format compression, exact, fuzzy, and semantic dedup, CoT distillation, heuristic pruning, self-information pruning, and budget allocation. Use the bundled **fast**, **balanced**, or **maximum** presets or build your own pipeline.
 - **No LLM call required at the base tier** — default tier is pure TypeScript. Higher tiers add a token counter, an embedding provider, or a small local model for additional accuracy.
 - **Model-aware format routing** — checks the target model's capability profile and picks a representation that fits. Custom profiles can be merged in.
-- **Cache-aware prefix locking** — stabilises the static prompt prefix so provider-side prompt caches get consistent cache hits across turns.
+- **Cache-aware prefix locking** — stabilises the static prompt prefix so provider-side prompt caches get consistent cache hits across turns. Pass a `model` and locking is skipped for providers without a prompt cache.
 - **Streaming-friendly** — an incremental pipeline supports turn-by-turn compression for long sessions without re-running the whole pipeline each turn.
 - **Bring your own LLM stack** — the package doesn't import any LLM SDK. Plug into Vercel AI SDK, LangChain.js, the OpenAI / Anthropic SDKs directly, or raw fetch.
 
@@ -143,6 +143,10 @@ const pipeline = createPipeline({
 const result = pipeline.compress({ segments, budget });
 ```
 
+For custom stages, declare a scope of `per-segment` only if each segment's output depends solely on that segment's own content. Undeclared scope is treated as `cross-segment`, which is always correct, but it opts the stage out of per-segment caching in the incremental pipeline.
+
+Order per-segment stages before cross-segment ones. The incremental pipeline executes them in two phases, per-segment first, then cross-segment; keeping your config in that order makes batch and incremental output identical.
+
 ## Capability Tiers
 
 The pipeline runs at the tier you supply. Higher tiers add capabilities without changing the API.
@@ -159,17 +163,24 @@ Memory payloads (facts, entities, themes from a knowledge graph) often dominate 
 
 | Input shape | Formatter | Output style |
 |---|---|---|
-| Hierarchical memory (xMemory) | `formatHierarchy` | `Theme: X / Facts: ... / Entities: ...` indented block |
-| Knowledge graph (entities + edges) | `serializeGraph` | Markdown adjacency table |
-| Community summaries (GraphRAG) | `formatCommunities` | Theme rollups with delta-encoded membership |
+| Hierarchical memory (xMemory) | `formatHierarchy` | Themes with grouped facts (validity dates), episode summaries |
+| Knowledge graph (entities + edges) | `serializeGraph` | Per-type tables (uniform attributes) or lossless adjacency list |
+| Community summaries (GraphRAG) | `formatCommunities` | Weight-sorted community rollups with truncated summaries |
 
-A `selectFormat()` helper picks among these based on the target model's capability profile (`supportsTabular`, `supportsNested`, `prefersJson`). Built-in profiles cover common model families; custom profiles can be merged in.
+A `selectFormat()` helper picks the representation from the target model's capability profile (`supportsTabular`, `prefersJson`): capable models get compact tabular/nested formats, small models that parse JSON more reliably get compact JSON. Built-in profiles cover common model families; pass `customProfiles` to add or override them.
 
 ## Observability
 
-Every compression call returns metrics: per-stage `tokensIn` / `tokensOut` / `durationMs`, total reduction percent, format selection decisions, cache stability diagnostics. Wire to Prometheus or your tracing of choice.
+Every compression call returns metrics: per-stage `tokensIn`, `tokensOut`, `durationMs`, total reduction percent, format selection decisions, cache stability diagnostics. Wire to Prometheus or your tracing of choice.
+
+Debug mode results also carry a **source map**: per-segment provenance (`original` -> `compressed`, which stages changed each segment in order, and which stage removed or introduced one). The incremental pipeline threads provenance across cached turns.
 
 A `LatencyTracker` + `CircuitBreaker` pair lets you skip slow stages under load — graceful degradation when a downstream embedding service is flaky.
+
+Cache stability comes in two measures:
+
+- `measureCacheHitRate` - set-based upper bound. Identical items are considered equal.
+- `measurePrefixStability` - prefix-faithful — a change or reorder at position k invalidates everything after it, matching how provider prompt caches actually behave.
 
 ## Contributing
 

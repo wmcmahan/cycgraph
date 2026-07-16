@@ -11,7 +11,8 @@
 
 import type { EmbeddingProvider } from '../../providers/types.js';
 import type { CompressionStage, PromptSegment, StageContext } from '../../pipeline/types.js';
-import { fnv1a } from '../dedup/exact.js';
+import { fnv1a, isStructuredContent } from '../dedup/exact.js';
+import { makeUnionFind } from './union-find.js';
 
 export interface SemanticDedupOptions {
   /** Cosine similarity threshold for duplicate detection (default 0.90). */
@@ -40,6 +41,10 @@ export async function precomputeEmbeddings(
   const textSet = new Set<string>();
 
   for (const seg of segments) {
+    // Structured segments (JSON / CSV) are never semantically deduped — don't
+    // pay to embed their lines.
+    if (isStructuredContent(seg.content)) continue;
+
     const paragraphs = seg.content.includes('\n\n')
       ? seg.content.split('\n\n')
       : seg.content.split('\n');
@@ -63,32 +68,6 @@ export async function precomputeEmbeddings(
   return map;
 }
 
-// --- Union-Find for order-independent clustering ---
-
-function makeUnionFind(n: number) {
-  const parent = Array.from({ length: n }, (_, i) => i);
-  const rank = new Array<number>(n).fill(0);
-
-  function find(x: number): number {
-    while (parent[x] !== x) {
-      parent[x] = parent[parent[x]]; // path compression
-      x = parent[x];
-    }
-    return x;
-  }
-
-  function union(a: number, b: number): void {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra === rb) return;
-    if (rank[ra] < rank[rb]) { parent[ra] = rb; }
-    else if (rank[ra] > rank[rb]) { parent[rb] = ra; }
-    else { parent[rb] = ra; rank[ra]++; }
-  }
-
-  return { find, union };
-}
-
 /**
  * Create a pipeline stage that deduplicates paragraphs by semantic similarity.
  *
@@ -110,20 +89,25 @@ export function createSemanticDedupStage(options: SemanticDedupOptions): Compres
     // note in exact-dedup. Without this the incremental pipeline would only
     // dedup within the fresh subset.
     scope: 'cross-segment' as const,
-    execute(segments: PromptSegment[], _context: StageContext) {
+    execute(segments: PromptSegment[], context: StageContext) {
       if (!precomputed || precomputed.size === 0) {
         // No pre-computed embeddings — pass through (graceful degradation)
         return { segments };
       }
 
-      // Collect all paragraphs across segments
+      // Collect all paragraphs across segments. Structured segments (JSON /
+      // CSV) are excluded from the dedup pool entirely — two structurally
+      // similar records can clear the cosine threshold, and dropping one
+      // corrupts the data — and passed through unchanged during reassembly.
       const allParagraphs: { segIdx: number; text: string }[] = [];
-      const segmentMeta: { hasDoubleLine: boolean }[] = [];
+      const segmentMeta: { hasDoubleLine: boolean; structured: boolean }[] = [];
 
       for (let i = 0; i < segments.length; i++) {
         const seg = segments[i];
+        const structured = isStructuredContent(seg.content);
         const hasDoubleLine = seg.content.includes('\n\n');
-        segmentMeta.push({ hasDoubleLine });
+        segmentMeta.push({ hasDoubleLine, structured });
+        if (structured) continue;
         const paragraphs = hasDoubleLine ? seg.content.split('\n\n') : seg.content.split('\n');
         for (const para of paragraphs) {
           allParagraphs.push({ segIdx: i, text: para });
@@ -133,7 +117,10 @@ export function createSemanticDedupStage(options: SemanticDedupOptions): Compres
       // Build vectors for eligible paragraphs
       const maxItems = options.maxItems ?? 2000;
       if (allParagraphs.length > maxItems) {
-        console.warn(`context-engine: semantic dedup capped at ${maxItems} items (${allParagraphs.length} provided)`);
+        // A configured logger takes the warning; otherwise fall back to
+        // console so the cap is never silent.
+        const warn = context.logger?.warn?.bind(context.logger) ?? console.warn;
+        warn(`context-engine: semantic dedup capped at ${maxItems} items (${allParagraphs.length} provided)`);
       }
       const compareLimit = Math.min(allParagraphs.length, maxItems);
 
@@ -217,6 +204,8 @@ export function createSemanticDedupStage(options: SemanticDedupOptions): Compres
       }
 
       const output = segments.map((seg, i) => {
+        // Structured segments were never added to the pool — return them as-is.
+        if (segmentMeta[i].structured) return seg;
         const kept = keptBySegment.get(i) ?? [];
         const separator = segmentMeta[i].hasDoubleLine ? '\n\n' : '\n';
         return { ...seg, content: kept.join(separator) };
