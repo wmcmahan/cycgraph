@@ -26,12 +26,32 @@ describe('createOptimizedPipeline', () => {
       expect(preset).toBe('balanced');
       expect(stageNames).toEqual([
         'format-compression',
+        'cot-distillation',
         'exact-dedup',
         'fuzzy-dedup',
-        'cot-distillation',
         'heuristic-pruning',
         'budget-allocator',
       ]);
+    });
+
+    it('orders all per-segment stages before cross-segment stages in every preset', () => {
+      // Interleaved scopes make batch and incremental pipelines diverge
+      // (incremental partitions by scope) — presets must never interleave.
+      for (const preset of ['fast', 'balanced', 'maximum'] as const) {
+        const { stages } = createOptimizedPipeline({ preset, model: 'claude-sonnet-4' });
+        let seenCross: string | undefined;
+        for (const stage of stages) {
+          // Undeclared scope counts as cross-segment (the safe default)
+          if (stage.scope !== 'per-segment') {
+            seenCross ??= stage.name;
+          } else {
+            expect(
+              seenCross,
+              `preset "${preset}": per-segment stage "${stage.name}" follows cross-segment stage "${seenCross}"`,
+            ).toBeUndefined();
+          }
+        }
+      }
     });
 
     it('maximum preset has hierarchy + graph + all balanced stages', () => {
@@ -42,6 +62,27 @@ describe('createOptimizedPipeline', () => {
       expect(stageNames).toContain('format-compression');
       expect(stageNames).toContain('heuristic-pruning');
       expect(stageNames[stageNames.length - 1]).toBe('budget-allocator');
+    });
+
+    it('omits the generic format stage when the format-selector is present', () => {
+      const { stageNames } = createOptimizedPipeline({ preset: 'maximum', model: 'gemma-2-9b' });
+      expect(stageNames).toContain('format-selector');
+      expect(stageNames).not.toContain('format-compression');
+    });
+
+    it('preserves compact JSON end-to-end for prefersJson models', () => {
+      const { pipeline } = createOptimizedPipeline({ preset: 'maximum', model: 'gemma-2-9b' });
+      const json = JSON.stringify({ name: 'Alice', role: 'researcher', score: 92 }, null, 2);
+      const result = pipeline.compress({
+        segments: [{ id: 'mem', content: json, role: 'memory', priority: 1 }],
+        budget: { maxTokens: 4096, outputReserve: 0 },
+        model: 'gemma-2-9b',
+      });
+
+      // The selector's compact-JSON choice must survive the whole pipeline —
+      // previously the generic format stage rewrote it into tabular/nested.
+      expect(() => JSON.parse(result.segments[0].content)).not.toThrow();
+      expect(result.segments[0].content).toBe('{"name":"Alice","role":"researcher","score":92}');
     });
 
     it('maximum with model adds format-selector', () => {

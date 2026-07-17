@@ -48,6 +48,51 @@ describe('serializeGraph', () => {
     expect(serializeGraph([], [])).toBe('');
   });
 
+  it('quotes entity names containing spaces in tabular cells', () => {
+    const entities = [
+      { id: 'e1', name: 'Alice Johnson', entity_type: 'person', attributes: { role: 'staff engineer' } },
+      { id: 'e2', name: 'Bob', entity_type: 'person', attributes: { role: 'writer' } },
+    ];
+    const rels = [{
+      id: 'r1', source_id: 'e1', target_id: 'e2', relation_type: 'mentors',
+      weight: 0.9, attributes: {}, valid_from: new Date(),
+    }];
+    const result = serializeGraph(entities, rels, { mode: 'tabular' });
+
+    // Multi-word cells must be quoted or every following column misaligns
+    expect(result).toContain('"Alice Johnson"');
+    expect(result).toContain('"staff engineer"');
+    expect(result).toContain('"Alice Johnson" mentors Bob 0.9');
+  });
+
+  it('falls back to lossless adjacency when any multi-entity group is ragged', () => {
+    const entities = [
+      // Uniform group would previously force tabular for ALL groups...
+      { id: 'p1', name: 'Alice', entity_type: 'person', attributes: { role: 'eng' } },
+      { id: 'p2', name: 'Bob', entity_type: 'person', attributes: { role: 'writer' } },
+      // ...silently dropping this group's non-first-entity attributes
+      { id: 's1', name: 'ServiceA', entity_type: 'service', attributes: { lang: 'ts' } },
+      { id: 's2', name: 'ServiceB', entity_type: 'service', attributes: { region: 'us-east' } },
+    ];
+    const result = serializeGraph(entities, []);
+
+    // Adjacency preserves every attribute
+    expect(result).toContain('lang=ts');
+    expect(result).toContain('region=us-east');
+    expect(result).not.toContain('@name');
+  });
+
+  it('does not collide attribute keys containing the old join delimiter', () => {
+    const entities = [
+      { id: 'x1', name: 'X1', entity_type: 't', attributes: { 'a,b': 1 } },
+      { id: 'x2', name: 'X2', entity_type: 't', attributes: { a: 2, b: 3 } },
+    ];
+    // Ragged group (different real key sets) → adjacency, nothing dropped
+    const result = serializeGraph(entities, []);
+    expect(result).toContain('a=2');
+    expect(result).toContain('b=3');
+  });
+
   it('respects maxEntitiesPerType in tabular mode', () => {
     const persons = ENTITIES.filter(e => e.entity_type === 'person' && !e.invalidated_at);
     const result = serializeGraph(persons, [], { maxEntitiesPerType: 1, mode: 'tabular' });

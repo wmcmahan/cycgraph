@@ -82,6 +82,8 @@ export function createAdaptiveMemoryStage(options?: AdaptiveCompressionOptions):
 
   return {
     name: 'adaptive-memory',
+    // Each segment is transformed independently — safe for per-segment caching.
+    scope: 'per-segment' as const,
 
     execute(segments: PromptSegment[], _context: StageContext): StageResult {
       const processed = segments.map((segment) => {

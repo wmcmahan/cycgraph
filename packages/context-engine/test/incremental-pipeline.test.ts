@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createIncrementalPipeline } from '../src/pipeline/incremental-pipeline.js';
 import type { PipelineState, IncrementalResult } from '../src/pipeline/incremental-pipeline.js';
 import { createFormatStage } from '../src/format/serializer.js';
+import { DefaultTokenCounter } from '../src/providers/defaults.js';
 import type { PromptSegment, BudgetConfig, CompressionStage } from '../src/pipeline/types.js';
 
 // --- Test helpers ---
@@ -32,10 +33,35 @@ function jsonContent(data: Record<string, unknown>[]): string {
 function createUppercaser(): CompressionStage {
   return {
     name: 'uppercaser',
+    scope: 'per-segment',
     execute(segments: PromptSegment[]) {
       return {
         segments: segments.map(s => ({ ...s, content: s.content.toUpperCase() })),
       };
+    },
+  };
+}
+
+/** Cross-segment stage that appends a suffix to every segment. */
+function createCrossSuffixer(): CompressionStage {
+  return {
+    name: 'suffixer',
+    scope: 'cross-segment',
+    execute(segments: PromptSegment[]) {
+      return {
+        segments: segments.map(s => ({ ...s, content: `${s.content}!` })),
+      };
+    },
+  };
+}
+
+/** Cross-segment stage that drops segments by id. */
+function createCrossDropper(idsToDrop: string[]): CompressionStage {
+  return {
+    name: 'cross-dropper',
+    scope: 'cross-segment',
+    execute(segments: PromptSegment[]) {
+      return { segments: segments.filter(s => !idsToDrop.includes(s.id)) };
     },
   };
 }
@@ -119,6 +145,126 @@ describe('createIncrementalPipeline', () => {
 
     expect(turn2.cachedSegmentCount).toBe(0);
     expect(turn2.freshSegmentCount).toBe(1);
+  });
+
+  it('invalidates the cache when priority changes with identical content', () => {
+    const pipeline = createIncrementalPipeline({ stages: [createUppercaser()] });
+    const budget = makeBudget();
+
+    const turn1 = pipeline.compress({
+      segments: [makeSegment({ id: 'a', content: 'hello', priority: 1 })],
+      budget,
+    });
+    const turn2 = pipeline.compress({
+      segments: [makeSegment({ id: 'a', content: 'hello', priority: 2 })],
+      budget,
+    }, turn1.state);
+
+    expect(turn2.cachedSegmentCount).toBe(0);
+    expect(turn2.freshSegmentCount).toBe(1);
+  });
+
+  it('invalidates the cache when locked flips with identical content', () => {
+    const pipeline = createIncrementalPipeline({ stages: [createUppercaser()] });
+    const budget = makeBudget();
+
+    const turn1 = pipeline.compress({
+      segments: [makeSegment({ id: 'a', content: 'hello', locked: false })],
+      budget,
+    });
+    expect(turn1.result.segments[0].content).toBe('HELLO');
+
+    const turn2 = pipeline.compress({
+      segments: [makeSegment({ id: 'a', content: 'hello', locked: true })],
+      budget,
+    }, turn1.state);
+
+    // Fresh run with the segment now locked: stages bypass it
+    expect(turn2.cachedSegmentCount).toBe(0);
+    expect(turn2.result.segments[0].content).toBe('hello');
+  });
+
+  it('warns at construction when a per-segment stage follows a cross-segment stage', () => {
+    const warnings: string[] = [];
+    createIncrementalPipeline({
+      stages: [createCrossSuffixer(), createUppercaser()],
+      logger: { warn: m => warnings.push(m) },
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('uppercaser');
+    expect(warnings[0]).toContain('suffixer');
+  });
+
+  it('does not warn when per-segment stages precede cross-segment stages', () => {
+    const warnings: string[] = [];
+    createIncrementalPipeline({
+      stages: [createUppercaser(), createCrossSuffixer()],
+      logger: { warn: m => warnings.push(m) },
+    });
+
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('threads source maps through incremental turns in debug mode', () => {
+    const pipeline = createIncrementalPipeline({
+      stages: [createUppercaser(), createCrossSuffixer()],
+      debug: true,
+    });
+    const budget = makeBudget();
+    const segments = [makeSegment({ id: 'a', content: 'hello' })];
+
+    // Turn 1: fresh run — full attribution across both phases
+    const turn1 = pipeline.compress({ segments, budget });
+    expect(turn1.result.sourceMap).toHaveLength(1);
+    const entry1 = turn1.result.sourceMap![0];
+    expect(entry1.original).toBe('hello');
+    expect(entry1.compressed).toBe('HELLO!');
+    expect(entry1.changedBy).toEqual(['uppercaser', 'suffixer']);
+    expect(entry1.fromCache).toBeUndefined();
+
+    // Turn 2: fully cached — provenance survives, marked fromCache
+    const turn2 = pipeline.compress({ segments, budget }, turn1.state);
+    expect(turn2.cachedSegmentCount).toBe(1);
+    expect(turn2.result.sourceMap).toHaveLength(1);
+    const entry2 = turn2.result.sourceMap![0];
+    expect(entry2.original).toBe('hello');
+    expect(entry2.compressed).toBe('HELLO!');
+    expect(entry2.changedBy).toEqual(['uppercaser', 'suffixer']);
+    expect(entry2.fromCache).toBe(true);
+
+    // Turn 3: content changed — fresh provenance again
+    const turn3 = pipeline.compress({
+      segments: [makeSegment({ id: 'a', content: 'goodbye' })],
+      budget,
+    }, turn2.state);
+    const entry3 = turn3.result.sourceMap![0];
+    expect(entry3.original).toBe('goodbye');
+    expect(entry3.compressed).toBe('GOODBYE!');
+    expect(entry3.fromCache).toBeUndefined();
+  });
+
+  it('does not resurrect segments removed by a cross-segment stage when fully cached', () => {
+    const pipeline = createIncrementalPipeline({
+      stages: [createCrossDropper(['b'])],
+      debug: true,
+    });
+    const budget = makeBudget();
+    const segments = [
+      makeSegment({ id: 'a', content: 'keep' }),
+      makeSegment({ id: 'b', content: 'drop me' }),
+    ];
+
+    const turn1 = pipeline.compress({ segments, budget });
+    expect(turn1.result.segments.map(s => s.id)).toEqual(['a']);
+
+    // Turn 2: identical input, cross phase skipped — removal still honored
+    const turn2 = pipeline.compress({ segments, budget }, turn1.state);
+    expect(turn2.result.segments.map(s => s.id)).toEqual(['a']);
+
+    const b = turn2.result.sourceMap!.find(e => e.segmentId === 'b')!;
+    expect(b.removed).toBe(true);
+    expect(b.removedBy).toBe('cross-dropper');
   });
 
   it('second turn with one changed segment only re-compresses that one', () => {
@@ -290,6 +436,38 @@ describe('createIncrementalPipeline', () => {
     expect(turn2.result.metrics.totalTokensIn).toBe(turn1.result.metrics.totalTokensIn);
     expect(turn2.result.metrics.totalTokensOut).toBe(turn1.result.metrics.totalTokensOut);
     expect(turn2.result.metrics.cached).toBe(true);
+  });
+
+  it('reports full-prompt token totals on partially-cached turns', () => {
+    const pipeline = createIncrementalPipeline({
+      stages: [createUppercaser(), createCrossSuffixer()],
+    });
+    const budget = makeBudget();
+    const counter = new DefaultTokenCounter();
+
+    const turn1 = pipeline.compress({
+      segments: [
+        makeSegment({ id: 'a', content: 'a long stable segment that never changes between turns' }),
+        makeSegment({ id: 'b', content: 'short' }),
+      ],
+      budget,
+    });
+
+    // Only 'b' changes: per-segment stages run on 'b' alone, but the headline
+    // totals must still cover the whole prompt, not just the fresh subset.
+    const segments2 = [
+      makeSegment({ id: 'a', content: 'a long stable segment that never changes between turns' }),
+      makeSegment({ id: 'b', content: 'brief' }),
+    ];
+    const turn2 = pipeline.compress({ segments: segments2, budget }, turn1.state);
+
+    expect(turn2.cachedSegmentCount).toBe(1);
+    const expectedIn = segments2.reduce((sum, s) => sum + counter.countTokens(s.content), 0);
+    const expectedOut = turn2.result.segments.reduce(
+      (sum, s) => sum + counter.countTokens(s.content), 0,
+    );
+    expect(turn2.result.metrics.totalTokensIn).toBe(expectedIn);
+    expect(turn2.result.metrics.totalTokensOut).toBe(expectedOut);
   });
 
   it('metrics are fresh (not cached) when segments change', () => {

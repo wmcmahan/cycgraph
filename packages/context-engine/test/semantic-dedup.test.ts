@@ -126,6 +126,45 @@ describe('createSemanticDedupStage', () => {
     expect(outputTokens).toBeLessThan(inputTokens);
   });
 
+  it('leaves structured (JSON) segments intact even with similar record lines', async () => {
+    // Two JSON records similar enough to cluster semantically — deduping
+    // either line corrupts the array.
+    const json = JSON.stringify(
+      [
+        { fact: 'Multi-agent systems are significantly more expensive to run', score: 0.9 },
+        { fact: 'Multi-agent systems are significantly more costly to run', score: 0.8 },
+      ],
+      null,
+      2,
+    );
+
+    const provider = new SimilarityMockProvider([
+      ['Multi-agent systems are significantly more'],
+    ]);
+
+    const segments = [makeSegment('a', json)];
+    const precomputed = await precomputeEmbeddings(segments, provider);
+    // Structured content is skipped at precompute time too — nothing embedded
+    expect(precomputed.size).toBe(0);
+
+    const stage = createSemanticDedupStage({
+      provider,
+      // Simulate embeddings that DID exist (e.g. precomputed before this fix,
+      // or shared with prose segments) — the stage must still not touch JSON.
+      precomputed: new Map([['placeholder text of sufficient length here', [1, 2, 3, 4]]]),
+      threshold: 0.9,
+    });
+
+    const context = {
+      tokenCounter: counter,
+      budget: { maxTokens: 4096, outputReserve: 0 } as BudgetConfig,
+    };
+
+    const result = stage.execute(segments, context);
+    expect(result.segments[0].content).toBe(json);
+    expect(() => JSON.parse(result.segments[0].content)).not.toThrow();
+  });
+
   it('passes through when no pre-computed embeddings', () => {
     const provider = new MockEmbeddingProvider();
     const stage = createSemanticDedupStage({ provider });

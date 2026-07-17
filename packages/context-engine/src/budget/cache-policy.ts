@@ -14,6 +14,7 @@
 
 import type { PromptSegment } from '../pipeline/types.js';
 import { fnv1a } from '../memory/dedup/exact.js';
+import { resolveModelProfile } from '../routing/model-profiles.js';
 
 export interface CachePolicyOptions {
   /** Lock segments with role 'system' (default true). */
@@ -24,6 +25,14 @@ export interface CachePolicyOptions {
   lockFirstN?: number;
   /** Custom predicate for additional locking rules. */
   lockPredicate?: (segment: PromptSegment) => boolean;
+  /**
+   * Target model. When its profile says the provider has no prompt cache
+   * (`supportsCaching: false`), the policy adds NO locks — locking trades
+   * compression for cache stability, which buys nothing without a cache.
+   * Pre-existing `locked` flags are always preserved. Omit to lock
+   * unconditionally.
+   */
+  model?: string;
 }
 
 /**
@@ -45,6 +54,12 @@ export function applyCachePolicy(
   const lockTools = options?.lockTools ?? true;
   const lockFirstN = options?.lockFirstN ?? 0;
   const lockPredicate = options?.lockPredicate;
+
+  // No provider prompt cache → locking has no benefit, only lost compression.
+  const profile = resolveModelProfile(options?.model);
+  if (profile && !profile.supportsCaching) {
+    return segments;
+  }
 
   return segments.map((seg, i) => {
     let shouldLock = seg.locked; // preserve existing locks
@@ -77,6 +92,12 @@ export function computePrefixHashes(segments: PromptSegment[]): Set<number> {
 /**
  * Measure cache hit rate between two turns.
  *
+ * Note: this is a set-based measure — the fraction of previously locked
+ * content that is byte-identical this turn, ignoring position. Provider
+ * prompt caches are prefix-based, so treat this as an upper bound: a changed
+ * or reordered early segment can invalidate the cache for unchanged
+ * segments after it.
+ *
  * @returns Hit rate as 0-1 (1.0 = all previous locked segments are identical).
  */
 export function measureCacheHitRate(
@@ -89,6 +110,36 @@ export function measureCacheHitRate(
     if (current.has(hash)) hits++;
   }
   return hits / previous.size;
+}
+
+/**
+ * Ordered list of locked-segment content hashes, in prompt order.
+ * Input for {@link measurePrefixStability}.
+ */
+export function computePrefixHashList(segments: PromptSegment[]): number[] {
+  const hashes: number[] = [];
+  for (const seg of segments) {
+    if (seg.locked) hashes.push(fnv1a(seg.content));
+  }
+  return hashes;
+}
+
+/**
+ * Measure prefix stability between two turns: the fraction of the previous
+ * turn's locked prefix that survives, in order, at the START of the current
+ * one. This models provider prompt caches faithfully — a change or reorder
+ * at position k invalidates everything from k on, however much later content
+ * is byte-identical. Compare with {@link measureCacheHitRate}, the set-based
+ * upper bound.
+ *
+ * @returns Stability as 0-1 (1.0 = previous prefix fully preserved).
+ */
+export function measurePrefixStability(current: number[], previous: number[]): number {
+  if (previous.length === 0) return 1.0;
+  let common = 0;
+  const limit = Math.min(current.length, previous.length);
+  while (common < limit && current[common] === previous[common]) common++;
+  return common / previous.length;
 }
 
 /**

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { applyCachePolicy, computePrefixHashes, measureCacheHitRate } from '../src/budget/cache-policy.js';
+import {
+  applyCachePolicy,
+  computePrefixHashes,
+  measureCacheHitRate,
+  computePrefixHashList,
+  measurePrefixStability,
+} from '../src/budget/cache-policy.js';
 import type { PromptSegment } from '../src/pipeline/types.js';
 
 function makeSegment(id: string, content: string, role: PromptSegment['role'], locked = false): PromptSegment {
@@ -25,6 +31,23 @@ describe('applyCachePolicy', () => {
     const result = applyCachePolicy(segments);
     expect(result[0].locked).toBe(true);
     expect(result[1].locked).toBe(false);
+  });
+
+  it('adds no locks when the model profile has no prompt cache', () => {
+    const segments = [
+      makeSegment('sys', 'You are a helpful assistant.', 'system'),
+      makeSegment('pre', 'already locked', 'memory', true),
+    ];
+    // llama profile: supportsCaching false — locking buys nothing
+    const result = applyCachePolicy(segments, { model: 'llama-3-70b' });
+    expect(result[0].locked).toBe(false);
+    expect(result[1].locked).toBe(true); // pre-existing locks preserved
+  });
+
+  it('locks normally for caching-capable models', () => {
+    const segments = [makeSegment('sys', 'You are a helpful assistant.', 'system')];
+    const result = applyCachePolicy(segments, { model: 'claude-sonnet-4-6' });
+    expect(result[0].locked).toBe(true);
   });
 
   it('locks first N segments when configured', () => {
@@ -93,6 +116,37 @@ describe('computePrefixHashes', () => {
     const segments = [makeSegment('mem', 'data', 'memory')];
     const hashes = computePrefixHashes(segments);
     expect(hashes.size).toBe(0);
+  });
+});
+
+describe('measurePrefixStability', () => {
+  function lockedSegments(...contents: string[]): PromptSegment[] {
+    return contents.map((c, i) => makeSegment(`s${i}`, c, 'system', true));
+  }
+
+  it('returns 1.0 when the previous prefix is fully preserved', () => {
+    const prev = computePrefixHashList(lockedSegments('a', 'b', 'c'));
+    const curr = computePrefixHashList(lockedSegments('a', 'b', 'c'));
+    expect(measurePrefixStability(curr, prev)).toBe(1.0);
+  });
+
+  it('counts only the common prefix — a mid-sequence change invalidates the tail', () => {
+    const prev = computePrefixHashList(lockedSegments('a', 'b', 'c', 'd'));
+    const curr = computePrefixHashList(lockedSegments('a', 'CHANGED', 'c', 'd'));
+    // 'c' and 'd' are byte-identical but come after the change → not cached
+    expect(measurePrefixStability(curr, prev)).toBe(0.25);
+  });
+
+  it('treats reordering as invalidation (unlike the set-based hit rate)', () => {
+    const prev = computePrefixHashList(lockedSegments('a', 'b'));
+    const curr = computePrefixHashList(lockedSegments('b', 'a'));
+    expect(measurePrefixStability(curr, prev)).toBe(0);
+    // Set-based measure reports 1.0 for the same input — the upper bound
+    expect(measureCacheHitRate(new Set(curr), new Set(prev))).toBe(1.0);
+  });
+
+  it('returns 1.0 for an empty previous prefix', () => {
+    expect(measurePrefixStability([1, 2], [])).toBe(1.0);
   });
 });
 

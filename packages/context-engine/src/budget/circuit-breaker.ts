@@ -47,6 +47,9 @@ export function createCircuitBreaker(
 
   return {
     name: `circuit-breaker:${stage.name}`,
+    // Propagate the wrapped stage's scope — dropping it would misclassify a
+    // cross-segment stage as per-segment in the incremental pipeline.
+    scope: stage.scope,
     execute(segments: PromptSegment[], context: StageContext) {
       const stats = tracker.getAverage(stage.name);
 

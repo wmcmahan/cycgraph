@@ -118,12 +118,21 @@ export interface PipelineMetrics {
 export interface StageContext {
   /** Token counter for measuring compression. */
   tokenCounter: TokenCounter;
-  /** Budget configuration. */
+  /**
+   * Budget configuration. `maxTokens` is the share available to the segments
+   * the stage sees — the pipeline subtracts locked segments' tokens before
+   * building this context.
+   */
   budget: BudgetConfig;
   /** Target model (for model-aware compression). */
   model?: string;
   /** Whether debug mode is enabled (source maps, extra logging). */
   debug?: boolean;
+  /**
+   * The pipeline's logger. Stages should emit diagnostics through this
+   * (falling back to console for must-see warnings when it's absent or no-op).
+   */
+  logger?: PipelineLogger;
 }
 
 /** Result returned by a single compression stage. */
@@ -138,7 +147,16 @@ export interface StageResult {
 export interface CompressionStage {
   /** Human-readable stage name (used in metrics). */
   readonly name: string;
-  /** Whether this stage operates per-segment or across segments. Default: 'per-segment'. */
+  /**
+   * Whether this stage operates per-segment or across segments.
+   *
+   * Default when omitted: 'cross-segment' — the safe assumption; the
+   * incremental pipeline re-runs the stage on ALL segments whenever anything
+   * changes. Declare 'per-segment' ONLY if each segment's output depends
+   * solely on that segment's own content — this opts the stage into
+   * per-segment caching. A stage with any state spanning segments (a `seen`
+   * set, budget shares, corpus statistics) must not declare it.
+   */
   readonly scope?: 'per-segment' | 'cross-segment';
   /** Execute the compression stage on the given segments. */
   execute(segments: PromptSegment[], context: StageContext): StageResult;
@@ -168,11 +186,32 @@ export interface PipelineInput {
   model?: string;
 }
 
-/** Source map entry: maps a compressed segment back to its original. */
+/**
+ * Source map entry: maps a compressed segment back to its original.
+ *
+ * Provenance is segment-level, not token-level: `original`/`compressed` are
+ * whole-content snapshots, and `changedBy` attributes changes to stages —
+ * there is no intra-segment span mapping.
+ */
 export interface SourceMapEntry {
   segmentId: string;
+  /** Content before the first stage ran. Empty string for stage-added segments. */
   original: string;
+  /** Content after the last stage ran. Empty string for removed segments. */
   compressed: string;
+  /** Names of stages that modified this segment's content, in execution order. */
+  changedBy: string[];
+  /** True when a stage removed this segment; it is absent from the pipeline output. */
+  removed?: boolean;
+  /** Name of the stage that removed this segment. */
+  removedBy?: string;
+  /** Name of the stage that introduced this segment (id not present in the input). */
+  addedBy?: string;
+  /**
+   * True when part of this entry's provenance was computed on an earlier turn
+   * and reused from cache (incremental pipeline only).
+   */
+  fromCache?: boolean;
 }
 
 /** Result returned by the pipeline. */

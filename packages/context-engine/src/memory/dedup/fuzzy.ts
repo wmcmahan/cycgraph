@@ -10,6 +10,7 @@
 
 import type { CompressionStage, PromptSegment, StageContext } from '../../pipeline/types.js';
 import { fnv1a, isStructuredContent } from './exact.js';
+import { makeUnionFind } from './union-find.js';
 
 export interface FuzzyDedupResult {
   /** Items after deduplication. */
@@ -54,32 +55,6 @@ export function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
 
   const union = a.size + b.size - intersection;
   return union > 0 ? intersection / union : 0;
-}
-
-// --- Union-Find for order-independent clustering ---
-
-function makeUnionFind(n: number) {
-  const parent = Array.from({ length: n }, (_, i) => i);
-  const rank = new Array<number>(n).fill(0);
-
-  function find(x: number): number {
-    while (parent[x] !== x) {
-      parent[x] = parent[parent[x]]; // path compression
-      x = parent[x];
-    }
-    return x;
-  }
-
-  function union(a: number, b: number): void {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra === rb) return;
-    if (rank[ra] < rank[rb]) { parent[ra] = rb; }
-    else if (rank[ra] > rank[rb]) { parent[rb] = ra; }
-    else { parent[rb] = ra; rank[ra]++; }
-  }
-
-  return { find, union };
 }
 
 // --- MinHash LSH pre-filter for large inputs ---
@@ -295,7 +270,7 @@ export function createFuzzyDedupStage(options?: FuzzyDedupOptions): CompressionS
   return {
     name: 'fuzzy-dedup',
     scope: 'cross-segment' as const,
-    execute(segments: PromptSegment[], _context: StageContext) {
+    execute(segments: PromptSegment[], context: StageContext) {
       // Collect all paragraphs with their segment origin. Structured segments
       // (JSON / CSV) are excluded from the dedup pool entirely — dropping a
       // near-duplicate structural line would corrupt them — and passed through
@@ -323,7 +298,10 @@ export function createFuzzyDedupStage(options?: FuzzyDedupOptions): CompressionS
 
       let removedIndices: Set<number>;
       if (texts.length > maxItems) {
-        console.warn(`context-engine: fuzzy dedup capped at ${maxItems} items (${texts.length} provided)`);
+        // A configured logger takes the warning; otherwise fall back to
+        // console so the cap is never silent.
+        const warn = context.logger?.warn?.bind(context.logger) ?? console.warn;
+        warn(`context-engine: fuzzy dedup capped at ${maxItems} items (${texts.length} provided)`);
         const cappedTexts = texts.slice(0, maxItems);
         removedIndices = computeRemovedIndices(cappedTexts, threshold, minLength);
       } else {

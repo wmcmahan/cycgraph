@@ -33,11 +33,13 @@ export function serializeTabular(data: Record<string, unknown>[]): string {
   return [header, ...rows].join('\n');
 }
 
-function needsQuoting(value: string): boolean {
+/** Whether a cell value would break space-delimited column alignment. */
+export function needsQuoting(value: string): boolean {
   return /[ ;,=\n"]/.test(value);
 }
 
-function quoteValue(value: string): string {
+/** CSV-style quoting with doubled-quote escaping. */
+export function quoteValue(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
@@ -61,5 +63,8 @@ function formatCellValue(value: unknown): string {
 function formatPrimitive(value: unknown): string {
   if (value === null || value === undefined) return '_';
   if (value instanceof Date) return value.toISOString();
+  // Structure nested deeper than this format flattens: preserve as JSON
+  // rather than degrading to '[object Object]'.
+  if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }

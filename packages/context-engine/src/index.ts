@@ -132,6 +132,8 @@ export {
   applyCachePolicy,
   computePrefixHashes,
   measureCacheHitRate,
+  computePrefixHashList,
+  measurePrefixStability,
   computeSegmentHashMap,
 } from './budget/cache-policy.js';
 

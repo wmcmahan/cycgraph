@@ -181,6 +181,8 @@ export function distillCoT(
 export function createCotDistillationStage(options?: CotDistillationOptions): CompressionStage {
   return {
     name: 'cot-distillation',
+    // Each segment is transformed independently — safe for per-segment caching.
+    scope: 'per-segment' as const,
     execute(segments: PromptSegment[], context: StageContext) {
       return {
         segments: segments.map(seg => {

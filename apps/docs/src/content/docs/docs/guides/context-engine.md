@@ -69,6 +69,11 @@ for (const turn of turns) {
 
 The incremental pipeline tracks per-segment output hashes, so cross-segment stages (like fuzzy dedup) only re-run when per-segment outputs actually change — not just when inputs change. This avoids expensive re-runs when a segment's content changes but its compressed output stays the same.
 
+Two things to know when bringing custom stages:
+
+- A stage without a `scope` declaration is treated as **cross-segment** (safe, but uncached). Declare `scope: 'per-segment'` to opt into per-segment caching — only valid when each segment's output depends solely on its own content.
+- Order per-segment stages before cross-segment ones. The incremental pipeline runs them as two phases in that order, and an interleaved config diverges from the batch pipeline (a construction-time warning flags this).
+
 ## Pipeline safety
 
 ### Timeout
@@ -172,6 +177,17 @@ for (const stage of metrics.stages) {
 }
 ```
 
+### Cache-aware locking
+
+Lock the static prompt prefix (system prompt, tool schemas) before compressing so provider prompt caches see byte-identical prefixes across turns. Pass the target `model` — for providers without a prompt cache, no locks are added and the content stays compressible:
+
+```typescript
+import { applyCachePolicy } from '@cycgraph/context-engine';
+
+const locked = applyCachePolicy(segments, { model: 'claude-sonnet-4-6' });
+const result = pipeline.compress({ segments: locked, budget });
+```
+
 ### Cache diagnostics
 
 Detect when API prompt caching is being invalidated by dynamic content:
@@ -187,6 +203,12 @@ if (diagnostics.hitRate < 0.8) {
   console.warn('Low cache hit rate:', diagnostics.recommendations);
 }
 ```
+
+For a prefix-faithful measure (position-sensitive, like real provider caches), use `measurePrefixStability` with `computePrefixHashList` — a change early in the prompt counts everything after it as invalidated.
+
+### Debug source maps
+
+When a compressed prompt looks wrong, run with `debug: true` and inspect the source map — each mutable segment gets an entry with its `original` and `compressed` content, the ordered list of stages that `changedBy` it, and flags for stage removals/additions. The incremental pipeline carries provenance across cached turns (`fromCache: true`). See [Debug source maps](/docs/concepts/context-engine/#debug-source-maps) for the full shape.
 
 ### Circuit breaker
 

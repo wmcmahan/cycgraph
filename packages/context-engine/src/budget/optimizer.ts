@@ -47,6 +47,8 @@ export interface OptimizedPipeline {
   preset: PipelinePreset;
   /** The stages included in the pipeline. */
   stageNames: string[];
+  /** The stage objects (e.g. for reuse with `createIncrementalPipeline`). */
+  stages: CompressionStage[];
 }
 
 /**
@@ -75,6 +77,7 @@ export function createOptimizedPipeline(options?: OptimizerOptions): OptimizedPi
     pipeline,
     preset,
     stageNames: stages.map(s => s.name),
+    stages,
   };
 }
 
@@ -98,24 +101,39 @@ function buildStages(
   const stages: CompressionStage[] = [];
 
   // Maximum: add specialized formatters + model-aware selection
+  let hasFormatSelector = false;
   if (preset === 'maximum') {
     stages.push(createHierarchyFormatterStage());
     stages.push(createGraphSerializerStage());
     if (options?.model) {
       stages.push(createFormatSelectorStage());
+      hasFormatSelector = true;
     }
   }
 
-  // All presets: format compression
-  stages.push(createFormatStage());
+  // All presets: format compression. Skipped when the format-selector is
+  // present — the selector already serializes JSON per the model profile, and
+  // the generic stage would rewrite its compact-JSON output back into
+  // tabular/nested, undoing the model-aware choice.
+  if (!hasFormatSelector) {
+    stages.push(createFormatStage());
+  }
+
+  // Balanced + Maximum: CoT distillation runs BEFORE the dedup stages — it is
+  // per-segment while dedup/pruning/allocator are cross-segment, and keeping
+  // all per-segment stages first makes batch and incremental execution orders
+  // identical (see incremental-pipeline ordering contract). It also lets dedup
+  // operate on distilled content instead of raw reasoning traces.
+  if (preset === 'balanced' || preset === 'maximum') {
+    stages.push(createCotDistillationStage());
+  }
 
   // All presets: exact dedup
   stages.push(createExactDedupStage());
 
-  // Balanced + Maximum: fuzzy dedup, CoT distillation, heuristic pruning
+  // Balanced + Maximum: fuzzy dedup, heuristic pruning
   if (preset === 'balanced' || preset === 'maximum') {
     stages.push(createFuzzyDedupStage());
-    stages.push(createCotDistillationStage());
     stages.push(createHeuristicPruningStage());
   }
 

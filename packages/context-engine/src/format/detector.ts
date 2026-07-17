@@ -39,15 +39,18 @@ function detectArrayShape(arr: unknown[]): DataShape {
     return 'mixed';
   }
 
-  const referenceKeys = Object.keys(firstItem as Record<string, unknown>).sort().join(',');
-  if (referenceKeys === '') return 'mixed';
+  // Fingerprint via JSON so keys containing the join delimiter can't collide
+  // (e.g. a single key "a,b" vs the two keys "a" and "b").
+  const firstKeys = Object.keys(firstItem as Record<string, unknown>);
+  if (firstKeys.length === 0) return 'mixed';
+  const referenceKeys = JSON.stringify(firstKeys.sort());
 
   for (let i = 1; i < arr.length; i++) {
     const item = arr[i];
     if (item === null || typeof item !== 'object' || Array.isArray(item)) {
       return 'mixed';
     }
-    const keys = Object.keys(item as Record<string, unknown>).sort().join(',');
+    const keys = JSON.stringify(Object.keys(item as Record<string, unknown>).sort());
     if (keys !== referenceKeys) return 'mixed';
   }
 
