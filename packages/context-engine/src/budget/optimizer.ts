@@ -137,8 +137,13 @@ function buildStages(
     stages.push(createHeuristicPruningStage());
   }
 
-  // All presets: budget allocator (always last)
-  stages.push(createAllocatorStage());
+  // All presets: budget allocator (always last), in relevance mode — when
+  // the compress() input carries a `query`, budget concentrates on
+  // query-relevant segments (measured, HotpotQA n=100: retains 82% vs 57%
+  // of solvable questions at 3.6x compression vs proportional; replicated
+  // on MuSiQue). Without a query this is byte-identical to proportional
+  // allocation.
+  stages.push(createAllocatorStage({ allocation: 'relevance' }));
 
   return stages;
 }

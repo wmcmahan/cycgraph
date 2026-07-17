@@ -78,6 +78,7 @@ export function createPipeline(config: PipelineConfig) {
         tokenCounter,
         budget: { ...budget, maxTokens: Math.max(0, budget.maxTokens - lockedTokens) },
         model: input.model,
+        query: input.query,
         debug,
         logger,
       };

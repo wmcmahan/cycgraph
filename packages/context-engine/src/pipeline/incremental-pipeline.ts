@@ -100,12 +100,15 @@ function pruneStaleKeys<V>(map: Map<string, V>, validIds: Set<string>): void {
 }
 
 /**
- * Fingerprint the compression config (budget + model) that cached outputs
- * depend on. Two turns with identical segment content but a different budget or
- * model must NOT reuse each other's cache.
+ * Fingerprint the compression config (budget + model + query) that cached
+ * outputs depend on. Two turns with identical segment content but a
+ * different budget, model, or query must NOT reuse each other's cache —
+ * query-aware stages produce different output for a different query.
  */
 function fingerprintConfig(input: PipelineInput): number {
-  return fnv1a(JSON.stringify({ budget: input.budget, model: input.model ?? '' }));
+  return fnv1a(
+    JSON.stringify({ budget: input.budget, model: input.model ?? '', query: input.query ?? '' }),
+  );
 }
 
 /**

@@ -25,6 +25,10 @@ const contextCompressor = (sanitizedMemory, options) => {
     }],
     budget: { maxTokens: options?.maxTokens ?? 8192, outputReserve: 0 },
     model: options?.model,
+    // The runner passes the sanitized workflow goal as `options.query`.
+    // Forward it: the presets' relevance allocation concentrates budget
+    // on goal-relevant memory. Without a query, behavior is unchanged.
+    query: options?.query,
   });
   return { compressed: result.segments[0].content, metrics: result.metrics };
 };
@@ -103,7 +107,23 @@ const pipeline = createPipeline({
 
 ## Query-aware compression
 
-When the user's query is known, configure the heuristic scorer to weight tokens that match the query, so query-relevant content survives pruning at the expense of unrelated text:
+### Relevance allocation (preset default)
+
+When the `compress()` input carries a `query`, the presets' budget allocator switches to relevance mode: segments are ranked by BM25 relevance to the query (with stemming and pseudo-relevance feedback for multi-hop bridging) and budget is granted whole-segment greedily — relevant segments stay intact, irrelevant ones are starved. Without a query, behavior is identical to proportional allocation.
+
+```typescript
+const result = pipeline.compress({
+  segments,
+  budget: { maxTokens: 4096, outputReserve: 0 },
+  query: workflowGoal,
+});
+```
+
+Inside a `GraphRunner` workflow you don't need to do anything: the runner passes the sanitized workflow goal as `options.query` to your `contextCompressor` — just forward it as shown in the quick start. See [Relevance allocation](/docs/concepts/context-engine/#relevance-allocation-query-aware) for benchmark results.
+
+### Token-level query weighting
+
+Separately, you can configure the heuristic scorer to weight tokens that match the query, so query-relevant content survives pruning at the expense of unrelated text:
 
 ```typescript
 import { createPipeline, createHeuristicPruningStage, createAllocatorStage } from '@cycgraph/context-engine';

@@ -124,8 +124,10 @@ export {
   countTotalTokens,
 } from './budget/counter.js';
 
-export type { AllocationResult, AllocatorStageOptions } from './budget/allocator.js';
+export type { AllocationResult, AllocatorStageOptions, AllocateBudgetOptions } from './budget/allocator.js';
 export { allocateBudget, createAllocatorStage } from './budget/allocator.js';
+export { scoreSegmentRelevance } from './budget/relevance.js';
+export type { RelevanceOptions } from './budget/relevance.js';
 
 export type { CachePolicyOptions } from './budget/cache-policy.js';
 export {

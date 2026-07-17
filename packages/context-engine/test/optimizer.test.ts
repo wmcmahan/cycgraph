@@ -34,6 +34,30 @@ describe('createOptimizedPipeline', () => {
       ]);
     });
 
+    it('presets are query-aware: a query concentrates budget on relevant segments', () => {
+      const { pipeline } = createOptimizedPipeline({ preset: 'fast' });
+      const segments = [
+        { id: 'relevant', content: 'Northgate Holdings is headquartered in Denver and acquired Meridian Systems in 2019. '.repeat(3), role: 'history' as const, priority: 1 },
+        { id: 'noise', content: 'Batch schedulers queue jobs by priority and resource requirements across the cluster nodes. '.repeat(3), role: 'history' as const, priority: 1 },
+      ];
+      const budget = { maxTokens: 80, outputReserve: 0 };
+
+      const withQuery = pipeline.compress({
+        segments, budget, query: 'Where is Northgate Holdings headquartered?',
+      });
+      const withoutQuery = pipeline.compress({ segments, budget });
+
+      // With the query: the relevant doc keeps Denver, the noise doc is starved
+      const relevant = withQuery.segments.find(s => s.id === 'relevant')!;
+      const noise = withQuery.segments.find(s => s.id === 'noise')!;
+      expect(relevant.content).toContain('Denver');
+      expect(noise.content.length).toBeLessThan(relevant.content.length);
+
+      // Without a query, behavior is the pre-existing proportional split
+      expect(withoutQuery.segments.map(s => s.content))
+        .not.toEqual(withQuery.segments.map(s => s.content));
+    });
+
     it('orders all per-segment stages before cross-segment stages in every preset', () => {
       // Interleaved scopes make batch and incremental pipelines diverge
       // (incremental partitions by scope) — presets must never interleave.

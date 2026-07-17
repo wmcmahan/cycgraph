@@ -68,5 +68,13 @@ export type ContextCompressor = (
     model?: string;
     /** Max token budget for the memory section. */
     maxTokens?: number;
+    /**
+     * The task this context will be used for — the SANITIZED workflow
+     * goal. Enables query-aware compression: the context engine's
+     * relevance allocation concentrates budget on goal-relevant memory
+     * (measured: retains 82% vs 57% of downstream-answerable content at
+     * 3.6x compression). Implementations may ignore it.
+     */
+    query?: string;
   },
 ) => ContextCompressionResult | null;

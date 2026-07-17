@@ -77,6 +77,22 @@ describe('buildSystemPrompt with ContextCompressor', () => {
     expect(withoutOptions).toContain('</data>');
   });
 
+  it('passes the sanitized goal as the compression query', () => {
+    const config = makeConfig();
+    const stateView = makeStateView();
+    const seen: Array<{ query?: string; model?: string }> = [];
+    const compressor: ContextCompressor = (_memory, options) => {
+      seen.push({ query: options?.query, model: options?.model });
+      return null;
+    };
+
+    buildSystemPrompt(config, stateView, { contextCompressor: compressor, model: 'claude-sonnet-4-6' });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].query).toBe('Test goal');
+    expect(seen[0].model).toBe('claude-sonnet-4-6');
+  });
+
   it('uses compressor output when provided', () => {
     const config = makeConfig();
     const stateView = makeStateView();

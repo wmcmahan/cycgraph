@@ -13,6 +13,8 @@ import type { TokenCounter } from '../providers/types.js';
 import type { CompressionStage, PromptSegment, BudgetConfig, StageContext } from '../pipeline/types.js';
 import type { TokenScorer } from '../pruning/types.js';
 import { countSegmentTokens } from './counter.js';
+import { scoreSegmentRelevance } from './relevance.js';
+import type { RelevanceOptions } from './relevance.js';
 import { pruneByScore, isTokenPruneUnsafe } from '../pruning/pruner.js';
 import { createHeuristicScorer } from '../pruning/heuristic.js';
 
@@ -33,6 +35,40 @@ export interface AllocatorStageOptions {
   truncation?: 'importance' | 'tail';
   /** Scorer for importance-aware truncation (default: heuristic scorer). */
   scorer?: TokenScorer;
+  /**
+   * How the budget is distributed across segments (default: 'proportional').
+   *
+   * - `'proportional'`: by priority weight with surplus redistribution —
+   *   every segment gets a share; over-budget ones are condensed.
+   * - `'relevance'`: query-aware whole-segment allocation. Segments are
+   *   ranked by BM25 relevance to `context.query` (× priority) and granted
+   *   their FULL token count in rank order until the budget runs out — the
+   *   marginal segment is condensed, the rest get nothing. Keeps ~3 whole
+   *   relevant documents instead of 30% of each of 10. Falls back to
+   *   proportional when no query is present or nothing matches it.
+   *
+   * Granularity note (measured): in relevance mode the query is used ONLY
+   * for cross-segment allocation; within-segment condensing stays
+   * entity-driven — token-level query weighting drops answer-bearing
+   * tokens that don't overlap the question's words.
+   */
+  allocation?: 'proportional' | 'relevance';
+  /**
+   * Pseudo-relevance-feedback tuning for `allocation: 'relevance'`
+   * (rounds, expansion terms, decay). Defaults are the measured-best
+   * configuration; see {@link RelevanceOptions}.
+   */
+  relevance?: RelevanceOptions;
+}
+
+/** Options for {@link allocateBudget}. */
+export interface AllocateBudgetOptions {
+  /** Query for relevance allocation (required for `allocation: 'relevance'`). */
+  query?: string;
+  /** Allocation strategy (see {@link AllocatorStageOptions.allocation}). */
+  allocation?: 'proportional' | 'relevance';
+  /** PRF tuning for relevance allocation (see {@link RelevanceOptions}). */
+  relevance?: RelevanceOptions;
 }
 
 export interface AllocationResult {
@@ -56,6 +92,7 @@ export function allocateBudget(
   budget: BudgetConfig,
   counter: TokenCounter,
   model?: string,
+  options?: AllocateBudgetOptions,
 ): AllocationResult {
   const counts = countSegmentTokens(segments, counter, model);
   const availableBudget = budget.maxTokens - (budget.outputReserve ?? 0);
@@ -83,6 +120,32 @@ export function allocateBudget(
   const mutableBudget = Math.max(0, availableBudget - lockedTotal);
   const mutableSegments = segments.filter(s => !s.locked);
   const totalPriority = mutableSegments.reduce((sum, s) => sum + (s.priority ?? 1), 0);
+
+  // 2a. Relevance mode: whole-segment allocation in relevance-rank order.
+  // Falls through to proportional when no query or nothing matches it
+  // (an all-zero ranking would silently degenerate to keep-first-docs).
+  if (options?.allocation === 'relevance' && options.query?.trim()) {
+    const scores = scoreSegmentRelevance(mutableSegments, options.query, options.relevance);
+    const anyMatch = [...scores.values()].some(s => s > 0);
+    if (anyMatch && mutableSegments.length > 0) {
+      const originalIndex = new Map(mutableSegments.map((s, i) => [s.id, i]));
+      const ranked = [...mutableSegments].sort((a, b) => {
+        const diff =
+          scores.get(b.id)! * (b.priority ?? 1) - scores.get(a.id)! * (a.priority ?? 1);
+        return diff !== 0 ? diff : originalIndex.get(a.id)! - originalIndex.get(b.id)!;
+      });
+
+      let remaining = mutableBudget;
+      for (const seg of ranked) {
+        const actual = counts.get(seg.id) ?? 0;
+        const granted = Math.min(actual, remaining);
+        allocations.set(seg.id, granted);
+        remaining -= granted;
+        if (granted < actual) overflow.push(seg.id);
+      }
+      return { allocations, overflow };
+    }
+  }
 
   if (totalPriority === 0 || mutableSegments.length === 0) {
     // No mutable segments or zero priority — nothing to allocate
@@ -196,6 +259,7 @@ export function allocateBudget(
 export function createAllocatorStage(options?: AllocatorStageOptions): CompressionStage {
   const truncationSuffix = options?.truncationSuffix ?? '\n... [truncated]';
   const truncation = options?.truncation ?? 'importance';
+  const allocation = options?.allocation ?? 'proportional';
   // Lazily created: the scorer is only needed when a prose segment overflows.
   let scorer: TokenScorer | undefined = options?.scorer;
 
@@ -211,7 +275,14 @@ export function createAllocatorStage(options?: AllocatorStageOptions): Compressi
         context.budget,
         context.tokenCounter,
         context.model,
+        { query: context.query, allocation, relevance: options?.relevance },
       );
+
+      // In relevance mode the query's job is done at allocation time —
+      // within-segment condensing stays entity-driven (measured: token-level
+      // query weighting drops answer-bearing tokens on multi-hop tasks).
+      const condenseContext =
+        allocation === 'relevance' ? { ...context, query: undefined } : context;
 
       const output = segments.map(seg => {
         const budget = allocations.get(seg.id);
@@ -230,7 +301,7 @@ export function createAllocatorStage(options?: AllocatorStageOptions): Compressi
           seg,
           budget,
           scorer,
-          context,
+          condenseContext,
           truncationSuffix,
         );
         return { ...seg, content: condensed };
@@ -257,7 +328,10 @@ function condenseByImportance(
   const contentBudget = maxTokens - suffixTokens;
   if (contentBudget <= 0) return '';
 
-  const scored = scorer.score(seg.content, { role: seg.role });
+  // Query-aware when the pipeline input carries a query: the heuristic
+  // scorer weights query-relevant tokens higher, so enforcement keeps the
+  // content the downstream task actually needs.
+  const scored = scorer.score(seg.content, { role: seg.role, query: context.query });
   const pruned = pruneByScore(scored, contentBudget, context.tokenCounter, context.model);
   return pruned + truncationSuffix;
 }

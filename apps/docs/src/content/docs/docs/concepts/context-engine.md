@@ -192,6 +192,22 @@ const counter = new DefaultTokenCounter();
 const allocations = allocateBudget(segments, { maxTokens: 4096, outputReserve: 1024 }, counter);
 ```
 
+### Relevance allocation (query-aware)
+
+The allocator has a second allocation mode, `allocation: 'relevance'`, which the presets use by default. When the `compress()` input carries a `query` (the question or goal the context will serve), segments are ranked by BM25 relevance to the query — with light stemming and iterated pseudo-relevance feedback (default 2 rounds, tunable via the allocator's `relevance` option) so multi-hop bridging documents rank too — and budget is granted **whole-segment greedily** in relevance order: the most relevant segments are kept intact, the least relevant are starved. Within-segment condensing stays query-agnostic (entity-driven), because query-similar tokens are not the same as answer-bearing tokens.
+
+Without a `query` — or when no segment matches it — relevance mode is byte-identical to proportional allocation, so passing no query is always safe.
+
+```typescript
+const result = pipeline.compress({
+  segments,
+  budget: { maxTokens: 4096, outputReserve: 0 },
+  query: 'Where is Northgate Holdings headquartered?',
+});
+```
+
+On two public benchmarks (both n=100, matched budgets, paired deltas significant), relevance allocation at a 0.3 compression target retained 67/82 answerable questions versus 51/82 for LLMLingua-2 on HotpotQA, and 23/47 versus 13/47 on multi-hop MuSiQue — at ~4ms versus ~600-950ms per compression. In an agent workflow the orchestrator passes the sanitized workflow goal as the query automatically.
+
 ### Cache-aware locking
 
 `applyCachePolicy` marks system/tools segments as `locked` before compression so provider prompt caches see byte-identical prefixes. Pass the target `model` and the policy consults its profile: providers without a prompt cache (`supportsCaching: false`) get no locks added — locking trades compression for cache stability, which buys nothing without a cache. Pre-existing locks are always preserved.
