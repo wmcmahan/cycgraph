@@ -126,6 +126,12 @@ export interface StageContext {
   budget: BudgetConfig;
   /** Target model (for model-aware compression). */
   model?: string;
+  /**
+   * The task/question this context will be used for (query-aware
+   * compression). Stages that score importance weight query-relevant
+   * content higher. Optional — without it, compression is query-agnostic.
+   */
+  query?: string;
   /** Whether debug mode is enabled (source maps, extra logging). */
   debug?: boolean;
   /**
@@ -184,6 +190,13 @@ export interface PipelineInput {
   budget: BudgetConfig;
   /** Target model string (passed to token counter and format selector). */
   model?: string;
+  /**
+   * The task/question this context will be used for. Enables query-aware
+   * compression: importance scorers keep query-relevant content
+   * preferentially. In an agent workflow this is typically the workflow
+   * goal or the consuming node's task.
+   */
+  query?: string;
 }
 
 /**

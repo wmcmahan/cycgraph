@@ -16,3 +16,5 @@ docker-compose.override.yml
 apps/docs/.astro
 sandbox/
 app/docs/.vercel
+bench-data/
+bench-results/

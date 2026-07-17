@@ -90,6 +90,9 @@ export function buildSupervisorSystemPrompt(
     const memoryContent = serializeMemoryForPrompt(sanitizeForPrompt(stateView.memory), {
       contextCompressor: options?.contextCompressor,
       model: options?.model,
+      // The sanitized goal is the query: relevance-aware compression keeps
+      // goal-relevant memory preferentially.
+      query: sanitizeString(stateView.goal),
       onCompressed: options?.onCompressed,
     });
 

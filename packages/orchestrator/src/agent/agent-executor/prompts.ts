@@ -74,6 +74,9 @@ export function buildSystemPrompt(
   const memoryJson = serializeMemoryForPrompt(sanitizedMemory, {
     contextCompressor: options?.contextCompressor,
     model: options?.model,
+    // The sanitized goal is the query: relevance-aware compression keeps
+    // goal-relevant memory preferentially.
+    query: sanitizeString(stateView.goal),
     onCompressed: options?.onCompressed,
   });
 
@@ -118,6 +121,8 @@ export function serializeMemoryForPrompt(
   options?: {
     contextCompressor?: ContextCompressor;
     model?: string;
+    /** Sanitized workflow goal — enables query-aware compression. */
+    query?: string;
     onCompressed?: (metrics: ContextCompressionMetrics) => void;
   },
 ): string {
@@ -127,6 +132,7 @@ export function serializeMemoryForPrompt(
     try {
       const result = options.contextCompressor(sanitizedMemory, {
         model: options.model,
+        query: options.query,
       });
       if (result !== null) {
         // Cap memory to the same budget as the default path before it reaches the prompt.

@@ -27,6 +27,7 @@ npm install @cycgraph/context-engine
 ## Core Concepts
 
 - **Composable stages** — mix and match: format compression, exact, fuzzy, and semantic dedup, CoT distillation, heuristic pruning, self-information pruning, and budget allocation. Use the bundled **fast**, **balanced**, or **maximum** presets or build your own pipeline.
+- **Query-aware relevance allocation** — pass a `query` (the question or goal the context serves) and the presets' budget allocator concentrates budget on query-relevant segments via BM25 + pseudo-relevance feedback. At a 0.3 compression target it retained 67/82 answerable questions vs 51/82 for LLMLingua-2 on HotpotQA, and 23/47 vs 13/47 on multi-hop MuSiQue (both n=100, matched budgets, paired F1 deltas significant), at ~4ms vs ~600-950ms per compression. Without a query, allocation is proportional — identical to previous behavior. Full tables, negative results, and reproduction commands: [BENCHMARKS.md](./BENCHMARKS.md).
 - **No LLM call required at the base tier** — default tier is pure TypeScript. Higher tiers add a token counter, an embedding provider, or a small local model for additional accuracy.
 - **Model-aware format routing** — checks the target model's capability profile and picks a representation that fits. Custom profiles can be merged in.
 - **Cache-aware prefix locking** — stabilises the static prompt prefix so provider-side prompt caches get consistent cache hits across turns. Pass a `model` and locking is skipped for providers without a prompt cache.
@@ -108,6 +109,10 @@ const contextCompressor = (sanitizedMemory, options) => {
       maxTokens: options?.maxTokens ?? 8192,
       outputReserve: 0,
     },
+    // The runner passes the sanitized workflow goal as `options.query` —
+    // forwarding it activates relevance-aware allocation (goal-relevant
+    // memory keeps budget preferentially).
+    query: options?.query,
   });
   return {
     compressed: result.segments[0].content,

@@ -147,6 +147,7 @@ export function createPruningStage(scorer: TokenScorer): CompressionStage {
         const scorerContext: ScorerContext = {
           role: seg.role,
           allContent,
+          query: context.query,
         };
 
         const scored = scorer.score(seg.content, scorerContext);

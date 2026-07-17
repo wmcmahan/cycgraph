@@ -147,6 +147,19 @@ describe('createIncrementalPipeline', () => {
     expect(turn2.freshSegmentCount).toBe(1);
   });
 
+  it('invalidates the cache when the query changes between turns', () => {
+    const pipeline = createIncrementalPipeline({ stages: [createUppercaser()] });
+    const budget = makeBudget();
+    const segments = [makeSegment({ id: 'a', content: 'hello' })];
+
+    const turn1 = pipeline.compress({ segments, budget, query: 'first question' });
+    const turn2 = pipeline.compress({ segments, budget, query: 'different question' }, turn1.state);
+
+    // Query-aware stages produce different output per query — full re-run
+    expect(turn2.cachedSegmentCount).toBe(0);
+    expect(turn2.freshSegmentCount).toBe(1);
+  });
+
   it('invalidates the cache when priority changes with identical content', () => {
     const pipeline = createIncrementalPipeline({ stages: [createUppercaser()] });
     const budget = makeBudget();

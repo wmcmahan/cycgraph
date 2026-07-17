@@ -272,6 +272,26 @@ describe('createPipeline', () => {
     expect(warnings[0]).toContain('8192');
   });
 
+  it('threads the query from input to stage context', () => {
+    let seenQuery: string | undefined;
+    const querySpy: CompressionStage = {
+      name: 'query-spy',
+      execute(segments, context) {
+        seenQuery = context.query;
+        return { segments };
+      },
+    };
+
+    const pipeline = createPipeline({ stages: [querySpy] });
+    pipeline.compress({
+      segments: [makeSegment({ id: 'a', content: 'hello' })],
+      budget: makeBudget(),
+      query: 'What is the launch date?',
+    });
+
+    expect(seenQuery).toBe('What is the launch date?');
+  });
+
   it('subtracts locked segment tokens from the budget stages receive', () => {
     let seenMaxTokens: number | undefined;
     const budgetSpy: CompressionStage = {
