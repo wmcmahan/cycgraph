@@ -1,0 +1,5270 @@
+{
+ "config": {
+  "dataset": "musique-ans-dev",
+  "datasetUrl": "https://huggingface.co/datasets/dgslibisey/MuSiQue/resolve/c8f4f8c9465fb69d31a8eae894c3fd509c4ca321/musique_ans_v1.0_dev.jsonl",
+  "datasetSha256": "15fa63794d18a94ce12411aca6e2327e65b6e83b0b1490efab3f1962e48abf3b",
+  "subsetSize": 25,
+  "seed": 20260717,
+  "ratios": [
+   0.7,
+   0.5,
+   0.3
+  ],
+  "budgetReference": "cycgraph-fast",
+  "adapters": [
+   "none",
+   "truncation-tail",
+   "truncation-head",
+   "random-drop",
+   "cycgraph-fast",
+   "cycgraph-balanced",
+   "cycgraph-maximum",
+   "cycgraph-fast-query-aware",
+   "cycgraph-fast-relevance",
+   "llmlingua-2"
+  ]
+ },
+ "configHash": "477f06f6e70a995dc5032e26e925b4b450cc0d5654de189fff58d62fae50af2c",
+ "subsetHash": "0f6df90841dc5f6d7fa7750b413a2b4d0e8ab30f6cadeb5359a9eca89c5b97a9",
+ "readerModel": "anthropic-claude-haiku-4-5-20251001",
+ "startedAt": "2026-07-17T17:31:31.987Z",
+ "cells": [
+  {
+   "adapter": "none",
+   "ratio": 1,
+   "achievedRatio": 1,
+   "meanExactMatch": 0.52,
+   "meanF1": 0.5711981351981352,
+   "f1DeltaVsNone": 0,
+   "f1DeltaCi95": 0,
+   "meanCompressionMs": 0.0433482399989316,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2840,
+     "compressionMs": 0.06225000000017644
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 2166,
+     "compressionMs": 0.01266600000053586
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2360,
+     "compressionMs": 0.03562499999861757
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1996,
+     "compressionMs": 0.11958400000003166
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 3151,
+     "compressionMs": 0.06770899999901303
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 3126,
+     "compressionMs": 0.041124999999738066
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 2149,
+     "compressionMs": 0.04179099999964819
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 2085,
+     "compressionMs": 0.048875000000407454
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 4005,
+     "compressionMs": 0.04595799999879091
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 3108,
+     "compressionMs": 0.06462499999906868
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 2252,
+     "compressionMs": 0.06362499999522697
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1728,
+     "compressionMs": 0.046833000000333413
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 2795,
+     "compressionMs": 0.02145899999595713
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 3342,
+     "compressionMs": 0.035707999995793216
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.6666666666666665,
+     "outputTokens": 3029,
+     "compressionMs": 0.030665999998745974
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2335,
+     "compressionMs": 0.007083000004058704
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 2842,
+     "compressionMs": 0.07579200000327546
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2478,
+     "compressionMs": 0.03674999999930151
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 2540,
+     "compressionMs": 0.047582999999576714
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.07692307692307691,
+     "outputTokens": 2939,
+     "compressionMs": 0.04229099999793107
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 2135,
+     "compressionMs": 0.03370800000266172
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1161,
+     "compressionMs": 0.03216699999757111
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03636363636363637,
+     "outputTokens": 2160,
+     "compressionMs": 0.032124999997904524
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 2724,
+     "compressionMs": 0.021624999993946403
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1889,
+     "compressionMs": 0.01608299999497831
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast",
+   "ratio": 0.7,
+   "achievedRatio": 0.6111929368407619,
+   "meanExactMatch": 0.28,
+   "meanF1": 0.31841269841269837,
+   "f1DeltaVsNone": -0.25278543678543675,
+   "f1DeltaCi95": 0.17002607061841632,
+   "meanCompressionMs": 14.037104999999865,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1637,
+     "compressionMs": 23.60295899999619
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1366,
+     "compressionMs": 15.505000000004657
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1450,
+     "compressionMs": 15.229999999995925
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1163,
+     "compressionMs": 11.707125000000815
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1875,
+     "compressionMs": 18.563708000001498
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1985,
+     "compressionMs": 18.672709000005852
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1366,
+     "compressionMs": 9.421792000008281
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 1233,
+     "compressionMs": 7.995458000004874
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2261,
+     "compressionMs": 24.737833999999566
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1834,
+     "compressionMs": 18.873124999998254
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1329,
+     "compressionMs": 12.74016699999629
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1049,
+     "compressionMs": 8.023666000008234
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1695,
+     "compressionMs": 13.984749999988708
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2060,
+     "compressionMs": 18.37108399999852
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.33333333333333337,
+     "outputTokens": 1923,
+     "compressionMs": 14.756457999988925
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.03571428571428571,
+     "outputTokens": 1462,
+     "compressionMs": 14.655333000002429
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1753,
+     "compressionMs": 15.332500000004075
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1507,
+     "compressionMs": 14.58941600000253
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1550,
+     "compressionMs": 12.086249999993015
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.06349206349206349,
+     "outputTokens": 1762,
+     "compressionMs": 16.7120419999992
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1291,
+     "compressionMs": 7.819875000001048
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 788,
+     "compressionMs": 4.716583000001265
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.027777777777777776,
+     "outputTokens": 1377,
+     "compressionMs": 11.065957999991952
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1695,
+     "compressionMs": 11.992790999996942
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1143,
+     "compressionMs": 9.771042000007583
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast",
+   "ratio": 0.5,
+   "achievedRatio": 0.4645147474882892,
+   "meanExactMatch": 0.24,
+   "meanF1": 0.268192537621109,
+   "f1DeltaVsNone": -0.30300559757702616,
+   "f1DeltaCi95": 0.18164900321017596,
+   "meanCompressionMs": 12.633515000001061,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0.05555555555555555,
+     "outputTokens": 1301,
+     "compressionMs": 12.364375000004657
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1020,
+     "compressionMs": 11.21112500000163
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1096,
+     "compressionMs": 11.776499999992666
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 908,
+     "compressionMs": 10.334999999991851
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1433,
+     "compressionMs": 18.29612499999348
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1477,
+     "compressionMs": 19.21745799999917
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1011,
+     "compressionMs": 10.843999999997322
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 973,
+     "compressionMs": 10.264333000028273
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1677,
+     "compressionMs": 24.408499999990454
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1419,
+     "compressionMs": 16.979250000003958
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1026,
+     "compressionMs": 9.90333400000236
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 806,
+     "compressionMs": 8.44525000001886
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1283,
+     "compressionMs": 15.855208000022685
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1560,
+     "compressionMs": 17.612208999984432
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1433,
+     "compressionMs": 17.270458999992115
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.03571428571428571,
+     "outputTokens": 1115,
+     "compressionMs": 13.023832999984734
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1333,
+     "compressionMs": 11.354208000004292
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1161,
+     "compressionMs": 8.664458000013838
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1204,
+     "compressionMs": 15.42324999999255
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.07272727272727272,
+     "outputTokens": 1324,
+     "compressionMs": 11.091374999989057
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1007,
+     "compressionMs": 8.779917000007117
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 561,
+     "compressionMs": 2.4595830000180285
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.04081632653061224,
+     "outputTokens": 1008,
+     "compressionMs": 10.275083999993512
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1292,
+     "compressionMs": 13.120457999990322
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 885,
+     "compressionMs": 6.862583000009181
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast",
+   "ratio": 0.3,
+   "achievedRatio": 0.28648408830416566,
+   "meanExactMatch": 0.12,
+   "meanF1": 0.15034413046711542,
+   "f1DeltaVsNone": -0.42085400473101975,
+   "f1DeltaCi95": 0.1927789162091128,
+   "meanCompressionMs": 13.682774999999674,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 825,
+     "compressionMs": 15.562166999996407
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 616,
+     "compressionMs": 12.823124999995343
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 673,
+     "compressionMs": 12.896750000014435
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05128205128205129,
+     "outputTokens": 566,
+     "compressionMs": 11.122959000000264
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 886,
+     "compressionMs": 17.955832999985432
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 887,
+     "compressionMs": 16.750582999986364
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 625,
+     "compressionMs": 11.225708000012673
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 596,
+     "compressionMs": 12.025792000000365
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1074,
+     "compressionMs": 28.67645800000173
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 889,
+     "compressionMs": 21.25620799997705
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 648,
+     "compressionMs": 12.861833000002662
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 494,
+     "compressionMs": 6.294667000009213
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 795,
+     "compressionMs": 17.704333000001498
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 966,
+     "compressionMs": 18.374208000022918
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 885,
+     "compressionMs": 13.489999999990687
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.044444444444444446,
+     "outputTokens": 670,
+     "compressionMs": 11.773959000012837
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 794,
+     "compressionMs": 11.482875000016065
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 730,
+     "compressionMs": 11.376124999980675
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 745,
+     "compressionMs": 13.17287499998929
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.06896551724137931,
+     "outputTokens": 844,
+     "compressionMs": 15.943666999984998
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 605,
+     "compressionMs": 9.178375000017695
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 348,
+     "compressionMs": 2.3201669999980368
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03508771929824561,
+     "outputTokens": 617,
+     "compressionMs": 13.062791000003926
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0.05882352941176471,
+     "outputTokens": 777,
+     "compressionMs": 16.21991699998034
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 544,
+     "compressionMs": 8.518000000010943
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-tail",
+   "ratio": 0.7,
+   "achievedRatio": 0.6111929368407619,
+   "meanExactMatch": 0.28,
+   "meanF1": 0.3523232323232323,
+   "f1DeltaVsNone": -0.21887490287490288,
+   "f1DeltaCi95": 0.17796939389413516,
+   "meanCompressionMs": 0.055369920000666754,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 1637,
+     "compressionMs": 0.20125000001280569
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1366,
+     "compressionMs": 0.08091600000625476
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1450,
+     "compressionMs": 0.05545799998799339
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1163,
+     "compressionMs": 0.057083000021521
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1875,
+     "compressionMs": 0.04800000000977889
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1985,
+     "compressionMs": 0.07158299998263828
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1366,
+     "compressionMs": 0.051500000001396984
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 1233,
+     "compressionMs": 0.03566699998918921
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2261,
+     "compressionMs": 0.05279199997312389
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1834,
+     "compressionMs": 0.04850000000442378
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1329,
+     "compressionMs": 0.04649999999674037
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1049,
+     "compressionMs": 0.06466599999112077
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1695,
+     "compressionMs": 0.03345899999840185
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2060,
+     "compressionMs": 0.04595800000242889
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.6666666666666665,
+     "outputTokens": 1923,
+     "compressionMs": 0.04412500001490116
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1462,
+     "compressionMs": 0.04770799999823794
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1753,
+     "compressionMs": 0.035499999998137355
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1507,
+     "compressionMs": 0.04779200002667494
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1550,
+     "compressionMs": 0.040624999994179234
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.030303030303030307,
+     "outputTokens": 1762,
+     "compressionMs": 0.05475000001024455
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.05555555555555555,
+     "outputTokens": 1291,
+     "compressionMs": 0.04383300000336021
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 788,
+     "compressionMs": 0.04333399998722598
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.05555555555555555,
+     "outputTokens": 1377,
+     "compressionMs": 0.041790999996010214
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1695,
+     "compressionMs": 0.04383300000336021
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1143,
+     "compressionMs": 0.04762500000651926
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-tail",
+   "ratio": 0.5,
+   "achievedRatio": 0.4645147474882892,
+   "meanExactMatch": 0.2,
+   "meanF1": 0.23009727635390412,
+   "f1DeltaVsNone": -0.3411008588442311,
+   "f1DeltaCi95": 0.21785513902537035,
+   "meanCompressionMs": 0.0481899999990128,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1301,
+     "compressionMs": 0.05633400002261624
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1020,
+     "compressionMs": 0.04929200001060963
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1096,
+     "compressionMs": 0.04808300000149757
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 908,
+     "compressionMs": 0.04412500001490116
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1433,
+     "compressionMs": 0.04612499999348074
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1477,
+     "compressionMs": 0.04112499998882413
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1011,
+     "compressionMs": 0.03904200001852587
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 973,
+     "compressionMs": 0.05270800000289455
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0.05714285714285714,
+     "outputTokens": 1677,
+     "compressionMs": 0.044916999991983175
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1419,
+     "compressionMs": 0.04649999999674037
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1026,
+     "compressionMs": 0.03983299998799339
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 806,
+     "compressionMs": 0.09879100002581254
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1283,
+     "compressionMs": 0.044541999988723546
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1560,
+     "compressionMs": 0.04533400002401322
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1433,
+     "compressionMs": 0.04791599995223805
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.03636363636363636,
+     "outputTokens": 1115,
+     "compressionMs": 0.04941700003109872
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1333,
+     "compressionMs": 0.03641599998809397
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1161,
+     "compressionMs": 0.0487919999868609
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1204,
+     "compressionMs": 0.052124999987427145
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.04347826086956522,
+     "outputTokens": 1324,
+     "compressionMs": 0.05125000001862645
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.06666666666666667,
+     "outputTokens": 1007,
+     "compressionMs": 0.0476249999483116
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 561,
+     "compressionMs": 0.03500000003259629
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.048780487804878044,
+     "outputTokens": 1008,
+     "compressionMs": 0.042916999955195934
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1292,
+     "compressionMs": 0.045082999975420535
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 885,
+     "compressionMs": 0.05145800003083423
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-tail",
+   "ratio": 0.3,
+   "achievedRatio": 0.28648408830416566,
+   "meanExactMatch": 0.16,
+   "meanF1": 0.17064947428979327,
+   "f1DeltaVsNone": -0.4005486609083419,
+   "f1DeltaCi95": 0.24742392423676957,
+   "meanCompressionMs": 0.04430340000195429,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 825,
+     "compressionMs": 0.05537499999627471
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 616,
+     "compressionMs": 0.03766700002597645
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 673,
+     "compressionMs": 0.049042000027839094
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 566,
+     "compressionMs": 0.056875000009313226
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 886,
+     "compressionMs": 0.036874999990686774
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 887,
+     "compressionMs": 0.04275000002235174
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 625,
+     "compressionMs": 0.04929200001060963
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 596,
+     "compressionMs": 0.03616700001293793
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0.04878048780487806,
+     "outputTokens": 1074,
+     "compressionMs": 0.051334000017959625
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 889,
+     "compressionMs": 0.04883400001563132
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 648,
+     "compressionMs": 0.039041000010911375
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 494,
+     "compressionMs": 0.04570899996906519
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 795,
+     "compressionMs": 0.04583299998193979
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 966,
+     "compressionMs": 0.04466700000921264
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 885,
+     "compressionMs": 0.04591599997365847
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.058823529411764705,
+     "outputTokens": 670,
+     "compressionMs": 0.03912499995203689
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 794,
+     "compressionMs": 0.04550000000745058
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 730,
+     "compressionMs": 0.04933300003176555
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 745,
+     "compressionMs": 0.05116600001929328
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.046511627906976744,
+     "outputTokens": 844,
+     "compressionMs": 0.050042000017128885
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.06666666666666667,
+     "outputTokens": 605,
+     "compressionMs": 0.04383300000336021
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 348,
+     "compressionMs": 0.028666999947745353
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.04545454545454545,
+     "outputTokens": 617,
+     "compressionMs": 0.04008299997076392
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 777,
+     "compressionMs": 0.043541999999433756
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 544,
+     "compressionMs": 0.030917000025510788
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-head",
+   "ratio": 0.7,
+   "achievedRatio": 0.6111929368407619,
+   "meanExactMatch": 0.24,
+   "meanF1": 0.28041776281174363,
+   "f1DeltaVsNone": -0.29078037238639154,
+   "f1DeltaCi95": 0.1785917650007215,
+   "meanCompressionMs": 0.04794328000163659,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1637,
+     "compressionMs": 0.05091699998592958
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1366,
+     "compressionMs": 0.040332999953534454
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1450,
+     "compressionMs": 0.04441699996823445
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1163,
+     "compressionMs": 0.05129200004739687
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1875,
+     "compressionMs": 0.05087500001536682
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1985,
+     "compressionMs": 0.04187499999534339
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1366,
+     "compressionMs": 0.05200000002514571
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1233,
+     "compressionMs": 0.04679200000828132
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2261,
+     "compressionMs": 0.05262500001117587
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1834,
+     "compressionMs": 0.052291000029072165
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1329,
+     "compressionMs": 0.04954199999338016
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1049,
+     "compressionMs": 0.03166600002441555
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1695,
+     "compressionMs": 0.04800000000977889
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2060,
+     "compressionMs": 0.044082999986130744
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.6666666666666665,
+     "outputTokens": 1923,
+     "compressionMs": 0.04741599998669699
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1462,
+     "compressionMs": 0.039332999964244664
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1753,
+     "compressionMs": 0.05154199997195974
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0.15,
+     "outputTokens": 1507,
+     "compressionMs": 0.05008300003828481
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1550,
+     "compressionMs": 0.05858399998396635
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.06153846153846154,
+     "outputTokens": 1762,
+     "compressionMs": 0.05433300003642216
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1291,
+     "compressionMs": 0.046666999987792224
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 788,
+     "compressionMs": 0.05070800002431497
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.0392156862745098,
+     "outputTokens": 1377,
+     "compressionMs": 0.04512500000419095
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0.09302325581395349,
+     "outputTokens": 1695,
+     "compressionMs": 0.049375000002328306
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1143,
+     "compressionMs": 0.04870799998752773
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-head",
+   "ratio": 0.5,
+   "achievedRatio": 0.4645147474882892,
+   "meanExactMatch": 0.16,
+   "meanF1": 0.17195862068965517,
+   "f1DeltaVsNone": -0.39923951450848,
+   "f1DeltaCi95": 0.18946868628778638,
+   "meanCompressionMs": 0.0498498799931258,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1301,
+     "compressionMs": 0.05749999999534339
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1020,
+     "compressionMs": 0.08687499997904524
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1096,
+     "compressionMs": 0.044707999972160906
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 908,
+     "compressionMs": 0.05066599999554455
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1433,
+     "compressionMs": 0.048833000008016825
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1477,
+     "compressionMs": 0.035875000001396984
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1011,
+     "compressionMs": 0.05516699998406693
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 973,
+     "compressionMs": 0.04841600003419444
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1677,
+     "compressionMs": 0.05712499999208376
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1419,
+     "compressionMs": 0.05154100002255291
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1026,
+     "compressionMs": 0.0369160000118427
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 806,
+     "compressionMs": 0.053041000035591424
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1283,
+     "compressionMs": 0.045916999981272966
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1560,
+     "compressionMs": 0.04516699997475371
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1433,
+     "compressionMs": 0.034875000012107193
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1115,
+     "compressionMs": 0.06262499996228144
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.06896551724137931,
+     "outputTokens": 1333,
+     "compressionMs": 0.04883400001563132
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0.15,
+     "outputTokens": 1161,
+     "compressionMs": 0.052207999979145825
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1204,
+     "compressionMs": 0.055083999992348254
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1324,
+     "compressionMs": 0.04458299995167181
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1007,
+     "compressionMs": 0.046666999987792224
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 561,
+     "compressionMs": 0.04395799996564165
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.08,
+     "outputTokens": 1008,
+     "compressionMs": 0.04591599997365847
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1292,
+     "compressionMs": 0.04449999995995313
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 885,
+     "compressionMs": 0.04925000004004687
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-head",
+   "ratio": 0.3,
+   "achievedRatio": 0.28648408830416566,
+   "meanExactMatch": 0.08,
+   "meanF1": 0.09370192763296212,
+   "f1DeltaVsNone": -0.477496207565173,
+   "f1DeltaCi95": 0.18644666429951562,
+   "meanCompressionMs": 0.04618835999630391,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 825,
+     "compressionMs": 0.12195800000336021
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 616,
+     "compressionMs": 0.05216700001619756
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 673,
+     "compressionMs": 0.03187499998603016
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05405405405405405,
+     "outputTokens": 566,
+     "compressionMs": 0.04970899998443201
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 886,
+     "compressionMs": 0.04316699999617413
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 887,
+     "compressionMs": 0.037333999993279576
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 625,
+     "compressionMs": 0.04804099997272715
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 596,
+     "compressionMs": 0.04512500000419095
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1074,
+     "compressionMs": 0.053207999968435615
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 889,
+     "compressionMs": 0.04595900001004338
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 648,
+     "compressionMs": 0.03416700003435835
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 494,
+     "compressionMs": 0.045542000036221
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 795,
+     "compressionMs": 0.043249999987892807
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 966,
+     "compressionMs": 0.04554099997039884
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 885,
+     "compressionMs": 0.04404099995736033
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 670,
+     "compressionMs": 0.02374999999301508
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.06896551724137931,
+     "outputTokens": 794,
+     "compressionMs": 0.04604100005235523
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 730,
+     "compressionMs": 0.046208999992813915
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 745,
+     "compressionMs": 0.053499999979976565
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 844,
+     "compressionMs": 0.0442499999771826
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.09999999999999999,
+     "outputTokens": 605,
+     "compressionMs": 0.043415999971330166
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 348,
+     "compressionMs": 0.04258300003129989
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.04545454545454545,
+     "outputTokens": 617,
+     "compressionMs": 0.03283399995416403
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0.07407407407407407,
+     "outputTokens": 777,
+     "compressionMs": 0.034792000020388514
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 544,
+     "compressionMs": 0.04625000001396984
+    }
+   ]
+  },
+  {
+   "adapter": "random-drop",
+   "ratio": 0.7,
+   "achievedRatio": 0.5841461122199155,
+   "meanExactMatch": 0.16,
+   "meanF1": 0.20998556998556997,
+   "f1DeltaVsNone": -0.3612125652125652,
+   "f1DeltaCi95": 0.22540256857348678,
+   "meanCompressionMs": 3.609163239991758,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1504,
+     "compressionMs": 8.45041599997785
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1258,
+     "compressionMs": 3.7622919999994338
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1409,
+     "compressionMs": 2.1066659999778494
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1150,
+     "compressionMs": 3.184540999995079
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1827,
+     "compressionMs": 3.675875000015367
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1820,
+     "compressionMs": 4.114665999950375
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1243,
+     "compressionMs": 2.7795419999747537
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1207,
+     "compressionMs": 4.117708000005223
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0.3333333333333333,
+     "outputTokens": 2124,
+     "compressionMs": 6.762667000002693
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1820,
+     "compressionMs": 3.317957999999635
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1328,
+     "compressionMs": 4.392416999966372
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1024,
+     "compressionMs": 2.321750000002794
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1644,
+     "compressionMs": 4.800875000015367
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1984,
+     "compressionMs": 4.094500000006519
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.7499999999999999,
+     "outputTokens": 1818,
+     "compressionMs": 3.006290999997873
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1362,
+     "compressionMs": 3.8927089999779128
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.09090909090909091,
+     "outputTokens": 1675,
+     "compressionMs": 3.924791000026744
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1457,
+     "compressionMs": 1.3501669999677688
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1496,
+     "compressionMs": 3.6347079999977723
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.02777777777777778,
+     "outputTokens": 1713,
+     "compressionMs": 3.834499999997206
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1267,
+     "compressionMs": 3.1731249999720603
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 741,
+     "compressionMs": 1.070084000006318
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.047619047619047616,
+     "outputTokens": 1253,
+     "compressionMs": 2.7722499999799766
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1602,
+     "compressionMs": 4.18645799998194
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1111,
+     "compressionMs": 1.5021249999990687
+    }
+   ]
+  },
+  {
+   "adapter": "random-drop",
+   "ratio": 0.5,
+   "achievedRatio": 0.4355920835327629,
+   "meanExactMatch": 0.12,
+   "meanF1": 0.1641648127902198,
+   "f1DeltaVsNone": -0.40703332240791534,
+   "f1DeltaCi95": 0.197614313495343,
+   "meanCompressionMs": 4.037469920006115,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1213,
+     "compressionMs": 3.875292000011541
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1006,
+     "compressionMs": 4.118790999986231
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1013,
+     "compressionMs": 3.0135000000009313
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 837,
+     "compressionMs": 1.7442500000470318
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1335,
+     "compressionMs": 5.891250000044238
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1470,
+     "compressionMs": 4.858833999955095
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 996,
+     "compressionMs": 3.130165999988094
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 972,
+     "compressionMs": 3.014541000011377
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1539,
+     "compressionMs": 7.764083000016399
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1353,
+     "compressionMs": 5.527375000005122
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 965,
+     "compressionMs": 4.901249999995343
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 733,
+     "compressionMs": 3.372458000027109
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1187,
+     "compressionMs": 4.588292000000365
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1459,
+     "compressionMs": 4.854959000018425
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.888888888888889,
+     "outputTokens": 1345,
+     "compressionMs": 3.200790999981109
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1092,
+     "compressionMs": 3.7861249999841675
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.03508771929824561,
+     "outputTokens": 1215,
+     "compressionMs": 5.15154099999927
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0.0967741935483871,
+     "outputTokens": 1074,
+     "compressionMs": 4.507207999995444
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1095,
+     "compressionMs": 4.8050420000217855
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.04081632653061225,
+     "outputTokens": 1234,
+     "compressionMs": 5.871999999973923
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 918,
+     "compressionMs": 3.299875000026077
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 531,
+     "compressionMs": 1.4718330000177957
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.04255319148936171,
+     "outputTokens": 914,
+     "compressionMs": 2.6974580000387505
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1166,
+     "compressionMs": 2.522458999999799
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 813,
+     "compressionMs": 2.9673750000074506
+    }
+   ]
+  },
+  {
+   "adapter": "random-drop",
+   "ratio": 0.3,
+   "achievedRatio": 0.27356480962008317,
+   "meanExactMatch": 0.04,
+   "meanF1": 0.08624178319450397,
+   "f1DeltaVsNone": -0.48495635200363124,
+   "f1DeltaCi95": 0.21425384023305383,
+   "meanCompressionMs": 4.984128399996552,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 794,
+     "compressionMs": 6.251916999986861
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 598,
+     "compressionMs": 4.776542000006884
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 667,
+     "compressionMs": 4.445999999996275
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 546,
+     "compressionMs": 1.9479169999831356
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 801,
+     "compressionMs": 6.954667000041809
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 870,
+     "compressionMs": 3.4252080000005662
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 580,
+     "compressionMs": 4.812291000038385
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 553,
+     "compressionMs": 5.463415999955032
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0.06666666666666667,
+     "outputTokens": 1018,
+     "compressionMs": 9.526792000047863
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0.04545454545454545,
+     "outputTokens": 880,
+     "compressionMs": 6.843291999946814
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 621,
+     "compressionMs": 5.881541999988258
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 476,
+     "compressionMs": 4.023749999993015
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 770,
+     "compressionMs": 6.529249999963213
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 952,
+     "compressionMs": 7.478332999977283
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 864,
+     "compressionMs": 5.930208000005223
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.05714285714285715,
+     "outputTokens": 630,
+     "compressionMs": 3.3189170000259764
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.05263157894736842,
+     "outputTokens": 715,
+     "compressionMs": 6.826416999974754
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0.8,
+     "outputTokens": 703,
+     "compressionMs": 3.864832999999635
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 720,
+     "compressionMs": 3.809292000019923
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.047619047619047616,
+     "outputTokens": 808,
+     "compressionMs": 3.9107500000391155
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.05263157894736842,
+     "outputTokens": 553,
+     "compressionMs": 3.3803750000079162
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 318,
+     "compressionMs": 1.9330000000190921
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03389830508474576,
+     "outputTokens": 586,
+     "compressionMs": 4.620791999972425
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 761,
+     "compressionMs": 3.793083999946248
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 526,
+     "compressionMs": 4.854624999978114
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-balanced",
+   "ratio": 0.7,
+   "achievedRatio": 0.45524129478894776,
+   "meanExactMatch": 0.08,
+   "meanF1": 0.14811512351070927,
+   "f1DeltaVsNone": -0.42308301168742596,
+   "f1DeltaCi95": 0.18957679668297164,
+   "meanCompressionMs": 27.668283199989236,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1167,
+     "compressionMs": 42.42087500001071
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1049,
+     "compressionMs": 22.73483299999498
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1088,
+     "compressionMs": 24.629416000039782
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.04545454545454545,
+     "outputTokens": 829,
+     "compressionMs": 26.12045799999032
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1267,
+     "compressionMs": 31.03470900002867
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1469,
+     "compressionMs": 32.28862499992829
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1069,
+     "compressionMs": 21.37370799994096
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 914,
+     "compressionMs": 23.173125000088476
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1579,
+     "compressionMs": 38.87725000001956
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1388,
+     "compressionMs": 32.05499999993481
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 984,
+     "compressionMs": 26.017665999941528
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 797,
+     "compressionMs": 20.95250000001397
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1203,
+     "compressionMs": 27.664042000076734
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1544,
+     "compressionMs": 35.117417000001296
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.33333333333333337,
+     "outputTokens": 1512,
+     "compressionMs": 30.601249999948777
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.12307692307692308,
+     "outputTokens": 1153,
+     "compressionMs": 27.724540999974124
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1256,
+     "compressionMs": 30.1236659999704
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1132,
+     "compressionMs": 27.052625000011176
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 1106,
+     "compressionMs": 26.816040999954566
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.06349206349206349,
+     "outputTokens": 1330,
+     "compressionMs": 32.14004099997692
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.10526315789473684,
+     "outputTokens": 959,
+     "compressionMs": 22.26474999997299
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 647,
+     "compressionMs": 14.51437500002794
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03225806451612903,
+     "outputTokens": 977,
+     "compressionMs": 23.19137499993667
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1370,
+     "compressionMs": 30.64641699998174
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 810,
+     "compressionMs": 22.17237499996554
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-balanced",
+   "ratio": 0.5,
+   "achievedRatio": 0.34668534779807136,
+   "meanExactMatch": 0.12,
+   "meanF1": 0.15425703002475294,
+   "f1DeltaVsNone": -0.41694110517338223,
+   "f1DeltaCi95": 0.19405820928069475,
+   "meanCompressionMs": 26.071348320012913,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 940,
+     "compressionMs": 28.25524999992922
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 786,
+     "compressionMs": 22.496792000019923
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 818,
+     "compressionMs": 25.229042000020854
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05128205128205129,
+     "outputTokens": 648,
+     "compressionMs": 21.521249999990687
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 972,
+     "compressionMs": 30.422875000047497
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1083,
+     "compressionMs": 28.339707999955863
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 791,
+     "compressionMs": 20.490125000011176
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 719,
+     "compressionMs": 21.473291000002064
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1165,
+     "compressionMs": 38.368791999993846
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1074,
+     "compressionMs": 28.261375000001863
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 766,
+     "compressionMs": 22.098958000075072
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 616,
+     "compressionMs": 20.057874999940395
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 912,
+     "compressionMs": 29.591499999980442
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1172,
+     "compressionMs": 31.53229200001806
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1129,
+     "compressionMs": 28.91791600000579
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.04,
+     "outputTokens": 878,
+     "compressionMs": 24.411833000020124
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 954,
+     "compressionMs": 29.718916000099853
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0.10169491525423728,
+     "outputTokens": 882,
+     "compressionMs": 26.69787500007078
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 870,
+     "compressionMs": 26.88191699993331
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.06779661016949153,
+     "outputTokens": 997,
+     "compressionMs": 34.992834000033326
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.06666666666666667,
+     "outputTokens": 754,
+     "compressionMs": 22.441500000073574
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 462,
+     "compressionMs": 12.902084000059403
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.028985507246376812,
+     "outputTokens": 719,
+     "compressionMs": 22.832625000039116
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1046,
+     "compressionMs": 29.050625000032596
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 631,
+     "compressionMs": 24.79645799996797
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-balanced",
+   "ratio": 0.3,
+   "achievedRatio": 0.2142173297394367,
+   "meanExactMatch": 0,
+   "meanF1": 0.014844096092543297,
+   "f1DeltaVsNone": -0.556354039105592,
+   "f1DeltaCi95": 0.18779411609169433,
+   "meanCompressionMs": 25.540233279983514,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 608,
+     "compressionMs": 29.955791999935172
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 474,
+     "compressionMs": 20.38912499998696
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 503,
+     "compressionMs": 21.581958000082523
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 406,
+     "compressionMs": 22.21724999998696
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 597,
+     "compressionMs": 32.63712500000838
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 664,
+     "compressionMs": 30.97062499995809
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 494,
+     "compressionMs": 22.71141699992586
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 436,
+     "compressionMs": 22.158082999987528
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 743,
+     "compressionMs": 40.656042000046
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 674,
+     "compressionMs": 29.0027499999851
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 483,
+     "compressionMs": 20.841917000012472
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 376,
+     "compressionMs": 18.09837499994319
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 568,
+     "compressionMs": 25.070042000035755
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 724,
+     "compressionMs": 36.94920799997635
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 710,
+     "compressionMs": 29.105499999946915
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.04166666666666667,
+     "outputTokens": 530,
+     "compressionMs": 20.49929099995643
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.08695652173913042,
+     "outputTokens": 562,
+     "compressionMs": 29.84637499996461
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 553,
+     "compressionMs": 25.493875000043772
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0.08163265306122448,
+     "outputTokens": 546,
+     "compressionMs": 25.798208000021987
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.03703703703703703,
+     "outputTokens": 642,
+     "compressionMs": 27.781374999904074
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.06666666666666667,
+     "outputTokens": 451,
+     "compressionMs": 20.948041000054218
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 284,
+     "compressionMs": 14.346832999959588
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.05714285714285714,
+     "outputTokens": 438,
+     "compressionMs": 23.278457999927923
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 628,
+     "compressionMs": 28.431125000002794
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 389,
+     "compressionMs": 19.737041999935172
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-maximum",
+   "ratio": 0.7,
+   "achievedRatio": 0.45524129478894776,
+   "meanExactMatch": 0.08,
+   "meanF1": 0.1528253317720531,
+   "f1DeltaVsNone": -0.4183728034260821,
+   "f1DeltaCi95": 0.19576239714599242,
+   "meanCompressionMs": 26.979655000003987,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1167,
+     "compressionMs": 31.514541000011377
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1049,
+     "compressionMs": 24.809833000064828
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1088,
+     "compressionMs": 21.77895800000988
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05714285714285715,
+     "outputTokens": 829,
+     "compressionMs": 25.56541699997615
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1267,
+     "compressionMs": 30.90008399996441
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1469,
+     "compressionMs": 34.805082999984734
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1069,
+     "compressionMs": 20.552999999956228
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 914,
+     "compressionMs": 23.502500000060536
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0.3333333333333333,
+     "outputTokens": 1579,
+     "compressionMs": 39.454790999996476
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1388,
+     "compressionMs": 34.89720800006762
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 984,
+     "compressionMs": 28.075874999980442
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 797,
+     "compressionMs": 16.870707999914885
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1203,
+     "compressionMs": 29.546875
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1544,
+     "compressionMs": 32.24229199998081
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.33333333333333337,
+     "outputTokens": 1512,
+     "compressionMs": 35.46945900004357
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1153,
+     "compressionMs": 22.892874999903142
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1256,
+     "compressionMs": 24.97012499999255
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1132,
+     "compressionMs": 30.75474999996368
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 1106,
+     "compressionMs": 26.483166999998502
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.06557377049180328,
+     "outputTokens": 1330,
+     "compressionMs": 29.836375000071712
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 959,
+     "compressionMs": 21.804875000030734
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 647,
+     "compressionMs": 12.818500000052154
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03125,
+     "outputTokens": 977,
+     "compressionMs": 22.003000000026077
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1370,
+     "compressionMs": 30.793959000031464
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 810,
+     "compressionMs": 22.147125000017695
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-maximum",
+   "ratio": 0.5,
+   "achievedRatio": 0.34668534779807136,
+   "meanExactMatch": 0.08,
+   "meanF1": 0.13017041246549443,
+   "f1DeltaVsNone": -0.44102772273264074,
+   "f1DeltaCi95": 0.19468378411184975,
+   "meanCompressionMs": 26.23541835999582,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 940,
+     "compressionMs": 28.506625000038184
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 786,
+     "compressionMs": 22.099290999933146
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 818,
+     "compressionMs": 21.601207999978215
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05128205128205129,
+     "outputTokens": 648,
+     "compressionMs": 21.8095420000609
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 972,
+     "compressionMs": 30.82508300000336
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1083,
+     "compressionMs": 33.17904199997429
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 791,
+     "compressionMs": 23.98595799994655
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 719,
+     "compressionMs": 22.403249999973923
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1165,
+     "compressionMs": 35.284833000041544
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1074,
+     "compressionMs": 32.51254200004041
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 766,
+     "compressionMs": 24.908290999941528
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 616,
+     "compressionMs": 18.804374999948777
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 912,
+     "compressionMs": 29.52979200007394
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1172,
+     "compressionMs": 28.595458999974653
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.33333333333333337,
+     "outputTokens": 1129,
+     "compressionMs": 29.96495799999684
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.037037037037037035,
+     "outputTokens": 878,
+     "compressionMs": 27.339832999976352
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.05714285714285715,
+     "outputTokens": 954,
+     "compressionMs": 30.606958999997005
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0.09836065573770492,
+     "outputTokens": 882,
+     "compressionMs": 27.05012499995064
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 870,
+     "compressionMs": 24.157541999942623
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.07407407407407406,
+     "outputTokens": 997,
+     "compressionMs": 33.88208299991675
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.06666666666666667,
+     "outputTokens": 754,
+     "compressionMs": 22.324459000024945
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 462,
+     "compressionMs": 11.011500000022352
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03636363636363637,
+     "outputTokens": 719,
+     "compressionMs": 23.879625000059605
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1046,
+     "compressionMs": 29.335000000079162
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 631,
+     "compressionMs": 22.2880839999998
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-maximum",
+   "ratio": 0.3,
+   "achievedRatio": 0.2142173297394367,
+   "meanExactMatch": 0,
+   "meanF1": 0.014029100529100528,
+   "f1DeltaVsNone": -0.5571690346690348,
+   "f1DeltaCi95": 0.1911690684655248,
+   "meanCompressionMs": 26.47250004000496,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 608,
+     "compressionMs": 29.41495800006669
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 474,
+     "compressionMs": 20.362874999991618
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 503,
+     "compressionMs": 29.14441700000316
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 406,
+     "compressionMs": 26.210709000006318
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 597,
+     "compressionMs": 31.271249999990687
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 664,
+     "compressionMs": 31.45100000000093
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 494,
+     "compressionMs": 19.222167000058107
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 436,
+     "compressionMs": 23.069665999966674
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0.14285714285714288,
+     "outputTokens": 743,
+     "compressionMs": 43.23108299996238
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 674,
+     "compressionMs": 29.836542000062764
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 483,
+     "compressionMs": 23.951374999945983
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 376,
+     "compressionMs": 18.406958000035957
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 568,
+     "compressionMs": 28.89095799997449
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 724,
+     "compressionMs": 30.798333999933675
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 710,
+     "compressionMs": 29.641583999968134
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.037037037037037035,
+     "outputTokens": 530,
+     "compressionMs": 21.792000000015832
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.0625,
+     "outputTokens": 562,
+     "compressionMs": 28.900125000043772
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 553,
+     "compressionMs": 26.427750000031665
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 546,
+     "compressionMs": 31.027416999917477
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.041666666666666664,
+     "outputTokens": 642,
+     "compressionMs": 31.147583999903873
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.06666666666666667,
+     "outputTokens": 451,
+     "compressionMs": 23.16820800001733
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 284,
+     "compressionMs": 10.362208000035025
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 438,
+     "compressionMs": 22.88825000007637
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 628,
+     "compressionMs": 30.402208000072278
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 389,
+     "compressionMs": 20.79287500004284
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast-query-aware",
+   "ratio": 0.7,
+   "achievedRatio": 0.5484078622481439,
+   "meanExactMatch": 0.2,
+   "meanF1": 0.2755271395271395,
+   "f1DeltaVsNone": -0.2956709956709957,
+   "f1DeltaCi95": 0.18033912888782508,
+   "meanCompressionMs": 19.121018280000428,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0.06060606060606061,
+     "outputTokens": 1426,
+     "compressionMs": 21.42904100008309
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1252,
+     "compressionMs": 15.197541000088677
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1311,
+     "compressionMs": 16.585042000049725
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1030,
+     "compressionMs": 14.180958000011742
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1641,
+     "compressionMs": 23.73387500003446
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1786,
+     "compressionMs": 26.44316699996125
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1255,
+     "compressionMs": 15.332458999939263
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 1084,
+     "compressionMs": 12.726583000039682
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0.28571428571428575,
+     "outputTokens": 1858,
+     "compressionMs": 33.20670799992513
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1603,
+     "compressionMs": 24.19787500007078
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1158,
+     "compressionMs": 18.156458999961615
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 941,
+     "compressionMs": 15.158958000014536
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1505,
+     "compressionMs": 21.921875
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1840,
+     "compressionMs": 23.459750000038184
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.33333333333333337,
+     "outputTokens": 1749,
+     "compressionMs": 21.428124999976717
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1353,
+     "compressionMs": 14.913874999969266
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.09523809523809525,
+     "outputTokens": 1576,
+     "compressionMs": 22.38116600003559
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1365,
+     "compressionMs": 17.17449999996461
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 1415,
+     "compressionMs": 16.221250000060536
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.07692307692307691,
+     "outputTokens": 1557,
+     "compressionMs": 23.970833999919705
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1153,
+     "compressionMs": 14.765582999913022
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 759,
+     "compressionMs": 9.899832999915816
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03636363636363637,
+     "outputTokens": 1255,
+     "compressionMs": 20.188333000056446
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1537,
+     "compressionMs": 21.818792000063695
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1033,
+     "compressionMs": 13.532874999917112
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast-query-aware",
+   "ratio": 0.5,
+   "achievedRatio": 0.4347477526888431,
+   "meanExactMatch": 0.2,
+   "meanF1": 0.24663591943021146,
+   "f1DeltaVsNone": -0.3245622157679237,
+   "f1DeltaCi95": 0.18245359130256397,
+   "meanCompressionMs": 19.788496719999237,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0.0625,
+     "outputTokens": 1204,
+     "compressionMs": 21.11841699993238
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 957,
+     "compressionMs": 16.708167000091635
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1019,
+     "compressionMs": 14.517749999999069
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05263157894736842,
+     "outputTokens": 845,
+     "compressionMs": 16.908208000008017
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1306,
+     "compressionMs": 23.115209000068717
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1388,
+     "compressionMs": 29.108041000086814
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 957,
+     "compressionMs": 18.12112500006333
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 910,
+     "compressionMs": 15.80191699997522
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1419,
+     "compressionMs": 35.49633399990853
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1331,
+     "compressionMs": 22.17983399995137
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 947,
+     "compressionMs": 15.757791000069119
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 753,
+     "compressionMs": 12.10245899995789
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1192,
+     "compressionMs": 23.999750000075437
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1471,
+     "compressionMs": 26.144708000007086
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.33333333333333337,
+     "outputTokens": 1363,
+     "compressionMs": 23.294707999913953
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.03508771929824562,
+     "outputTokens": 1054,
+     "compressionMs": 20.84974999993574
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1232,
+     "compressionMs": 20.964459000038914
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1103,
+     "compressionMs": 21.66183299990371
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1154,
+     "compressionMs": 12.65112500009127
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.05633802816901409,
+     "outputTokens": 1220,
+     "compressionMs": 15.362000000081025
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.09523809523809523,
+     "outputTokens": 954,
+     "compressionMs": 20.15466599992942
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 544,
+     "compressionMs": 8.20499999995809
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03076923076923077,
+     "outputTokens": 957,
+     "compressionMs": 20.675374999991618
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1223,
+     "compressionMs": 24.008459000033326
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 841,
+     "compressionMs": 15.805332999909297
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast-query-aware",
+   "ratio": 0.3,
+   "achievedRatio": 0.2740309128647601,
+   "meanExactMatch": 0.08,
+   "meanF1": 0.1092053403950127,
+   "f1DeltaVsNone": -0.4619927948031225,
+   "f1DeltaCi95": 0.19565706782429543,
+   "meanCompressionMs": 20.984981599994935,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0.05555555555555555,
+     "outputTokens": 804,
+     "compressionMs": 25.015541000058874
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 581,
+     "compressionMs": 15.773667000001296
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 645,
+     "compressionMs": 24.78237499995157
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 537,
+     "compressionMs": 17.87154099997133
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 832,
+     "compressionMs": 23.014625000068918
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 832,
+     "compressionMs": 27.752083000028506
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 597,
+     "compressionMs": 20.078166999970563
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 567,
+     "compressionMs": 14.831165999989025
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 958,
+     "compressionMs": 32.39504199998919
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 850,
+     "compressionMs": 26.574167000013404
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 619,
+     "compressionMs": 17.293874999973923
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 473,
+     "compressionMs": 15.016332999919541
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 753,
+     "compressionMs": 21.859916000044905
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 928,
+     "compressionMs": 23.763584000058472
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 867,
+     "compressionMs": 24.49945799994748
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.03773584905660378,
+     "outputTokens": 640,
+     "compressionMs": 20.890041999984533
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 743,
+     "compressionMs": 25.043332999921404
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 715,
+     "compressionMs": 17.922583000035957
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 729,
+     "compressionMs": 23.252875000005588
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.06666666666666667,
+     "outputTokens": 810,
+     "compressionMs": 22.39966699993238
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 0,
+     "f1": 0.07017543859649122,
+     "outputTokens": 579,
+     "compressionMs": 17.29799999995157
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 348,
+     "compressionMs": 8.550833999994211
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 590,
+     "compressionMs": 20.35875000001397
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 746,
+     "compressionMs": 21.535708000068553
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 525,
+     "compressionMs": 16.851207999978215
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast-relevance",
+   "ratio": 0.7,
+   "achievedRatio": 0.6100201212002666,
+   "meanExactMatch": 0.28,
+   "meanF1": 0.33579654724908253,
+   "f1DeltaVsNone": -0.23540158794905267,
+   "f1DeltaCi95": 0.16770513813591412,
+   "meanCompressionMs": 3.6281765999877824,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0.046511627906976744,
+     "outputTokens": 1634,
+     "compressionMs": 5.478000000002794
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1361,
+     "compressionMs": 4.495040999958292
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1451,
+     "compressionMs": 3.3511660000076517
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05555555555555555,
+     "outputTokens": 1163,
+     "compressionMs": 2.137916999985464
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1875,
+     "compressionMs": 3.2258750000037253
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1982,
+     "compressionMs": 3.8389579999493435
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1361,
+     "compressionMs": 2.422874999931082
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 1235,
+     "compressionMs": 3.1295420000096783
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2251,
+     "compressionMs": 5.900874999933876
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1826,
+     "compressionMs": 2.078417000011541
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1308,
+     "compressionMs": 5.786915999953635
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1046,
+     "compressionMs": 2.3422499999869615
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1689,
+     "compressionMs": 4.5070830000331625
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2061,
+     "compressionMs": 2.6627089999383315
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.6666666666666665,
+     "outputTokens": 1922,
+     "compressionMs": 3.4926670000422746
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1459,
+     "compressionMs": 3.7264999999897555
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.06060606060606061,
+     "outputTokens": 1743,
+     "compressionMs": 6.182957999990322
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1507,
+     "compressionMs": 2.6475830000126734
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1553,
+     "compressionMs": 3.954958999995142
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.06557377049180328,
+     "outputTokens": 1761,
+     "compressionMs": 7.379708000109531
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1292,
+     "compressionMs": 2.518375000101514
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 788,
+     "compressionMs": 1.652540999930352
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1371,
+     "compressionMs": 2.616249999962747
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1695,
+     "compressionMs": 2.9061669999500737
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1144,
+     "compressionMs": 2.26908299990464
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast-relevance",
+   "ratio": 0.5,
+   "achievedRatio": 0.46263681156934816,
+   "meanExactMatch": 0.32,
+   "meanF1": 0.37573844464410505,
+   "f1DeltaVsNone": -0.1954596905540302,
+   "f1DeltaCi95": 0.191380614671396,
+   "meanCompressionMs": 3.6852883999980985,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0.05714285714285715,
+     "outputTokens": 1292,
+     "compressionMs": 4.926458999980241
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1016,
+     "compressionMs": 2.822792000020854
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1090,
+     "compressionMs": 4.775292000034824
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05714285714285715,
+     "outputTokens": 901,
+     "compressionMs": 3.8612079999875277
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1432,
+     "compressionMs": 5.132166999974288
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1479,
+     "compressionMs": 2.659374999930151
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1012,
+     "compressionMs": 4.149333999957889
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 974,
+     "compressionMs": 2.4243340000975877
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1675,
+     "compressionMs": 5.534790999954566
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1415,
+     "compressionMs": 4.0152089999755844
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1013,
+     "compressionMs": 3.85833299998194
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 790,
+     "compressionMs": 4.23741699999664
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1281,
+     "compressionMs": 2.678040999919176
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1559,
+     "compressionMs": 5.35612500004936
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.6666666666666665,
+     "outputTokens": 1418,
+     "compressionMs": 6.113541999948211
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1106,
+     "compressionMs": 3.8889579999959096
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.037037037037037035,
+     "outputTokens": 1326,
+     "compressionMs": 3.298750000074506
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1159,
+     "compressionMs": 6.069832999957725
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0.03773584905660377,
+     "outputTokens": 1201,
+     "compressionMs": 2.107042000046931
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.03773584905660377,
+     "outputTokens": 1319,
+     "compressionMs": 1.9805410000262782
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1008,
+     "compressionMs": 1.5334169999696314
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 559,
+     "compressionMs": 1.4503330000443384
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1010,
+     "compressionMs": 3.6738749999785796
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1294,
+     "compressionMs": 3.303667000029236
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 876,
+     "compressionMs": 2.281375000020489
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast-relevance",
+   "ratio": 0.3,
+   "achievedRatio": 0.2843864349473113,
+   "meanExactMatch": 0.28,
+   "meanF1": 0.31099122557187076,
+   "f1DeltaVsNone": -0.2602069096262644,
+   "f1DeltaCi95": 0.17037324181448316,
+   "meanCompressionMs": 3.7850531600089745,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0.06451612903225806,
+     "outputTokens": 821,
+     "compressionMs": 2.7002080000238493
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 616,
+     "compressionMs": 1.2002500001108274
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 674,
+     "compressionMs": 3.2845830000005662
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05405405405405405,
+     "outputTokens": 566,
+     "compressionMs": 2.0139579999959096
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 873,
+     "compressionMs": 7.265416999929585
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 882,
+     "compressionMs": 5.461417000042275
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 622,
+     "compressionMs": 2.843207999947481
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 596,
+     "compressionMs": 4.308040999923833
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1055,
+     "compressionMs": 4.44683300005272
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 885,
+     "compressionMs": 4.211790999979712
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 646,
+     "compressionMs": 2.9445410000626
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 488,
+     "compressionMs": 2.1838329999009147
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 794,
+     "compressionMs": 1.6362499999813735
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 964,
+     "compressionMs": 2.0359579999931157
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 886,
+     "compressionMs": 5.447416000068188
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 666,
+     "compressionMs": 2.9842919999500737
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 0,
+     "f1": 0.06060606060606061,
+     "outputTokens": 786,
+     "compressionMs": 5.03324999997858
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 725,
+     "compressionMs": 3.0824580000480637
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 723,
+     "compressionMs": 6.941833000048064
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.05714285714285715,
+     "outputTokens": 842,
+     "compressionMs": 4.1469160000560805
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 603,
+     "compressionMs": 2.5827920000301674
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 343,
+     "compressionMs": 1.8764580000424758
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03846153846153846,
+     "outputTokens": 611,
+     "compressionMs": 8.20166700007394
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 773,
+     "compressionMs": 4.1454999999841675
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 529,
+     "compressionMs": 3.647458999999799
+    }
+   ]
+  },
+  {
+   "adapter": "llmlingua-2",
+   "ratio": 0.7,
+   "achievedRatio": 0.5911330638274556,
+   "meanExactMatch": 0.28,
+   "meanF1": 0.3722184159638354,
+   "f1DeltaVsNone": -0.19897971923429977,
+   "f1DeltaCi95": 0.18670074123244548,
+   "meanCompressionMs": 1111.3363699999777,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1545,
+     "compressionMs": 4903.753000000026
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1358,
+     "compressionMs": 877.5606250000419
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1405,
+     "compressionMs": 845.8646670000162
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05714285714285715,
+     "outputTokens": 1078,
+     "compressionMs": 868.9845830000704
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1864,
+     "compressionMs": 1206.658291000058
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1877,
+     "compressionMs": 1137.4896250000456
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1308,
+     "compressionMs": 849.624291999964
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 1201,
+     "compressionMs": 807.1636249999283
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2189,
+     "compressionMs": 1503.8018750000047
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0.1904761904761905,
+     "outputTokens": 1802,
+     "compressionMs": 1161.3697909999173
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1296,
+     "compressionMs": 850.2817919999361
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1017,
+     "compressionMs": 693.2786250000354
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1650,
+     "compressionMs": 1018.3325419999892
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 2116,
+     "compressionMs": 1012.7929999999469
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.6666666666666665,
+     "outputTokens": 1898,
+     "compressionMs": 986.3421249999665
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1406,
+     "compressionMs": 951.4315420000348
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1686,
+     "compressionMs": 1005.5417919999454
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1463,
+     "compressionMs": 834.9637499999953
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0.6666666666666666,
+     "outputTokens": 1478,
+     "compressionMs": 1149.983332999982
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0.07407407407407406,
+     "outputTokens": 1696,
+     "compressionMs": 979.9085829998367
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1253,
+     "compressionMs": 852.2578749998938
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0.11764705882352941,
+     "outputTokens": 747,
+     "compressionMs": 555.0447909999639
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0.03278688524590164,
+     "outputTokens": 1337,
+     "compressionMs": 880.0689590000547
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1616,
+     "compressionMs": 1010.3957499999087
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1072,
+     "compressionMs": 840.5144169998821
+    }
+   ]
+  },
+  {
+   "adapter": "llmlingua-2",
+   "ratio": 0.5,
+   "achievedRatio": 0.43970376837416636,
+   "meanExactMatch": 0.2,
+   "meanF1": 0.25366666666666665,
+   "f1DeltaVsNone": -0.3175314685314685,
+   "f1DeltaCi95": 0.18166970347545214,
+   "meanCompressionMs": 948.4545984399878,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1228,
+     "compressionMs": 1105.2924999999814
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 986,
+     "compressionMs": 859.6337920001242
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1049,
+     "compressionMs": 858.2059170000721
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.05,
+     "outputTokens": 863,
+     "compressionMs": 862.7694580000825
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1376,
+     "compressionMs": 1140.922125000041
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1396,
+     "compressionMs": 1131.4912920000497
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 965,
+     "compressionMs": 828.6503749999683
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 935,
+     "compressionMs": 802.9145420000423
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1600,
+     "compressionMs": 1410.7058329998981
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1353,
+     "compressionMs": 1155.2362079999875
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 957,
+     "compressionMs": 861.6903339999262
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 742,
+     "compressionMs": 692.7958339999896
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1218,
+     "compressionMs": 1004.278749999823
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1524,
+     "compressionMs": 991.2712499999907
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0.6666666666666665,
+     "outputTokens": 1346,
+     "compressionMs": 953.2467910000123
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1035,
+     "compressionMs": 1018.1083750000689
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1273,
+     "compressionMs": 962.4365419999231
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1100,
+     "compressionMs": 875.4743340001442
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 1158,
+     "compressionMs": 1168.1843749999534
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1253,
+     "compressionMs": 990.1164589999244
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 948,
+     "compressionMs": 832.449624999892
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0.125,
+     "outputTokens": 521,
+     "compressionMs": 500.9174999999814
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 945,
+     "compressionMs": 841.1804169998504
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 1211,
+     "compressionMs": 1009.2349580000155
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 812,
+     "compressionMs": 854.1573749999516
+    }
+   ]
+  },
+  {
+   "adapter": "llmlingua-2",
+   "ratio": 0.3,
+   "achievedRatio": 0.2671749426381446,
+   "meanExactMatch": 0.08,
+   "meanF1": 0.10527816452593391,
+   "f1DeltaVsNone": -0.46591997067220126,
+   "f1DeltaCi95": 0.1951104069680231,
+   "meanCompressionMs": 925.6402916800045,
+   "questions": [
+    {
+     "questionId": "2hop__63982_768138",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 765,
+     "compressionMs": 1178.627500000177
+    },
+    {
+     "questionId": "2hop__502852_75487",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 565,
+     "compressionMs": 862.2824170000385
+    },
+    {
+     "questionId": "3hop1__773623_87694_124169",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 642,
+     "compressionMs": 858.2317919998895
+    },
+    {
+     "questionId": "2hop__678516_179720",
+     "exactMatch": 0,
+     "f1": 0.0425531914893617,
+     "outputTokens": 529,
+     "compressionMs": 846.6739169999491
+    },
+    {
+     "questionId": "4hop1__264443_49925_13759_736921",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 816,
+     "compressionMs": 1161.5760410001967
+    },
+    {
+     "questionId": "3hop2__93066_88342_47738",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 819,
+     "compressionMs": 1162.5993330001365
+    },
+    {
+     "questionId": "2hop__108158_83769",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 578,
+     "compressionMs": 862.1503329998814
+    },
+    {
+     "questionId": "2hop__504464_708278",
+     "exactMatch": 0,
+     "f1": 0.5,
+     "outputTokens": 527,
+     "compressionMs": 867.2292500000913
+    },
+    {
+     "questionId": "3hop1__507961_160713_77246",
+     "exactMatch": 0,
+     "f1": 0.05714285714285714,
+     "outputTokens": 1028,
+     "compressionMs": 1418.8545419999864
+    },
+    {
+     "questionId": "4hop3__719125_132409_371500_35031",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 818,
+     "compressionMs": 1173.52649999992
+    },
+    {
+     "questionId": "2hop__728969_131890",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 585,
+     "compressionMs": 831.3919999999925
+    },
+    {
+     "questionId": "2hop__477492_240386",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 458,
+     "compressionMs": 678.965707999887
+    },
+    {
+     "questionId": "2hop__217011_80026",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 720,
+     "compressionMs": 1015.5099160000682
+    },
+    {
+     "questionId": "3hop1__127821_157828_162309",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 849,
+     "compressionMs": 963.0730830000248
+    },
+    {
+     "questionId": "4hop1__39871_314549_131976_44892",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 803,
+     "compressionMs": 1013.4324169999454
+    },
+    {
+     "questionId": "2hop__80_59409",
+     "exactMatch": 0,
+     "f1": 0.032258064516129024,
+     "outputTokens": 621,
+     "compressionMs": 989.2716249998193
+    },
+    {
+     "questionId": "2hop__35173_17335",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 749,
+     "compressionMs": 1013.717042000033
+    },
+    {
+     "questionId": "3hop1__241001_568433_47686",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 676,
+     "compressionMs": 802.1274170000106
+    },
+    {
+     "questionId": "2hop__63002_461854",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 712,
+     "compressionMs": 1156.0060419999063
+    },
+    {
+     "questionId": "4hop3__270458_88460_30152_20999",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 767,
+     "compressionMs": 1017.8490420000162
+    },
+    {
+     "questionId": "2hop__35989_623159",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 565,
+     "compressionMs": 863.2685420000926
+    },
+    {
+     "questionId": "2hop__809785_606637",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 328,
+     "compressionMs": 540.0047079999931
+    },
+    {
+     "questionId": "3hop2__851134_326964_7713",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 575,
+     "compressionMs": 852.4651250001043
+    },
+    {
+     "questionId": "3hop1__222497_737465_93723",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 801,
+     "compressionMs": 548.7722500001546
+    },
+    {
+     "questionId": "2hop__335899_124498",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 561,
+     "compressionMs": 463.400749999797
+    }
+   ]
+  }
+ ],
+ "skippedAdapters": []
+}

@@ -46,6 +46,7 @@ import type { TestCaseResults } from '../../assertions/drift-calculator.js';
 import type { SutSuiteConfig } from '../sut-contract.js';
 import { loadGoldenTrajectories } from '../../dataset/loader.js';
 import { FAITHFULNESS } from '../../assertions/semantic-judge.js';
+import { EFFICACY_SCENARIOS, joinSegments } from './efficacy-fixtures.js';
 
 // ─── Test Fixtures ────────────────────────────────────────────────
 
@@ -156,6 +157,70 @@ export async function runDeterministic(): Promise<TestCaseResults[]> {
 
   // Test 18: Optimizer presets have correct stage counts
   results.push(runOptimizerPresetEval());
+
+  // ── Efficacy Frontier Tests ──
+  // Fidelity at compression ratio: for each scenario, gated presets must
+  // hit the reduction floor AND preserve every planted critical fact and
+  // negation. Thresholds are calibrated ratchets (current measured
+  // behavior), not aspirations — see efficacy-fixtures.ts.
+  results.push(...runEfficacyFrontierEvals());
+
+  return results;
+}
+
+// ─── Efficacy Frontier (deterministic track) ───────────────────────
+
+function runEfficacyFrontierEvals(): TestCaseResults[] {
+  const results: TestCaseResults[] = [];
+
+  for (const scenario of EFFICACY_SCENARIOS) {
+    for (const preset of scenario.gatePresets) {
+      const { pipeline } = createOptimizedPipeline({ preset });
+      const result = pipeline.compress({
+        segments: scenario.segments,
+        budget: scenario.budget,
+      });
+      const compressed = joinSegments(result.segments);
+
+      const survivingFacts = scenario.criticalFacts.filter(f => compressed.includes(f));
+      const missingFacts = scenario.criticalFacts.filter(f => !compressed.includes(f));
+      const survivingNegations = scenario.negations.filter(n => compressed.includes(n));
+
+      const deterministicResults: DeterministicResult[] = [
+        assertGreaterThanOrEqual(
+          `efficacy_${scenario.name}_${preset}_reduction`,
+          result.metrics.reductionPercent,
+          scenario.minReductionPercent,
+          `${preset} on ${scenario.name}: reduction >= ${scenario.minReductionPercent}% (${result.metrics.reductionPercent.toFixed(1)}% actual)`,
+        ),
+        assertEqual(
+          `efficacy_${scenario.name}_${preset}_fact_survival`,
+          survivingFacts.length,
+          scenario.criticalFacts.length,
+          `${preset} on ${scenario.name}: all ${scenario.criticalFacts.length} critical facts survive` +
+            (missingFacts.length > 0 ? ` (missing: ${missingFacts.join(', ')})` : ''),
+        ),
+      ];
+
+      if (scenario.negations.length > 0) {
+        deterministicResults.push(
+          assertEqual(
+            `efficacy_${scenario.name}_${preset}_negation_survival`,
+            survivingNegations.length,
+            scenario.negations.length,
+            `${preset} on ${scenario.name}: negations survive (meaning inversion guard)`,
+          ),
+        );
+      }
+
+      results.push({
+        suite: 'context-engine',
+        zodResults: [],
+        semanticResults: [],
+        deterministicResults,
+      });
+    }
+  }
 
   return results;
 }

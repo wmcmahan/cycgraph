@@ -128,6 +128,8 @@ export {
   INSTRUCTION_FOLLOWING,
   OUTPUT_QUALITY,
   SAFETY,
+  COMPRESSION_FIDELITY,
+  QA_ANSWERABILITY,
   REFERENCE_FREE_METRICS,
 } from './assertions/reference-free-judge.js';
 
@@ -150,6 +152,8 @@ export { createOllamaProvider } from './providers/ollama.js';
 export type { OllamaProviderOptions } from './providers/ollama.js';
 export { createOpenAIProvider } from './providers/openai.js';
 export type { OpenAIProviderOptions } from './providers/openai.js';
+export { createAnthropicProvider } from './providers/anthropic.js';
+export type { AnthropicProviderOptions } from './providers/anthropic.js';
 
 // ─── SUT-Driven Suite Contract ─────────────────────────────────────
 
