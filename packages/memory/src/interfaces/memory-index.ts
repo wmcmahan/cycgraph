@@ -23,7 +23,7 @@ export interface ScoredResult<T> {
 /** Options for similarity search. */
 export interface SearchOptions {
   limit?: number;
-  min_similarity?: number;
+  minSimilarity?: number;
 }
 
 /**

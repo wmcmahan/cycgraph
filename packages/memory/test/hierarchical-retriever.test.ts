@@ -27,7 +27,7 @@ describe('retrieveMemory', () => {
   });
 
   it('returns empty result when no embedding or entity_ids', async () => {
-    const result = await retrieveMemory(store, index, { max_hops: 2, limit: 20, min_similarity: 0.5, include_invalidated: false });
+    const result = await retrieveMemory(store, index, { maxHops: 2, limit: 20, minSimilarity: 0.5, includeInvalidated: false });
     expect(result.themes).toEqual([]);
     expect(result.facts).toEqual([]);
   });
@@ -88,10 +88,10 @@ describe('retrieveMemory', () => {
     it('retrieves themes, facts, episodes, and entities via embedding', async () => {
       const query: MemoryQuery = {
         embedding: [1, 0, 0],
-        max_hops: 2,
+        maxHops: 2,
         limit: 20,
-        min_similarity: 0.5,
-        include_invalidated: false,
+        minSimilarity: 0.5,
+        includeInvalidated: false,
       };
 
       const result = await retrieveMemory(store, index, query);
@@ -103,13 +103,13 @@ describe('retrieveMemory', () => {
       expect(result.entities[0].name).toBe('Alice');
     });
 
-    it('respects min_similarity', async () => {
+    it('respects minSimilarity', async () => {
       const query: MemoryQuery = {
         embedding: [0, 1, 0], // orthogonal to stored embeddings
-        max_hops: 2,
+        maxHops: 2,
         limit: 20,
-        min_similarity: 0.9,
-        include_invalidated: false,
+        minSimilarity: 0.9,
+        includeInvalidated: false,
       };
 
       const result = await retrieveMemory(store, index, query);
@@ -166,11 +166,11 @@ describe('retrieveMemory', () => {
       await index.rebuild(store);
 
       const query: MemoryQuery = {
-        entity_ids: [a.id],
-        max_hops: 1,
+        entityIds: [a.id],
+        maxHops: 1,
         limit: 20,
-        min_similarity: 0.5,
-        include_invalidated: false,
+        minSimilarity: 0.5,
+        includeInvalidated: false,
       };
 
       const result = await retrieveMemory(store, index, query);
@@ -226,11 +226,11 @@ describe('retrieveMemory', () => {
       await index.rebuild(store);
 
       const result = await retrieveMemory(store, index, {
-        entity_ids: [e1.id],
-        max_hops: 1,
+        entityIds: [e1.id],
+        maxHops: 1,
         limit: 50,
-        min_similarity: 0.5,
-        include_invalidated: false,
+        minSimilarity: 0.5,
+        includeInvalidated: false,
       });
 
       // Fact is found via both e1 and e2, but must appear exactly once
@@ -266,10 +266,10 @@ describe('retrieveMemory', () => {
 
       const result = await retrieveMemory(store, index, {
         tags: ['lesson'],
-        max_hops: 2,
+        maxHops: 2,
         limit: 20,
-        min_similarity: 0.5,
-        include_invalidated: false,
+        minSimilarity: 0.5,
+        includeInvalidated: false,
       });
 
       const ids = new Set(result.facts.map((f) => f.id));
@@ -284,10 +284,10 @@ describe('retrieveMemory', () => {
 
       const result = await retrieveMemory(store, index, {
         tags: ['lesson', 'warning'],
-        max_hops: 2,
+        maxHops: 2,
         limit: 20,
-        min_similarity: 0.5,
-        include_invalidated: false,
+        minSimilarity: 0.5,
+        includeInvalidated: false,
       });
 
       const ids = new Set(result.facts.map((f) => f.id));
@@ -301,10 +301,10 @@ describe('retrieveMemory', () => {
 
       const result = await retrieveMemory(store, index, {
         tags: ['lesson'],
-        max_hops: 2,
+        maxHops: 2,
         limit: 3,
-        min_similarity: 0.5,
-        include_invalidated: false,
+        minSimilarity: 0.5,
+        includeInvalidated: false,
       });
 
       expect(result.facts).toHaveLength(3);
@@ -323,11 +323,11 @@ describe('retrieveMemory', () => {
 
       const result = await retrieveMemory(store, index, {
         tags: ['lesson'],
-        valid_at: now,
-        max_hops: 2,
+        validAt: now,
+        maxHops: 2,
         limit: 20,
-        min_similarity: 0.5,
-        include_invalidated: false,
+        minSimilarity: 0.5,
+        includeInvalidated: false,
       });
 
       expect(result.facts).toHaveLength(1);
@@ -352,10 +352,10 @@ describe('retrieveMemory', () => {
 
       const result = await retrieveMemory(store, index, {
         tags: ['lesson'],
-        max_hops: 2,
+        maxHops: 2,
         limit: 20,
-        min_similarity: 0.5,
-        include_invalidated: false,
+        minSimilarity: 0.5,
+        includeInvalidated: false,
       });
 
       expect(result.themes).toHaveLength(1);
@@ -367,13 +367,75 @@ describe('retrieveMemory', () => {
 
       const result = await retrieveMemory(store, index, {
         tags: ['nonexistent'],
-        max_hops: 2,
+        maxHops: 2,
         limit: 20,
-        min_similarity: 0.5,
-        include_invalidated: false,
+        minSimilarity: 0.5,
+        includeInvalidated: false,
       });
 
       expect(result.facts).toEqual([]);
+    });
+  });
+
+  describe('quarantine exclusion', () => {
+    const defaults = { maxHops: 2, limit: 20, minSimilarity: 0.5, includeInvalidated: false };
+
+    const putFact = async (overrides: Partial<SemanticFact>): Promise<SemanticFact> => {
+      const fact: SemanticFact = {
+        id: crypto.randomUUID(),
+        content: 'fact',
+        source_episode_ids: [],
+        entity_ids: [],
+        provenance: prov,
+        valid_from: now,
+        tags: [],
+        ...overrides,
+      };
+      await store.putFact(fact);
+      return fact;
+    };
+
+    it('excludes quarantined facts from tag-only retrieval', async () => {
+      const clean = await putFact({ content: 'clean', tags: ['lesson'] });
+      await putFact({ content: 'poisoned', tags: ['lesson', 'quarantined'] });
+
+      const result = await retrieveMemory(store, index, { ...defaults, tags: ['lesson'] });
+      expect(result.facts.map((f) => f.id)).toEqual([clean.id]);
+    });
+
+    it('excludes quarantined facts from embedding-based retrieval', async () => {
+      const clean = await putFact({ content: 'clean', embedding: [1, 0, 0], tags: [] });
+      await putFact({ content: 'poisoned', embedding: [1, 0, 0], tags: ['quarantined'] });
+      await index.rebuild(store);
+
+      const result = await retrieveMemory(store, index, { ...defaults, embedding: [1, 0, 0], tags: [] });
+      expect(result.facts.map((f) => f.id)).toEqual([clean.id]);
+    });
+
+    it('excludes quarantined facts from entity-based retrieval', async () => {
+      const entity: Entity = {
+        id: crypto.randomUUID(),
+        name: 'Alice',
+        entity_type: 'person',
+        attributes: {},
+        provenance: prov,
+        created_at: now,
+        updated_at: now,
+      };
+      await store.putEntity(entity);
+      const clean = await putFact({ content: 'clean', entity_ids: [entity.id], tags: [] });
+      await putFact({ content: 'poisoned', entity_ids: [entity.id], tags: ['quarantined'] });
+
+      const result = await retrieveMemory(store, index, { ...defaults, entityIds: [entity.id], tags: [] });
+      expect(result.facts.map((f) => f.id)).toEqual([clean.id]);
+    });
+
+    it('returns quarantined facts when the query explicitly asks for the tag (audit)', async () => {
+      await putFact({ content: 'clean', tags: ['lesson'] });
+      const poisoned = await putFact({ content: 'poisoned', tags: ['lesson', 'quarantined'] });
+
+      const result = await retrieveMemory(store, index, { ...defaults, tags: ['quarantined'] });
+      expect(result.facts.map((f) => f.id)).toEqual([poisoned.id]);
     });
   });
 });

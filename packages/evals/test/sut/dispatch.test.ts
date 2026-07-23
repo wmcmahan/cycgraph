@@ -59,7 +59,7 @@ describe('runSutDispatch — memory suite', () => {
     const trajectory = makeTrajectory(
       'memory',
       ['subgraph', 'graph'],
-      JSON.stringify({ seed_entities: ['e-alice'], max_hops: 1 }),
+      JSON.stringify({ seed_entities: ['e-alice'], maxHops: 1 }),
     );
     const plan = planForTrajectory('memory', trajectory);
     const result = await runSutDispatch({

@@ -21,23 +21,23 @@ export const MemoryQuerySchema = z.object({
   /** Pre-computed query embedding vector. */
   embedding: z.array(z.number()).optional(),
   /** Seed entity IDs for subgraph extraction. */
-  entity_ids: z.array(z.string().uuid()).optional(),
+  entityIds: z.array(z.string().uuid()).optional(),
   /** Filter entities by type. */
-  entity_types: z.array(z.string()).optional(),
+  entityTypes: z.array(z.string()).optional(),
   /** Filter relationships by type. */
-  relation_types: z.array(z.string()).optional(),
+  relationTypes: z.array(z.string()).optional(),
   /** Max BFS hops for subgraph extraction (0–5). */
-  max_hops: z.number().int().min(0).max(5).default(2),
+  maxHops: z.number().int().min(0).max(5).default(2),
   /** Return only records valid at this point in time. */
-  valid_at: z.coerce.date().optional(),
+  validAt: z.coerce.date().optional(),
   /** Return only records that changed after this point in time. */
-  changed_since: z.coerce.date().optional(),
+  changedSince: z.coerce.date().optional(),
   /** Maximum number of results per record type. */
   limit: z.number().int().min(1).max(100).default(20),
   /** Minimum embedding similarity threshold (0–1). */
-  min_similarity: z.number().min(0).max(1).default(0.5),
+  minSimilarity: z.number().min(0).max(1).default(0.5),
   /** Include invalidated records in results. */
-  include_invalidated: z.boolean().default(false),
+  includeInvalidated: z.boolean().default(false),
   /**
    * Restrict matches to facts carrying at least one of the listed tags.
    * Omit (or leave empty) to skip tag filtering. Reflection nodes write

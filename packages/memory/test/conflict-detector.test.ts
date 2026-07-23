@@ -545,4 +545,27 @@ describe('ConflictDetector', () => {
     const contradictions2 = conflicts2.filter((c) => c.type === 'semantic_contradiction');
     expect(contradictions2).toHaveLength(0);
   });
+
+  it('detects conflicts between facts on different pages of the batch load', async () => {
+    const entityId = crypto.randomUUID();
+    // Filler facts push the negation pair across a page boundary at batchSize 2.
+    await store.putFact(makeFact({ content: 'Unrelated filler fact one' }));
+    await store.putFact(makeFact({ content: 'Unrelated filler fact two' }));
+    await store.putFact(makeFact({ content: 'Unrelated filler fact three' }));
+    await store.putFact(makeFact({
+      content: 'Alice is on the platform team',
+      entity_ids: [entityId],
+      valid_from: new Date('2024-01-01'),
+    }));
+    await store.putFact(makeFact({
+      content: 'Alice is not on the platform team',
+      entity_ids: [entityId],
+      valid_from: new Date('2024-02-01'),
+    }));
+
+    const detector = new ConflictDetector(store, index, { batchSize: 2 });
+    const conflicts = await detector.detectConflicts();
+    const negations = conflicts.filter((c) => c.type === 'negation');
+    expect(negations).toHaveLength(1);
+  });
 });

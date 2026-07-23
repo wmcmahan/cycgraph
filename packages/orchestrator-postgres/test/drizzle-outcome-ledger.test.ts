@@ -74,9 +74,9 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleOutcomeLedger', () => {
         expect(a).toBe(b);
         return;
       }
-      expect(a.fact_id).toBe(b.fact_id);
+      expect(a.factId).toBe(b.factId);
       expect(a.trials).toBe(b.trials);
-      expect(a.mean_score).toBeCloseTo(b.mean_score, 10);
+      expect(a.meanScore).toBeCloseTo(b.meanScore, 10);
       if (a.variance === undefined || b.variance === undefined) {
         expect(a.variance).toBe(b.variance);
       } else {
@@ -95,7 +95,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleOutcomeLedger', () => {
         const d = await ledger.getBaseline(exclude);
         const m = await mem.getBaseline(exclude);
         expect(d.runs).toBe(m.runs);
-        expect(d.mean_score).toBeCloseTo(m.mean_score, 10);
+        expect(d.meanScore).toBeCloseTo(m.meanScore, 10);
         if (m.variance === undefined) expect(d.variance).toBeUndefined();
         else expect(d.variance).toBeCloseTo(m.variance, 10);
       }
@@ -104,8 +104,20 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleOutcomeLedger', () => {
     test('listFactStats agrees (same order, same values)', async () => {
       const d = await ledger.listFactStats();
       const m = await mem.listFactStats();
-      expect(d.map((s) => s.fact_id)).toEqual(m.map((s) => s.fact_id));
+      expect(d.map((s) => s.factId)).toEqual(m.map((s) => s.factId));
       for (let i = 0; i < d.length; i++) expectStatsEqual(d[i], m[i]);
+    });
+
+    test('getFactStatsBatch agrees with per-id getFactStats and omits unseen ids', async () => {
+      const unseen = randomUUID();
+      const d = await ledger.getFactStatsBatch([F1, F2, F3, unseen]);
+      const m = await mem.getFactStatsBatch([F1, F2, F3, unseen]);
+      expect([...d.keys()].sort()).toEqual([...m.keys()].sort());
+      expect(d.has(unseen)).toBe(false);
+      for (const f of [F1, F2, F3]) {
+        expectStatsEqual(d.get(f) ?? null, await ledger.getFactStats(f));
+      }
+      expect(await ledger.getFactStatsBatch([])).toEqual(new Map());
     });
   });
 
@@ -117,7 +129,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleOutcomeLedger', () => {
     await ledger.recordOutcome({ run_id: 'run-x', score: 0.9, fact_ids: [f] });
     const stats = await ledger.getFactStats(f);
     expect(stats?.trials).toBe(1);
-    expect(stats?.mean_score).toBeCloseTo(0.9, 10);
+    expect(stats?.meanScore).toBeCloseTo(0.9, 10);
     expect(stats?.variance).toBeUndefined();
   });
 
@@ -133,7 +145,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleOutcomeLedger', () => {
   test('empty leave-one-out baseline returns {runs:0, mean_score:0}', async () => {
     const f = randomUUID();
     await ledger.recordOutcome({ run_id: 'only', score: 0.7, fact_ids: [f] });
-    expect(await ledger.getBaseline(f)).toEqual({ runs: 0, mean_score: 0 });
+    expect(await ledger.getBaseline(f)).toEqual({ runs: 0, meanScore: 0 });
   });
 
   test('dedups facts within a run (composite PK), counting one trial', async () => {
@@ -165,8 +177,8 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleOutcomeLedger', () => {
       await ledger.recordOutcome({ run_id: `without-${i}`, score: 0.5, fact_ids: [] });
     }
 
-    const report = await evaluateRetention(store, ledger, { min_trials: 3 });
-    expect(report.promoted.map((p) => p.fact_id)).toEqual([good]);
+    const report = await evaluateRetention(store, ledger, { minTrials: 3 });
+    expect(report.promoted.map((p) => p.factId)).toEqual([good]);
     expect((await store.getFact(good))?.tags).toContain('verified');
 
     // Persist the audit trail and read it back.
@@ -185,14 +197,14 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleOutcomeLedger', () => {
     const b = randomUUID();
     await ledger.recordGateDecisions(
       {
-        promoted: [{ fact_id: a }],
-        evicted: [{ fact_id: b, reason: 'eval-gate:harmful' }],
+        promoted: [{ factId: a }],
+        evicted: [{ factId: b, reason: 'eval-gate:harmful' }],
         held: [],
       },
       { gated_at: new Date(Date.UTC(2026, 0, 1)) },
     );
     await ledger.recordGateDecisions(
-      { promoted: [], evicted: [], held: [{ fact_id: a, trials: 2 }] },
+      { promoted: [], evicted: [], held: [{ factId: a, trials: 2 }] },
       { gated_at: new Date(Date.UTC(2026, 0, 2)) },
     );
 
@@ -206,7 +218,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleOutcomeLedger', () => {
     expect(evictions[0].fact_id).toBe(b);
     expect(evictions[0].reason).toBe('eval-gate:harmful');
 
-    const forA = await ledger.listGateDecisions({ fact_id: a });
+    const forA = await ledger.listGateDecisions({ factId: a });
     expect(forA.map((d) => d.decision).sort()).toEqual(['held', 'promoted']);
   });
 
@@ -216,10 +228,10 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleOutcomeLedger', () => {
     await ledger.recordOutcome({ run_id: 'r3', score: 0.9, fact_ids: [], recorded_at: new Date(Date.UTC(2026, 0, 3)) });
 
     const trend = await ledger.getFitnessTrend();
-    expect(trend.map((p) => p.run_id)).toEqual(['r1', 'r2', 'r3']);
+    expect(trend.map((p) => p.runId)).toEqual(['r1', 'r2', 'r3']);
     expect(trend.map((p) => p.score)).toEqual([0.3, 0.7, 0.9]);
 
     const recent = await ledger.getFitnessTrend({ since: new Date(Date.UTC(2026, 0, 2)) });
-    expect(recent.map((p) => p.run_id)).toEqual(['r2', 'r3']);
+    expect(recent.map((p) => p.runId)).toEqual(['r2', 'r3']);
   });
 });

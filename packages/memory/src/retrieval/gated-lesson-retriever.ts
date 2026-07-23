@@ -5,7 +5,7 @@
  * budget with `verified` lessons, but reserve a small number of
  * exploration slots for `candidate` lessons so they can accrue the
  * trials the retention gate needs. A candidate that is never retrieved
- * can never be promoted or evicted — `candidate_slots: 0` starves the
+ * can never be promoted or evicted — `candidateSlots: 0` starves the
  * gate (documented foot-gun; default is 2).
  *
  * Candidate selection: pass the outcome `ledger` to get
@@ -18,7 +18,7 @@
  * the slots faster than any of them can accrue trials, and the gate
  * holds them all forever.
  *
- * Pair in-progress-first with a `max_trials` retention policy: a
+ * Pair in-progress-first with a `maxTrials` retention policy: a
  * candidate the gate can never rule on (lift inside both margins)
  * otherwise keeps its slot indefinitely and starves the queue behind it.
  *
@@ -40,25 +40,25 @@ export interface GatedLessonOptions {
   /** Scope tags (OR semantics), e.g. `['lesson', 'graph:research-v1']`. */
   tags: string[];
   /** Tag marking on-trial lessons (default `'candidate'`). */
-  candidate_tag?: string;
+  candidateTag?: string;
   /** Total lessons to return (default 10). */
-  max_facts?: number;
+  maxFacts?: number;
   /**
    * Slots reserved for candidates (default 2). Set to 0 to retrieve
    * verified lessons only — but note candidates then never accrue
    * trials and the retention gate holds them forever.
    */
-  candidate_slots?: number;
+  candidateSlots?: number;
   /**
    * Outcome ledger for in-progress-first candidate selection.
    * Strongly recommended whenever reflection keeps producing new
    * candidates — without it, newest-first selection churns the slots
-   * and no candidate ever reaches `min_trials`.
+   * and no candidate ever reaches `minTrials`.
    */
   ledger?: OutcomeLedger;
   /**
    * Bench candidates once they have this many trials (requires
-   * `ledger`). Set it to the retention policy's `min_trials`.
+   * `ledger`). Set it to the retention policy's `minTrials`.
    *
    * Without a rest phase, a candidate that fills every run can never be
    * judged: the leave-one-out baseline needs runs WITHOUT the fact.
@@ -66,7 +66,7 @@ export interface GatedLessonOptions {
    * cohort — trial → rest → verdict. Rested candidates stay in the pool
    * (still tagged candidate) until the gate promotes or evicts them.
    */
-  rest_after_trials?: number;
+  restAfterTrials?: number;
 }
 
 /** Newest first, with id as a deterministic tiebreak. */
@@ -77,7 +77,7 @@ function byRecency(a: SemanticFact, b: SemanticFact): number {
 
 /**
  * Retrieve lessons under the gated policy: verified lessons fill
- * `max_facts − candidate_slots`; candidates fill the rest —
+ * `maxFacts − candidateSlots`; candidates fill the rest —
  * in-progress-first when a ledger is provided, newest-first otherwise.
  * Unused candidate slots fall back to additional verified lessons.
  */
@@ -85,9 +85,9 @@ export async function retrieveGatedLessons(
   store: MemoryStore,
   options: GatedLessonOptions,
 ): Promise<SemanticFact[]> {
-  const candidateTag = options.candidate_tag ?? 'candidate';
-  const maxFacts = options.max_facts ?? 10;
-  const candidateSlots = Math.min(options.candidate_slots ?? 2, maxFacts);
+  const candidateTag = options.candidateTag ?? 'candidate';
+  const maxFacts = options.maxFacts ?? 10;
+  const candidateSlots = Math.min(options.candidateSlots ?? 2, maxFacts);
 
   // Scope tags use OR semantics in findFacts; status partitioning is
   // done client-side so one query serves both pools. Quarantined (poisoned)
@@ -95,8 +95,8 @@ export async function retrieveGatedLessons(
   // retrieved as trusted guidance.
   const scoped = await store.findFacts({
     tags: options.tags,
-    exclude_tags: [QUARANTINE_TAG],
-    include_invalidated: false,
+    excludeTags: [QUARANTINE_TAG],
+    includeInvalidated: false,
     limit: 1000,
   });
 
@@ -114,7 +114,8 @@ export async function retrieveGatedLessons(
 
   verified.sort(byRecency);
 
-  let eligible = candidates;
+  // Always a copy: the sorts below must not reorder the partition array.
+  let eligible = [...candidates];
   if (options.ledger) {
     // In-progress-first: candidates that already have trials keep their
     // slots until they finish their trial phase (most trials first),
@@ -123,15 +124,22 @@ export async function retrieveGatedLessons(
     // new candidates arrive every run, which fewest-trials-first does
     // not (perpetual 0-trial newcomers would monopolise the slots).
     const trials = new Map<string, number>();
-    for (const fact of candidates) {
-      const stats = await options.ledger.getFactStats(fact.id);
-      trials.set(fact.id, stats?.trials ?? 0);
+    if (options.ledger.getFactStatsBatch) {
+      const stats = await options.ledger.getFactStatsBatch(candidates.map((f) => f.id));
+      for (const fact of candidates) {
+        trials.set(fact.id, stats.get(fact.id)?.trials ?? 0);
+      }
+    } else {
+      for (const fact of candidates) {
+        const stats = await options.ledger.getFactStats(fact.id);
+        trials.set(fact.id, stats?.trials ?? 0);
+      }
     }
     // Rest phase: fully-trialled candidates step out, creating the
     // absence runs their leave-one-out baseline requires.
-    if (options.rest_after_trials !== undefined) {
-      eligible = candidates.filter(
-        (f) => (trials.get(f.id) ?? 0) < options.rest_after_trials!,
+    if (options.restAfterTrials !== undefined) {
+      eligible = eligible.filter(
+        (f) => (trials.get(f.id) ?? 0) < options.restAfterTrials!,
       );
     }
     eligible.sort((a, b) => {
@@ -141,11 +149,20 @@ export async function retrieveGatedLessons(
       return age !== 0 ? age : a.id.localeCompare(b.id);
     });
   } else {
-    eligible = [...candidates].sort(byRecency);
+    eligible.sort(byRecency);
   }
 
   const chosenCandidates = eligible.slice(0, candidateSlots);
   const chosenVerified = verified.slice(0, maxFacts - chosenCandidates.length);
 
-  return [...chosenVerified, ...chosenCandidates];
+  const chosen = [...chosenVerified, ...chosenCandidates];
+
+  // Usage bookkeeping for decay scoring (no-op without touchFacts). Lesson
+  // *retention* stays governed by the eval gate; this only protects lessons
+  // from age-based consolidation pruning while they are actively injected.
+  if (chosen.length > 0) {
+    await store.touchFacts?.(chosen.map((f) => f.id));
+  }
+
+  return chosen;
 }

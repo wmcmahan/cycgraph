@@ -53,7 +53,7 @@ const segmentationHandler: MemoryHandler = {
   async run(input) {
     const messages = parseMessages(input);
     const segmenter = new SimpleEpisodeSegmenter({
-      gap_threshold_ms: DEFAULT_GAP_THRESHOLD_MS,
+      gapThresholdMs: DEFAULT_GAP_THRESHOLD_MS,
     });
     const episodes = await segmenter.segment(messages);
     return {
@@ -70,8 +70,8 @@ const temporalHandler: MemoryHandler = {
   async run(input) {
     const facts = parseFacts(input);
     const filtered = filterValid(facts, {
-      valid_at: DEFAULT_NOW,
-      include_invalidated: false,
+      validAt: DEFAULT_NOW,
+      includeInvalidated: false,
     });
     return {
       filtered_count: filtered.length,
@@ -100,11 +100,11 @@ const subgraphHandler: MemoryHandler = {
   name: 'subgraph',
   matches: (tags) => tags.has('subgraph') || tags.has('graph'),
   async run(input) {
-    const { seed_entities, max_hops, valid_at } = parseSubgraphInput(input);
+    const { seed_entities, maxHops, validAt } = parseSubgraphInput(input);
     const { store } = await buildSeededMemoryGraph();
     const result = await extractSubgraph(store, seed_entities, {
-      max_hops,
-      valid_at,
+      maxHops,
+      validAt,
     });
 
     return {
@@ -237,8 +237,8 @@ function isUuid(value: unknown): boolean {
 
 interface SubgraphInput {
   seed_entities: string[];
-  max_hops: number;
-  valid_at?: Date;
+  maxHops: number;
+  validAt?: Date;
 }
 
 function parseSubgraphInput(input: string): SubgraphInput {
@@ -246,9 +246,9 @@ function parseSubgraphInput(input: string): SubgraphInput {
   const seedEntities = Array.isArray(raw.seed_entities)
     ? raw.seed_entities.filter((x): x is string => typeof x === 'string')
     : [];
-  const maxHops = typeof raw.max_hops === 'number' ? raw.max_hops : 1;
-  const validAt = raw.valid_at ? new Date(raw.valid_at as string) : undefined;
-  return { seed_entities: seedEntities, max_hops: maxHops, valid_at: validAt };
+  const maxHops = typeof raw.maxHops === 'number' ? raw.maxHops : 1;
+  const validAt = raw.validAt ? new Date(raw.validAt as string) : undefined;
+  return { seed_entities: seedEntities, maxHops: maxHops, validAt: validAt };
 }
 
 interface ConsolidationSeed {

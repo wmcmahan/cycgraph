@@ -48,8 +48,8 @@ describe('retrieveGatedLessons', () => {
 
     const lessons = await retrieveGatedLessons(store, {
       tags: [TAG],
-      max_facts: 5,
-      candidate_slots: 2,
+      maxFacts: 5,
+      candidateSlots: 2,
     });
 
     expect(lessons).toHaveLength(5);
@@ -67,8 +67,8 @@ describe('retrieveGatedLessons', () => {
 
     const lessons = await retrieveGatedLessons(store, {
       tags: [TAG],
-      max_facts: 5,
-      candidate_slots: 3,
+      maxFacts: 5,
+      candidateSlots: 3,
     });
 
     expect(lessons).toHaveLength(5);
@@ -80,7 +80,7 @@ describe('retrieveGatedLessons', () => {
     await store.putFact(makeLesson('legacy', 'none', daysAgo(1)));
     await store.putFact(makeLesson('c0', 'candidate', daysAgo(0)));
 
-    const lessons = await retrieveGatedLessons(store, { tags: [TAG], max_facts: 5 });
+    const lessons = await retrieveGatedLessons(store, { tags: [TAG], maxFacts: 5 });
 
     expect(lessons.map((f) => f.id).sort()).toEqual(['c0', 'legacy']);
   });
@@ -93,23 +93,23 @@ describe('retrieveGatedLessons', () => {
     expect(lessons.map((f) => f.id)).toEqual(['alive']);
   });
 
-  it('candidate_slots: 0 retrieves verified only', async () => {
+  it('candidateSlots: 0 retrieves verified only', async () => {
     await store.putFact(makeLesson('v0', 'verified', daysAgo(1)));
     await store.putFact(makeLesson('c0', 'candidate', daysAgo(0)));
 
-    const lessons = await retrieveGatedLessons(store, { tags: [TAG], candidate_slots: 0 });
+    const lessons = await retrieveGatedLessons(store, { tags: [TAG], candidateSlots: 0 });
     expect(lessons.map((f) => f.id)).toEqual(['v0']);
   });
 
-  it('caps candidate_slots at max_facts', async () => {
+  it('caps candidateSlots at maxFacts', async () => {
     for (let i = 0; i < 4; i++) {
       await store.putFact(makeLesson(`c${i}`, 'candidate', daysAgo(i)));
     }
 
     const lessons = await retrieveGatedLessons(store, {
       tags: [TAG],
-      max_facts: 2,
-      candidate_slots: 10,
+      maxFacts: 2,
+      candidateSlots: 10,
     });
     expect(lessons).toHaveLength(2);
   });
@@ -120,7 +120,7 @@ describe('retrieveGatedLessons', () => {
     await store.putFact(makeLesson('aaa', 'verified', t));
     await store.putFact(makeLesson('newest', 'verified', daysAgo(0)));
 
-    const lessons = await retrieveGatedLessons(store, { tags: [TAG], max_facts: 3, candidate_slots: 0 });
+    const lessons = await retrieveGatedLessons(store, { tags: [TAG], maxFacts: 3, candidateSlots: 0 });
     expect(lessons.map((f) => f.id)).toEqual(['newest', 'aaa', 'bbb']);
   });
 
@@ -146,8 +146,8 @@ describe('retrieveGatedLessons', () => {
 
     const lessons = await retrieveGatedLessons(store, {
       tags: [TAG],
-      max_facts: 2,
-      candidate_slots: 2,
+      maxFacts: 2,
+      candidateSlots: 2,
       ledger,
     });
 
@@ -165,8 +165,8 @@ describe('retrieveGatedLessons', () => {
     for (let run = 0; run < 3; run++) {
       const chosen = await retrieveGatedLessons(store, {
         tags: [TAG],
-        max_facts: 2,
-        candidate_slots: 2,
+        maxFacts: 2,
+        candidateSlots: 2,
         ledger,
       });
       await ledger.recordOutcome({
@@ -192,15 +192,15 @@ describe('retrieveGatedLessons', () => {
 
     const lessons = await retrieveGatedLessons(store, {
       tags: [TAG],
-      max_facts: 1,
-      candidate_slots: 1,
+      maxFacts: 1,
+      candidateSlots: 1,
       ledger,
     });
 
     expect(lessons.map((f) => f.id)).toEqual(['older']);
   });
 
-  it('benches candidates at rest_after_trials so absence runs can form', async () => {
+  it('benches candidates at restAfterTrials so absence runs can form', async () => {
     await store.putFact(makeLesson('c-done', 'candidate', daysAgo(3)));
     await store.putFact(makeLesson('c-next', 'candidate', daysAgo(1)));
 
@@ -210,10 +210,10 @@ describe('retrieveGatedLessons', () => {
 
     const lessons = await retrieveGatedLessons(store, {
       tags: [TAG],
-      max_facts: 2,
-      candidate_slots: 2,
+      maxFacts: 2,
+      candidateSlots: 2,
       ledger,
-      rest_after_trials: 2,
+      restAfterTrials: 2,
     });
 
     // c-done finished its trial phase and rests; c-next takes the slot.
@@ -226,9 +226,9 @@ describe('retrieveGatedLessons', () => {
 
     const lessons = await retrieveGatedLessons(store, {
       tags: [TAG],
-      candidate_tag: 'on-trial',
-      max_facts: 1,
-      candidate_slots: 1,
+      candidateTag: 'on-trial',
+      maxFacts: 1,
+      candidateSlots: 1,
     });
 
     // The single slot goes to the candidate under the custom tag.
@@ -240,7 +240,7 @@ describe('retrieveGatedLessons', () => {
     // A poisoned lesson carrying the scope tag AND the quarantine tag.
     await store.putFact(makeLesson('poisoned', 'verified', daysAgo(0), { tags: ['lesson', TAG, 'verified', 'quarantined'] }));
 
-    const lessons = await retrieveGatedLessons(store, { tags: [TAG], max_facts: 5, candidate_slots: 2 });
+    const lessons = await retrieveGatedLessons(store, { tags: [TAG], maxFacts: 5, candidateSlots: 2 });
 
     const ids = lessons.map((f) => f.id);
     expect(ids).toContain('good');

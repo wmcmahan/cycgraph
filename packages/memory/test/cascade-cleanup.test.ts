@@ -115,7 +115,7 @@ describe('Theme Cascade Cleanup', () => {
 
     // The surviving facts are the keeper from dedup and f3
     // Centroid should be average of two remaining embeddings
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     const remainingIds = new Set(remaining.map((f) => f.id));
     const survivingEmbeddings = remaining
       .filter((f) => updated!.fact_ids.includes(f.id) && f.embedding)
@@ -174,7 +174,7 @@ describe('Theme Cascade Cleanup', () => {
     expect(report.factsDeduped).toBe(1);
     expect(report.themesCleanedUp).toBe(1);
 
-    const all = await store.findFacts({ include_invalidated: true });
+    const all = await store.findFacts({ includeInvalidated: true });
     expect(all).toHaveLength(1);
   });
 
@@ -198,9 +198,9 @@ describe('Theme Cascade Cleanup', () => {
     expect(report.factsDeduped).toBe(1);
     expect(report.themesCleanedUp).toBe(1);
 
-    const invalidated = await store.findFacts({ include_invalidated: true });
+    const invalidated = await store.findFacts({ includeInvalidated: true });
     expect(invalidated).toHaveLength(2);
-    const active = await store.findFacts({ include_invalidated: false });
+    const active = await store.findFacts({ includeInvalidated: false });
     expect(active).toHaveLength(1);
   });
 

@@ -47,6 +47,8 @@ export interface ConflictDetectorOptions {
   policy?: ConflictResolutionPolicy;
   /** Minimum time difference in days for supersession detection (default: 1). */
   supersessionDayThreshold?: number;
+  /** Batch size for paginated fact loading (default: 1000). */
+  batchSize?: number;
 }
 
 /** Common English stop words to exclude from word overlap analysis. */
@@ -85,7 +87,7 @@ export class ConflictDetector {
   ) {}
 
   async detectConflicts(facts?: SemanticFact[]): Promise<Conflict[]> {
-    const allFacts = facts ?? await this.store.findFacts({ include_invalidated: false, exclude_tags: [QUARANTINE_TAG], limit: 10_000 });
+    const allFacts = facts ?? await this.loadActiveFacts();
     const activeFacts = allFacts.filter((f) => !f.invalidated_by);
     const conflicts: Conflict[] = [];
     const pairKeys = new Set<string>();
@@ -159,7 +161,7 @@ export class ConflictDetector {
       if (!fact.embedding) continue;
 
       const similar = await this.index.searchFacts(fact.embedding, {
-        min_similarity: embeddingThreshold,
+        minSimilarity: embeddingThreshold,
         limit: 50,
       });
 
@@ -203,6 +205,29 @@ export class ConflictDetector {
     }
 
     return conflicts;
+  }
+
+  /**
+   * Batch-load every active, non-quarantined fact (same paging pattern as
+   * MemoryConsolidator / evaluateRetention). A single capped fetch would
+   * silently exclude facts past the cap from conflict detection.
+   */
+  private async loadActiveFacts(): Promise<SemanticFact[]> {
+    const batchSize = this.options.batchSize ?? 1000;
+    const facts: SemanticFact[] = [];
+    let offset = 0;
+    while (true) {
+      const batch = await this.store.findFacts({
+        includeInvalidated: false,
+        excludeTags: [QUARANTINE_TAG],
+        limit: batchSize,
+        offset,
+      });
+      facts.push(...batch);
+      if (batch.length < batchSize) break;
+      offset += batchSize;
+    }
+    return facts;
   }
 
   async resolveConflict(

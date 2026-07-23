@@ -184,7 +184,7 @@ async function runMemoryIngestionPipeline(): Promise<TestCaseResults> {
   const messages = createTestMessages();
 
   // Segment into episodes
-  const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 30 * 60 * 1000 });
+  const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 30 * 60 * 1000 });
   const episodes = await segmenter.segment(messages);
 
   // Store episodes
@@ -240,12 +240,12 @@ async function runMemoryRetrieval(): Promise<TestCaseResults> {
   await index.rebuild(store);
 
   const result = await retrieveMemory(store, index, {
-    entity_ids: ['e-alice'],
+    entityIds: ['e-alice'],
     tags: [],
-    max_hops: 1,
+    maxHops: 1,
     limit: 20,
-    min_similarity: 0,
-    include_invalidated: false,
+    minSimilarity: 0,
+    includeInvalidated: false,
   });
 
   const hasEntities = result.entities.length >= 1 ? 1 : 0;
@@ -276,12 +276,12 @@ async function runContextCompression(): Promise<TestCaseResults> {
   await index.rebuild(store);
 
   const result = await retrieveMemory(store, index, {
-    entity_ids: ['e-alice'],
+    entityIds: ['e-alice'],
     tags: [],
-    max_hops: 2,
+    maxHops: 2,
     limit: 20,
-    min_similarity: 0,
-    include_invalidated: false,
+    minSimilarity: 0,
+    includeInvalidated: false,
   });
 
   // Serialize retrieved memory to JSON
@@ -378,12 +378,12 @@ async function runMemoryRetrieverAdapter(): Promise<TestCaseResults> {
   // Build a function matching MemoryRetriever type signature
   const retriever: MemoryRetriever = async (query, _options) => {
     const result = await retrieveMemory(store, index, {
-      entity_ids: query.entityIds,
+      entityIds: query.entityIds,
       tags: [],
-      max_hops: 1,
+      maxHops: 1,
       limit: 20,
-      min_similarity: 0,
-      include_invalidated: false,
+      minSimilarity: 0,
+      includeInvalidated: false,
     });
 
     return {
@@ -569,7 +569,7 @@ async function runTemporalFiltering(): Promise<TestCaseResults> {
     makeFact('f-future', 'Future fact', [], FUTURE),        // valid_from in the future
   ];
 
-  const filtered = filterValid(facts, { valid_at: NOW });
+  const filtered = filterValid(facts, { validAt: NOW });
 
   const expiredExcluded = !filtered.some(f => f.id === 'f-expired') ? 1 : 0;
   const futureExcluded = !filtered.some(f => f.id === 'f-future') ? 1 : 0;
@@ -593,7 +593,7 @@ async function runEndToEnd(): Promise<TestCaseResults> {
   const messages = createTestMessages();
 
   // Step 1: Segment messages into episodes
-  const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 30 * 60 * 1000 });
+  const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 30 * 60 * 1000 });
   const episodes = await segmenter.segment(messages);
   for (const ep of episodes) await store.putEpisode(ep);
 
@@ -627,12 +627,12 @@ async function runEndToEnd(): Promise<TestCaseResults> {
 
   // Step 5: Retrieve memory for Alice
   const retrieved = await retrieveMemory(store, index, {
-    entity_ids: ['e-alice'],
+    entityIds: ['e-alice'],
     tags: [],
-    max_hops: 1,
+    maxHops: 1,
     limit: 20,
-    min_similarity: 0,
-    include_invalidated: false,
+    minSimilarity: 0,
+    includeInvalidated: false,
   });
 
   // Step 6: Compress for context window

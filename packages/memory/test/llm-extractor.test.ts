@@ -266,7 +266,7 @@ describe('LLMExtractor', () => {
     // Should fall back to rule-based due to timeout
     expect(result.facts.length).toBeGreaterThanOrEqual(1);
     const timedOut = warnSpy.mock.calls.some(
-      (args) => String(args[1]).includes('timed out'),
+      (args) => String(args[0]).includes('timed out'),
     );
     expect(timedOut).toBe(true);
     warnSpy.mockRestore();
@@ -363,5 +363,99 @@ describe('LLMExtractor', () => {
     expect(Array.isArray(result.relationships)).toBe(true);
 
     warnSpy.mockRestore();
+  });
+
+  it('resolves relationships referencing entities declared on a later fact', async () => {
+    // Fact 1 declares the relationship; the 'Acme Corp' entity is only
+    // declared on fact 2. Single-pass parsing dropped this edge.
+    const provider = mockProvider(JSON.stringify([
+      {
+        content: 'Alice works at Acme Corp',
+        entities: [{ name: 'Alice', type: 'person' }],
+        relationships: [{ source: 'Alice', target: 'Acme Corp', type: 'works_at' }],
+      },
+      {
+        content: 'Acme Corp builds widgets',
+        entities: [{ name: 'Acme Corp', type: 'organization' }],
+      },
+    ]));
+    const extractor = new LLMExtractor({ provider });
+    const result = await extractor.extract(makeEpisode('text'));
+
+    expect(result.relationships).toHaveLength(1);
+    const alice = result.entities.find((e) => e.name === 'Alice');
+    const acme = result.entities.find((e) => e.name === 'Acme Corp');
+    expect(result.relationships[0].source_id).toBe(alice!.id);
+    expect(result.relationships[0].target_id).toBe(acme!.id);
+  });
+
+  it('clears the timeout timer after a successful call', async () => {
+    vi.useFakeTimers();
+    try {
+      const provider = mockProvider('[]');
+      const extractor = new LLMExtractor({ provider, timeoutMs: 30_000 });
+      await extractor.extract(makeEpisode('text'));
+      // A leaked race timer would still be pending here.
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sets the episode fact_ids back-link on successful extraction', async () => {
+    const provider = mockProvider(JSON.stringify([
+      { content: 'Alice works at Acme', entities: [{ name: 'Alice', type: 'person' }] },
+    ]));
+    const extractor = new LLMExtractor({ provider });
+    const ep = makeEpisode('some text');
+
+    const result = await extractor.extract(ep);
+    expect(ep.fact_ids).toEqual(result.facts.map((f) => f.id));
+  });
+
+  describe('injectable logger', () => {
+    it('routes fallback warnings to the injected logger instead of console', async () => {
+      const warn = vi.fn();
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const extractor = new LLMExtractor({
+        provider: mockProvider('this is not json'),
+        logger: { warn },
+      });
+
+      await extractor.extract(makeEpisode('some text'));
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to parse JSON'));
+      expect(consoleSpy).not.toHaveBeenCalled();
+      consoleSpy.mockRestore();
+    });
+
+    it('warns once when the circuit breaker trips', async () => {
+      const warn = vi.fn();
+      const extractor = new LLMExtractor({
+        provider: throwingProvider(new Error('provider down')),
+        maxConsecutiveFailures: 3,
+        logger: { warn },
+      });
+
+      for (let i = 0; i < 5; i++) {
+        await extractor.extract(makeEpisode('some text'));
+      }
+
+      const tripWarnings = warn.mock.calls.filter(([msg]) =>
+        (msg as string).includes('circuit breaker tripped'),
+      );
+      expect(tripWarnings).toHaveLength(1);
+      expect(tripWarnings[0][0]).toContain('3 consecutive');
+    });
+
+    it('defaults to console.warn when no logger is provided (back-compat)', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const extractor = new LLMExtractor({ provider: mockProvider('not json either') });
+
+      await extractor.extract(makeEpisode('some text'));
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('failed to parse JSON'));
+      consoleSpy.mockRestore();
+    });
   });
 });

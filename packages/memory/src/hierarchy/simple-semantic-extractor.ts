@@ -15,19 +15,27 @@ export class SimpleSemanticExtractor implements SemanticExtractor {
   async extract(episode: Episode): Promise<ExtractionResult> {
     const now = new Date();
 
+    const fact = {
+      id: crypto.randomUUID(),
+      content: episode.topic,
+      source_episode_ids: [episode.id],
+      entity_ids: [],
+      provenance: {
+        // 'derived', matching the other extractors: a fact distilled from an
+        // episode is derived knowledge regardless of extraction sophistication.
+        source: 'derived' as const,
+        created_at: now,
+      },
+      valid_from: episode.started_at,
+      tags: [],
+    };
+
+    // Episode → facts back-link (the schema's `fact_ids` contract) —
+    // callers persist the episode after extraction.
+    episode.fact_ids = [fact.id];
+
     return {
-      facts: [{
-        id: crypto.randomUUID(),
-        content: episode.topic,
-        source_episode_ids: [episode.id],
-        entity_ids: [],
-        provenance: {
-          source: 'system',
-          created_at: now,
-        },
-        valid_from: episode.started_at,
-        tags: [],
-      }],
+      facts: [fact],
       entities: [],
       relationships: [],
     };

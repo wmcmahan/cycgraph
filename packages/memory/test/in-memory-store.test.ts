@@ -85,7 +85,7 @@ describe('InMemoryMemoryStore', () => {
     it('findEntities filters by type', async () => {
       await store.putEntity(makeEntity({ entity_type: 'person' }));
       await store.putEntity(makeEntity({ entity_type: 'org' }));
-      const people = await store.findEntities({ entity_type: 'person' });
+      const people = await store.findEntities({ entityType: 'person' });
       expect(people).toHaveLength(1);
       expect(people[0].entity_type).toBe('person');
     });
@@ -94,7 +94,7 @@ describe('InMemoryMemoryStore', () => {
       await store.putEntity(makeEntity({ invalidated_at: now }));
       await store.putEntity(makeEntity());
       expect(await store.findEntities()).toHaveLength(1);
-      expect(await store.findEntities({ include_invalidated: true })).toHaveLength(2);
+      expect(await store.findEntities({ includeInvalidated: true })).toHaveLength(2);
     });
 
     it('deleteEntity removes entity and its relationships', async () => {
@@ -144,11 +144,43 @@ describe('InMemoryMemoryStore', () => {
     });
   });
 
+  describe('touchFacts', () => {
+    it('increments access_count and sets last_accessed_at; missing ids ignored', async () => {
+      const fact = makeFact({ access_count: 0 });
+      await store.putFact(fact);
+      const at = new Date('2026-01-01');
+
+      await store.touchFacts([fact.id, crypto.randomUUID()], at);
+      await store.touchFacts([fact.id], at);
+
+      const touched = await store.getFact(fact.id);
+      expect(touched?.access_count).toBe(2);
+      expect(touched?.last_accessed_at).toEqual(at);
+    });
+  });
+
   describe('Relationship CRUD', () => {
     it('put and get relationship', async () => {
       const rel = makeRelationship(crypto.randomUUID(), crypto.randomUUID());
       await store.putRelationship(rel);
       expect(await store.getRelationship(rel.id)).toEqual(rel);
+    });
+
+    it('re-putting a relationship with new endpoints deindexes the old ones', async () => {
+      const a = crypto.randomUUID();
+      const b = crypto.randomUUID();
+      const c = crypto.randomUUID();
+      const rel = makeRelationship(a, b);
+      await store.putRelationship(rel);
+
+      // Upsert the same id, now pointing a → c.
+      await store.putRelationship({ ...rel, target_id: c });
+
+      // The former endpoint must no longer see the edge (direction 'both'
+      // has no endpoint re-check, so a stale index entry would leak through).
+      expect(await store.getRelationshipsForEntity(b, { direction: 'both' })).toHaveLength(0);
+      expect(await store.getRelationshipsForEntity(c, { direction: 'both' })).toHaveLength(1);
+      expect(await store.getRelationshipsForEntity(a, { direction: 'both' })).toHaveLength(1);
     });
 
     it('getRelationshipsForEntity filters by direction', async () => {
@@ -176,7 +208,7 @@ describe('InMemoryMemoryStore', () => {
       await store.putRelationship(makeRelationship(a, b, { relation_type: 'works_at' }));
       await store.putRelationship(makeRelationship(a, b, { relation_type: 'knows' }));
 
-      const filtered = await store.getRelationshipsForEntity(a, { relation_type: 'works_at' });
+      const filtered = await store.getRelationshipsForEntity(a, { relationType: 'works_at' });
       expect(filtered).toHaveLength(1);
     });
   });
@@ -214,7 +246,7 @@ describe('InMemoryMemoryStore', () => {
       const themeId = crypto.randomUUID();
       await store.putFact(makeFact({ theme_id: themeId }));
       await store.putFact(makeFact());
-      const filtered = await store.findFacts({ theme_id: themeId });
+      const filtered = await store.findFacts({ themeId });
       expect(filtered).toHaveLength(1);
     });
 
@@ -239,7 +271,7 @@ describe('InMemoryMemoryStore', () => {
       const entityId = crypto.randomUUID();
       await store.putFact(makeFact({ entity_ids: [entityId] }));
       await store.putFact(makeFact());
-      const filtered = await store.findFacts({ entity_id: entityId });
+      const filtered = await store.findFacts({ entityId });
       expect(filtered).toHaveLength(1);
     });
   });

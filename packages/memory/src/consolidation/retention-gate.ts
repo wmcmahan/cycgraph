@@ -10,14 +10,14 @@
  *   candidate ──(lift confirmed)──▶ verified
  *      │
  *      ├──(harm confirmed)──────────▶ invalidated 'eval-gate:harmful'
- *      └──(max_trials, no verdict)──▶ invalidated 'eval-gate:no_lift'
+ *      └──(maxTrials, no verdict)──▶ invalidated 'eval-gate:no_lift'
  *
  * Two decision rules:
  *
  * - `'inference'` (default) — Welch-style inference on the lift between
  *   runs WITH the lesson and the leave-one-out baseline WITHOUT it.
- *   Promote when P(lift > promote_margin) clears `promote_confidence`;
- *   evict when P(lift < −evict_margin) clears `evict_confidence`.
+ *   Promote when P(lift > promoteMargin) clears `promoteConfidence`;
+ *   evict when P(lift < −evictMargin) clears `evictConfidence`.
  *   Benjamini–Hochberg controls the false-discovery rate across the
  *   many lessons tested in one pass. Margins keep their meaning as
  *   practical-significance floors; the confidences are the new
@@ -37,7 +37,7 @@
  *
  * Uses the same collect-then-apply mutation pattern and soft-delete
  * convention (`invalidated_by`) as `MemoryConsolidator`, so evicted
- * facts remain recoverable via `findFacts({ include_invalidated: true })`.
+ * facts remain recoverable via `findFacts({ includeInvalidated: true })`.
  *
  * Re-running the gate is idempotent: promoted facts no longer carry the
  * candidate tag, and evicted facts are excluded from the default
@@ -54,25 +54,25 @@ import { welchLift, benjaminiHochberg } from '../utils/statistics.js';
 
 export const RetentionPolicySchema = z.object({
   /** Minimum runs a candidate must appear in before any decision. */
-  min_trials: z.number().int().min(1).default(3),
+  minTrials: z.number().int().min(1).default(3),
   /** Practical-significance floor for promotion (lift must exceed it). */
-  promote_margin: z.number().min(0).default(0.05),
+  promoteMargin: z.number().min(0).default(0.05),
   /** Practical-significance floor for eviction (drop must exceed it). */
-  evict_margin: z.number().min(0).default(0.05),
+  evictMargin: z.number().min(0).default(0.05),
   /** Tag marking unproven lessons. */
-  candidate_tag: z.string().default('candidate'),
+  candidateTag: z.string().default('candidate'),
   /** Tag marking lessons that earned their place. */
-  verified_tag: z.string().default('verified'),
+  verifiedTag: z.string().default('verified'),
   /**
    * Trials after which a candidate with no verdict is evicted as
    * useless. Also the escape hatch for candidates whose baseline can
    * never form. Omit to keep undecided candidates on trial forever.
    *
-   * NOTE: when retrieval benches candidates (`rest_after_trials`),
+   * NOTE: when retrieval benches candidates (`restAfterTrials`),
    * trials freeze below this cap and it never fires — pair it with
-   * `max_baseline_runs`, the baseline-side stopping rule.
+   * `maxBaselineRuns`, the baseline-side stopping rule.
    */
-  max_trials: z.number().int().min(1).optional(),
+  maxTrials: z.number().int().min(1).optional(),
   /**
    * Retire a still-undecided candidate (as `'eval-gate:no_lift'`) once
    * its leave-one-out baseline reaches this many runs. With a frozen
@@ -81,30 +81,30 @@ export const RetentionPolicySchema = z.object({
    * threshold keeps tightening — past some baseline size it is
    * undecidable by construction. This closes that window explicitly.
    */
-  max_baseline_runs: z.number().int().min(2).optional(),
+  maxBaselineRuns: z.number().int().min(2).optional(),
   /**
    * `'inference'` (default): Welch-style test with FDR control.
    * `'margin'`: the original point-estimate rule — faster verdicts,
    * no statistical guarantee.
    */
-  decision_rule: z.enum(['margin', 'inference']).default('inference'),
-  /** Required P(lift > promote_margin) to promote (inference rule). */
-  promote_confidence: z.number().min(0.5).max(0.999).default(0.9),
-  /** Required P(lift < −evict_margin) to evict (inference rule). */
-  evict_confidence: z.number().min(0.5).max(0.999).default(0.9),
+  decisionRule: z.enum(['margin', 'inference']).default('inference'),
+  /** Required P(lift > promoteMargin) to promote (inference rule). */
+  promoteConfidence: z.number().min(0.5).max(0.999).default(0.9),
+  /** Required P(lift < −evictMargin) to evict (inference rule). */
+  evictConfidence: z.number().min(0.5).max(0.999).default(0.9),
   /**
    * Per-group SD floor applied before the Welch test (inference rule).
    * Variance estimates from 2–3 runs are unstable; the floor encodes
    * the known scale of judge noise so tiny samples can't fake
    * certainty. Set it to your judge's observed per-run SD.
    */
-  noise_floor_sd: z.number().min(0).default(0.1),
+  noiseFloorSd: z.number().min(0).default(0.1),
   /**
    * `'bh'` (default): Benjamini–Hochberg FDR control across all
    * candidates tested in one gate pass, at q = 1 − confidence.
    * `'none'`: per-candidate confidence threshold only.
    */
-  multiple_comparison: z.enum(['bh', 'none']).default('bh'),
+  multipleComparison: z.enum(['bh', 'none']).default('bh'),
   /**
    * Sequential-testing control. Gating repeatedly as evidence trickles
    * in is "peeking": a 90%-confidence test re-taken on every pass can
@@ -117,8 +117,15 @@ export const RetentionPolicySchema = z.object({
    * nearly identical data). `'none'` tests at every pass at the flat
    * confidence — only sound if you gate once.
    */
-  sequential_control: z.enum(['doubling', 'none']).default('doubling'),
-});
+  sequentialControl: z.enum(['doubling', 'none']).default('doubling'),
+}).refine(
+  (p) => p.maxTrials === undefined || p.maxTrials >= p.minTrials,
+  {
+    message:
+      'maxTrials must be >= minTrials: a candidate below minTrials is held ' +
+      'before the maxTrials retirement check can fire, silently delaying it',
+  },
+);
 
 export type RetentionPolicy = z.infer<typeof RetentionPolicySchema>;
 
@@ -132,29 +139,29 @@ export interface RetentionEvidence {
   se: number;
   /** Welch–Satterthwaite degrees of freedom. */
   df: number;
-  /** P(true lift > promote_margin). */
-  p_promote: number;
-  /** P(true lift < −evict_margin). */
-  p_evict: number;
+  /** P(true lift > promoteMargin). */
+  pPromote: number;
+  /** P(true lift < −evictMargin). */
+  pEvict: number;
   /** Runs containing the lesson. */
   trials: number;
   /** Leave-one-out baseline runs. */
-  baseline_runs: number;
+  baselineRuns: number;
   /**
    * Sequential-control bracket this test ran in (doubling control):
    * bracket k covers baseline sizes [2^k, 2^(k+1)) and tests at
    * threshold (1 − confidence) / 2^k. Absent under `'none'`.
    */
-  alpha_bracket?: number;
+  alphaBracket?: number;
 }
 
 export interface RetentionReport {
   /** Lessons promoted candidate → verified this pass. */
-  promoted: Array<{ fact_id: string; evidence?: RetentionEvidence }>;
+  promoted: Array<{ factId: string; evidence?: RetentionEvidence }>;
   /** Lessons invalidated this pass, with the gate's reason. */
-  evicted: Array<{ fact_id: string; reason: EvictionReason; evidence?: RetentionEvidence }>;
+  evicted: Array<{ factId: string; reason: EvictionReason; evidence?: RetentionEvidence }>;
   /** Candidates left on trial (insufficient evidence either way). */
-  held: Array<{ fact_id: string; trials: number; evidence?: RetentionEvidence }>;
+  held: Array<{ factId: string; trials: number; evidence?: RetentionEvidence }>;
 }
 
 interface Assessment {
@@ -190,9 +197,9 @@ export async function evaluateRetention(
   let offset = 0;
   while (true) {
     const batch = await store.findFacts({
-      tags: [cfg.candidate_tag],
-      exclude_tags: [QUARANTINE_TAG],
-      include_invalidated: false,
+      tags: [cfg.candidateTag],
+      excludeTags: [QUARANTINE_TAG],
+      includeInvalidated: false,
       limit: batchSize,
       offset,
     });
@@ -210,27 +217,27 @@ export async function evaluateRetention(
 
     const base: Assessment = { fact, trials, baselineRuns: baseline.runs };
 
-    if (stats === null || trials < cfg.min_trials) {
+    if (stats === null || trials < cfg.minTrials) {
       assessments.push({ ...base, early: 'held' });
       continue;
     }
 
-    if (cfg.decision_rule === 'margin') {
+    if (cfg.decisionRule === 'margin') {
       // Original point-estimate rule, behavior-identical to the
       // pre-inference gate (including the empty-baseline escape hatch).
       if (baseline.runs === 0) {
         assessments.push({
           ...base,
           marginVerdict:
-            cfg.max_trials !== undefined && trials >= cfg.max_trials ? 'no_lift' : 'held',
+            cfg.maxTrials !== undefined && trials >= cfg.maxTrials ? 'no_lift' : 'held',
         });
         continue;
       }
-      const lift = stats.mean_score - baseline.mean_score;
+      const lift = stats.meanScore - baseline.meanScore;
       let verdict: Assessment['marginVerdict'];
-      if (lift >= cfg.promote_margin) verdict = 'promote';
-      else if (-lift >= cfg.evict_margin) verdict = 'evict';
-      else if (cfg.max_trials !== undefined && trials >= cfg.max_trials) verdict = 'no_lift';
+      if (lift >= cfg.promoteMargin) verdict = 'promote';
+      else if (-lift >= cfg.evictMargin) verdict = 'evict';
+      else if (cfg.maxTrials !== undefined && trials >= cfg.maxTrials) verdict = 'no_lift';
       else verdict = 'held';
       assessments.push({ ...base, marginVerdict: verdict });
       continue;
@@ -239,44 +246,44 @@ export async function evaluateRetention(
     // Inference rule: both groups need n ≥ 2 for a variance estimate.
     // (The noise floor stabilises tiny variances; it can't conjure a
     // degree of freedom.) Undecidable candidates fall back to the
-    // max_trials escape hatch so they can't deadlock the trial queue.
+    // maxTrials escape hatch so they can't deadlock the trial queue.
     if (trials < 2 || baseline.runs < 2) {
       assessments.push({
         ...base,
-        early: cfg.max_trials !== undefined && trials >= cfg.max_trials ? 'no_lift' : 'held',
+        early: cfg.maxTrials !== undefined && trials >= cfg.maxTrials ? 'no_lift' : 'held',
       });
       continue;
     }
 
-    const floorVar = cfg.noise_floor_sd ** 2;
+    const floorVar = cfg.noiseFloorSd ** 2;
     const varWith = Math.max(stats.variance ?? 0, floorVar);
     const varWithout = Math.max(baseline.variance ?? 0, floorVar);
 
     const promo = welchLift({
-      mean_a: stats.mean_score,
-      var_a: varWith,
-      n_a: trials,
-      mean_b: baseline.mean_score,
-      var_b: varWithout,
-      n_b: baseline.runs,
-      margin: cfg.promote_margin,
+      meanA: stats.meanScore,
+      varA: varWith,
+      nA: trials,
+      meanB: baseline.meanScore,
+      varB: varWithout,
+      nB: baseline.runs,
+      margin: cfg.promoteMargin,
     });
-    // Eviction side: P(lift < −evict_margin) = 1 − P(lift > −evict_margin).
+    // Eviction side: P(lift < −evictMargin) = 1 − P(lift > −evictMargin).
     const evict = welchLift({
-      mean_a: stats.mean_score,
-      var_a: varWith,
-      n_a: trials,
-      mean_b: baseline.mean_score,
-      var_b: varWithout,
-      n_b: baseline.runs,
-      margin: -cfg.evict_margin,
+      meanA: stats.meanScore,
+      varA: varWith,
+      nA: trials,
+      meanB: baseline.meanScore,
+      varB: varWithout,
+      nB: baseline.runs,
+      margin: -cfg.evictMargin,
     });
 
     // Sequential control: bracket k covers baseline sizes [2^k, 2^(k+1)).
     // Spending α/2^k per bracket keeps total error ≤ α over unlimited
     // gate passes (union bound across brackets).
     const alphaBracket =
-      cfg.sequential_control === 'doubling' ? Math.floor(Math.log2(baseline.runs)) : undefined;
+      cfg.sequentialControl === 'doubling' ? Math.floor(Math.log2(baseline.runs)) : undefined;
 
     assessments.push({
       ...base,
@@ -284,11 +291,11 @@ export async function evaluateRetention(
         lift: promo.lift,
         se: promo.se,
         df: promo.df,
-        p_promote: promo.p_exceeds,
-        p_evict: 1 - evict.p_exceeds,
+        pPromote: promo.pExceeds,
+        pEvict: 1 - evict.pExceeds,
         trials,
-        baseline_runs: baseline.runs,
-        ...(alphaBracket !== undefined ? { alpha_bracket: alphaBracket } : {}),
+        baselineRuns: baseline.runs,
+        ...(alphaBracket !== undefined ? { alphaBracket: alphaBracket } : {}),
       },
     });
   }
@@ -300,18 +307,18 @@ export async function evaluateRetention(
   // Under doubling sequential control, the bracket penalty is folded into
   // the p-value (p·2^k ≤ q  ⟺  p ≤ q/2^k), which composes with BH.
   const spend = (a: Assessment, p: number) =>
-    a.evidence!.alpha_bracket !== undefined ? Math.min(1, p * 2 ** a.evidence!.alpha_bracket) : p;
-  const promoteP = tested.map((a) => spend(a, 1 - a.evidence!.p_promote));
-  const evictP = tested.map((a) => spend(a, 1 - a.evidence!.p_evict));
+    a.evidence!.alphaBracket !== undefined ? Math.min(1, p * 2 ** a.evidence!.alphaBracket) : p;
+  const promoteP = tested.map((a) => spend(a, 1 - a.evidence!.pPromote));
+  const evictP = tested.map((a) => spend(a, 1 - a.evidence!.pEvict));
 
   let promoteReject: boolean[];
   let evictReject: boolean[];
-  if (cfg.multiple_comparison === 'bh') {
-    promoteReject = benjaminiHochberg(promoteP, 1 - cfg.promote_confidence);
-    evictReject = benjaminiHochberg(evictP, 1 - cfg.evict_confidence);
+  if (cfg.multipleComparison === 'bh') {
+    promoteReject = benjaminiHochberg(promoteP, 1 - cfg.promoteConfidence);
+    evictReject = benjaminiHochberg(evictP, 1 - cfg.evictConfidence);
   } else {
-    promoteReject = promoteP.map((p) => p <= 1 - cfg.promote_confidence);
-    evictReject = evictP.map((p) => p <= 1 - cfg.evict_confidence);
+    promoteReject = promoteP.map((p) => p <= 1 - cfg.promoteConfidence);
+    evictReject = evictP.map((p) => p <= 1 - cfg.evictConfidence);
   }
 
   // Collect mutations first; apply at the end so a mid-pass failure
@@ -321,27 +328,29 @@ export async function evaluateRetention(
   const promote = (fact: SemanticFact, evidence?: RetentionEvidence) => {
     mutations.push({
       ...fact,
-      tags: [...fact.tags.filter((t) => t !== cfg.candidate_tag), cfg.verified_tag],
+      // Set-dedup: a fact already carrying the verified tag (writer bug,
+      // manual edit) must not come out tagged verified twice.
+      tags: [...new Set([...fact.tags.filter((t) => t !== cfg.candidateTag), cfg.verifiedTag])],
     });
-    report.promoted.push({ fact_id: fact.id, ...(evidence ? { evidence } : {}) });
+    report.promoted.push({ factId: fact.id, ...(evidence ? { evidence } : {}) });
   };
   const evictAs = (fact: SemanticFact, reason: EvictionReason, evidence?: RetentionEvidence) => {
     mutations.push({ ...fact, invalidated_by: reason });
-    report.evicted.push({ fact_id: fact.id, reason, ...(evidence ? { evidence } : {}) });
+    report.evicted.push({ factId: fact.id, reason, ...(evidence ? { evidence } : {}) });
   };
 
   let testedIdx = 0;
   for (const a of assessments) {
     if (a.early !== undefined) {
       if (a.early === 'no_lift') evictAs(a.fact, 'eval-gate:no_lift');
-      else report.held.push({ fact_id: a.fact.id, trials: a.trials });
+      else report.held.push({ factId: a.fact.id, trials: a.trials });
       continue;
     }
     if (a.marginVerdict !== undefined) {
       if (a.marginVerdict === 'promote') promote(a.fact);
       else if (a.marginVerdict === 'evict') evictAs(a.fact, 'eval-gate:harmful');
       else if (a.marginVerdict === 'no_lift') evictAs(a.fact, 'eval-gate:no_lift');
-      else report.held.push({ fact_id: a.fact.id, trials: a.trials });
+      else report.held.push({ factId: a.fact.id, trials: a.trials });
       continue;
     }
 
@@ -351,18 +360,21 @@ export async function evaluateRetention(
     const doEvict = evictReject[idx];
 
     // Both sides confirmed is impossible with positive margins unless
-    // numerics misbehave — hold defensively if it ever happens.
-    if (doPromote && !doEvict) {
+    // numerics misbehave — hold defensively if it ever happens (checked
+    // FIRST so the stopping rules below can't turn it into an eviction).
+    if (doPromote && doEvict) {
+      report.held.push({ factId: a.fact.id, trials: a.trials, evidence });
+    } else if (doPromote) {
       promote(a.fact, evidence);
-    } else if (doEvict && !doPromote) {
+    } else if (doEvict) {
       evictAs(a.fact, 'eval-gate:harmful', evidence);
     } else if (
-      (cfg.max_trials !== undefined && a.trials >= cfg.max_trials) ||
-      (cfg.max_baseline_runs !== undefined && a.baselineRuns >= cfg.max_baseline_runs)
+      (cfg.maxTrials !== undefined && a.trials >= cfg.maxTrials) ||
+      (cfg.maxBaselineRuns !== undefined && a.baselineRuns >= cfg.maxBaselineRuns)
     ) {
       evictAs(a.fact, 'eval-gate:no_lift', evidence);
     } else {
-      report.held.push({ fact_id: a.fact.id, trials: a.trials, evidence });
+      report.held.push({ factId: a.fact.id, trials: a.trials, evidence });
     }
   }
 

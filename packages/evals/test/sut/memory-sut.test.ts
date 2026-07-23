@@ -151,7 +151,7 @@ describe('runMemorySut — error path', () => {
 
 describe('runMemorySut — subgraph', () => {
   it('extracts a 1-hop neighborhood from the seeded fixture', async () => {
-    const input = JSON.stringify({ seed_entities: ['e-alice'], max_hops: 1 });
+    const input = JSON.stringify({ seed_entities: ['e-alice'], maxHops: 1 });
 
     const result = await runMemorySut({
       trajectory: makeTrajectory(['subgraph', 'graph'], input),
@@ -166,11 +166,11 @@ describe('runMemorySut — subgraph', () => {
     expect(parsed.relationships.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('excludes expired relationships when valid_at is supplied', async () => {
+  it('excludes expired relationships when validAt is supplied', async () => {
     const input = JSON.stringify({
       seed_entities: ['e-alice'],
-      max_hops: 1,
-      valid_at: '2026-04-06T12:00:00Z',
+      maxHops: 1,
+      validAt: '2026-04-06T12:00:00Z',
     });
 
     const result = await runMemorySut({
@@ -182,7 +182,7 @@ describe('runMemorySut — subgraph', () => {
       relationships: Array<{ type: string }>;
     };
     // The seeded fixture's `manages` edge is expired; the expired one should
-    // not appear in the 1-hop output when valid_at is the fixture's NOW.
+    // not appear in the 1-hop output when validAt is the fixture's NOW.
     expect(parsed.relationships.every(r => r.type !== 'manages')).toBe(true);
   });
 });

@@ -4,7 +4,7 @@ import { runDeterministic } from '../../src/suites/memory/suite.js';
 describe('memory deterministic suite', () => {
   it('runs all deterministic test cases', async () => {
     const results = await runDeterministic();
-    expect(results.length).toBe(8);
+    expect(results.length).toBe(11); // 8 plumbing + 2 extraction efficacy + 1 blind corpus
   });
 
   it('all tests pass on known-good fixtures', async () => {

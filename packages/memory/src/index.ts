@@ -79,14 +79,14 @@ export type { SimpleEpisodeSegmenterOptions } from './hierarchy/simple-episode-s
 
 export { SimpleSemanticExtractor } from './hierarchy/simple-semantic-extractor.js';
 
-export { SimpleThemeClusterer } from './hierarchy/simple-theme-clusterer.js';
+export { SimpleThemeClusterer, assignThemeIds } from './hierarchy/simple-theme-clusterer.js';
 export type { SimpleThemeClustererOptions } from './hierarchy/simple-theme-clusterer.js';
 
 export { RuleBasedExtractor } from './hierarchy/rule-based-extractor.js';
 export type { RuleBasedExtractorOptions, ExtractedEntity } from './hierarchy/rule-based-extractor.js';
 
 export { LLMExtractor } from './hierarchy/llm-extractor.js';
-export type { LLMExtractorOptions, LLMProvider } from './hierarchy/llm-extractor.js';
+export type { LLMExtractorOptions, LLMProvider, ExtractorLogger } from './hierarchy/llm-extractor.js';
 
 export { ConsolidatingThemeClusterer } from './hierarchy/consolidating-theme-clusterer.js';
 export type { ConsolidatingThemeClustererOptions } from './hierarchy/consolidating-theme-clusterer.js';
@@ -112,6 +112,9 @@ export type { ConsolidationOptions, ConsolidationReport, AutoConsolidationThresh
 
 export { ConflictDetector } from './consolidation/conflict-detector.js';
 export type { ConflictDetectorOptions, Conflict, ConflictResolutionPolicy, ConflictResolutionReport } from './consolidation/conflict-detector.js';
+
+export { EntityResolver, normalizeEntityName } from './consolidation/entity-resolver.js';
+export type { EntityResolutionOptions, EntityResolutionReport, EntityResolutionLogger } from './consolidation/entity-resolver.js';
 
 export { InMemoryOutcomeLedger, RunOutcomeSchema } from './consolidation/outcome-ledger.js';
 export type { OutcomeLedger, RunOutcome, FactStats, OutcomeBaseline } from './consolidation/outcome-ledger.js';

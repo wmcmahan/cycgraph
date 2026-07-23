@@ -44,14 +44,14 @@ describe('evaluateRetention', () => {
     ledger = new InMemoryOutcomeLedger();
   });
 
-  it('promotes a candidate whose lift clears the margin at min_trials', async () => {
+  it('promotes a candidate whose lift clears the margin at minTrials', async () => {
     await store.putFact(makeLesson(FACT_ID_A));
     await recordRuns(ledger, 'with', 3, 0.9, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 3, 0.5, []);
 
-    const report = await evaluateRetention(store, ledger, { decision_rule: 'margin', min_trials: 3, promote_margin: 0.05 });
+    const report = await evaluateRetention(store, ledger, { decisionRule: 'margin', minTrials: 3, promoteMargin: 0.05 });
 
-    expect(report.promoted).toEqual([{ fact_id: FACT_ID_A }]);
+    expect(report.promoted).toEqual([{ factId: FACT_ID_A }]);
     expect(report.evicted).toEqual([]);
     const fact = await store.getFact(FACT_ID_A);
     expect(fact?.tags).toContain('verified');
@@ -59,19 +59,34 @@ describe('evaluateRetention', () => {
     expect(fact?.tags).toContain('lesson'); // scope tags preserved
   });
 
+  it('promotion does not duplicate an already-present verified tag', async () => {
+    // A fact carrying BOTH status tags (writer bug / manual edit) must come
+    // out with exactly one 'verified'.
+    await store.putFact(makeLesson(FACT_ID_A, { tags: ['lesson', 'candidate', 'verified'] }));
+    await recordRuns(ledger, 'with', 3, 0.9, [FACT_ID_A]);
+    await recordRuns(ledger, 'without', 3, 0.5, []);
+
+    const report = await evaluateRetention(store, ledger, { decisionRule: 'margin', minTrials: 3, promoteMargin: 0.05 });
+
+    expect(report.promoted).toEqual([{ factId: FACT_ID_A }]);
+    const fact = await store.getFact(FACT_ID_A);
+    expect(fact?.tags.filter((t) => t === 'verified')).toHaveLength(1);
+    expect(fact?.tags).not.toContain('candidate');
+  });
+
   it('evicts a harmful candidate with invalidated_by eval-gate:harmful', async () => {
     await store.putFact(makeLesson(FACT_ID_A));
     await recordRuns(ledger, 'with', 3, 0.2, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 3, 0.8, []);
 
-    const report = await evaluateRetention(store, ledger, { decision_rule: 'margin', min_trials: 3, evict_margin: 0.05 });
+    const report = await evaluateRetention(store, ledger, { decisionRule: 'margin', minTrials: 3, evictMargin: 0.05 });
 
-    expect(report.evicted).toEqual([{ fact_id: FACT_ID_A, reason: 'eval-gate:harmful' }]);
+    expect(report.evicted).toEqual([{ factId: FACT_ID_A, reason: 'eval-gate:harmful' }]);
     const fact = await store.getFact(FACT_ID_A);
     expect(fact?.invalidated_by).toBe('eval-gate:harmful');
 
     // Evicted facts are excluded from default listings.
-    const active = await store.findFacts({ tags: ['candidate'], include_invalidated: false });
+    const active = await store.findFacts({ tags: ['candidate'], includeInvalidated: false });
     expect(active).toEqual([]);
   });
 
@@ -80,9 +95,9 @@ describe('evaluateRetention', () => {
     await recordRuns(ledger, 'with', 2, 0.9, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 2, 0.1, []);
 
-    const report = await evaluateRetention(store, ledger, { min_trials: 3 });
+    const report = await evaluateRetention(store, ledger, { minTrials: 3 });
 
-    expect(report.held).toEqual([{ fact_id: FACT_ID_A, trials: 2 }]);
+    expect(report.held).toEqual([{ factId: FACT_ID_A, trials: 2 }]);
     expect((await store.getFact(FACT_ID_A))?.tags).toContain('candidate');
   });
 
@@ -91,7 +106,7 @@ describe('evaluateRetention', () => {
     await recordRuns(ledger, 'without', 5, 0.5, []);
 
     const report = await evaluateRetention(store, ledger);
-    expect(report.held).toEqual([{ fact_id: FACT_ID_A, trials: 0 }]);
+    expect(report.held).toEqual([{ factId: FACT_ID_A, trials: 0 }]);
   });
 
   it('holds rather than judging against an empty baseline', async () => {
@@ -99,44 +114,44 @@ describe('evaluateRetention', () => {
     // Every recorded run contains the fact — leave-one-out baseline is empty.
     await recordRuns(ledger, 'with', 4, 0.9, [FACT_ID_A]);
 
-    const report = await evaluateRetention(store, ledger, { min_trials: 3 });
-    expect(report.held).toEqual([{ fact_id: FACT_ID_A, trials: 4 }]);
+    const report = await evaluateRetention(store, ledger, { minTrials: 3 });
+    expect(report.held).toEqual([{ factId: FACT_ID_A, trials: 4 }]);
   });
 
-  it('breaks the empty-baseline deadlock via max_trials', async () => {
+  it('breaks the empty-baseline deadlock via maxTrials', async () => {
     await store.putFact(makeLesson(FACT_ID_A));
-    // Fact in every recorded run → no baseline can ever form; max_trials
+    // Fact in every recorded run → no baseline can ever form; maxTrials
     // must still retire it or it starves the trial queue forever.
     await recordRuns(ledger, 'with', 6, 0.9, [FACT_ID_A]);
 
-    const report = await evaluateRetention(store, ledger, { min_trials: 3, max_trials: 5 });
-    expect(report.evicted).toEqual([{ fact_id: FACT_ID_A, reason: 'eval-gate:no_lift' }]);
+    const report = await evaluateRetention(store, ledger, { minTrials: 3, maxTrials: 5 });
+    expect(report.evicted).toEqual([{ factId: FACT_ID_A, reason: 'eval-gate:no_lift' }]);
   });
 
-  it('evicts no-lift candidates once max_trials is reached', async () => {
+  it('evicts no-lift candidates once maxTrials is reached', async () => {
     await store.putFact(makeLesson(FACT_ID_A));
     await recordRuns(ledger, 'with', 6, 0.5, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 6, 0.5, []);
 
     const report = await evaluateRetention(store, ledger, {
-      decision_rule: 'margin',
-      min_trials: 3,
-      max_trials: 5,
-      promote_margin: 0.05,
-      evict_margin: 0.05,
+      decisionRule: 'margin',
+      minTrials: 3,
+      maxTrials: 5,
+      promoteMargin: 0.05,
+      evictMargin: 0.05,
     });
 
-    expect(report.evicted).toEqual([{ fact_id: FACT_ID_A, reason: 'eval-gate:no_lift' }]);
+    expect(report.evicted).toEqual([{ factId: FACT_ID_A, reason: 'eval-gate:no_lift' }]);
     expect((await store.getFact(FACT_ID_A))?.invalidated_by).toBe('eval-gate:no_lift');
   });
 
-  it('keeps no-lift candidates on trial when max_trials is unset', async () => {
+  it('keeps no-lift candidates on trial when maxTrials is unset', async () => {
     await store.putFact(makeLesson(FACT_ID_A));
     await recordRuns(ledger, 'with', 10, 0.5, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 10, 0.5, []);
 
-    const report = await evaluateRetention(store, ledger, { decision_rule: 'margin', min_trials: 3 });
-    expect(report.held).toEqual([{ fact_id: FACT_ID_A, trials: 10 }]);
+    const report = await evaluateRetention(store, ledger, { decisionRule: 'margin', minTrials: 3 });
+    expect(report.held).toEqual([{ factId: FACT_ID_A, trials: 10 }]);
   });
 
   it('is idempotent — a second pass after promotion changes nothing', async () => {
@@ -144,8 +159,8 @@ describe('evaluateRetention', () => {
     await recordRuns(ledger, 'with', 3, 0.9, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 3, 0.5, []);
 
-    await evaluateRetention(store, ledger, { decision_rule: 'margin' });
-    const second = await evaluateRetention(store, ledger, { decision_rule: 'margin' });
+    await evaluateRetention(store, ledger, { decisionRule: 'margin' });
+    const second = await evaluateRetention(store, ledger, { decisionRule: 'margin' });
 
     expect(second).toEqual({ promoted: [], evicted: [], held: [] });
     const fact = await store.getFact(FACT_ID_A);
@@ -160,10 +175,10 @@ describe('evaluateRetention', () => {
     await recordRuns(ledger, 'b', 3, 0.1, [FACT_ID_B]);
     await recordRuns(ledger, 'neutral', 3, 0.5, []);
 
-    const report = await evaluateRetention(store, ledger, { decision_rule: 'margin', min_trials: 3 });
+    const report = await evaluateRetention(store, ledger, { decisionRule: 'margin', minTrials: 3 });
 
-    expect(report.promoted).toEqual([{ fact_id: FACT_ID_A }]);
-    expect(report.evicted).toEqual([{ fact_id: FACT_ID_B, reason: 'eval-gate:harmful' }]);
+    expect(report.promoted).toEqual([{ factId: FACT_ID_A }]);
+    expect(report.evicted).toEqual([{ factId: FACT_ID_B, reason: 'eval-gate:harmful' }]);
   });
 
   it('ignores non-candidate facts entirely', async () => {
@@ -182,12 +197,12 @@ describe('evaluateRetention', () => {
     await recordRuns(ledger, 'without', 3, 0.5, []);
 
     const report = await evaluateRetention(store, ledger, {
-      decision_rule: 'margin',
-      candidate_tag: 'on-trial',
-      verified_tag: 'proven',
+      decisionRule: 'margin',
+      candidateTag: 'on-trial',
+      verifiedTag: 'proven',
     });
 
-    expect(report.promoted).toEqual([{ fact_id: FACT_ID_A }]);
+    expect(report.promoted).toEqual([{ factId: FACT_ID_A }]);
     const fact = await store.getFact(FACT_ID_A);
     expect(fact?.tags).toEqual(['lesson', 'proven']);
   });
@@ -209,17 +224,17 @@ describe('evaluateRetention — inference rule', () => {
     await recordRuns(ledger, 'with', 5, 0.9, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 5, 0.5, []);
 
-    const report = await evaluateRetention(store, ledger, { min_trials: 3 });
+    const report = await evaluateRetention(store, ledger, { minTrials: 3 });
 
     expect(report.promoted).toHaveLength(1);
-    const { fact_id, evidence } = report.promoted[0];
-    expect(fact_id).toBe(FACT_ID_A);
+    const { factId, evidence } = report.promoted[0];
+    expect(factId).toBe(FACT_ID_A);
     expect(evidence).toBeDefined();
     expect(evidence!.lift).toBeCloseTo(0.4, 10);
-    expect(evidence!.p_promote).toBeGreaterThan(0.99);
-    expect(evidence!.p_evict).toBeLessThan(0.01);
+    expect(evidence!.pPromote).toBeGreaterThan(0.99);
+    expect(evidence!.pEvict).toBeLessThan(0.01);
     expect(evidence!.trials).toBe(5);
-    expect(evidence!.baseline_runs).toBe(5);
+    expect(evidence!.baselineRuns).toBe(5);
     expect((await store.getFact(FACT_ID_A))?.tags).toContain('verified');
   });
 
@@ -228,15 +243,15 @@ describe('evaluateRetention — inference rule', () => {
     await recordRuns(ledger, 'with', 5, 0.2, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 5, 0.8, []);
 
-    const report = await evaluateRetention(store, ledger, { min_trials: 3 });
+    const report = await evaluateRetention(store, ledger, { minTrials: 3 });
 
     expect(report.evicted).toHaveLength(1);
     expect(report.evicted[0].reason).toBe('eval-gate:harmful');
-    expect(report.evicted[0].evidence!.p_evict).toBeGreaterThan(0.99);
+    expect(report.evicted[0].evidence!.pEvict).toBeGreaterThan(0.99);
   });
 
   it('holds a borderline lift the margin rule would have promoted', async () => {
-    // lift = 0.08 ≥ promote_margin 0.05, but with only 3 noisy trials the
+    // lift = 0.08 ≥ promoteMargin 0.05, but with only 3 noisy trials the
     // evidence is far below 90% confidence. The margin rule acts; the
     // inference rule (correctly) waits.
     const setup = async (s: InMemoryMemoryStore, l: InMemoryOutcomeLedger, id: string) => {
@@ -254,28 +269,28 @@ describe('evaluateRetention — inference rule', () => {
     const ledgerMargin = new InMemoryOutcomeLedger();
     await setup(storeMargin, ledgerMargin, idMargin);
     const marginReport = await evaluateRetention(storeMargin, ledgerMargin, {
-      decision_rule: 'margin',
-      min_trials: 3,
+      decisionRule: 'margin',
+      minTrials: 3,
     });
-    expect(marginReport.promoted).toEqual([{ fact_id: idMargin }]);
+    expect(marginReport.promoted).toEqual([{ factId: idMargin }]);
 
     await setup(store, ledger, FACT_ID_A);
-    const inferenceReport = await evaluateRetention(store, ledger, { min_trials: 3 });
+    const inferenceReport = await evaluateRetention(store, ledger, { minTrials: 3 });
     expect(inferenceReport.promoted).toEqual([]);
     expect(inferenceReport.held).toHaveLength(1);
     expect(inferenceReport.held[0].evidence).toBeDefined();
-    expect(inferenceReport.held[0].evidence!.p_promote).toBeLessThan(0.9);
+    expect(inferenceReport.held[0].evidence!.pPromote).toBeLessThan(0.9);
   });
 
-  it('holds identical means regardless of trials when max_trials is unset', async () => {
+  it('holds identical means regardless of trials when maxTrials is unset', async () => {
     await store.putFact(makeLesson(FACT_ID_A));
     await recordRuns(ledger, 'with', 20, 0.5, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 20, 0.5, []);
 
-    const report = await evaluateRetention(store, ledger, { min_trials: 3 });
+    const report = await evaluateRetention(store, ledger, { minTrials: 3 });
     expect(report.held).toHaveLength(1);
-    expect(report.held[0].evidence!.p_promote).toBeLessThan(0.5);
-    expect(report.held[0].evidence!.p_evict).toBeLessThan(0.5);
+    expect(report.held[0].evidence!.pPromote).toBeLessThan(0.5);
+    expect(report.held[0].evidence!.pEvict).toBeLessThan(0.5);
   });
 
   it('holds when the baseline has fewer than 2 runs', async () => {
@@ -283,8 +298,8 @@ describe('evaluateRetention — inference rule', () => {
     await recordRuns(ledger, 'with', 4, 0.9, [FACT_ID_A]);
     await ledger.recordOutcome({ run_id: 'solo-baseline', score: 0.2, fact_ids: [] });
 
-    const report = await evaluateRetention(store, ledger, { min_trials: 3 });
-    expect(report.held).toEqual([{ fact_id: FACT_ID_A, trials: 4 }]);
+    const report = await evaluateRetention(store, ledger, { minTrials: 3 });
+    expect(report.held).toEqual([{ factId: FACT_ID_A, trials: 4 }]);
   });
 
   it('BH suppresses a borderline promotion that the per-candidate rule allows', async () => {
@@ -308,32 +323,32 @@ describe('evaluateRetention — inference rule', () => {
     const ledgerNone = new InMemoryOutcomeLedger();
     const { a: aNone } = await seed(storeNone, ledgerNone);
     const none = await evaluateRetention(storeNone, ledgerNone, {
-      min_trials: 3,
-      multiple_comparison: 'none',
-      sequential_control: 'none', // isolate BH — spending is tested elsewhere
+      minTrials: 3,
+      multipleComparison: 'none',
+      sequentialControl: 'none', // isolate BH — spending is tested elsewhere
     });
-    expect(none.promoted.map((p) => p.fact_id)).toEqual([aNone]);
+    expect(none.promoted.map((p) => p.factId)).toEqual([aNone]);
 
     const storeBh = new InMemoryMemoryStore();
     const ledgerBh = new InMemoryOutcomeLedger();
     await seed(storeBh, ledgerBh);
     const bh = await evaluateRetention(storeBh, ledgerBh, {
-      min_trials: 3,
-      multiple_comparison: 'bh',
-      sequential_control: 'none', // isolate BH — spending is tested elsewhere
+      minTrials: 3,
+      multipleComparison: 'bh',
+      sequentialControl: 'none', // isolate BH — spending is tested elsewhere
     });
     expect(bh.promoted).toEqual([]);
   });
 
-  it('applies the max_trials escape hatch to undecidable candidates', async () => {
+  it('applies the maxTrials escape hatch to undecidable candidates', async () => {
     await store.putFact(makeLesson(FACT_ID_A));
     await recordRuns(ledger, 'with', 8, 0.52, [FACT_ID_A]);
     await recordRuns(ledger, 'without', 8, 0.5, []);
 
-    const report = await evaluateRetention(store, ledger, { min_trials: 3, max_trials: 6 });
+    const report = await evaluateRetention(store, ledger, { minTrials: 3, maxTrials: 6 });
     expect(report.evicted).toEqual([
       {
-        fact_id: FACT_ID_A,
+        factId: FACT_ID_A,
         reason: 'eval-gate:no_lift',
         evidence: expect.objectContaining({ trials: 8 }),
       },

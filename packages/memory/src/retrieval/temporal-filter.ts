@@ -17,9 +17,9 @@ export interface TemporalRecord {
 
 /** Filter options for temporal queries. */
 export interface TemporalFilterOptions {
-  valid_at?: Date;
-  changed_since?: Date;
-  include_invalidated?: boolean;
+  validAt?: Date;
+  changedSince?: Date;
+  includeInvalidated?: boolean;
 }
 
 /**
@@ -53,12 +53,12 @@ export function filterValid<T extends TemporalRecord>(
   records: T[],
   opts: TemporalFilterOptions = {},
 ): T[] {
-  const { valid_at, changed_since, include_invalidated = false } = opts;
+  const { validAt, changedSince, includeInvalidated = false } = opts;
 
   return records.filter((record) => {
-    if (!include_invalidated && record.invalidated_by) return false;
-    if (valid_at && !isValidAt(record, valid_at)) return false;
-    if (changed_since && !isChangedSince(record, changed_since)) return false;
+    if (!includeInvalidated && record.invalidated_by) return false;
+    if (validAt && !isValidAt(record, validAt)) return false;
+    if (changedSince && !isChangedSince(record, changedSince)) return false;
     return true;
   });
 }

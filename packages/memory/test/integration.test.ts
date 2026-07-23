@@ -15,7 +15,7 @@ describe('Full pipeline integration', () => {
   it('messages → episodes → facts → themes → query', async () => {
     const store = new InMemoryMemoryStore();
     const index = new InMemoryMemoryIndex();
-    const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 60_000 });
+    const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 60_000 });
     const extractor = new SimpleSemanticExtractor();
     const clusterer = new SimpleThemeClusterer();
 
@@ -81,10 +81,10 @@ describe('Full pipeline integration', () => {
     // Step 7: Query using embedding similar to first episode
     const query: MemoryQuery = {
       embedding: [1, 0, 0],
-      max_hops: 2,
+      maxHops: 2,
       limit: 20,
-      min_similarity: 0.5,
-      include_invalidated: false,
+      minSimilarity: 0.5,
+      includeInvalidated: false,
     };
 
     const result = await retrieveMemory(store, index, query);
@@ -94,7 +94,7 @@ describe('Full pipeline integration', () => {
 
   it('RuleBasedExtractor populates entities and relationships in store', async () => {
     const store = new InMemoryMemoryStore();
-    const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 60_000 });
+    const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 60_000 });
     const extractor = new RuleBasedExtractor();
 
     const t1 = new Date('2024-01-01T10:00:00Z');
@@ -141,7 +141,7 @@ describe('Full pipeline integration', () => {
     expect(aliceRels.length).toBeGreaterThanOrEqual(1);
 
     // Verify subgraph extraction works
-    const subgraph = await extractSubgraph(store, [alice!.id], { max_hops: 1 });
+    const subgraph = await extractSubgraph(store, [alice!.id], { maxHops: 1 });
     expect(subgraph.entities.length).toBeGreaterThanOrEqual(2);
     expect(subgraph.relationships.length).toBeGreaterThanOrEqual(1);
   });

@@ -24,7 +24,7 @@
 import { getDb } from './connection.js';
 import { run_outcomes, run_outcome_facts, gate_decisions } from './schema.js';
 import type { GateDecisionRow, RetentionEvidenceJson } from './schema.js';
-import { eq, and, desc, asc, gte, count, avg, sql, type SQL } from 'drizzle-orm';
+import { eq, and, desc, asc, gte, count, avg, inArray, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { withTenant, type Tx, type TenantContext } from './tenancy.js';
 import {
@@ -39,7 +39,7 @@ import {
 
 /** Filter for {@link DrizzleOutcomeLedger.listGateDecisions}. */
 export interface GateDecisionFilter {
-  fact_id?: string;
+  factId?: string;
   decision?: 'promoted' | 'evicted' | 'held';
   reason?: string;
   /** Only decisions at or after this time. */
@@ -50,9 +50,9 @@ export interface GateDecisionFilter {
 
 /** One point on the fitness trend (a scored run). */
 export interface FitnessTrendPoint {
-  run_id: string;
+  runId: string;
   score: number;
-  recorded_at: Date;
+  recordedAt: Date;
 }
 
 /** `var_samp` over an empty/singleton set is NULL → `undefined`. */
@@ -157,11 +157,42 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
     if (trials === 0) return null;
     const variance = coerceVariance(rows[0]?.variance);
     return {
-      fact_id: factId,
+      factId,
       trials,
-      mean_score: num(rows[0]?.mean),
+      meanScore: num(rows[0]?.mean),
       ...(variance !== undefined ? { variance } : {}),
     };
+  }
+
+  async getFactStatsBatch(factIds: string[]): Promise<Map<string, FactStats>> {
+    if (factIds.length === 0) return new Map();
+    // One grouped query instead of a round-trip per fact — gated retrieval
+    // asks for every candidate's trial count on every prompt build.
+    const rows = await this.read((db) => db
+      .select({
+        fact_id: run_outcome_facts.fact_id,
+        trials: count(),
+        mean: avg(run_outcomes.score),
+        variance: sql<number | null>`var_samp(${run_outcomes.score})`,
+      })
+      .from(run_outcomes)
+      .innerJoin(run_outcome_facts, eq(run_outcome_facts.run_id, run_outcomes.run_id))
+      .where(and(inArray(run_outcome_facts.fact_id, factIds), this.tenantEq(run_outcomes.tenant_id)))
+      .groupBy(run_outcome_facts.fact_id));
+
+    const result = new Map<string, FactStats>();
+    for (const row of rows) {
+      const trials = num(row.trials);
+      if (trials === 0) continue;
+      const variance = coerceVariance(row.variance);
+      result.set(row.fact_id, {
+        factId: row.fact_id,
+        trials,
+        meanScore: num(row.mean),
+        ...(variance !== undefined ? { variance } : {}),
+      });
+    }
+    return result;
   }
 
   async getBaseline(excludeFactId?: string): Promise<OutcomeBaseline> {
@@ -191,7 +222,7 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
     const variance = coerceVariance(rows[0]?.variance);
     return {
       runs,
-      mean_score: runs === 0 ? 0 : num(rows[0]?.mean),
+      meanScore: runs === 0 ? 0 : num(rows[0]?.mean),
       ...(variance !== undefined ? { variance } : {}),
     };
     });
@@ -214,9 +245,9 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
     return rows.map((r) => {
       const variance = coerceVariance(r.variance);
       return {
-        fact_id: r.fact_id,
+        factId: r.fact_id,
         trials: num(r.trials),
-        mean_score: num(r.mean),
+        meanScore: num(r.mean),
         ...(variance !== undefined ? { variance } : {}),
       };
     });
@@ -252,17 +283,17 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
             lift: e.lift,
             se: e.se,
             df: e.df,
-            p_promote: e.p_promote,
-            p_evict: e.p_evict,
+            p_promote: e.pPromote,
+            p_evict: e.pEvict,
             trials: e.trials,
-            baseline_runs: e.baseline_runs,
-            ...(e.alpha_bracket !== undefined ? { alpha_bracket: e.alpha_bracket } : {}),
+            baseline_runs: e.baselineRuns,
+            ...(e.alphaBracket !== undefined ? { alpha_bracket: e.alphaBracket } : {}),
           }
         : null;
 
     for (const p of report.promoted) {
       rows.push({
-        fact_id: p.fact_id,
+        fact_id: p.factId,
         decision: 'promoted',
         reason: null,
         evidence: evidenceJson(p.evidence),
@@ -272,7 +303,7 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
     }
     for (const e of report.evicted) {
       rows.push({
-        fact_id: e.fact_id,
+        fact_id: e.factId,
         decision: 'evicted',
         reason: e.reason,
         evidence: evidenceJson(e.evidence),
@@ -282,7 +313,7 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
     }
     for (const h of report.held) {
       rows.push({
-        fact_id: h.fact_id,
+        fact_id: h.factId,
         decision: 'held',
         reason: null,
         evidence: evidenceJson(h.evidence),
@@ -299,7 +330,7 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
   async listGateDecisions(filter: GateDecisionFilter = {}): Promise<GateDecisionRow[]> {
     return this.read((db) => {
       const conditions = [];
-      if (filter.fact_id) conditions.push(eq(gate_decisions.fact_id, filter.fact_id));
+      if (filter.factId) conditions.push(eq(gate_decisions.fact_id, filter.factId));
       if (filter.decision) conditions.push(eq(gate_decisions.decision, filter.decision));
       if (filter.reason) conditions.push(eq(gate_decisions.reason, filter.reason));
       if (filter.since) conditions.push(gte(gate_decisions.gated_at, filter.since));
@@ -329,9 +360,9 @@ export class DrizzleOutcomeLedger implements OutcomeLedger {
     return this.read((db) => {
       const query = db
         .select({
-          run_id: run_outcomes.run_id,
+          runId: run_outcomes.run_id,
           score: run_outcomes.score,
-          recorded_at: run_outcomes.recorded_at,
+          recordedAt: run_outcomes.recorded_at,
         })
         .from(run_outcomes);
       const where = and(

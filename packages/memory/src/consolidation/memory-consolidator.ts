@@ -16,6 +16,7 @@ import { QUARANTINE_TAG, type MemoryStore } from '../interfaces/memory-store.js'
 import type { MemoryIndex } from '../interfaces/memory-index.js';
 import type { SemanticFact } from '../schemas/semantic.js';
 import type { Theme } from '../schemas/theme.js';
+import type { Episode } from '../schemas/episode.js';
 
 /** Optional logger for consolidation diagnostic output. */
 export interface ConsolidationLogger {
@@ -45,7 +46,7 @@ export interface ConsolidationOptions {
    * near-duplicates, a fact carrying this tag is never evicted in favor of one
    * that lacks it — otherwise an unproven (or poisoned) near-duplicate written
    * with a newer timestamp could invalidate a verified lesson. Default:
-   * `'verified'` (matches the retention gate's `verified_tag`).
+   * `'verified'` (matches the retention gate's `verifiedTag`).
    */
   verifiedTag?: string;
   /**
@@ -105,7 +106,7 @@ export class MemoryConsolidator {
     thresholds: AutoConsolidationThresholds,
   ): Promise<boolean> {
     if (thresholds.maxFacts !== undefined) {
-      const facts = await store.findFacts({ include_invalidated: false, limit: thresholds.maxFacts + 1 });
+      const facts = await store.findFacts({ includeInvalidated: false, limit: thresholds.maxFacts + 1 });
       if (facts.length > thresholds.maxFacts) return true;
     }
     if (thresholds.maxEpisodes !== undefined) {
@@ -175,7 +176,7 @@ export class MemoryConsolidator {
     const facts: SemanticFact[] = [];
     let offset = 0;
     while (true) {
-      const batch = await this.store.findFacts({ include_invalidated: false, exclude_tags: [QUARANTINE_TAG], limit: batchSize, offset });
+      const batch = await this.store.findFacts({ includeInvalidated: false, excludeTags: [QUARANTINE_TAG], limit: batchSize, offset });
       facts.push(...batch);
       if (batch.length < batchSize) break;
       offset += batchSize;
@@ -193,7 +194,7 @@ export class MemoryConsolidator {
       if (!fact.embedding || processed.has(fact.id)) continue;
 
       const similar = await this.index.searchFacts(fact.embedding, {
-        min_similarity: dedupThreshold,
+        minSimilarity: dedupThreshold,
         limit: 100,
       });
 
@@ -302,7 +303,7 @@ export class MemoryConsolidator {
     const allFacts: SemanticFact[] = [];
     let offset = 0;
     while (true) {
-      const batch = await this.store.findFacts({ include_invalidated: false, exclude_tags: [QUARANTINE_TAG], limit: batchSize, offset });
+      const batch = await this.store.findFacts({ includeInvalidated: false, excludeTags: [QUARANTINE_TAG], limit: batchSize, offset });
       allFacts.push(...batch);
       if (batch.length < batchSize) break;
       offset += batchSize;
@@ -315,8 +316,20 @@ export class MemoryConsolidator {
     const halfLife = decayHalfLifeDays;
 
     const scored = facts.map((fact) => {
-      const ageDays = (now - fact.valid_from.getTime()) / (1000 * 60 * 60 * 24);
-      const decayScore = (fact.access_count ?? 1) * Math.pow(2, -ageDays / halfLife);
+      // Age from last USE when tracked (`touchFacts`), else from creation: a
+      // fact retrieved yesterday must not decay as if untouched since its
+      // valid_from. Math.max guards odd data where last_accessed_at predates
+      // valid_from.
+      const lastUsedMs = fact.last_accessed_at
+        ? Math.max(fact.last_accessed_at.getTime(), fact.valid_from.getTime())
+        : fact.valid_from.getTime();
+      const ageDays = (now - lastUsedMs) / (1000 * 60 * 60 * 24);
+      // Floor the usage multiplier at 1: the schema defaults access_count to
+      // 0, and a raw 0 would zero the score — schema-parsed facts would be
+      // pruned first regardless of age while hand-built ones (undefined →
+      // baseline 1) decay normally. Never-accessed means baseline, not doomed.
+      const usage = Math.max(fact.access_count ?? 1, 1);
+      const decayScore = usage * Math.pow(2, -ageDays / halfLife);
       return { fact, decayScore };
     });
 
@@ -403,8 +416,19 @@ export class MemoryConsolidator {
   ): Promise<void> {
     const { maxEpisodes } = this.options;
     if (maxEpisodes === undefined) return;
+    const batchSize = this.options.batchSize ?? 1000;
 
-    const episodes = await this.store.listEpisodes({ limit: 10_000 });
+    // Batch-load ALL episodes (same pattern as the fact phases). A single
+    // capped fetch of the newest N would leave episodes beyond the cap —
+    // exactly the oldest ones this phase should prune — invisible forever.
+    const episodes: Episode[] = [];
+    let offset = 0;
+    while (true) {
+      const batch = await this.store.listEpisodes({ limit: batchSize, offset });
+      episodes.push(...batch);
+      if (batch.length < batchSize) break;
+      offset += batchSize;
+    }
     if (episodes.length <= maxEpisodes) return;
 
     // listEpisodes returns newest first; reverse so oldest is first

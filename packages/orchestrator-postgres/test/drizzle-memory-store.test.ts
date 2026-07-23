@@ -133,7 +133,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryStore', () => {
     await store.putEntity(makeEntity({ entity_type: 'organization' }));
     await store.putEntity(makeEntity({ entity_type: 'person' }));
 
-    const people = await store.findEntities({ entity_type: 'person' });
+    const people = await store.findEntities({ entityType: 'person' });
     expect(people).toHaveLength(2);
     expect(people.every(e => e.entity_type === 'person')).toBe(true);
   });
@@ -142,7 +142,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryStore', () => {
     await store.putEntity(makeEntity({ entity_type: 'concept' }));
     await store.putEntity(makeEntity({ entity_type: 'concept', invalidated_at: new Date() }));
 
-    const results = await store.findEntities({ entity_type: 'concept' });
+    const results = await store.findEntities({ entityType: 'concept' });
     expect(results).toHaveLength(1);
   });
 
@@ -150,7 +150,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryStore', () => {
     await store.putEntity(makeEntity({ entity_type: 'concept' }));
     await store.putEntity(makeEntity({ entity_type: 'concept', invalidated_at: new Date() }));
 
-    const results = await store.findEntities({ entity_type: 'concept', include_invalidated: true });
+    const results = await store.findEntities({ entityType: 'concept', includeInvalidated: true });
     expect(results).toHaveLength(2);
   });
 
@@ -243,6 +243,19 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryStore', () => {
     expect(loaded!.content).toBe('Bob leads engineering');
   });
 
+  test('touchFacts increments access_count and sets last_accessed_at; missing ids ignored', async () => {
+    const fact = makeFact({ access_count: 0 });
+    await store.putFact(fact);
+    const at = new Date('2026-01-01T00:00:00Z');
+
+    await store.touchFacts([fact.id, randomUUID()], at);
+    await store.touchFacts([fact.id], at);
+
+    const touched = await store.getFact(fact.id);
+    expect(touched!.access_count).toBe(2);
+    expect(touched!.last_accessed_at).toEqual(at);
+  });
+
   test('findFacts with theme_id filter', async () => {
     const theme = makeTheme();
     await store.putTheme(theme);
@@ -251,7 +264,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryStore', () => {
     await store.putFact(makeFact({ theme_id: theme.id }));
     await store.putFact(makeFact());
 
-    const results = await store.findFacts({ theme_id: theme.id });
+    const results = await store.findFacts({ themeId: theme.id });
     expect(results).toHaveLength(2);
   });
 
@@ -266,7 +279,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryStore', () => {
     await store.putFact(fact2);
     await store.putFact(fact3);
 
-    const results = await store.findFacts({ entity_id: entity.id });
+    const results = await store.findFacts({ entityId: entity.id });
     expect(results).toHaveLength(2);
   });
 
@@ -279,16 +292,16 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryStore', () => {
     const fact = makeFact({ entity_ids: [e1.id] });
     await store.putFact(fact);
 
-    let byE1 = await store.findFacts({ entity_id: e1.id });
+    let byE1 = await store.findFacts({ entityId: e1.id });
     expect(byE1).toHaveLength(1);
 
     // Update entity_ids to point to e2 instead
     await store.putFact({ ...fact, entity_ids: [e2.id] });
 
-    byE1 = await store.findFacts({ entity_id: e1.id });
+    byE1 = await store.findFacts({ entityId: e1.id });
     expect(byE1).toHaveLength(0);
 
-    const byE2 = await store.findFacts({ entity_id: e2.id });
+    const byE2 = await store.findFacts({ entityId: e2.id });
     expect(byE2).toHaveLength(1);
   });
 

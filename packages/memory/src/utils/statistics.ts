@@ -106,19 +106,19 @@ export function studentTCdf(t: number, df: number): number {
 
 export interface WelchLiftInput {
   /** Group A (e.g. runs WITH the lesson): mean, sample variance, count. */
-  mean_a: number;
-  var_a: number;
-  n_a: number;
+  meanA: number;
+  varA: number;
+  nA: number;
   /** Group B (e.g. baseline runs WITHOUT the lesson). */
-  mean_b: number;
-  var_b: number;
-  n_b: number;
+  meanB: number;
+  varB: number;
+  nB: number;
   /** The lift threshold being tested (practical-significance floor). */
   margin: number;
 }
 
 export interface WelchLiftResult {
-  /** Point estimate of the lift: mean_a − mean_b. */
+  /** Point estimate of the lift: meanA − meanB. */
   lift: number;
   /** Welch standard error of the lift. */
   se: number;
@@ -129,39 +129,39 @@ export interface WelchLiftResult {
    * prior — numerically a one-sided Welch test. Test against −margin to
    * get the eviction-side probability.
    */
-  p_exceeds: number;
+  pExceeds: number;
 }
 
 /**
  * Welch-style inference on the difference of two group means.
  *
- * Requires n_a ≥ 2 and n_b ≥ 2 (variance needs at least one degree of
+ * Requires nA ≥ 2 and nB ≥ 2 (variance needs at least one degree of
  * freedom per group). Callers should floor tiny-sample variances to a
- * noise floor before calling — see `RetentionPolicy.noise_floor_sd`.
+ * noise floor before calling — see `RetentionPolicy.noiseFloorSd`.
  */
 export function welchLift(input: WelchLiftInput): WelchLiftResult {
-  const { mean_a, var_a, n_a, mean_b, var_b, n_b, margin } = input;
-  if (n_a < 2 || n_b < 2) {
-    throw new RangeError(`welchLift: both groups need n ≥ 2 (got ${n_a}, ${n_b})`);
+  const { meanA, varA, nA, meanB, varB, nB, margin } = input;
+  if (nA < 2 || nB < 2) {
+    throw new RangeError(`welchLift: both groups need n ≥ 2 (got ${nA}, ${nB})`);
   }
-  if (var_a < 0 || var_b < 0) {
+  if (varA < 0 || varB < 0) {
     throw new RangeError('welchLift: variances must be non-negative');
   }
 
-  const lift = mean_a - mean_b;
-  const sa = var_a / n_a;
-  const sb = var_b / n_b;
+  const lift = meanA - meanB;
+  const sa = varA / nA;
+  const sb = varB / nB;
   const se = Math.sqrt(sa + sb);
 
   // Degenerate zero-variance case: the lift is known exactly.
   if (se === 0) {
-    return { lift, se, df: Infinity, p_exceeds: lift > margin ? 1 : 0 };
+    return { lift, se, df: Infinity, pExceeds: lift > margin ? 1 : 0 };
   }
 
-  const df = (sa + sb) ** 2 / (sa ** 2 / (n_a - 1) + sb ** 2 / (n_b - 1));
+  const df = (sa + sb) ** 2 / (sa ** 2 / (nA - 1) + sb ** 2 / (nB - 1));
   // Posterior: lift_true ~ lift + se · T_df  ⇒  P(lift_true > margin)
-  const p_exceeds = 1 - studentTCdf((margin - lift) / se, df);
-  return { lift, se, df, p_exceeds };
+  const pExceeds = 1 - studentTCdf((margin - lift) / se, df);
+  return { lift, se, df, pExceeds };
 }
 
 // ─── Benjamini–Hochberg ─────────────────────────────────────────────

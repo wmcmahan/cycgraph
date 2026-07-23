@@ -106,7 +106,7 @@ export async function buildSeededMemoryGraph(): Promise<{
     makeRelationship('r-1', 'e-alice', 'e-acme', 'works_at', FIXTURE_PAST),
     makeRelationship('r-2', 'e-bob', 'e-acme', 'works_at', FIXTURE_PAST),
     makeRelationship('r-3', 'e-acme', 'e-widget', 'owns', FIXTURE_PAST),
-    // Expired relationship — included so subgraph trajectories with valid_at
+    // Expired relationship — included so subgraph trajectories with validAt
     // can verify that expired edges are excluded.
     makeRelationship('r-4', 'e-alice', 'e-bob', 'manages', FIXTURE_PAST, FIXTURE_PAST),
   ];

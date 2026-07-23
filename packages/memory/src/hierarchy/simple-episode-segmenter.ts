@@ -12,9 +12,9 @@ import type { EpisodeSegmenter } from '../interfaces/episode-segmenter.js';
 
 export interface SimpleEpisodeSegmenterOptions {
   /** Time gap threshold in milliseconds (default: 5 minutes). */
-  gap_threshold_ms?: number;
+  gapThresholdMs?: number;
   /** Maximum topic label length (default: 100). */
-  max_topic_length?: number;
+  maxTopicLength?: number;
 }
 
 export class SimpleEpisodeSegmenter implements EpisodeSegmenter {
@@ -22,8 +22,8 @@ export class SimpleEpisodeSegmenter implements EpisodeSegmenter {
   private readonly maxTopicLength: number;
 
   constructor(opts: SimpleEpisodeSegmenterOptions = {}) {
-    this.gapThresholdMs = opts.gap_threshold_ms ?? 5 * 60 * 1000;
-    this.maxTopicLength = opts.max_topic_length ?? 100;
+    this.gapThresholdMs = opts.gapThresholdMs ?? 5 * 60 * 1000;
+    this.maxTopicLength = opts.maxTopicLength ?? 100;
   }
 
   async segment(messages: Message[]): Promise<Episode[]> {

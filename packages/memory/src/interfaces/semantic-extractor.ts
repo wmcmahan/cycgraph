@@ -23,6 +23,12 @@ export interface ExtractionResult {
 }
 
 export interface SemanticExtractor {
-  /** Extract facts, entities, and relationships from an episode. */
+  /**
+   * Extract facts, entities, and relationships from an episode.
+   *
+   * Implementations set `fact_ids` on the passed episode to the extracted
+   * facts' IDs (the schema's episode → facts back-link) — persist the
+   * episode after extraction to store it.
+   */
   extract(episode: Episode): Promise<ExtractionResult>;
 }
