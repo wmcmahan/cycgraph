@@ -18,3 +18,4 @@ sandbox/
 app/docs/.vercel
 bench-data/
 bench-results/
+packages/**/docs

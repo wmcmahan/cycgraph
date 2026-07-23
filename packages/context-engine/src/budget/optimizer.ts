@@ -9,7 +9,7 @@
  */
 
 import type { CompressionProvider, EmbeddingProvider, TokenCounter } from '../providers/types.js';
-import type { CompressionStage } from '../pipeline/types.js';
+import type { CompressionStage, PipelineLogger } from '../pipeline/types.js';
 import { createPipeline } from '../pipeline/pipeline.js';
 import { createFormatStage } from '../format/serializer.js';
 import { createExactDedupStage } from '../memory/dedup/exact.js';
@@ -28,9 +28,17 @@ export interface OptimizerOptions {
   preset?: PipelinePreset;
   /** Auto-select preset based on latency budget in milliseconds. */
   maxLatencyMs?: number;
-  /** Compression provider for ML-powered pruning (enables 'maximum' preset). */
+  /**
+   * @deprecated Never wired to any preset stage — self-information pruning
+   * requires pre-computed scores and explicit `createPipeline` composition.
+   * Accepted for type compatibility, ignored at runtime; removed next major.
+   */
   compressionProvider?: CompressionProvider;
-  /** Embedding provider for semantic dedup (used in 'maximum' preset). */
+  /**
+   * @deprecated Never wired to any preset stage — semantic dedup requires
+   * pre-computed embeddings and explicit `createPipeline` composition.
+   * Accepted for type compatibility, ignored at runtime; removed next major.
+   */
   embeddingProvider?: EmbeddingProvider;
   /** Target model for model-aware format selection. */
   model?: string;
@@ -38,17 +46,33 @@ export interface OptimizerOptions {
   debug?: boolean;
   /** Custom token counter. */
   tokenCounter?: TokenCounter;
+  /** Optional logger for warnings and debug output (defaults to no-op). */
+  logger?: PipelineLogger;
+  /** Pipeline-level timeout in ms. Remaining stages are skipped if exceeded. */
+  timeoutMs?: number;
 }
 
+/**
+ * The pipeline built by {@link createOptimizedPipeline}: a regular
+ * pipeline (call `.compress()` directly, same as `createPipeline` /
+ * `createIncrementalPipeline`) augmented with the optimizer's decisions.
+ */
 export interface OptimizedPipeline {
-  /** The configured pipeline. */
-  pipeline: ReturnType<typeof createPipeline>;
+  /** Compress segments to fit the budget (see `createPipeline`). */
+  compress: ReturnType<typeof createPipeline>['compress'];
   /** The selected preset. */
   preset: PipelinePreset;
   /** The stages included in the pipeline. */
   stageNames: string[];
   /** The stage objects (e.g. for reuse with `createIncrementalPipeline`). */
   stages: CompressionStage[];
+  /**
+   * @deprecated The factory now returns the pipeline itself — call
+   * `.compress()` on the return value directly. This self-reference keeps
+   * `const { pipeline } = createOptimizedPipeline(...)` call sites working
+   * and will be removed in the next major.
+   */
+  pipeline: OptimizedPipeline;
 }
 
 /**
@@ -67,18 +91,24 @@ export function createOptimizedPipeline(options?: OptimizerOptions): OptimizedPi
   const preset = options?.preset ?? selectPreset(options?.maxLatencyMs);
   const stages = buildStages(preset, options);
 
-  const pipeline = createPipeline({
+  const base = createPipeline({
     stages,
     tokenCounter: options?.tokenCounter,
     debug: options?.debug,
+    logger: options?.logger,
+    timeoutMs: options?.timeoutMs,
   });
 
-  return {
-    pipeline,
+  const optimized: OptimizedPipeline = {
+    compress: base.compress,
     preset,
     stageNames: stages.map(s => s.name),
     stages,
+    get pipeline(): OptimizedPipeline {
+      return optimized;
+    },
   };
+  return optimized;
 }
 
 /**

@@ -15,7 +15,12 @@
 
 A composable compression pipeline for LLM prompts. Strip repeated facts, verbose serialisation, and stale reasoning traces from long memory payloads before they leave your code path — without losing what the model actually needs. Works standalone with any LLM framework (Vercel AI SDK, LangChain.js, the OpenAI SDK directly) or drops into [`@cycgraph/orchestrator`](https://www.npmjs.com/package/@cycgraph/orchestrator).
 
-- **[Context engine concept guide](https://flattop.io/docs/concepts/context-engine/)** — the full architecture
+- **[Concept guide](https://flattop.io/docs/concepts/context-engine/)**
+- **[Pipeline](https://flattop.io/docs/concepts/context-engine/#pipeline)**
+- **[Stages](https://flattop.io/docs/concepts/context-engine/#stages)**
+- **[API](https://flattop.io/docs/concepts/context-engine/#api)**
+- **[Interfaces](https://flattop.io/docs/concepts/context-engine/#interfaces)**
+- **[Benchmarks](./BENCHMARKS.md)**
 
 
 ## Install
@@ -24,10 +29,24 @@ A composable compression pipeline for LLM prompts. Strip repeated facts, verbose
 npm install @cycgraph/context-engine
 ```
 
+## How it works
+
+The engine is a pipeline of composable compression stages, ordered by one invariant: cheap lossless transforms first (format re-serialization), redundancy removal second (dedup), lossy content selection third (pruning, distillation), and the budget allocator always last as the enforcement backstop. Everything before the allocator reduces tokens opportunistically; the allocator guarantees the output fits the budget.
+
+Three presets package measured configurations — or compose stages yourself with `createPipeline`:
+
+| Preset | Stages | Measured latency* |
+|---|---|---|
+| **fast** | format → exact dedup → allocator | ~10–14 ms |
+| **balanced** | + CoT distillation, fuzzy dedup, heuristic pruning | ~16–28 ms |
+| **maximum** | + hierarchy/graph formatters, model-aware format selection | ~16–29 ms |
+
+\* Mean per-compression latency on the benchmark's 1–5k-token multi-document payloads; small payloads run in low single-digit milliseconds. See [BENCHMARKS.md](./BENCHMARKS.md) for accuracy at matched compression ratios.
+
 ## Core Concepts
 
 - **Composable stages** — mix and match: format compression, exact, fuzzy, and semantic dedup, CoT distillation, heuristic pruning, self-information pruning, and budget allocation. Use the bundled **fast**, **balanced**, or **maximum** presets or build your own pipeline.
-- **Query-aware relevance allocation** — pass a `query` (the question or goal the context serves) and the presets' budget allocator concentrates budget on query-relevant segments via BM25 + pseudo-relevance feedback. At a 0.3 compression target it retained 67/82 answerable questions vs 51/82 for LLMLingua-2 on HotpotQA, and 23/47 vs 13/47 on multi-hop MuSiQue (both n=100, matched budgets, paired F1 deltas significant), at ~4ms vs ~600-950ms per compression. Without a query, allocation is proportional — identical to previous behavior. Full tables, negative results, and reproduction commands: [BENCHMARKS.md](./BENCHMARKS.md).
+- **Query-aware relevance allocation** — pass a `query` (the question or goal the context serves) and the presets' budget allocator concentrates budget on query-relevant segments via BM25 + pseudo-relevance feedback. At a 0.3 compression target it retained 67/82 answerable questions vs 51/82 for LLMLingua-2 on HotpotQA, and 23/47 vs 13/47 on multi-hop MuSiQue (both n=100, matched budgets, paired F1 deltas significant), at ~4ms vs ~600-950ms per compression. Without a query, allocation is proportional — identical to previous behavior. Full tables, negative results, and reproduction commands: [BENCHMARKS.md](./BENCHMARKS.md). Design rationale, algorithms, and methodology: [technical whitepaper](./docs/whitepaper.md).
 - **No LLM call required at the base tier** — default tier is pure TypeScript. Higher tiers add a token counter, an embedding provider, or a small local model for additional accuracy.
 - **Model-aware format routing** — checks the target model's capability profile and picks a representation that fits. Custom profiles can be merged in.
 - **Cache-aware prefix locking** — stabilises the static prompt prefix so provider-side prompt caches get consistent cache hits across turns. Pass a `model` and locking is skipped for providers without a prompt cache.
@@ -50,7 +69,7 @@ The simplest entry point — pick a preset, compress segments to fit a budget:
 ```typescript
 import { createOptimizedPipeline } from '@cycgraph/context-engine';
 
-const { pipeline } = createOptimizedPipeline({
+const pipeline = createOptimizedPipeline({
   preset: 'balanced'
 });
 
@@ -93,7 +112,7 @@ import {
   serialize,
 } from '@cycgraph/context-engine';
 
-const { pipeline } = createOptimizedPipeline({
+const pipeline = createOptimizedPipeline({
   preset: 'balanced'
 });
 

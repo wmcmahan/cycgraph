@@ -173,9 +173,10 @@ const pipelineHandler: ContextEngineHandler = {
   name: 'pipeline',
   matches: (tags) => tags.has('pipeline') || tags.has('multi-stage'),
   async run(input) {
-    const { pipeline, stageNames } = createOptimizedPipeline({
+    const pipeline = createOptimizedPipeline({
       preset: 'balanced',
     });
+    const { stageNames } = pipeline;
 
     const segments: PromptSegment[] = [{
       id: 'memory',

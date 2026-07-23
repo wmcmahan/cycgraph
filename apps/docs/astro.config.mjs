@@ -152,7 +152,7 @@ export default defineConfig({
             { label: 'Custom LLM Providers', slug: 'docs/guides/custom-providers' },
             { label: 'Adding MCP Tools', slug: 'docs/guides/adding-tools' },
             { label: 'Budget-Aware Model Selection', slug: 'docs/guides/model-selection' },
-            { label: 'Using the Context Engine', slug: 'docs/guides/context-engine' },
+            { label: 'Context Engine', slug: 'docs/guides/context-engine' },
             { label: 'Using Memory', slug: 'docs/guides/memory' },
             { label: 'Using the Architect', slug: 'docs/guides/architect' },
           ],

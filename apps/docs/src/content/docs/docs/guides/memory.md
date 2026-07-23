@@ -221,7 +221,7 @@ import { GraphRunner } from '@cycgraph/orchestrator';
 import { createOptimizedPipeline, serialize } from '@cycgraph/context-engine';
 import { retrieveMemory } from '@cycgraph/memory';
 
-const { pipeline } = createOptimizedPipeline({ preset: 'balanced' });
+const pipeline = createOptimizedPipeline({ preset: 'balanced' });
 
 const contextCompressor = (sanitizedMemory, options) => {
   const result = pipeline.compress({
@@ -367,5 +367,5 @@ await index.rebuild(store);
 
 - [Memory System](/docs/concepts/memory/) — architectural deep dive
 - [Context Engine](/docs/concepts/context-engine/) — compress memory before prompt injection
-- [Using the Context Engine](/docs/guides/context-engine/) — compression integration guide
+- [Context Engine Guide](/docs/guides/context-engine/) — worked examples, including the memory-stack wiring
 - [Persistence](/docs/concepts/persistence/) — how workflow state persistence relates to memory

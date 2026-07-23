@@ -1,156 +1,191 @@
 ---
-title: Using the Context Engine
-description: Practical guide for integrating context compression into your workflows.
+title: Context Engine Guide
+description: Context Engine Guide for integrating with LLM calls, the orchestrator, multi-turn loops, and the memory stack.
 ---
 
-This guide covers the practical steps for adding context compression to a workflow. For background on pipeline architecture, scoring algorithms, and budget management, see [Context Engine](/docs/concepts/context-engine/).
+The context engine works as an optional layer between your data and the LLM. It compresses memory payloads, deduplicates content, and prunes low-value tokens. You can use it with any LLM framework, but it is especially useful with the orchestration graph.
 
-## Quick start
+## Standalone
 
-The fastest way to compress context in a workflow:
+The engine is framework-agnostic. It transforms prompt segments into compressed prompt segments. You can use it with any LLM framework by simply passing the segments directly to the engine and then joining the resulting segments.
+
+```typescript
+import { createOptimizedPipeline, serialize } from '@cycgraph/context-engine';
+
+const pipeline = createOptimizedPipeline({ preset: 'fast' });
+
+const { segments, metrics } = pipeline.compress({
+  query: userPrompt,
+  segments: [
+    {
+      id: 'instructions',
+      content: systemPrompt,
+      role: 'system',
+      priority: 10,
+      locked: true,
+    },
+    {
+      id: 'memory',
+      content: serialize(retrievedFacts),
+      role: 'memory',
+      priority: 5,
+    },
+    {
+      id: 'history',
+      content: chatHistory,
+      role: 'history',
+      priority: 3,
+    },
+  ],
+  budget: {
+    maxTokens: 8_192,
+    outputReserve: 1_024,
+  },
+});
+```
+
+**What this means:**
+
+- `locked`: With the system prompt is `locked`, meaning it is never mutated, but its tokens are charged against the budget first.
+
+- `outputReserve`: This keeps room for the completion budget, ensuring that the budget allocator always leaves room for the LLM to complete its response.
+
+- `query`: Passing the user's question as `query` switches the preset's allocator into relevance mode, concentrating the budget on question-relevant segments instead of splitting it proportionally. Omit `query` and you get query-agnostic compression; both fit the budget.
+
+## Orchestrator
+
+For cycgraph orchestration graphs, wire the pipeline in as a `contextCompressor`. The runner calls it before injecting workflow memory into the prompts of nodes in the graph
 
 ```typescript
 import { GraphRunner } from '@cycgraph/orchestrator';
 import { createOptimizedPipeline, serialize } from '@cycgraph/context-engine';
 
-const { pipeline } = createOptimizedPipeline({ preset: 'balanced' });
+const pipeline = createOptimizedPipeline({ preset: 'balanced' });
 
-const contextCompressor = (sanitizedMemory, options) => {
+const contextCompressor = (sanitizedMemory, { query, model, maxTokens }) => {
   const result = pipeline.compress({
+    query,
+    model,
     segments: [{
       id: 'memory',
       content: serialize(sanitizedMemory),
       role: 'memory',
       priority: 1,
     }],
-    budget: { maxTokens: options?.maxTokens ?? 8192, outputReserve: 0 },
-    model: options?.model,
-    // The runner passes the sanitized workflow goal as `options.query`.
-    // Forward it: the presets' relevance allocation concentrates budget
-    // on goal-relevant memory. Without a query, behavior is unchanged.
-    query: options?.query,
+    budget: {
+      maxTokens: maxTokens ?? 8192,
+      outputReserve: 0,
+    },
   });
-  return { compressed: result.segments[0].content, metrics: result.metrics };
+  return {
+    compressed: result.segments[0].content,
+    metrics: result.metrics,
+  };
 };
 
 const runner = new GraphRunner(graph, state, { contextCompressor });
-
-runner.on('context:compressed', (event) => {
-  console.log(`Memory: ${event.reduction_percent.toFixed(1)}% reduction`);
-});
 ```
 
-## Choosing a preset
+**What this means:**
 
-| Scenario | Preset | Why |
-|----------|--------|-----|
-| Low-latency chat | `fast` | Minimal overhead, format + dedup only |
-| General workflows | `balanced` | Good compression with heuristic pruning |
-| Cost-sensitive / small models | `maximum` | Full pipeline with hierarchy formatting |
+- The orchestrator sanitizes memory before the compressor sees it, and the compressed output lands inside the same `<data>` boundary tags as uncompressed memory — compression runs inside the trust boundary, not across it.
 
-## Multi-turn compression
+- The workflow goal is the query, so relevance allocation keeps goal-relevant memory as prompts grow.
 
-For workflows with multiple turns, use the incremental pipeline to avoid re-compressing unchanged context:
+- The integration fails open: if your compressor throws or returns `null`, the runner falls back to plain `JSON.stringify` with a 50KB byte cap — compression is an optimization, never a correctness dependency.
+
+## Multi-turn agent loop
+
+This example is for applications that drive their own conversation loop **without** the orchestrator — a chatbot backend, a REPL assistant, a custom agent. "Session" and "turn" here are your application's concepts, not the engine's or the orchestrator's (inside an orchestration graph, the runner drives execution and calls your `contextCompressor` on every prompt build — there is no loop to write).
+
+Long-running sessions re-compress mostly unchanged context every turn, and they interact with a second cache you don't own: the provider's prompt cache. This example wires the engine's three caching layers together:
 
 ```typescript
-import { createIncrementalPipeline, createFormatStage, createExactDedupStage } from '@cycgraph/context-engine';
+import {
+  createIncrementalPipeline,
+  createFormatStage,
+  createExactDedupStage,
+  createAllocatorStage,
+  applyCachePolicy,
+  computeSegmentHashMap,
+  diagnoseCacheStability,
+  serialize,
+} from '@cycgraph/context-engine';
+import type { PromptSegment } from '@cycgraph/context-engine';
 
 const pipeline = createIncrementalPipeline({
-  stages: [createFormatStage(), createExactDedupStage()],
-});
-
-let state = undefined;
-
-for (const turn of turns) {
-  const { result, state: nextState, cachedSegmentCount } = pipeline.compress(
-    { segments: buildSegments(turn), budget },
-    state,
-  );
-  state = nextState;
-  console.log(`Turn ${nextState.turnNumber}: ${cachedSegmentCount} segments cached`);
-}
-```
-
-The incremental pipeline tracks per-segment output hashes, so cross-segment stages (like fuzzy dedup) only re-run when per-segment outputs actually change — not just when inputs change. This avoids expensive re-runs when a segment's content changes but its compressed output stays the same.
-
-Two things to know when bringing custom stages:
-
-- A stage without a `scope` declaration is treated as **cross-segment** (safe, but uncached). Declare `scope: 'per-segment'` to opt into per-segment caching — only valid when each segment's output depends solely on its own content.
-- Order per-segment stages before cross-segment ones. The incremental pipeline runs them as two phases in that order, and an interleaved config diverges from the batch pipeline (a construction-time warning flags this).
-
-## Pipeline safety
-
-### Timeout
-
-Set a pipeline-level timeout to bound total compression time. Remaining stages are skipped if exceeded:
-
-```typescript
-const pipeline = createPipeline({
-  stages: [...],
-  timeoutMs: 200,  // hard cap at 200ms
-});
-```
-
-### Logger
-
-Route diagnostic output through a structured logger:
-
-```typescript
-const pipeline = createPipeline({
-  stages: [...],
-  logger: {
-    warn: (msg) => myLogger.warn(msg),
-    debug: (msg) => myLogger.debug(msg),
-  },
-});
-```
-
-## Query-aware compression
-
-### Relevance allocation (preset default)
-
-When the `compress()` input carries a `query`, the presets' budget allocator switches to relevance mode: segments are ranked by BM25 relevance to the query (with stemming and pseudo-relevance feedback for multi-hop bridging) and budget is granted whole-segment greedily — relevant segments stay intact, irrelevant ones are starved. Without a query, behavior is identical to proportional allocation.
-
-```typescript
-const result = pipeline.compress({
-  segments,
-  budget: { maxTokens: 4096, outputReserve: 0 },
-  query: workflowGoal,
-});
-```
-
-Inside a `GraphRunner` workflow you don't need to do anything: the runner passes the sanitized workflow goal as `options.query` to your `contextCompressor` — just forward it as shown in the quick start. See [Relevance allocation](/docs/concepts/context-engine/#relevance-allocation-query-aware) for benchmark results.
-
-### Token-level query weighting
-
-Separately, you can configure the heuristic scorer to weight tokens that match the query, so query-relevant content survives pruning at the expense of unrelated text:
-
-```typescript
-import { createPipeline, createHeuristicPruningStage, createAllocatorStage } from '@cycgraph/context-engine';
-
-const pipeline = createPipeline({
   stages: [
-    createHeuristicPruningStage({ queryWeight: 0.25 }),
+    createFormatStage(),
+    createExactDedupStage(),
     createAllocatorStage(),
   ],
 });
 
-const result = pipeline.compress({
-  segments: [
-    { id: 'query', content: userQuery, role: 'custom', priority: 10, locked: true },
-    { id: 'memory', content: serialize(memory), role: 'memory', priority: 5 },
-  ],
-  budget: { maxTokens: 4096, outputReserve: 512 },
-});
+const budget = { maxTokens: 8_192, outputReserve: 1_024 };
+
+type Turn = { goal: string; model: string; history: string; facts: unknown };
+const turns: Turn[] = [];
+
+function buildSegments(turn: Turn): PromptSegment[] {
+  return [
+    {
+      id: 'system',
+      content: 'You are a research assistant.',
+      role: 'system',
+      priority: 10
+    },
+    {
+      id: 'memory',
+      content: serialize(turn.facts),
+      role: 'memory',
+      priority: 5
+    },
+    { 
+      id: 'history',
+      content: turn.history,
+      role: 'history',
+      priority: 3
+    },
+  ];
+}
+
+let state = undefined;
+let previousHashes = undefined;
+
+for (const turn of turns) {
+  const segments = applyCachePolicy(buildSegments(turn), { model: turn.model });
+
+  const { result, state: nextState, cachedSegmentCount } = pipeline.compress(
+    { segments, budget, query: turn.goal },
+    state,
+  );
+  state = nextState;
+  console.log(`turn ${nextState.turnNumber}: ${cachedSegmentCount} segments from cache`);
+
+  if (previousHashes) {
+    const diag = diagnoseCacheStability(segments, previousHashes);
+    if (diag.hitRate < 0.8) console.warn(diag.recommendations);
+  }
+  previousHashes = computeSegmentHashMap(segments);
+}
 ```
 
-Mark the query segment as `locked: true` so it is never pruned — the heuristic scorer reads its tokens to compute relevance scores for the unlocked segments. `queryWeight` is a multiplier between `0` and `1`; higher values bias the scorer more heavily toward query-matching content.
+**What this means:**
 
-## Working with memory payloads
+- The incremental pipeline saves compute by not re-compressing unchanged segments.
 
-When compressing memory from `@cycgraph/memory`, use the adaptive memory stage to prioritize recent and high-relevance facts:
+- The cache policy protects the provider's discount by refusing to re-optimize the prompt prefix — a compressor that rewrites the prefix every turn saves tokens while forfeiting cached-token pricing, which can cost more than it saves.
+
+- Locking before compression is what keeps the two aligned, and `diagnoseCacheStability` tells you when dynamic content (timestamps, UUIDs) is silently invalidating the prefix anyway.
+
+- Note the `query` is part of the incremental cache's fingerprint: a new goal invalidates the cache, because relevance allocation depends on it.
+
+## The memory stack
+
+When prompts carry retrieved knowledge from `@cycgraph/memory`, add the adaptive memory stage so hierarchy signals (theme size, fact recency) decide what survives, rather than serialization order:
 
 ```typescript
+import { InMemoryMemoryStore, InMemoryMemoryIndex, retrieveMemory } from '@cycgraph/memory';
 import {
   createPipeline,
   createAdaptiveMemoryStage,
@@ -167,86 +202,66 @@ const pipeline = createPipeline({
   ],
 });
 
-// Serialize memory retrieval result to JSON
-const memoryJson = serialize(memoryResult);
+const memoryResult = await retrieveMemory(store, index, { limit: 50 });
 
 const result = pipeline.compress({
   segments: [
-    { id: 'system', content: systemPrompt, role: 'system', priority: 10, locked: true },
-    { id: 'memory', content: memoryJson, role: 'memory', priority: 5 },
-    { id: 'history', content: chatHistory, role: 'history', priority: 3 },
+    { id: 'memory', content: serialize(memoryResult), role: 'memory', priority: 5 },
   ],
-  budget: { maxTokens: 4096, outputReserve: 1024 },
+  budget: { maxTokens: 4_096, outputReserve: 1_024 },
 });
 ```
 
-## Monitoring compression
+**What this means:**
 
-### Pipeline metrics
+- Retrieval decides *what's relevant enough to fetch*; the adaptive stage decides *what's important enough to keep* when the fetched payload exceeds the budget — recent facts and facts from well-populated themes win.
 
-Every compression call returns detailed metrics:
+- The format stage then squeezes the surviving JSON shape, and the allocator guarantees the fit.
 
-```typescript
-const { metrics } = result;
-console.log(`Total: ${metrics.totalTokensIn} -> ${metrics.totalTokensOut} tokens`);
-console.log(`Reduction: ${metrics.reductionPercent.toFixed(1)}%`);
-console.log(`Duration: ${metrics.totalDurationMs.toFixed(0)}ms`);
+- Because the payload is structured (role `memory`), no stage will token-prune inside it — over-budget structured content tail-truncates cleanly instead of being corrupted.
 
-for (const stage of metrics.stages) {
-  console.log(`  ${stage.name}: ${stage.ratio.toFixed(2)}x (${stage.durationMs.toFixed(0)}ms)`);
-}
-```
+For the retrieval side of this stack, see [Memory System](/docs/guides/memory/).
 
-### Cache-aware locking
+## Opt-in provider paths
 
-Lock the static prompt prefix (system prompt, tool schemas) before compressing so provider prompt caches see byte-identical prefixes across turns. Pass the target `model` — for providers without a prompt cache, no locks are added and the content stays compressible:
+The presets never call a model. The provider-backed stages are opt-in, and because `compress()` is synchronous, they use a two-phase pattern: pre-compute asynchronously, then compress. Semantic dedup with an embedding provider:
 
 ```typescript
-import { applyCachePolicy } from '@cycgraph/context-engine';
+import {
+  createPipeline,
+  createSemanticDedupStage,
+  precomputeEmbeddings,
+  createAllocatorStage,
+} from '@cycgraph/context-engine';
 
-const locked = applyCachePolicy(segments, { model: 'claude-sonnet-4-6' });
-const result = pipeline.compress({ segments: locked, budget });
-```
+const provider = myEmbeddingProvider;
 
-### Cache diagnostics
+const precomputed = await precomputeEmbeddings(segments, provider);
 
-Detect when API prompt caching is being invalidated by dynamic content:
-
-```typescript
-import { diagnoseCacheStability, computeSegmentHashMap } from '@cycgraph/context-engine';
-
-// Track hashes between turns
-const hashes = computeSegmentHashMap(segments);
-const diagnostics = diagnoseCacheStability(segments, previousHashes);
-
-if (diagnostics.hitRate < 0.8) {
-  console.warn('Low cache hit rate:', diagnostics.recommendations);
-}
-```
-
-For a prefix-faithful measure (position-sensitive, like real provider caches), use `measurePrefixStability` with `computePrefixHashList` — a change early in the prompt counts everything after it as invalidated.
-
-### Debug source maps
-
-When a compressed prompt looks wrong, run with `debug: true` and inspect the source map — each mutable segment gets an entry with its `original` and `compressed` content, the ordered list of stages that `changedBy` it, and flags for stage removals/additions. The incremental pipeline carries provenance across cached turns (`fromCache: true`). See [Debug source maps](/docs/concepts/context-engine/#debug-source-maps) for the full shape.
-
-### Circuit breaker
-
-Wrap expensive stages to auto-bypass when they aren't paying for themselves:
-
-```typescript
-import { createCircuitBreaker, createLatencyTracker } from '@cycgraph/context-engine';
-
-const tracker = createLatencyTracker();
-const guarded = createCircuitBreaker(semanticDedupStage, tracker, {
-  minEfficiency: 1.0,  // must save 1 token per ms of latency
-  warmupSamples: 5,
-  cooldownMs: 30_000,
+const pipeline = createPipeline({
+  stages: [
+    createSemanticDedupStage({ provider, precomputed, threshold: 0.9 }),
+    createAllocatorStage(),
+  ],
 });
+const result = pipeline.compress({ segments, budget });
 ```
+
+The same pattern applies to neural importance scoring: `precomputeImportanceScores(segments, compressionProvider)` feeds `createSelfInformationStage({ precomputed })`. If you skip pre-computation, semantic dedup finds nothing to compare and self-information falls back to the n-gram scorer — both degrade gracefully rather than blocking.
+
+**What this means:** the hot path stays deterministic and fast even when providers are wired in — all network latency is paid once, up front, where you control it. Consider wrapping provider-backed stages in a [circuit breaker](/docs/concepts/context-engine/#circuit-breaker) so they bypass themselves on workloads where they stop earning their latency.
+
+## Choosing a preset — and when to go custom
+
+The presets are content-profile decisions, not a quality ladder:
+
+- **`fast`** — the default choice for extractive workloads: dense factual documents, tool outputs, retrieved passages where every sentence may matter. Its stages are lossless-or-safe (format, exact dedup, allocator), so information loss happens only under budget pressure — and the [benchmarks](/docs/concepts/context-engine/#relevance-allocation-query-aware) show it beating the heavier presets on downstream QA at matched budgets.
+- **`balanced` / `maximum`** — for verbose, redundant, reasoning-heavy payloads: long chat histories, agent scratch work, repeated boilerplate. The pruning and distillation stages earn their keep exactly where there's filler to remove; on dense factual content those same deletions land on substance.
+- **Always pass `query` when the task is known** — it's free when absent, and at tight budgets relevance allocation is the largest quality lever the engine has.
+- **Go custom** when you need provider-backed stages (never in presets), memory/graph formatters outside `maximum`, or a different allocator configuration — compose with `createPipeline` and keep per-segment stages first, allocator last. See the [stage catalog](/docs/concepts/context-engine/#stages).
 
 ## Next steps
 
-- [Context Engine](/docs/concepts/context-engine/) — architectural deep dive
+- [Context Engine](/docs/concepts/context-engine/) — architecture, stage catalog, and full API reference
 - [Memory System](/docs/concepts/memory/) — the knowledge graph that feeds the context engine
 - [Budget-Aware Model Selection](/docs/guides/model-selection/) — how model choice affects compression
