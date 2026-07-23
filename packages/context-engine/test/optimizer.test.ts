@@ -35,7 +35,7 @@ describe('createOptimizedPipeline', () => {
     });
 
     it('presets are query-aware: a query concentrates budget on relevant segments', () => {
-      const { pipeline } = createOptimizedPipeline({ preset: 'fast' });
+      const pipeline = createOptimizedPipeline({ preset: 'fast' });
       const segments = [
         { id: 'relevant', content: 'Northgate Holdings is headquartered in Denver and acquired Meridian Systems in 2019. '.repeat(3), role: 'history' as const, priority: 1 },
         { id: 'noise', content: 'Batch schedulers queue jobs by priority and resource requirements across the cluster nodes. '.repeat(3), role: 'history' as const, priority: 1 },
@@ -56,6 +56,37 @@ describe('createOptimizedPipeline', () => {
       // Without a query, behavior is the pre-existing proportional split
       expect(withoutQuery.segments.map(s => s.content))
         .not.toEqual(withQuery.segments.map(s => s.content));
+    });
+
+    it('forwards logger and timeoutMs to the underlying pipeline', () => {
+      // Same PipelineConfig options as createPipeline/createIncrementalPipeline:
+      // an injected logger receives the pipeline's warnings.
+      const warnings: string[] = [];
+      const pipeline = createOptimizedPipeline({
+        preset: 'fast',
+        logger: { warn: m => warnings.push(m) },
+        timeoutMs: 5_000,
+      });
+      pipeline.compress({
+        segments: [makeSegment('a', 'hello world')],
+        // Larger than the model's context window → pipeline warns via logger
+        budget: { maxTokens: 10_000_000, outputReserve: 0 },
+        model: 'claude-sonnet-4-6',
+      });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('context window');
+    });
+
+    it('deprecated `pipeline` self-reference keeps old call sites working', () => {
+      // Pre-alignment API: const { pipeline } = createOptimizedPipeline(...)
+      const { pipeline } = createOptimizedPipeline({ preset: 'fast' });
+      const result = pipeline.compress({
+        segments: [makeSegment('a', 'hello world')],
+        budget: { maxTokens: 100, outputReserve: 0 },
+      });
+      expect(result.segments[0].content).toBeDefined();
+      // The self-reference is the pipeline itself, not a nested copy
+      expect(pipeline.pipeline).toBe(pipeline);
     });
 
     it('orders all per-segment stages before cross-segment stages in every preset', () => {
@@ -95,7 +126,7 @@ describe('createOptimizedPipeline', () => {
     });
 
     it('preserves compact JSON end-to-end for prefersJson models', () => {
-      const { pipeline } = createOptimizedPipeline({ preset: 'maximum', model: 'gemma-2-9b' });
+      const pipeline = createOptimizedPipeline({ preset: 'maximum', model: 'gemma-2-9b' });
       const json = JSON.stringify({ name: 'Alice', role: 'researcher', score: 92 }, null, 2);
       const result = pipeline.compress({
         segments: [{ id: 'mem', content: json, role: 'memory', priority: 1 }],
@@ -142,7 +173,7 @@ describe('createOptimizedPipeline', () => {
 
   describe('pipeline execution', () => {
     it('fast preset compresses JSON', () => {
-      const { pipeline } = createOptimizedPipeline({ preset: 'fast' });
+      const pipeline = createOptimizedPipeline({ preset: 'fast' });
       const json = JSON.stringify([
         { name: 'Alice', score: 92 },
         { name: 'Bob', score: 87 },
@@ -163,11 +194,11 @@ describe('createOptimizedPipeline', () => {
       const fast = createOptimizedPipeline({ preset: 'fast' });
       const balanced = createOptimizedPipeline({ preset: 'balanced' });
 
-      const fastResult = fast.pipeline.compress({
+      const fastResult = fast.compress({
         segments: [makeSegment('a', verbose)],
         budget: { maxTokens: 20, outputReserve: 0 },
       });
-      const balancedResult = balanced.pipeline.compress({
+      const balancedResult = balanced.compress({
         segments: [makeSegment('a', verbose)],
         budget: { maxTokens: 20, outputReserve: 0 },
       });

@@ -1,14 +1,25 @@
 {
   "name": "@cycgraph/context-engine",
   "version": "0.6.0",
-  "description": "Framework-agnostic context optimization engine — composable compression pipeline that makes every token count.",
+  "description": "Prompt compression engine with composable pipeline that makes every token count.",
   "keywords": [
     "context-compression",
     "token-optimization",
     "llm",
     "prompt-compression",
     "agentic",
-    "framework-agnostic"
+    "framework-agnostic",
+    "budget-aware",
+    "query-aware",
+    "token-dedup",
+    "token-pruning",
+    "cache-aware",
+    "rag",
+    "ai-agents",
+    "context-window",
+    "prompt-engineering",
+    "token-reduction",
+    "cycgraph"
   ],
   "type": "module",
   "sideEffects": false,
