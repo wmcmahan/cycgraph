@@ -298,6 +298,128 @@ describe('RuleBasedExtractor', () => {
     expect(result.relationships).toHaveLength(0);
   });
 
+  it('does not match verb forms embedded inside other words', async () => {
+    // Each sentence contains a verb stem only as a substring of an unrelated
+    // word; substring matching fabricated a relationship for every one.
+    const embeddedStemSentences = [
+      'Alice Smith stayed home because Acme Corp closed early.',        // "use" in "because"
+      'Alice Smith was misleading everyone at Acme Corp about payments.', // "lead" in "misleading"
+      'Alice Smith wrote it down before Acme Corp even noticed.',       // "own" in "down"
+      'Alice Smith causes friction whenever Acme Corp changes policy.', // "use" in "causes"
+    ];
+    for (const content of embeddedStemSentences) {
+      const result = await extractor.extract(makeEpisode([{ role: 'user', content }]));
+      expect(result.relationships, content).toHaveLength(0);
+    }
+  });
+
+  it('still matches multi-word verb forms at word boundaries', async () => {
+    const ep = makeEpisode([{ role: 'user', content: 'Alice Smith worked at Acme Corp last year.' }]);
+    const result = await extractor.extract(ep);
+    const rel = result.relationships.find((r) => r.relation_type === 'work_at');
+    expect(rel).toBeDefined();
+  });
+
+  it('does not emit an affirmative edge from a negated sentence', async () => {
+    const negatedSentences = [
+      'Alice Smith never worked at Acme Corp.',
+      'Alice Smith does not manage the Acme Corp platform team.',
+      "Alice Smith doesn't use the Acme Corp deployment system.",
+      'Alice Smith no longer works at Acme Corp.',
+    ];
+    for (const content of negatedSentences) {
+      const result = await extractor.extract(makeEpisode([{ role: 'user', content }]));
+      expect(result.relationships, content).toHaveLength(0);
+      // The fact itself still records the (negative) knowledge.
+      expect(result.facts.length, content).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('word-level coverage check does not suppress entities sharing a prefix', async () => {
+    const ep = makeEpisode([{
+      role: 'user',
+      content: 'The Annual Report praised Ann for outstanding work this quarter.',
+    }]);
+    const result = await extractor.extract(ep);
+    const names = result.entities.map((e) => e.name);
+    // (The multi-word pattern absorbs the leading article — 'The Annual
+    // Report' — a separate, pre-existing quirk. The point here is that the
+    // person 'Ann' is no longer suppressed by substring containment.)
+    expect(names.some((n) => n.includes('Annual Report'))).toBe(true);
+    expect(names).toContain('Ann');
+  });
+
+  it('types natural org names via expanded cue words', async () => {
+    const ep = makeEpisode([{
+      role: 'user',
+      content: 'Researchers at Copperfield University met staff from Halcyon FC and the Northern Grid Consortium.',
+    }]);
+    const result = await extractor.extract(ep);
+    const typeOf = (name: string) => result.entities.find((e) => e.name === name)?.entity_type;
+    expect(typeOf('Copperfield University')).toBe('organization');
+    expect(typeOf('Halcyon FC')).toBe('organization');
+    expect(typeOf('Northern Grid Consortium')).toBe('organization');
+  });
+
+  it('does not detect days or months as entities', async () => {
+    const ep = makeEpisode([{
+      role: 'user',
+      content: 'The board met on Tuesday and again in March to discuss the Acme Corp budget.',
+    }]);
+    const result = await extractor.extract(ep);
+    const names = result.entities.map((e) => e.name);
+    expect(names).not.toContain('Tuesday');
+    expect(names).not.toContain('March');
+    expect(names).toContain('Acme Corp');
+  });
+
+  it('extracts natural news verbs without temporal entities stealing attribution', async () => {
+    const ep = makeEpisode([{
+      role: 'user',
+      content: 'Meridian Software said on Tuesday that it has acquired Bluefin Analytics for an undisclosed sum.',
+    }]);
+    const result = await extractor.extract(ep);
+    const nameById = new Map(result.entities.map((e) => [e.id, e.name]));
+    const rel = result.relationships.find((r) => r.relation_type === 'acquire');
+    expect(rel).toBeDefined();
+    expect(nameById.get(rel!.source_id)).toBe('Meridian Software');
+    expect(nameById.get(rel!.target_id)).toBe('Bluefin Analytics');
+  });
+
+  it('does not detect bare honorifics as entities; titled appointments pair correctly', async () => {
+    const ep = makeEpisode([{
+      role: 'user',
+      content: 'Riverside General has appointed Dr. Marcus Webb as chief of cardiology this year.',
+    }]);
+    const result = await extractor.extract(ep);
+    expect(result.entities.map((e) => e.name)).not.toContain('Dr');
+    const nameById = new Map(result.entities.map((e) => [e.id, e.name]));
+    const rel = result.relationships.find((r) => r.relation_type === 'appoint');
+    expect(rel).toBeDefined();
+    expect(nameById.get(rel!.target_id)).toBe('Marcus Webb');
+  });
+
+  it('possessive apostrophes do not create phantom quoted-term entities', async () => {
+    const ep = makeEpisode([{
+      role: 'user',
+      content: "Bluefin's forty employees will join Meridian's data division next quarter.",
+    }]);
+    const result = await extractor.extract(ep);
+    const names = result.entities.map((e) => e.name);
+    expect(names.some((n) => n.includes('employees'))).toBe(false); // no phantom span
+    // Possessive stripped cleanly ("Meridian's" → Meridian, not "Meridians").
+    // ("Bluefin's" opens the sentence — sentence-start suppression applies.)
+    expect(names).toContain('Meridian');
+    expect(names).not.toContain('Meridians');
+  });
+
+  it('sets the episode fact_ids back-link to the extracted facts', async () => {
+    const ep = makeEpisode([{ role: 'user', content: 'Alice Smith works at Acme Corp.' }]);
+    const result = await extractor.extract(ep);
+    expect(result.facts.length).toBeGreaterThanOrEqual(1);
+    expect(ep.fact_ids).toEqual(result.facts.map((f) => f.id));
+  });
+
   it('returns empty entities and relationships for empty messages', async () => {
     const ep = makeEpisode([{ role: 'user', content: '' }]);
     const result = await extractor.extract(ep);

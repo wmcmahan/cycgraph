@@ -57,55 +57,55 @@ describe('welchLift', () => {
   it('reproduces a textbook one-sided Welch test', () => {
     // Equal variances, equal n — reduces to the pooled case.
     const r = welchLift({
-      mean_a: 0.8, var_a: 0.01, n_a: 10,
-      mean_b: 0.7, var_b: 0.01, n_b: 10,
+      meanA: 0.8, varA: 0.01, nA: 10,
+      meanB: 0.7, varB: 0.01, nB: 10,
       margin: 0,
     });
     expect(r.lift).toBeCloseTo(0.1, 10);
     expect(r.se).toBeCloseTo(Math.sqrt(0.002), 10);
     expect(r.df).toBeCloseTo(18, 6);
-    // t = 0.1 / 0.0447 ≈ 2.236 → one-sided p ≈ 0.019 → p_exceeds ≈ 0.981
-    expect(r.p_exceeds).toBeGreaterThan(0.97);
-    expect(r.p_exceeds).toBeLessThan(0.99);
+    // t = 0.1 / 0.0447 ≈ 2.236 → one-sided p ≈ 0.019 → pExceeds ≈ 0.981
+    expect(r.pExceeds).toBeGreaterThan(0.97);
+    expect(r.pExceeds).toBeLessThan(0.99);
   });
 
   it('respects the margin as a practical-significance floor', () => {
-    const base = { mean_a: 0.75, var_a: 0.01, n_a: 10, mean_b: 0.7, var_b: 0.01, n_b: 10 };
+    const base = { meanA: 0.75, varA: 0.01, nA: 10, meanB: 0.7, varB: 0.01, nB: 10 };
     const noMargin = welchLift({ ...base, margin: 0 });
     const withMargin = welchLift({ ...base, margin: 0.05 });
-    expect(withMargin.p_exceeds).toBeLessThan(noMargin.p_exceeds);
+    expect(withMargin.pExceeds).toBeLessThan(noMargin.pExceeds);
     // lift exactly equals the margin → probability ~0.5
-    expect(withMargin.p_exceeds).toBeCloseTo(0.5, 6);
+    expect(withMargin.pExceeds).toBeCloseTo(0.5, 6);
   });
 
   it('group swap mirrors the sign-flipped margin: P_swap(>m) = 1 − P(>−m)', () => {
     // This is exactly how the gate computes the eviction side: it swaps
     // the groups and reuses the same margin.
     const orig = welchLift({
-      mean_a: 0.4, var_a: 0.02, n_a: 5, mean_b: 0.8, var_b: 0.02, n_b: 5, margin: -0.05,
+      meanA: 0.4, varA: 0.02, nA: 5, meanB: 0.8, varB: 0.02, nB: 5, margin: -0.05,
     });
     const swapped = welchLift({
-      mean_a: 0.8, var_a: 0.02, n_a: 5, mean_b: 0.4, var_b: 0.02, n_b: 5, margin: 0.05,
+      meanA: 0.8, varA: 0.02, nA: 5, meanB: 0.4, varB: 0.02, nB: 5, margin: 0.05,
     });
-    expect(swapped.p_exceeds).toBeCloseTo(1 - orig.p_exceeds, 10);
+    expect(swapped.pExceeds).toBeCloseTo(1 - orig.pExceeds, 10);
     // And a strongly negative lift yields a near-zero promotion probability.
     const promo = welchLift({
-      mean_a: 0.4, var_a: 0.02, n_a: 5, mean_b: 0.8, var_b: 0.02, n_b: 5, margin: 0.05,
+      meanA: 0.4, varA: 0.02, nA: 5, meanB: 0.8, varB: 0.02, nB: 5, margin: 0.05,
     });
-    expect(promo.p_exceeds).toBeLessThan(0.05);
+    expect(promo.pExceeds).toBeLessThan(0.05);
   });
 
   it('handles the zero-variance degenerate case', () => {
     const r = welchLift({
-      mean_a: 0.9, var_a: 0, n_a: 3, mean_b: 0.5, var_b: 0, n_b: 3, margin: 0.05,
+      meanA: 0.9, varA: 0, nA: 3, meanB: 0.5, varB: 0, nB: 3, margin: 0.05,
     });
-    expect(r.p_exceeds).toBe(1);
+    expect(r.pExceeds).toBe(1);
     expect(r.df).toBe(Infinity);
   });
 
   it('rejects groups smaller than 2', () => {
     expect(() =>
-      welchLift({ mean_a: 1, var_a: 0.1, n_a: 1, mean_b: 0, var_b: 0.1, n_b: 5, margin: 0 }),
+      welchLift({ meanA: 1, varA: 0.1, nA: 1, meanB: 0, varB: 0.1, nB: 5, margin: 0 }),
     ).toThrow(RangeError);
   });
 });

@@ -82,6 +82,8 @@ export class InMemoryMemoryIndex implements MemoryIndex {
   private readonly silenceScaleWarning: boolean;
   /** One-shot guard so we don't spam logs on every subsequent rebuild. */
   private scaleWarningEmitted = false;
+  /** Separate one-shot for the sharper "records were dropped" warning. */
+  private truncationWarningEmitted = false;
 
   constructor(options?: InMemoryMemoryIndexOptions) {
     this.expectedDimensions = options?.expectedDimensions;
@@ -132,28 +134,68 @@ export class InMemoryMemoryIndex implements MemoryIndex {
       return entries;
     };
 
-    const entities = await store.findEntities({ include_invalidated: true, limit: 10_000 });
-    this.entityIndex = buildEntries(entities, 'entity');
+    // Fetch one past the threshold so truncation is detectable: exactly
+    // threshold+1 rows back means the store holds more than we will index.
+    const fetchLimit = IN_MEMORY_INDEX_WARN_THRESHOLD + 1;
+    let truncated = false;
+    const capRecords = <T>(records: T[]): T[] => {
+      if (records.length > IN_MEMORY_INDEX_WARN_THRESHOLD) {
+        truncated = true;
+        return records.slice(0, IN_MEMORY_INDEX_WARN_THRESHOLD);
+      }
+      return records;
+    };
 
-    const facts = await store.findFacts({ include_invalidated: true, limit: 10_000 });
-    this.factIndex = buildEntries(facts, 'fact');
+    // Collect-then-assign: build every index before touching instance state,
+    // so a dimension-mismatch throw partway through leaves the previous
+    // (consistent) snapshot live instead of a half-rebuilt hybrid.
+    const entities = await store.findEntities({ includeInvalidated: true, limit: fetchLimit });
+    const entityIndex = buildEntries(capRecords(entities), 'entity');
+
+    const facts = await store.findFacts({ includeInvalidated: true, limit: fetchLimit });
+    const factIndex = buildEntries(capRecords(facts), 'fact');
 
     const themes = await store.listThemes();
-    this.themeIndex = buildEntries(themes, 'theme');
+    const themeIndex = buildEntries(themes, 'theme');
 
-    const episodes = await store.listEpisodes({ limit: 10_000 });
-    this.episodeIndex = buildEntries(episodes, 'episode');
+    const episodes = await store.listEpisodes({ limit: fetchLimit });
+    const episodeIndex = buildEntries(capRecords(episodes), 'episode');
 
-    this.maybeWarnAboutScale();
+    this.entityIndex = entityIndex;
+    this.factIndex = factIndex;
+    this.themeIndex = themeIndex;
+    this.episodeIndex = episodeIndex;
+
+    this.maybeWarnAboutScale(truncated);
   }
 
   /**
    * Emit a one-shot warning when the brute-force index has crossed
    * {@link IN_MEMORY_INDEX_WARN_THRESHOLD}. Past this size, swap to the
    * pgvector-backed adapter — cosine scans don't get faster with more RAM.
+   *
+   * When a record type was actually truncated during rebuild, the warning
+   * says so explicitly (separate one-shot): search results are silently
+   * missing records, which is worse than slow queries.
    */
-  private maybeWarnAboutScale(): void {
-    if (this.scaleWarningEmitted || this.silenceScaleWarning) return;
+  private maybeWarnAboutScale(truncated: boolean): void {
+    if (this.silenceScaleWarning) return;
+
+    if (truncated && !this.truncationWarningEmitted) {
+      this.truncationWarningEmitted = true;
+      this.scaleWarningEmitted = true;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[@cycgraph/memory] InMemoryMemoryIndex rebuild hit its cap: records ` +
+        `beyond the first ${IN_MEMORY_INDEX_WARN_THRESHOLD} per type are NOT ` +
+        `indexed and will never appear in search results. Switch to a ` +
+        `pgvector-backed adapter for stores this size. Suppress with ` +
+        `{ silenceScaleWarning: true } in the constructor options.`,
+      );
+      return;
+    }
+
+    if (this.scaleWarningEmitted) return;
     const total =
       this.entityIndex.length +
       this.factIndex.length +
@@ -177,12 +219,12 @@ export class InMemoryMemoryIndex implements MemoryIndex {
     queryEmbedding: number[],
     opts: SearchOptions = {},
   ): ScoredResult<T>[] {
-    const { limit = 20, min_similarity = 0.5 } = opts;
+    const { limit = 20, minSimilarity = 0.5 } = opts;
 
     const scored: ScoredResult<T>[] = [];
     for (const entry of index) {
       const score = cosineSimilarity(queryEmbedding, entry.embedding);
-      if (score >= min_similarity) {
+      if (score >= minSimilarity) {
         scored.push({ item: entry.item, score });
       }
     }

@@ -288,10 +288,10 @@ export class DrizzleMemoryStore implements MemoryStore {
     return this.read(async (db) => {
       const conditions = [];
 
-      if (filter.entity_type) {
-        conditions.push(eq(memory_entities.entity_type, filter.entity_type));
+      if (filter.entityType) {
+        conditions.push(eq(memory_entities.entity_type, filter.entityType));
       }
-      if (!filter.include_invalidated) {
+      if (!filter.includeInvalidated) {
         conditions.push(isNull(memory_entities.invalidated_at));
       }
       const t = this.tenantEq(memory_entities.tenant_id);
@@ -366,10 +366,10 @@ export class DrizzleMemoryStore implements MemoryStore {
         );
       }
 
-      if (filter.relation_type) {
-        conditions.push(eq(memory_relationships.relation_type, filter.relation_type));
+      if (filter.relationType) {
+        conditions.push(eq(memory_relationships.relation_type, filter.relationType));
       }
-      if (!filter.include_invalidated) {
+      if (!filter.includeInvalidated) {
         conditions.push(isNull(memory_relationships.invalidated_by));
       }
       const t = this.tenantEq(memory_relationships.tenant_id);
@@ -470,6 +470,18 @@ export class DrizzleMemoryStore implements MemoryStore {
     });
   }
 
+  async touchFacts(ids: string[], at: Date = new Date()): Promise<void> {
+    if (ids.length === 0) return;
+    // Single UPDATE: usage bookkeeping called by retrieval after serving
+    // facts. COALESCE guards legacy rows where access_count is NULL.
+    await this.read((db) => db.update(memory_facts)
+      .set({
+        access_count: sql`coalesce(${memory_facts.access_count}, 0) + 1`,
+        last_accessed_at: at,
+      })
+      .where(and(inArray(memory_facts.id, ids), this.tenantEq(memory_facts.tenant_id))));
+  }
+
   async getFact(id: string): Promise<SemanticFact | null> {
     const rows = await this.read((db) => db.select().from(memory_facts)
       .where(and(eq(memory_facts.id, id), this.tenantEq(memory_facts.tenant_id)))
@@ -481,17 +493,17 @@ export class DrizzleMemoryStore implements MemoryStore {
     return this.read(async (db) => {
       const conditions = [];
 
-      if (!filter.include_invalidated) {
+      if (!filter.includeInvalidated) {
         conditions.push(isNull(memory_facts.invalidated_by));
       }
-      if (filter.theme_id) {
-        conditions.push(eq(memory_facts.theme_id, filter.theme_id));
+      if (filter.themeId) {
+        conditions.push(eq(memory_facts.theme_id, filter.themeId));
       }
-      if (filter.entity_id) {
+      if (filter.entityId) {
         // Subquery is tenant-scoped too, so a shared entity id can't bridge tenants.
         const factIdsForEntity = db.select({ fact_id: memory_entity_facts.fact_id })
           .from(memory_entity_facts)
-          .where(and(eq(memory_entity_facts.entity_id, filter.entity_id), this.tenantEq(memory_entity_facts.tenant_id)));
+          .where(and(eq(memory_entity_facts.entity_id, filter.entityId), this.tenantEq(memory_entity_facts.tenant_id)));
         conditions.push(inArray(memory_facts.id, factIdsForEntity));
       }
       if (filter.tags && filter.tags.length > 0) {
@@ -508,12 +520,12 @@ export class DrizzleMemoryStore implements MemoryStore {
           sql`${memory_facts.tags} ?| ARRAY[${sql.join(filter.tags.map((tag) => sql`${tag}`), sql`, `)}]::text[]`,
         );
       }
-      if (filter.exclude_tags && filter.exclude_tags.length > 0) {
+      if (filter.excludeTags && filter.excludeTags.length > 0) {
         // Negated `?|`: keep only facts that share NO element with the excluded
         // set. Used to keep quarantined/poisoned lessons out of retrieval and
         // consolidation. Same bound-param construction as the tags filter.
         conditions.push(
-          sql`NOT (${memory_facts.tags} ?| ARRAY[${sql.join(filter.exclude_tags.map((tag) => sql`${tag}`), sql`, `)}]::text[])`,
+          sql`NOT (${memory_facts.tags} ?| ARRAY[${sql.join(filter.excludeTags.map((tag) => sql`${tag}`), sql`, `)}]::text[])`,
         );
       }
       // Lesson-isolation boundary: tenant A's tagged facts must never match

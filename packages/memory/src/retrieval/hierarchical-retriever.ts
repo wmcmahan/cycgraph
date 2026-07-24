@@ -16,7 +16,7 @@ import type { Entity } from '../schemas/entity.js';
 import type { Theme } from '../schemas/theme.js';
 import type { Episode } from '../schemas/episode.js';
 import type { Relationship } from '../schemas/relationship.js';
-import type { MemoryStore } from '../interfaces/memory-store.js';
+import { QUARANTINE_TAG, type MemoryStore } from '../interfaces/memory-store.js';
 import type { MemoryIndex } from '../interfaces/memory-index.js';
 import { extractSubgraph } from './subgraph-extractor.js';
 import { filterValid } from './temporal-filter.js';
@@ -25,7 +25,7 @@ import { filterValid } from './temporal-filter.js';
  * Retrieve memory using hierarchical top-down search.
  *
  * Strategy:
- * - If query has `entity_ids`: use subgraph extraction, then attach related facts/themes
+ * - If query has `entityIds`: use subgraph extraction, then attach related facts/themes
  * - If query has `embedding`: search themes by similarity, expand to facts → episodes
  * - Else if query has `tags`: list facts by tag (no embedding needed). Used by
  *   `reflection` consumers that just want "lessons from graph X" without an
@@ -37,8 +37,25 @@ export async function retrieveMemory(
   index: MemoryIndex,
   query: MemoryQuery,
 ): Promise<MemoryResult> {
+  const result = await dispatch(store, index, query);
+
+  // Usage bookkeeping: served facts get their access_count bumped so
+  // consolidation's decay scoring can favor load-bearing facts. No-op for
+  // stores that don't implement touchFacts.
+  if (result.facts.length > 0) {
+    await store.touchFacts?.(result.facts.map((f) => f.id));
+  }
+
+  return result;
+}
+
+function dispatch(
+  store: MemoryStore,
+  index: MemoryIndex,
+  query: MemoryQuery,
+): Promise<MemoryResult> {
   // Entity-based path: subgraph extraction
-  if (query.entity_ids && query.entity_ids.length > 0) {
+  if (query.entityIds && query.entityIds.length > 0) {
     return retrieveByEntities(store, index, query);
   }
 
@@ -54,8 +71,8 @@ export async function retrieveMemory(
     return retrieveByTags(store, query);
   }
 
-  // No embedding, no entity_ids, no tags: empty result.
-  return { themes: [], facts: [], episodes: [], entities: [], relationships: [] };
+  // No embedding, no entityIds, no tags: empty result.
+  return Promise.resolve({ themes: [], facts: [], episodes: [], entities: [], relationships: [] });
 }
 
 async function retrieveByEmbedding(
@@ -64,10 +81,10 @@ async function retrieveByEmbedding(
   query: MemoryQuery,
 ): Promise<MemoryResult> {
   const embedding = query.embedding!;
-  const { limit, min_similarity, include_invalidated } = query;
+  const { limit, minSimilarity, includeInvalidated } = query;
 
   // Step 1: Search themes by similarity
-  const scoredThemes = await index.searchThemes(embedding, { limit, min_similarity });
+  const scoredThemes = await index.searchThemes(embedding, { limit, minSimilarity });
   const themes: Theme[] = scoredThemes.map((s) => s.item);
 
   // Step 2: Expand themes to facts via fact_ids
@@ -79,19 +96,22 @@ async function retrieveByEmbedding(
   }
 
   // Also search facts directly by embedding for coverage
-  const scoredFacts = await index.searchFacts(embedding, { limit, min_similarity });
+  const scoredFacts = await index.searchFacts(embedding, { limit, minSimilarity });
   for (const sf of scoredFacts) {
     factIds.add(sf.item.id);
   }
 
   const factsMap = await store.getFacts([...factIds]);
-  const allFacts: SemanticFact[] = filterByTags([...factsMap.values()], query.tags);
+  const allFacts: SemanticFact[] = excludeQuarantined(
+    filterByTags([...factsMap.values()], query.tags),
+    query.tags,
+  );
 
   // Apply temporal filters
   const filteredFacts = filterValid(allFacts, {
-    valid_at: query.valid_at,
-    changed_since: query.changed_since,
-    include_invalidated,
+    validAt: query.validAt,
+    changedSince: query.changedSince,
+    includeInvalidated,
   }).slice(0, limit);
 
   // Step 3: Expand facts to episodes
@@ -118,8 +138,8 @@ async function retrieveByEmbedding(
 
   // Step 5: Get relationships between collected entities
   const relationships = await getRelationshipsBetween(store, entityIds, {
-    valid_at: query.valid_at,
-    include_invalidated,
+    validAt: query.validAt,
+    includeInvalidated,
   });
 
   return {
@@ -136,21 +156,26 @@ async function retrieveByEntities(
   _index: MemoryIndex,
   query: MemoryQuery,
 ): Promise<MemoryResult> {
-  const { entity_ids, max_hops, valid_at, include_invalidated, limit } = query;
+  const { entityIds, maxHops, validAt, includeInvalidated, limit } = query;
 
   // Subgraph extraction via BFS
-  const subgraph = await extractSubgraph(store, entity_ids!, {
-    max_hops,
-    valid_at,
-    include_invalidated,
+  const subgraph = await extractSubgraph(store, entityIds!, {
+    maxHops,
+    validAt,
+    includeInvalidated,
   });
 
   // Find facts referencing these entities
   const entityIdSet = new Set(subgraph.entities.map((e) => e.id));
   const allFacts: SemanticFact[] = [];
   const seenFactIds = new Set<string>();
+  const auditingQuarantine = query.tags?.includes(QUARANTINE_TAG) ?? false;
   for (const entityId of entityIdSet) {
-    const facts = await store.findFacts({ entity_id: entityId, include_invalidated });
+    const facts = await store.findFacts({
+      entityId,
+      includeInvalidated,
+      ...(auditingQuarantine ? {} : { excludeTags: [QUARANTINE_TAG] }),
+    });
     for (const fact of facts) {
       if (!seenFactIds.has(fact.id)) {
         seenFactIds.add(fact.id);
@@ -159,10 +184,10 @@ async function retrieveByEntities(
     }
   }
 
-  const filteredFacts = filterValid(filterByTags(allFacts, query.tags), {
-    valid_at,
-    changed_since: query.changed_since,
-    include_invalidated,
+  const filteredFacts = filterValid(excludeQuarantined(filterByTags(allFacts, query.tags), query.tags), {
+    validAt,
+    changedSince: query.changedSince,
+    includeInvalidated,
   }).slice(0, limit);
 
   // Collect themes from facts
@@ -202,14 +227,15 @@ async function retrieveByEntities(
  *
  * No entities or relationships are returned — those require entity-driven
  * traversal. Callers that need the knowledge-graph view should query with
- * `entity_ids` instead.
+ * `entityIds` instead.
  */
 async function retrieveByTags(
   store: MemoryStore,
   query: MemoryQuery,
 ): Promise<MemoryResult> {
-  const { limit, include_invalidated } = query;
+  const { limit, includeInvalidated } = query;
   const PAGE_SIZE = Math.max(limit * 4, 100);
+  const auditingQuarantine = query.tags?.includes(QUARANTINE_TAG) ?? false;
 
   const matching: SemanticFact[] = [];
   let offset = 0;
@@ -217,21 +243,22 @@ async function retrieveByTags(
   // findFacts returning fewer than PAGE_SIZE rows signals end-of-data.
   while (matching.length < limit) {
     const page = await store.findFacts({
-      include_invalidated,
+      includeInvalidated,
       // Push the tag filter into the store. DB-backed stores resolve this via
       // a GIN-indexed `tags ?| array[...]` instead of scanning the whole
       // table; the client-side `filterByTags` below stays as a correctness
       // backstop for stores that don't honor the hint.
       ...(query.tags && query.tags.length > 0 ? { tags: query.tags } : {}),
+      ...(auditingQuarantine ? {} : { excludeTags: [QUARANTINE_TAG] }),
       limit: PAGE_SIZE,
       offset,
     });
     if (page.length === 0) break;
-    const taggedPage = filterByTags(page, query.tags);
+    const taggedPage = excludeQuarantined(filterByTags(page, query.tags), query.tags);
     const validPage = filterValid(taggedPage, {
-      valid_at: query.valid_at,
-      changed_since: query.changed_since,
-      include_invalidated,
+      validAt: query.validAt,
+      changedSince: query.changedSince,
+      includeInvalidated,
     });
     for (const fact of validPage) {
       matching.push(fact);
@@ -273,10 +300,24 @@ function filterByTags(facts: SemanticFact[], tags: readonly string[] | undefined
   return facts.filter((fact) => fact.tags.some((t) => wanted.has(t)));
 }
 
+/**
+ * Drop quarantined facts unless the query explicitly asks for the quarantine
+ * tag (an audit query). Enforces the {@link QUARANTINE_TAG} contract on the
+ * main read path: a fact learned during a failed/poisoned run must not
+ * resurface through ordinary retrieval, while staying recoverable on request.
+ */
+function excludeQuarantined(
+  facts: SemanticFact[],
+  queryTags: readonly string[] | undefined,
+): SemanticFact[] {
+  if (queryTags?.includes(QUARANTINE_TAG)) return facts;
+  return facts.filter((fact) => !(fact.tags ?? []).includes(QUARANTINE_TAG));
+}
+
 async function getRelationshipsBetween(
   store: MemoryStore,
   entityIds: Set<string>,
-  opts: { valid_at?: Date; include_invalidated?: boolean },
+  opts: { validAt?: Date; includeInvalidated?: boolean },
 ): Promise<Relationship[]> {
   const seen = new Set<string>();
   const result: Relationship[] = [];
@@ -284,7 +325,7 @@ async function getRelationshipsBetween(
   for (const entityId of entityIds) {
     const rels = await store.getRelationshipsForEntity(entityId, {
       direction: 'both',
-      include_invalidated: opts.include_invalidated,
+      includeInvalidated: opts.includeInvalidated,
     });
     for (const rel of rels) {
       if (seen.has(rel.id)) continue;

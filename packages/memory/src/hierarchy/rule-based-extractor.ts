@@ -37,6 +37,14 @@ const DEFAULT_RELATIONSHIP_VERBS = [
   'author', 'own', 'use', 'depend_on', 'contain',
   'belong_to', 'collaborate_with', 'review', 'approve',
   'deploy', 'test', 'maintain', 'support', 'block', 'require',
+  // Common relationship verbs from natural news/report prose — added after
+  // the 2026-07 implementation-blind baseline measured 0/20 assertion
+  // capture on natural text (acquisitions, appointments, funding, hiring
+  // were all invisible). 'found' is deliberately absent: it collides with
+  // the past tense of 'find' ("found the bug") and would fabricate edges.
+  'acquire', 'appoint', 'replace', 'succeed', 'fund', 'sponsor',
+  'open', 'sign', 'chair', 'join', 'hire', 'launch', 'publish',
+  'serve', 'advise', 'invest_in', 'partner_with',
 ];
 
 /**
@@ -74,13 +82,52 @@ function verbForms(verb: string): string[] {
   return forms;
 }
 
-const ORG_SUFFIXES = /\b(?:Corp|Inc|Ltd|LLC|Co|Group|Foundation|Institute|Association)\b/i;
+/** Days and months — capitalized, but not entities. */
+const TEMPORAL_WORDS = new Set([
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+  'January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December',
+]);
+
+/**
+ * Honorifics and title fragments — never standalone entities. Left attached
+ * inside multi-word names ("Chef Rosa Delgado"), but a bare "Dr" entity
+ * interposes between real endpoints and steals relationship attribution
+ * ("appointed Dr. Marcus Webb" paired the org with "Dr").
+ */
+const TITLE_WORDS = new Set([
+  'Dr', 'Mr', 'Mrs', 'Ms', 'Prof', 'Rev', 'Jr', 'Sr', 'St',
+]);
+
+// Org-name cue words, matched anywhere in a multi-word name. Expanded after
+// the 2026-07 implementation-blind baseline measured 0.348 type accuracy —
+// "Medical Center", "University", "FC", "Consortium" etc. were all typed as
+// persons under the original short suffix list.
+const ORG_SUFFIXES = new RegExp(
+  '\\b(?:Corp|Inc|Ltd|LLC|Co|Group|Foundation|Institute|Association' +
+  '|University|College|School|Hospital|Center|Centre|Clinic|Medical' +
+  '|Consortium|Labs?|Council|Committee|Commission|Agency|Authority' +
+  '|Department|Ministry|Bureau|Journal|Press|Museum|Society|Union' +
+  '|Bank|Capital|Partners|Holdings|Ventures|Industries|Systems' +
+  '|Technologies|Solutions|Services|Networks|Studios|Team' +
+  '|FC|SC|AFC|United|City|Grocers|Motors|Airlines|Railway)\\b',
+  'i',
+);
+
+/**
+ * Negation markers that invert a verb's meaning. A verb form found between
+ * two entities must NOT produce a relationship when the same span negates it
+ * ("never worked at", "does not manage") — the graph would record the
+ * opposite of what the sentence says. The fact still captures the full
+ * sentence; only the affirmative edge is suppressed.
+ */
+const NEGATION_BETWEEN = /(?<![a-z])(?:not|no|never|cannot|neither|nor|without)(?![a-z])|n't(?![a-z])/;
 
 export class RuleBasedExtractor implements SemanticExtractor {
   private readonly minSentenceLength: number;
   private readonly extraEntityPatterns: RegExp[];
   private readonly relationshipVerbs: string[];
-  private readonly verbFormMap: Map<string, string>;
+  private readonly verbFormMap: Map<string, { canonical: string; pattern: RegExp }>;
 
   constructor(options?: RuleBasedExtractorOptions) {
     this.minSentenceLength = options?.minSentenceLength ?? 20;
@@ -90,11 +137,19 @@ export class RuleBasedExtractor implements SemanticExtractor {
       ...(options?.relationshipVerbs ?? []),
     ];
 
-    // Pre-build a map from each inflected form to the canonical verb
+    // Pre-build a map from each inflected form to the canonical verb, with a
+    // word-boundary pattern per form. Substring matching would hallucinate
+    // relationships from embedded stems: "use" inside "because"/"causes",
+    // "lead" inside "misleading", "own" inside "down".
     this.verbFormMap = new Map();
     for (const verb of this.relationshipVerbs) {
       for (const form of verbForms(verb)) {
-        this.verbFormMap.set(form.toLowerCase(), verb);
+        const lower = form.toLowerCase();
+        const escaped = lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        this.verbFormMap.set(lower, {
+          canonical: verb,
+          pattern: new RegExp(`(?<![a-z])${escaped}(?![a-z])`),
+        });
       }
     }
   }
@@ -159,6 +214,10 @@ export class RuleBasedExtractor implements SemanticExtractor {
       updated_at: now,
     }));
 
+    // Episode → facts back-link (the schema's `fact_ids` contract) —
+    // callers persist the episode after extraction.
+    episode.fact_ids = facts.map((f) => f.id);
+
     return { facts, entities, relationships };
   }
 
@@ -198,8 +257,11 @@ export class RuleBasedExtractor implements SemanticExtractor {
         target.index,
       );
 
-      for (const [form, canonical] of this.verbFormMap) {
-        if (between.includes(form)) {
+      // A negated span never yields an affirmative edge.
+      if (NEGATION_BETWEEN.test(between)) continue;
+
+      for (const [, { canonical, pattern }] of this.verbFormMap) {
+        if (pattern.test(between)) {
           const sourceId = entityNameToId.get(source.entity.name);
           const targetId = entityNameToId.get(target.entity.name);
           if (sourceId && targetId) {
@@ -234,13 +296,23 @@ export class RuleBasedExtractor implements SemanticExtractor {
       entities.set(name, { name, type });
     }
 
-    // Single capitalized words NOT at sentence start
+    // Single capitalized words NOT at sentence start. Days and months are
+    // excluded: they are capitalized but almost never useful entities, and
+    // as detected entities they interpose between real endpoints and steal
+    // relationship attribution in the adjacent-pair scan ("said on Tuesday
+    // that it has acquired…" paired Tuesday, not the acquirer).
     const words = text.split(/\s+/);
     for (let i = 1; i < words.length; i++) {
-      const word = words[i].replace(/[^a-zA-Z]/g, '');
+      // Strip a possessive before cleaning, so "Meridian's" yields
+      // "Meridian" rather than the mangled "Meridians".
+      const word = words[i].replace(/[’']s$/, '').replace(/[^a-zA-Z]/g, '');
+      if (TEMPORAL_WORDS.has(word) || TITLE_WORDS.has(word)) continue;
       if (word.length >= 2 && /^[A-Z][a-z]+$/.test(word)) {
-        // Skip if already part of a multi-word entity
-        const alreadyCovered = [...entities.keys()].some((k) => k.includes(word));
+        // Skip if already a WORD of a multi-word entity. Word-level, not
+        // substring: "Annual Report" must not suppress the person "Ann".
+        const alreadyCovered = [...entities.keys()].some((k) =>
+          k.split(/\s+/).includes(word),
+        );
         if (!alreadyCovered) {
           entities.set(word, { name: word, type: 'concept' });
         }
@@ -259,8 +331,11 @@ export class RuleBasedExtractor implements SemanticExtractor {
       entities.set(match[1], { name: match[1], type: 'concept' });
     }
 
-    // Quoted terms (single quotes)
-    const sglQuotePattern = /'([^']+)'/g;
+    // Quoted terms (single quotes). Boundary lookarounds keep possessive
+    // apostrophes from opening phantom spans: in "Bluefin's … Meridian's",
+    // the bare pattern matched the text BETWEEN the two possessives as a
+    // quoted term.
+    const sglQuotePattern = /(?<![a-zA-Z])'([^']+)'(?![a-zA-Z])/g;
     for (const match of text.matchAll(sglQuotePattern)) {
       entities.set(match[1], { name: match[1], type: 'concept' });
     }

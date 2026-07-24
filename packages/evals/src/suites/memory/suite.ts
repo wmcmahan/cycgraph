@@ -34,6 +34,9 @@ import {
   assertStable,
 } from '../../assertions/deterministic.js';
 import { loadGoldenTrajectories } from '../../dataset/loader.js';
+import { runExtractionEfficacy } from './extraction-efficacy.js';
+import { runBlindEfficacy } from './extraction-efficacy-blind.js';
+import { RuleBasedExtractor } from '@cycgraph/memory';
 import { FAITHFULNESS } from '../../assertions/semantic-judge.js';
 import type { TestCaseResults } from '../../assertions/drift-calculator.js';
 import type { SutSuiteConfig } from '../sut-contract.js';
@@ -155,6 +158,14 @@ export async function runDeterministic(): Promise<TestCaseResults[]> {
   // Test 8: Theme→fact linkage
   results.push(await runThemeFactLinkageTest());
 
+  // Tests 9–10: Extraction efficacy — corpus metrics + cross-episode
+  // extraction → resolution → conflict-detection pipeline.
+  results.push(...(await runExtractionEfficacy()));
+
+  // Test 11: Implementation-blind corpus, rule-based tier (measured-only —
+  // honest capability numbers on natural text; expected well below 1.0).
+  results.push(await runBlindEfficacy(new RuleBasedExtractor(), 'rule'));
+
   return results;
 }
 
@@ -163,7 +174,7 @@ async function runTemporalExpiredTest(): Promise<TestCaseResults> {
     makeFact('f-a', 'Current fact', PAST),
     makeFact('f-b', 'Expired fact', PAST, PAST),
   ];
-  const filtered = filterValid(facts, { valid_at: NOW });
+  const filtered = filterValid(facts, { validAt: NOW });
 
   return {
     suite: 'memory',
@@ -181,7 +192,7 @@ async function runTemporalCurrentTest(): Promise<TestCaseResults> {
     makeFact('f-b', 'Future fact', FUTURE),
     makeFact('f-c', 'Another current', PAST, FUTURE),
   ];
-  const filtered = filterValid(facts, { valid_at: NOW });
+  const filtered = filterValid(facts, { validAt: NOW });
 
   return {
     suite: 'memory',
@@ -198,8 +209,8 @@ async function runTemporalInvalidatedTest(): Promise<TestCaseResults> {
     makeFact('f-a', 'Valid fact', PAST),
     makeFact('f-b', 'Invalidated fact', PAST, undefined, 'f-replacement'),
   ];
-  const without = filterValid(facts, { include_invalidated: false });
-  const withInv = filterValid(facts, { include_invalidated: true });
+  const without = filterValid(facts, { includeInvalidated: false });
+  const withInv = filterValid(facts, { includeInvalidated: true });
 
   return {
     suite: 'memory',
@@ -216,11 +227,11 @@ async function runSubgraph1HopTest(): Promise<TestCaseResults> {
   const store = new InMemoryMemoryStore();
   await seedTestGraph(store);
 
-  const subgraph = await extractSubgraph(store, ['e-alice'], { max_hops: 1, valid_at: NOW });
+  const subgraph = await extractSubgraph(store, ['e-alice'], { maxHops: 1, validAt: NOW });
   const entityIds = new Set(subgraph.entities.map(e => e.id));
 
-  // Alice → (works_at) → Acme, Alice → (manages, expired) → Bob (filtered by valid_at)
-  // So 1-hop from Alice with valid_at=NOW: Alice + Acme
+  // Alice → (works_at) → Acme, Alice → (manages, expired) → Bob (filtered by validAt)
+  // So 1-hop from Alice with validAt=NOW: Alice + Acme
   return {
     suite: 'memory',
     zodResults: [],
@@ -230,7 +241,7 @@ async function runSubgraph1HopTest(): Promise<TestCaseResults> {
         'subgraph_1hop_entities',
         entityIds,
         new Set(['e-alice', 'e-acme']),
-        '1-hop from Alice (valid_at=NOW) should include Alice and Acme (manages→Bob is expired)',
+        '1-hop from Alice (validAt=NOW) should include Alice and Acme (manages→Bob is expired)',
       ),
     ],
   };
@@ -240,7 +251,7 @@ async function runSubgraph2HopTest(): Promise<TestCaseResults> {
   const store = new InMemoryMemoryStore();
   await seedTestGraph(store);
 
-  const subgraph = await extractSubgraph(store, ['e-alice'], { max_hops: 2, valid_at: NOW });
+  const subgraph = await extractSubgraph(store, ['e-alice'], { maxHops: 2, validAt: NOW });
   const entityIds = new Set(subgraph.entities.map(e => e.id));
 
   // 2-hop: Alice → Acme → Bob, Acme → Widget
@@ -267,7 +278,7 @@ async function runSegmentationDeterminismTest(): Promise<TestCaseResults> {
     { id: 'm-4', role: 'assistant', content: 'The budget is 100k', timestamp: new Date('2026-01-01T11:01:00Z'), metadata: {} },
   ];
 
-  const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 30 * 60 * 1000 });
+  const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 30 * 60 * 1000 });
   const run1 = await segmenter.segment(messages);
   const run2 = await segmenter.segment(messages);
   const run3 = await segmenter.segment(messages);
@@ -299,12 +310,12 @@ async function runEntityRetrievalTest(): Promise<TestCaseResults> {
   await index.rebuild(store);
 
   const result = await retrieveMemory(store, index, {
-    entity_ids: ['e-alice'],
+    entityIds: ['e-alice'],
     tags: [],
-    max_hops: 1,
+    maxHops: 1,
     limit: 20,
-    min_similarity: 0,
-    include_invalidated: false,
+    minSimilarity: 0,
+    includeInvalidated: false,
   });
 
   const entityIds = new Set(result.entities.map(e => e.id));

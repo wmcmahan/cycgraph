@@ -70,17 +70,17 @@ describe('filterValid', () => {
   });
 
   it('includes invalidated when requested', () => {
-    const result = filterValid(records, { include_invalidated: true });
+    const result = filterValid(records, { includeInvalidated: true });
     expect(result).toHaveLength(3);
   });
 
-  it('filters by valid_at', () => {
-    const result = filterValid(records, { valid_at: feb1 });
+  it('filters by validAt', () => {
+    const result = filterValid(records, { validAt: feb1 });
     expect(result.map((r) => r.id)).toEqual(['a', 'b']);
   });
 
-  it('filters by changed_since', () => {
-    const result = filterValid(records, { changed_since: feb1 });
+  it('filters by changedSince', () => {
+    const result = filterValid(records, { changedSince: feb1 });
     // 'a' changed (valid_until=mar1 > feb1), 'b' changed (valid_from=feb1 is NOT > feb1)
     expect(result.map((r) => r.id)).toEqual(['a']);
   });

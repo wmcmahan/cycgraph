@@ -12,6 +12,7 @@ import type { SemanticFact } from '../schemas/semantic.js';
 import type { Theme } from '../schemas/theme.js';
 import type { ThemeClusterer } from '../interfaces/theme-clusterer.js';
 import { cosineSimilarity } from '../utils/similarity.js';
+import { assignThemeIds } from './simple-theme-clusterer.js';
 
 export interface ConsolidatingThemeClustererOptions {
   /** Minimum similarity to assign a fact to an existing theme (default: 0.7). */
@@ -39,7 +40,9 @@ export class ConsolidatingThemeClusterer implements ThemeClusterer {
     // --- Pass 1: Greedy assignment (same as SimpleThemeClusterer) ---
     const factsWithEmbeddings = facts.filter((f) => f.embedding);
     if (facts.length > 0 && factsWithEmbeddings.length === 0) {
-      return this.fallbackSingleTheme(facts, themes);
+      const result = this.fallbackSingleTheme(facts, themes);
+      assignThemeIds(facts, result);
+      return result;
     }
 
     for (const fact of facts) {
@@ -89,6 +92,9 @@ export class ConsolidatingThemeClusterer implements ThemeClusterer {
       }
     }
 
+    // Back-pointers derive from FINAL membership, so facts whose theme was
+    // merged away point at the surviving theme.
+    assignThemeIds(facts, themes);
     return themes;
   }
 
@@ -112,8 +118,13 @@ export class ConsolidatingThemeClusterer implements ThemeClusterer {
               ? [a, b]
               : [b, a];
 
+            const largerCount = larger.fact_ids.length;
+            const smallerCount = smaller.fact_ids.length;
             larger.fact_ids = [...larger.fact_ids, ...smaller.fact_ids];
-            larger.embedding = averageEmbeddings(larger.embedding!, smaller.embedding!);
+            larger.embedding = mergeCentroids(
+              larger.embedding!, largerCount,
+              smaller.embedding!, smallerCount,
+            );
 
             // Remove the smaller theme
             themes.splice(themes.indexOf(smaller), 1);
@@ -155,8 +166,13 @@ export class ConsolidatingThemeClusterer implements ThemeClusterer {
       ? [a, b]
       : [b, a];
 
+    const largerCount = larger.fact_ids.length;
+    const smallerCount = smaller.fact_ids.length;
     larger.fact_ids = [...larger.fact_ids, ...smaller.fact_ids];
-    larger.embedding = averageEmbeddings(larger.embedding!, smaller.embedding!);
+    larger.embedding = mergeCentroids(
+      larger.embedding!, largerCount,
+      smaller.embedding!, smallerCount,
+    );
 
     return themes.filter((t) => t !== smaller);
   }
@@ -195,10 +211,23 @@ export class ConsolidatingThemeClusterer implements ThemeClusterer {
   }
 }
 
-function averageEmbeddings(a: number[], b: number[]): number[] {
+/**
+ * Fact-count-weighted mean of two theme centroids. The schema defines a
+ * theme's embedding as the centroid of its member facts; an unweighted
+ * average only satisfies that when both themes are equal-sized — a 10-fact
+ * theme absorbing a singleton would otherwise be dragged halfway toward it.
+ * Weights are the themes' fact counts BEFORE the merge. (The consolidator's
+ * computeCentroid recomputes the exact mean from fact embeddings; this keeps
+ * the clusterer consistent with it.)
+ */
+function mergeCentroids(a: number[], countA: number, b: number[], countB: number): number[] {
   if (a.length !== b.length) {
     // Dimension mismatch — return the longer embedding unchanged
     return a.length >= b.length ? [...a] : [...b];
   }
-  return a.map((val, i) => (val + b[i]) / 2);
+  const total = countA + countB;
+  if (total === 0) {
+    return a.map((val, i) => (val + b[i]) / 2);
+  }
+  return a.map((val, i) => (val * countA + b[i] * countB) / total);
 }

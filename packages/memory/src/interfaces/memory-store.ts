@@ -16,15 +16,15 @@ import type { Theme } from '../schemas/theme.js';
 
 /** Filter options for entity queries. */
 export interface EntityFilter {
-  entity_type?: string;
-  include_invalidated?: boolean;
+  entityType?: string;
+  includeInvalidated?: boolean;
 }
 
 /** Filter options for fact queries. */
 export interface FactFilter {
-  theme_id?: string;
-  entity_id?: string;
-  include_invalidated?: boolean;
+  themeId?: string;
+  entityId?: string;
+  includeInvalidated?: boolean;
   /**
    * Match facts carrying **any** of these tags (OR semantics). Pushed into
    * SQL by DB-backed stores (a GIN-indexed `tags ?| array[...]` on Postgres)
@@ -39,7 +39,7 @@ export interface FactFilter {
    * them — a fact learned during a failed/poisoned run must not resurface as a
    * trusted lesson. Empty/undefined means "no exclusion".
    */
-  exclude_tags?: readonly string[];
+  excludeTags?: readonly string[];
 }
 
 /**
@@ -53,8 +53,8 @@ export const QUARANTINE_TAG = 'quarantined';
 /** Filter options for relationship queries. */
 export interface RelationshipFilter {
   direction?: 'outgoing' | 'incoming' | 'both';
-  relation_type?: string;
-  include_invalidated?: boolean;
+  relationType?: string;
+  includeInvalidated?: boolean;
 }
 
 /** Pagination options. */
@@ -114,6 +114,17 @@ export interface MemoryStore {
   getEpisodes(ids: string[]): Promise<Map<string, Episode>>;
   /** Get multiple themes by ID. Missing IDs are silently absent from the result. */
   getThemes(ids: string[]): Promise<Map<string, Theme>>;
+
+  // ── Usage Tracking (optional) ──
+
+  /**
+   * Record retrieval usage for the given facts: increment `access_count` and
+   * set `last_accessed_at`. Retrieval calls this after serving facts, so
+   * consolidation's decay scoring can favor load-bearing facts over merely
+   * recent ones. Optional — stores that omit it get age-only decay. Missing
+   * IDs are ignored.
+   */
+  touchFacts?(ids: string[], at?: Date): Promise<void>;
 
   // ── Lifecycle ──
 

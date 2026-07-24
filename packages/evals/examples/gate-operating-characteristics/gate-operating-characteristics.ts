@@ -26,8 +26,8 @@ const OUT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // Mirror the configuration the docs recommend: 5-trial cohorts, verdicts
 // expected in the early alpha brackets, undecidables retired at baseline 40.
-const RETRIEVAL = { max_facts: 8, candidate_slots: 4, rest_after_trials: 5 };
-const POLICY = { min_trials: 3, max_baseline_runs: 40 };
+const RETRIEVAL = { maxFacts: 8, candidateSlots: 4, restAfterTrials: 5 };
+const POLICY = { minTrials: 3, maxBaselineRuns: 40 };
 
 const EFFECTS = [-0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3];
 const RUN_COUNTS = [10, 25, 50, 100];
@@ -113,13 +113,13 @@ async function main() {
     replicates: REPLICATES,
     seed: 1,
     retrieval: RETRIEVAL,
-    policy: { ...POLICY, decision_rule: 'margin' },
+    policy: { ...POLICY, decisionRule: 'margin' },
   });
 
   // Detection means the RIGHT verdict: promotion for helpful lessons,
   // harmful-eviction for harmful ones. No-lift retirement is a separate
   // (often correct) outcome — counting it as detection would flatter the
-  // negative-effect curves once max_baseline_runs starts retiring.
+  // negative-effect curves once maxBaselineRuns starts retiring.
   const byEffect = (effect: number) =>
     inference
       .filter((r) => r.effect === effect)
@@ -178,7 +178,7 @@ async function main() {
   );
 
   const results = {
-    config: { retrieval: RETRIEVAL, policy: POLICY, noise_sd: NOISE, replicates: REPLICATES, seed: 1 },
+    config: { retrieval: RETRIEVAL, policy: POLICY, noiseSd: NOISE, replicates: REPLICATES, seed: 1 },
     inference,
     margin_null: marginNull,
   };

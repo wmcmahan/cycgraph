@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { InMemoryMemoryStore, InMemoryMemoryIndex, EmbeddingDimensionMismatchError } from '../src/index.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { InMemoryMemoryStore, InMemoryMemoryIndex, EmbeddingDimensionMismatchError, IN_MEMORY_INDEX_WARN_THRESHOLD } from '../src/index.js';
 import type { Entity, SemanticFact, Theme, Provenance } from '../src/index.js';
 
 const now = new Date();
@@ -60,17 +60,17 @@ describe('InMemoryMemoryIndex', () => {
     await store.putEntity(e3);
     await index.rebuild(store);
 
-    const results = await index.searchEntities([1, 0, 0], { min_similarity: 0.8 });
+    const results = await index.searchEntities([1, 0, 0], { minSimilarity: 0.8 });
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results[0].item.id).toBe(e1.id);
     expect(results[0].score).toBeCloseTo(1.0);
   });
 
-  it('respects min_similarity threshold', async () => {
+  it('respects minSimilarity threshold', async () => {
     await store.putEntity(makeEntity([0, 1, 0]));
     await index.rebuild(store);
 
-    const results = await index.searchEntities([1, 0, 0], { min_similarity: 0.9 });
+    const results = await index.searchEntities([1, 0, 0], { minSimilarity: 0.9 });
     expect(results).toHaveLength(0);
   });
 
@@ -80,7 +80,7 @@ describe('InMemoryMemoryIndex', () => {
     }
     await index.rebuild(store);
 
-    const results = await index.searchEntities([1, 0, 0], { limit: 2, min_similarity: 0.5 });
+    const results = await index.searchEntities([1, 0, 0], { limit: 2, minSimilarity: 0.5 });
     expect(results).toHaveLength(2);
   });
 
@@ -89,7 +89,7 @@ describe('InMemoryMemoryIndex', () => {
     await store.putFact(makeFact([0, 1, 0]));
     await index.rebuild(store);
 
-    const results = await index.searchFacts([1, 0, 0], { min_similarity: 0.9 });
+    const results = await index.searchFacts([1, 0, 0], { minSimilarity: 0.9 });
     expect(results).toHaveLength(1);
   });
 
@@ -97,7 +97,7 @@ describe('InMemoryMemoryIndex', () => {
     await store.putTheme(makeTheme([1, 0, 0]));
     await index.rebuild(store);
 
-    const results = await index.searchThemes([1, 0, 0], { min_similarity: 0.9 });
+    const results = await index.searchThemes([1, 0, 0], { minSimilarity: 0.9 });
     expect(results).toHaveLength(1);
     expect(results[0].score).toBeCloseTo(1.0);
   });
@@ -115,7 +115,7 @@ describe('InMemoryMemoryIndex', () => {
     await store.putEntity(entityNoEmbed);
     await index.rebuild(store);
 
-    const results = await index.searchEntities([1, 0, 0], { min_similarity: 0 });
+    const results = await index.searchEntities([1, 0, 0], { minSimilarity: 0 });
     expect(results).toHaveLength(0);
   });
 
@@ -141,6 +141,27 @@ describe('InMemoryMemoryIndex', () => {
       await expect(dimIndex.searchFacts(badQuery)).rejects.toBeInstanceOf(EmbeddingDimensionMismatchError);
       await expect(dimIndex.searchThemes(badQuery)).rejects.toBeInstanceOf(EmbeddingDimensionMismatchError);
       await expect(dimIndex.searchEpisodes(badQuery)).rejects.toBeInstanceOf(EmbeddingDimensionMismatchError);
+    });
+
+    it('a failed rebuild leaves the previous index snapshot intact', async () => {
+      const idx = new InMemoryMemoryIndex({ expectedDimensions: 3 });
+      const goodEntity = makeEntity([1, 0, 0]);
+      await store.putEntity(goodEntity);
+      await idx.rebuild(store);
+
+      // Second rebuild fails on a bad-dimension fact — entities were fetched
+      // (and would have been assigned first, pre-fix), facts throw.
+      const newEntity = makeEntity([0, 1, 0]);
+      await store.putEntity(newEntity);
+      await store.putFact(makeFact([1, 2])); // wrong dims
+      await expect(idx.rebuild(store)).rejects.toThrow(EmbeddingDimensionMismatchError);
+
+      // The index still serves the first (consistent) snapshot: the old
+      // entity is findable, the new one is not.
+      const results = await idx.searchEntities([1, 0, 0], { minSimilarity: 0, limit: 10 });
+      const ids = results.map((r) => r.item.id);
+      expect(ids).toContain(goodEntity.id);
+      expect(ids).not.toContain(newEntity.id);
     });
 
     it('throws when rebuild encounters a stored embedding with mismatched dim', async () => {
@@ -181,6 +202,45 @@ describe('InMemoryMemoryIndex', () => {
       // via cosine-similarity short-circuit) — no throw.
       const badQuery = new Array(512).fill(0.1);
       await expect(plainIndex.searchEntities(badQuery)).resolves.toBeDefined();
+    });
+  });
+
+  describe('rebuild truncation warning', () => {
+    it('warns explicitly when a record type exceeds the indexing cap', async () => {
+      const bigStore = new InMemoryMemoryStore();
+      for (let i = 0; i <= IN_MEMORY_INDEX_WARN_THRESHOLD; i++) {
+        await bigStore.putFact(makeFact([1, 0, 0]));
+      }
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const bigIndex = new InMemoryMemoryIndex();
+      await bigIndex.rebuild(bigStore);
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toMatch(/NOT indexed/);
+
+      // One-shot: a second rebuild does not warn again.
+      await bigIndex.rebuild(bigStore);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      // The index holds exactly the cap, not the full store.
+      const results = await bigIndex.searchFacts([1, 0, 0], { limit: 100, minSimilarity: 0 });
+      expect(results.length).toBe(100); // search still works on the capped index
+      warnSpy.mockRestore();
+    });
+
+    it('silenceScaleWarning suppresses the truncation warning too', async () => {
+      const bigStore = new InMemoryMemoryStore();
+      for (let i = 0; i <= IN_MEMORY_INDEX_WARN_THRESHOLD; i++) {
+        await bigStore.putFact(makeFact([1, 0, 0]));
+      }
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const quietIndex = new InMemoryMemoryIndex({ silenceScaleWarning: true });
+      await quietIndex.rebuild(bigStore);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
     });
   });
 });

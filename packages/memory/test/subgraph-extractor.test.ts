@@ -51,7 +51,7 @@ describe('extractSubgraph', () => {
     await store.putRelationship(makeRel(a.id, b.id));
     await store.putRelationship(makeRel(b.id, c.id));
 
-    const result = await extractSubgraph(store, [a.id], { max_hops: 1 });
+    const result = await extractSubgraph(store, [a.id], { maxHops: 1 });
     const names = result.entities.map((e) => e.name).sort();
     expect(names).toEqual(['A', 'B']);
     expect(result.relationships).toHaveLength(1);
@@ -62,7 +62,7 @@ describe('extractSubgraph', () => {
     await store.putRelationship(makeRel(b.id, c.id));
     await store.putRelationship(makeRel(c.id, d.id));
 
-    const result = await extractSubgraph(store, [a.id], { max_hops: 2 });
+    const result = await extractSubgraph(store, [a.id], { maxHops: 2 });
     const names = result.entities.map((e) => e.name).sort();
     expect(names).toEqual(['A', 'B', 'C']);
     expect(result.relationships).toHaveLength(2);
@@ -73,7 +73,7 @@ describe('extractSubgraph', () => {
     await store.putRelationship(makeRel(b.id, c.id));
     await store.putRelationship(makeRel(c.id, a.id)); // cycle
 
-    const result = await extractSubgraph(store, [a.id], { max_hops: 5 });
+    const result = await extractSubgraph(store, [a.id], { maxHops: 5 });
     expect(result.entities).toHaveLength(3);
     expect(result.relationships).toHaveLength(3);
   });
@@ -86,8 +86,8 @@ describe('extractSubgraph', () => {
     await store.putRelationship(makeRel(a.id, c.id, { valid_from: past }));
 
     const result = await extractSubgraph(store, [a.id], {
-      max_hops: 1,
-      valid_at: future,
+      maxHops: 1,
+      validAt: future,
     });
     // Only a→c is valid at future
     const names = result.entities.map((e) => e.name).sort();
@@ -95,22 +95,39 @@ describe('extractSubgraph', () => {
     expect(result.relationships).toHaveLength(1);
   });
 
-  it('returns just seed entity with max_hops=0', async () => {
+  it('returns just seed entity with maxHops=0', async () => {
     await store.putRelationship(makeRel(a.id, b.id));
-    const result = await extractSubgraph(store, [a.id], { max_hops: 0 });
+    const result = await extractSubgraph(store, [a.id], { maxHops: 0 });
     expect(result.entities).toHaveLength(1);
     expect(result.entities[0].name).toBe('A');
     expect(result.relationships).toHaveLength(0);
   });
 
-  it('caps the number of visited entities via max_entities', async () => {
+  it('caps the number of visited entities via maxEntities', async () => {
     // Star graph: A connected to B, C, D — a single hop reaches 4 entities.
     await store.putRelationship(makeRel(a.id, b.id));
     await store.putRelationship(makeRel(a.id, c.id));
     await store.putRelationship(makeRel(a.id, d.id));
 
-    const result = await extractSubgraph(store, [a.id], { max_hops: 2, max_entities: 2 });
+    const result = await extractSubgraph(store, [a.id], { maxHops: 2, maxEntities: 2 });
     // Bounded: stops expanding once 2 entities have been visited.
     expect(result.entities.length).toBeLessThanOrEqual(2);
+  });
+
+  it('budget-truncated result is closed: no relationship references an unvisited entity', async () => {
+    // Star graph capped at 2 entities: A's edges to the unadmitted neighbors
+    // must not appear in the result.
+    await store.putRelationship(makeRel(a.id, b.id));
+    await store.putRelationship(makeRel(a.id, c.id));
+    await store.putRelationship(makeRel(a.id, d.id));
+
+    const result = await extractSubgraph(store, [a.id], { maxHops: 2, maxEntities: 2 });
+    const entityIds = new Set(result.entities.map((e) => e.id));
+    for (const rel of result.relationships) {
+      expect(entityIds.has(rel.source_id)).toBe(true);
+      expect(entityIds.has(rel.target_id)).toBe(true);
+    }
+    // 2 admitted entities can carry at most the single edge between them.
+    expect(result.relationships.length).toBeLessThanOrEqual(1);
   });
 });

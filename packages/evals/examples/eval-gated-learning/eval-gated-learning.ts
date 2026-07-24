@@ -98,7 +98,7 @@ const TOPICS = [
 const CONSTRAINTS = ['Write from your own knowledge; do not invent URLs'];
 
 // Gate cadence and thresholds. The gate runs after every run from run 3
-// on (it's idempotent and cheap); candidate_slots is generous so seeded
+// on (it's idempotent and cheap); candidateSlots is generous so seeded
 // poison gets trialled alongside fresh reflection lessons.
 const GATE_FROM_RUN = 3;
 const POISON_AFTER_RUN = 3;
@@ -110,16 +110,16 @@ const RETENTION_POLICY = {
   // verified this live: under 'inference' this demo holds everything.
   // See ../gate-operating-characteristics/ for the inference rule's
   // measured evidence requirements.
-  decision_rule: 'margin' as const,
-  min_trials: 2,
-  promote_margin: 0.05,
-  evict_margin: 0.05,
-  max_trials: 6,
+  decisionRule: 'margin' as const,
+  minTrials: 2,
+  promoteMargin: 0.05,
+  evictMargin: 0.05,
+  maxTrials: 6,
 };
-// rest_after_trials = min_trials: candidates step out of the slots once
+// restAfterTrials = minTrials: candidates step out of the slots once
 // they have enough trials, which both frees slots for the next cohort
 // and creates the absence runs their leave-one-out baseline requires.
-const RETRIEVAL = { max_facts: 12, candidate_slots: 6, rest_after_trials: 2 };
+const RETRIEVAL = { maxFacts: 12, candidateSlots: 6, restAfterTrials: 2 };
 
 // ─── 1. The fixed quality rubric (same as compound-learning-benchmark) ───
 
@@ -204,7 +204,7 @@ const normalise = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').repl
 const memoryWriter: MemoryWriter = async (facts) => {
   const now = new Date();
   const ids: string[] = [];
-  const existing = await memoryStore.findFacts({ tags: [LESSON_TAG], include_invalidated: true, limit: 1000 });
+  const existing = await memoryStore.findFacts({ tags: [LESSON_TAG], includeInvalidated: true, limit: 1000 });
   const seen = new Set(existing.map((f) => normalise(f.content)));
 
   for (const fact of facts) {
@@ -238,9 +238,9 @@ const memoryWriter: MemoryWriter = async (facts) => {
 const memoryRetriever: MemoryRetriever = async (query) => {
   const facts = await retrieveGatedLessons(memoryStore, {
     tags: query.tags ?? [LESSON_TAG],
-    max_facts: RETRIEVAL.max_facts,
-    candidate_slots: RETRIEVAL.candidate_slots,
-    rest_after_trials: RETRIEVAL.rest_after_trials,
+    maxFacts: RETRIEVAL.maxFacts,
+    candidateSlots: RETRIEVAL.candidateSlots,
+    restAfterTrials: RETRIEVAL.restAfterTrials,
     // In-progress-first + rest: cohorts trial together, then bench so
     // the gate can compare runs with and without them.
     ledger,
@@ -343,7 +343,7 @@ const graph: Graph = createGraph({
       agentId: RESEARCHER_ID,
       readKeys: ['goal', 'constraints'],
       writeKeys: ['research_brief'],
-      memoryQuery: { tags: [LESSON_TAG], maxFacts: RETRIEVAL.max_facts },
+      memoryQuery: { tags: [LESSON_TAG], maxFacts: RETRIEVAL.maxFacts },
       failurePolicy: failurePolicy,
       requiresCompensation: false,
     },
@@ -544,9 +544,9 @@ async function main() {
         `  [gate after run ${runNumber}] promoted=${report.promoted.length} evicted=${report.evicted.length} held=${report.held.length}`,
       );
       for (const e of report.evicted) {
-        allEvictedIds.add(e.fact_id);
-        const isPoison = poisonIds.includes(e.fact_id);
-        console.log(`    evicted ${isPoison ? 'POISON ' : ''}${e.fact_id} (${e.reason})`);
+        allEvictedIds.add(e.factId);
+        const isPoison = poisonIds.includes(e.factId);
+        console.log(`    evicted ${isPoison ? 'POISON ' : ''}${e.factId} (${e.reason})`);
       }
       if (
         poisonEvictedAfterRun === null &&
@@ -579,7 +579,7 @@ async function main() {
 
   const poisonStates = await Promise.all(poisonIds.map((id) => memoryStore.getFact(id)));
   const poisonEvicted = poisonStates.filter((f) => f?.invalidated_by?.startsWith('eval-gate:')).length;
-  const verifiedCount = (await memoryStore.findFacts({ tags: ['verified'], include_invalidated: false })).length;
+  const verifiedCount = (await memoryStore.findFacts({ tags: ['verified'], includeInvalidated: false })).length;
 
   const fmt = (v: number | null) => (v === null ? 'n/a' : v.toFixed(3));
   console.log('\n═══ Verdict ═══');

@@ -15,14 +15,33 @@ import { cosineSimilarity } from '../utils/similarity.js';
 
 export interface SimpleThemeClustererOptions {
   /** Minimum similarity to assign a fact to an existing theme (default: 0.7). */
-  similarity_threshold?: number;
+  similarityThreshold?: number;
+}
+
+/**
+ * Write the fact → theme back-pointer for every fact in this batch, derived
+ * from the final theme membership. The schema documents `theme_id` as
+ * "assigned during clustering", and the retriever's entity/tag paths rely on
+ * it to expand facts to their themes — callers persist the facts afterward.
+ */
+export function assignThemeIds(facts: SemanticFact[], themes: Theme[]): void {
+  const factToTheme = new Map<string, string>();
+  for (const theme of themes) {
+    for (const factId of theme.fact_ids) {
+      factToTheme.set(factId, theme.id);
+    }
+  }
+  for (const fact of facts) {
+    const themeId = factToTheme.get(fact.id);
+    if (themeId !== undefined) fact.theme_id = themeId;
+  }
 }
 
 export class SimpleThemeClusterer implements ThemeClusterer {
   private readonly similarityThreshold: number;
 
   constructor(opts: SimpleThemeClustererOptions = {}) {
-    this.similarityThreshold = opts.similarity_threshold ?? 0.7;
+    this.similarityThreshold = opts.similarityThreshold ?? 0.7;
   }
 
   async cluster(facts: SemanticFact[], existingThemes: Theme[] = []): Promise<Theme[]> {
@@ -31,7 +50,9 @@ export class SimpleThemeClusterer implements ThemeClusterer {
     // Check if any facts have embeddings
     const factsWithEmbeddings = facts.filter((f) => f.embedding);
     if (factsWithEmbeddings.length === 0) {
-      return this.fallbackSingleTheme(facts, themes);
+      const result = this.fallbackSingleTheme(facts, themes);
+      assignThemeIds(facts, result);
+      return result;
     }
 
     for (const fact of facts) {
@@ -72,6 +93,7 @@ export class SimpleThemeClusterer implements ThemeClusterer {
       }
     }
 
+    assignThemeIds(facts, themes);
     return themes;
   }
 

@@ -42,14 +42,14 @@ export class InMemoryMemoryStore implements MemoryStore {
   }
 
   async findEntities(filter: EntityFilter & PaginationOptions = {}): Promise<Entity[]> {
-    const { entity_type, include_invalidated = false, limit = 100, offset = 0 } = filter;
+    const { entityType, includeInvalidated = false, limit = 100, offset = 0 } = filter;
     let results = [...this.entities.values()];
 
-    if (!include_invalidated) {
+    if (!includeInvalidated) {
       results = results.filter((e) => !e.invalidated_at);
     }
-    if (entity_type) {
-      results = results.filter((e) => e.entity_type === entity_type);
+    if (entityType) {
+      results = results.filter((e) => e.entity_type === entityType);
     }
 
     return results.slice(offset, offset + limit).map((e) => structuredClone(e));
@@ -78,6 +78,14 @@ export class InMemoryMemoryStore implements MemoryStore {
   // ── Relationship Operations ──
 
   async putRelationship(relationship: Relationship): Promise<void> {
+    // put* is upsert: if this id already exists with different endpoints,
+    // deindex the old version first or its former endpoints keep a stale
+    // index entry — which `direction: 'both'` reads (no endpoint re-check)
+    // would return, handing BFS a phantom edge.
+    const existing = this.relationships.get(relationship.id);
+    if (existing) {
+      this.deindexRelationship(existing);
+    }
     const clone = structuredClone(relationship);
     this.relationships.set(clone.id, clone);
     this.indexRelationship(clone);
@@ -92,7 +100,7 @@ export class InMemoryMemoryStore implements MemoryStore {
     entityId: string,
     filter: RelationshipFilter = {},
   ): Promise<Relationship[]> {
-    const { direction = 'both', relation_type, include_invalidated = false } = filter;
+    const { direction = 'both', relationType, includeInvalidated = false } = filter;
     const relIds = this.entityRelationships.get(entityId);
     if (!relIds) return [];
 
@@ -103,8 +111,8 @@ export class InMemoryMemoryStore implements MemoryStore {
 
       if (direction === 'outgoing' && rel.source_id !== entityId) continue;
       if (direction === 'incoming' && rel.target_id !== entityId) continue;
-      if (!include_invalidated && rel.invalidated_by) continue;
-      if (relation_type && rel.relation_type !== relation_type) continue;
+      if (!includeInvalidated && rel.invalidated_by) continue;
+      if (relationType && rel.relation_type !== relationType) continue;
 
       results.push(structuredClone(rel));
     }
@@ -156,24 +164,24 @@ export class InMemoryMemoryStore implements MemoryStore {
   }
 
   async findFacts(filter: FactFilter & PaginationOptions = {}): Promise<SemanticFact[]> {
-    const { theme_id, entity_id, tags, exclude_tags, include_invalidated = false, limit = 100, offset = 0 } = filter;
+    const { themeId, entityId, tags, excludeTags, includeInvalidated = false, limit = 100, offset = 0 } = filter;
     let results = [...this.facts.values()];
 
-    if (!include_invalidated) {
+    if (!includeInvalidated) {
       results = results.filter((f) => !f.invalidated_by);
     }
-    if (theme_id) {
-      results = results.filter((f) => f.theme_id === theme_id);
+    if (themeId) {
+      results = results.filter((f) => f.theme_id === themeId);
     }
-    if (entity_id) {
-      results = results.filter((f) => f.entity_ids.includes(entity_id));
+    if (entityId) {
+      results = results.filter((f) => f.entity_ids.includes(entityId));
     }
     if (tags && tags.length > 0) {
       const wanted = new Set(tags);
       results = results.filter((f) => f.tags.some((t) => wanted.has(t)));
     }
-    if (exclude_tags && exclude_tags.length > 0) {
-      const unwanted = new Set(exclude_tags);
+    if (excludeTags && excludeTags.length > 0) {
+      const unwanted = new Set(excludeTags);
       results = results.filter((f) => !(f.tags ?? []).some((t) => unwanted.has(t)));
     }
 
@@ -242,6 +250,17 @@ export class InMemoryMemoryStore implements MemoryStore {
       if (theme) result.set(id, structuredClone(theme));
     }
     return result;
+  }
+
+  // ── Usage Tracking ──
+
+  async touchFacts(ids: string[], at: Date = new Date()): Promise<void> {
+    for (const id of ids) {
+      const fact = this.facts.get(id);
+      if (!fact) continue;
+      fact.access_count = (fact.access_count ?? 0) + 1;
+      fact.last_accessed_at = at;
+    }
   }
 
   // ── Lifecycle ──

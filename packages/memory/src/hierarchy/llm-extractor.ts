@@ -22,6 +22,12 @@ export interface LLMProvider {
   complete(prompt: string): Promise<string>;
 }
 
+/** Optional logger for fallback and circuit-breaker diagnostics. */
+export interface ExtractorLogger {
+  debug?(message: string): void;
+  warn?(message: string): void;
+}
+
 export interface LLMExtractorOptions {
   provider: LLMProvider;
   maxFactsPerEpisode?: number;
@@ -31,6 +37,8 @@ export interface LLMExtractorOptions {
   maxConsecutiveFailures?: number;
   /** After tripping the breaker, retry the LLM after this many milliseconds (default: 60000). */
   breakerCooldownMs?: number;
+  /** Logger for fallback and breaker events (default: `warn` → console, `debug` → silent). */
+  logger?: ExtractorLogger;
 }
 
 interface LLMFactOutput {
@@ -46,6 +54,8 @@ export class LLMExtractor implements SemanticExtractor {
   private readonly timeoutMs: number;
   private readonly maxConsecutiveFailures: number;
   private readonly breakerCooldownMs: number;
+  private readonly warn: (message: string) => void;
+  private readonly debug: (message: string) => void;
 
   // Circuit breaker state
   private consecutiveFailures = 0;
@@ -58,6 +68,9 @@ export class LLMExtractor implements SemanticExtractor {
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? 3;
     this.breakerCooldownMs = options.breakerCooldownMs ?? 60_000;
+    // eslint-disable-next-line no-console
+    this.warn = options.logger?.warn?.bind(options.logger) ?? ((m) => console.warn(m));
+    this.debug = options.logger?.debug?.bind(options.logger) ?? (() => {});
   }
 
   async extract(episode: Episode): Promise<ExtractionResult> {
@@ -75,21 +88,31 @@ export class LLMExtractor implements SemanticExtractor {
         return this.fallback.extract(episode);
       }
       this.recordSuccess();
+      // Episode → facts back-link (the fallback extractor sets it on its own
+      // paths) — callers persist the episode after extraction.
+      episode.fact_ids = result.facts.map((f) => f.id);
       return result;
     } catch (err) {
-      console.warn('LLMExtractor failed, falling back to RuleBasedExtractor:', err);
+      this.warn(`LLMExtractor failed, falling back to RuleBasedExtractor: ${String(err)}`);
       this.recordFailure();
       return this.fallback.extract(episode);
     }
   }
 
   private async callWithTimeout(prompt: string): Promise<string> {
-    return Promise.race([
-      this.provider.complete(prompt),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`LLMExtractor: timed out after ${this.timeoutMs}ms`)), this.timeoutMs);
-      }),
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.provider.complete(prompt),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`LLMExtractor: timed out after ${this.timeoutMs}ms`)), this.timeoutMs);
+        }),
+      ]);
+    } finally {
+      // Always clear the race's timer — a leaked 30s timeout keeps the
+      // process alive after every successful extraction.
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   private isBreakerOpen(): boolean {
@@ -97,6 +120,7 @@ export class LLMExtractor implements SemanticExtractor {
     if (this.breakerTrippedAt === null) return false;
     // Cooldown elapsed — allow one retry
     if (Date.now() - this.breakerTrippedAt >= this.breakerCooldownMs) {
+      this.debug('LLMExtractor: breaker cooldown elapsed, retrying LLM');
       return false;
     }
     return true;
@@ -105,7 +129,14 @@ export class LLMExtractor implements SemanticExtractor {
   private recordFailure(): void {
     this.consecutiveFailures++;
     if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+      const wasTripped = this.breakerTrippedAt !== null;
       this.breakerTrippedAt = Date.now();
+      if (!wasTripped) {
+        this.warn(
+          `LLMExtractor: circuit breaker tripped after ${this.consecutiveFailures} consecutive ` +
+          `failures — using RuleBasedExtractor for the next ${this.breakerCooldownMs}ms`,
+        );
+      }
     }
   }
 
@@ -148,13 +179,13 @@ ${messagesText}`;
     try {
       parsed = JSON.parse(jsonStr);
     } catch {
-      console.warn('LLMExtractor: failed to parse JSON, falling back');
+      this.warn('LLMExtractor: failed to parse JSON, falling back');
       return null;
     }
 
     // Must be an array
     if (!Array.isArray(parsed)) {
-      console.warn('LLMExtractor: response is not an array, falling back');
+      this.warn('LLMExtractor: response is not an array, falling back');
       return null;
     }
 
@@ -162,24 +193,38 @@ ${messagesText}`;
     const facts: SemanticFact[] = [];
     const relationships: Relationship[] = [];
 
+    // Accept items up to the fact cap (invalid items don't consume slots).
+    const accepted: LLMFactOutput[] = [];
     for (const item of llmFacts) {
-      if (facts.length >= this.maxFacts) break;
-
+      if (accepted.length >= this.maxFacts) break;
       if (!item.content || typeof item.content !== 'string') continue;
+      accepted.push(item);
+    }
 
+    // Pass 1: register every declared entity across all accepted items, so a
+    // relationship can reference an entity declared on ANY item — the model's
+    // item ordering must not decide whether an edge survives.
+    for (const item of accepted) {
+      if (!Array.isArray(item.entities)) continue;
+      for (const ent of item.entities) {
+        if (!ent.name) continue;
+        if (!entityNameToId.has(ent.name)) {
+          entityNameToId.set(ent.name, crypto.randomUUID());
+          entityNameToType.set(ent.name, ent.type ?? 'concept');
+        }
+      }
+    }
+
+    // Pass 2: build facts and relationships against the full entity map.
+    for (const item of accepted) {
       const entityIds: string[] = [];
       if (Array.isArray(item.entities)) {
         for (const ent of item.entities) {
           if (!ent.name) continue;
-          if (!entityNameToId.has(ent.name)) {
-            entityNameToId.set(ent.name, crypto.randomUUID());
-            entityNameToType.set(ent.name, ent.type ?? 'concept');
-          }
           entityIds.push(entityNameToId.get(ent.name)!);
         }
       }
 
-      // Process relationships from LLM output
       if (Array.isArray(item.relationships)) {
         for (const rel of item.relationships) {
           if (!rel.source || !rel.target || !rel.type) continue;

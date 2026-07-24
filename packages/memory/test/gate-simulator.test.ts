@@ -9,18 +9,18 @@ import {
 // the ledger that degrades the operating characteristics fails here.
 // Everything is seeded — failures are reproducible, not flaky.
 
-// rest_after_trials 5: under doubling sequential control the with-sample
+// restAfterTrials 5: under doubling sequential control the with-sample
 // freezes at rest, so cohorts need enough trials to decide in the early
 // (cheap) alpha brackets before the penalty outgrows the evidence.
-const RETRIEVAL = { max_facts: 8, candidate_slots: 4, rest_after_trials: 5 };
-const POLICY = { min_trials: 3, max_trials: 12 } as const;
+const RETRIEVAL = { maxFacts: 8, candidateSlots: 4, restAfterTrials: 5 };
+const POLICY = { minTrials: 3, maxTrials: 12 } as const;
 
 describe('simulateGate', () => {
   it('is byte-deterministic for a fixed seed', async () => {
     const config = {
       lessons: [
-        { id: 'good', true_effect: 0.2, arrives_at_run: 1 },
-        { id: 'bad', true_effect: -0.2, arrives_at_run: 3 },
+        { id: 'good', trueEffect: 0.2, arrivesAtRun: 1 },
+        { id: 'bad', trueEffect: -0.2, arrivesAtRun: 3 },
       ],
       runs: 30,
       seed: 42,
@@ -42,11 +42,11 @@ describe('simulateGate', () => {
     // pre-learning baseline runs (measured: −0.22 observed vs −0.3 true).
     const result = await simulateGate({
       lessons: [
-        { id: 'good', true_effect: 0.3, arrives_at_run: 1 },
-        { id: 'bad', true_effect: -0.3, arrives_at_run: 20 },
+        { id: 'good', trueEffect: 0.3, arrivesAtRun: 1 },
+        { id: 'bad', trueEffect: -0.3, arrivesAtRun: 20 },
       ],
       runs: 45,
-      noise_sd: 0.1,
+      noiseSd: 0.1,
       seed: 7,
       retrieval: RETRIEVAL,
       policy: POLICY,
@@ -61,26 +61,26 @@ describe('simulateGate', () => {
 });
 
 describe('simulateGate — stopping rules', () => {
-  it('max_baseline_runs retires a candidate the bracket penalty made undecidable', async () => {
+  it('maxBaselineRuns retires a candidate the bracket penalty made undecidable', async () => {
     // A modest harmful effect trialled early: baseline heterogeneity +
     // frozen with-sample + growing brackets → never reaches a verdict.
     // Without the baseline-side stopping rule this would be held forever
-    // (trials freeze at rest, so max_trials cannot fire).
+    // (trials freeze at rest, so maxTrials cannot fire).
     const config = {
       lessons: [
-        { id: 'good', true_effect: 0.3, arrives_at_run: 1 },
-        { id: 'meh', true_effect: -0.1, arrives_at_run: 12 },
+        { id: 'good', trueEffect: 0.3, arrivesAtRun: 1 },
+        { id: 'meh', trueEffect: -0.1, arrivesAtRun: 12 },
       ],
       runs: 60,
-      noise_sd: 0.1,
+      noiseSd: 0.1,
       seed: 7,
       retrieval: RETRIEVAL,
     };
 
-    const without = await simulateGate({ ...config, policy: { min_trials: 3 } });
+    const without = await simulateGate({ ...config, policy: { minTrials: 3 } });
     const withStop = await simulateGate({
       ...config,
-      policy: { min_trials: 3, max_baseline_runs: 40 },
+      policy: { minTrials: 3, maxBaselineRuns: 40 },
     });
 
     expect(without.lessons.find((l) => l.id === 'meh')!.outcome).toBe('held');
@@ -99,10 +99,10 @@ describe('gate operating characteristics (regression guarantees)', () => {
       replicates: 40,
       seed: 11,
       retrieval: RETRIEVAL,
-      policy: { min_trials: 3 }, // no max_trials: nulls should be HELD, not decided
+      policy: { minTrials: 3 }, // no maxTrials: nulls should be HELD, not decided
     });
-    expect(rows[0].false_promote_rate).toBeLessThanOrEqual(0.1);
-    expect(rows[0].false_evict_rate).toBeLessThanOrEqual(0.1);
+    expect(rows[0].falsePromoteRate).toBeLessThanOrEqual(0.1);
+    expect(rows[0].falseEvictRate).toBeLessThanOrEqual(0.1);
   });
 
   it('detects |effect| = 0.3 at ≥ 90% within 25 runs at noise 0.1', async () => {
@@ -117,8 +117,8 @@ describe('gate operating characteristics (regression guarantees)', () => {
     });
     const positive = rows.find((r) => r.effect === 0.3)!;
     const negative = rows.find((r) => r.effect === -0.3)!;
-    expect(positive.promote_rate).toBeGreaterThanOrEqual(0.9);
-    expect(negative.evict_rate).toBeGreaterThanOrEqual(0.9);
+    expect(positive.promoteRate).toBeGreaterThanOrEqual(0.9);
+    expect(negative.evictRate).toBeGreaterThanOrEqual(0.9);
   });
 
   it('small effects at small n are mostly held — the gate does not guess', async () => {
@@ -129,9 +129,9 @@ describe('gate operating characteristics (regression guarantees)', () => {
       replicates: 30,
       seed: 17,
       retrieval: RETRIEVAL,
-      policy: { min_trials: 3 },
+      policy: { minTrials: 3 },
     });
-    expect(rows[0].held_rate).toBeGreaterThanOrEqual(0.7);
+    expect(rows[0].heldRate).toBeGreaterThanOrEqual(0.7);
   });
 
   it('the inference rule has a lower false-positive rate than the margin rule', async () => {
@@ -148,15 +148,15 @@ describe('gate operating characteristics (regression guarantees)', () => {
 
     const margin = await gateOperatingCharacteristics({
       ...common,
-      policy: { min_trials: 3, decision_rule: 'margin' },
+      policy: { minTrials: 3, decisionRule: 'margin' },
     });
     const inference = await gateOperatingCharacteristics({
       ...common,
-      policy: { min_trials: 3, decision_rule: 'inference' },
+      policy: { minTrials: 3, decisionRule: 'inference' },
     });
 
-    const marginFp = margin[0].false_promote_rate + margin[0].false_evict_rate;
-    const inferenceFp = inference[0].false_promote_rate + inference[0].false_evict_rate;
+    const marginFp = margin[0].falsePromoteRate + margin[0].falseEvictRate;
+    const inferenceFp = inference[0].falsePromoteRate + inference[0].falseEvictRate;
     expect(inferenceFp).toBeLessThan(marginFp);
     // And the margin rule on noisy nulls is demonstrably trigger-happy,
     // which is exactly why the inference rule exists.

@@ -63,7 +63,7 @@ describe('MemoryConsolidator', () => {
 
     expect(report.factsDeduped).toBe(1);
 
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     expect(remaining).toHaveLength(1);
   });
 
@@ -88,7 +88,7 @@ describe('MemoryConsolidator', () => {
     const consolidator = new MemoryConsolidator(store, index, { dedupThreshold: 0.9 });
     await consolidator.consolidate();
 
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe(f2.id);
   });
@@ -112,7 +112,7 @@ describe('MemoryConsolidator', () => {
     const consolidator = new MemoryConsolidator(store, index, { dedupThreshold: 0.9 });
     await consolidator.consolidate();
 
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe(f2.id);
   });
@@ -146,7 +146,7 @@ describe('MemoryConsolidator', () => {
     const consolidator = new MemoryConsolidator(store, index, { dedupThreshold: 0.9 });
     await consolidator.consolidate();
 
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     expect(remaining).toHaveLength(1);
     // The verified lesson survives despite the candidate being newer.
     expect(remaining[0].id).toBe(verified.id);
@@ -185,7 +185,7 @@ describe('MemoryConsolidator', () => {
     const consolidator = new MemoryConsolidator(store, index, { dedupThreshold: 0.9 });
     await consolidator.consolidate();
 
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     expect(remaining).toHaveLength(1);
     expect(new Set(remaining[0].entity_ids)).toEqual(new Set([entA, entB]));
   });
@@ -221,7 +221,7 @@ describe('MemoryConsolidator', () => {
     });
     await consolidator.consolidate();
 
-    const all = await store.findFacts({ include_invalidated: true });
+    const all = await store.findFacts({ includeInvalidated: true });
     const invalidated = all.filter((f) => f.invalidated_by);
     expect(invalidated).toHaveLength(1);
     expect(invalidated[0].invalidated_by).toBe(f1.id);
@@ -241,7 +241,7 @@ describe('MemoryConsolidator', () => {
     });
     await consolidator.consolidate();
 
-    const all = await store.findFacts({ include_invalidated: true });
+    const all = await store.findFacts({ includeInvalidated: true });
     expect(all).toHaveLength(1);
   });
 
@@ -267,9 +267,74 @@ describe('MemoryConsolidator', () => {
     const report = await consolidator.consolidate();
 
     expect(report.factsDecayed).toBe(1);
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe(newFact.id);
+  });
+
+  it('decay ages from last access, not creation: a recently-used old fact outlives an untouched newer one', async () => {
+    const oldButUsed = makeFact({
+      content: 'Old, retrieved yesterday',
+      valid_from: daysAgo(60),
+      last_accessed_at: daysAgo(1),
+      access_count: 1,
+    });
+    const newerUntouched = makeFact({
+      content: 'Newer, never retrieved',
+      valid_from: daysAgo(30),
+    });
+    await store.putFact(oldButUsed);
+    await store.putFact(newerUntouched);
+
+    const consolidator = new MemoryConsolidator(store, index, {
+      maxFacts: 1,
+      decayHalfLifeDays: 30,
+    });
+    const report = await consolidator.consolidate();
+
+    expect(report.factsDecayed).toBe(1);
+    const remaining = await store.findFacts({ includeInvalidated: false });
+    expect(remaining[0].id).toBe(oldButUsed.id);
+  });
+
+  it('access_count 0 (schema default) does not zero the decay score', async () => {
+    // Pre-fix: `access_count: 0` multiplied the score to 0, so a NEWER
+    // schema-parsed fact was pruned ahead of a much older hand-built one
+    // (undefined → baseline 1). Age must decide, not the constructor path.
+    const oldUndefined = makeFact({ content: 'Old, count undefined', valid_from: daysAgo(60) });
+    const newZero = makeFact({ content: 'New, count 0', valid_from: daysAgo(1), access_count: 0 });
+    await store.putFact(oldUndefined);
+    await store.putFact(newZero);
+
+    const consolidator = new MemoryConsolidator(store, index, {
+      maxFacts: 1,
+      decayHalfLifeDays: 30,
+    });
+    const report = await consolidator.consolidate();
+
+    expect(report.factsDecayed).toBe(1);
+    const remaining = await store.findFacts({ includeInvalidated: false });
+    expect(remaining[0].id).toBe(newZero.id);
+  });
+
+  it('episode pruning pages through the whole store (batchSize respected)', async () => {
+    // 5 episodes, batchSize 2 forces the paged loop; the OLDEST two must be
+    // pruned — a single capped fetch would miss episodes beyond its window.
+    const episodes = [1, 2, 3, 4, 5].map((d) =>
+      makeEpisode({ topic: `ep-${d}`, started_at: daysAgo(d), ended_at: daysAgo(d) }),
+    );
+    for (const ep of episodes) await store.putEpisode(ep);
+
+    const consolidator = new MemoryConsolidator(store, index, {
+      maxEpisodes: 3,
+      batchSize: 2,
+    });
+    const report = await consolidator.consolidate();
+
+    expect(report.episodesPruned).toBe(2);
+    const remaining = await store.listEpisodes({ limit: 100 });
+    const topics = remaining.map((e) => e.topic).sort();
+    expect(topics).toEqual(['ep-1', 'ep-2', 'ep-3']); // newest three survive
   });
 
   // 7. Decay: recent facts (1 day) survive even with no access
@@ -310,7 +375,7 @@ describe('MemoryConsolidator', () => {
     const report = await consolidator.consolidate();
 
     expect(report.factsDecayed).toBe(1);
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     expect(remaining).toHaveLength(1);
     // Old popular fact has decay score: 100 * 2^(-60/30) = 100 * 0.25 = 25
     // New unpopular: 1 * 2^(-1/30) ≈ 0.977 (access_count 0 → defaults to 1)
@@ -331,7 +396,7 @@ describe('MemoryConsolidator', () => {
     const report = await consolidator.consolidate();
 
     expect(report.factsDecayed).toBe(2);
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe(facts[2].id); // newest survives
   });
@@ -551,7 +616,7 @@ describe('MemoryConsolidator', () => {
     const report = await shortHL.consolidate();
     expect(report.factsDecayed).toBe(1);
 
-    const remaining = await store.findFacts({ include_invalidated: false });
+    const remaining = await store.findFacts({ includeInvalidated: false });
     expect(remaining).toHaveLength(1);
     expect(remaining[0].id).toBe(newFact.id);
   });
@@ -664,7 +729,7 @@ describe('MemoryConsolidator', () => {
       expect(report.mutationLog).toBeDefined();
       expect(report.mutationLog!.length).toBeGreaterThan(0);
 
-      const remaining = await store.findFacts({ include_invalidated: false });
+      const remaining = await store.findFacts({ includeInvalidated: false });
       expect(remaining).toHaveLength(1);
       expect(remaining[0].id).toBe(newFact.id);
     });

@@ -65,7 +65,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryIndex', () => {
     await store.putEntity(nearEntity);
     await store.putEntity(farEntity);
 
-    const results = await index.searchEntities(queryEmb, { limit: 10, min_similarity: 0.0 });
+    const results = await index.searchEntities(queryEmb, { limit: 10, minSimilarity: 0.0 });
     expect(results.length).toBeGreaterThanOrEqual(1);
     // Near entity should be first (highest similarity)
     if (results.length >= 2) {
@@ -74,7 +74,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryIndex', () => {
     expect(results[0].item.name).toBe('Near');
   });
 
-  test('min_similarity filter excludes low-similarity results', async () => {
+  test('minSimilarity filter excludes low-similarity results', async () => {
     const queryEmb = randomEmbedding();
     const nearEmb = nearDuplicate(queryEmb, 0.01);
 
@@ -90,7 +90,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryIndex', () => {
     });
 
     // Very high threshold should exclude most results
-    const results = await index.searchEntities(queryEmb, { min_similarity: 0.999 });
+    const results = await index.searchEntities(queryEmb, { minSimilarity: 0.999 });
     // May or may not match depending on noise — just check it doesn't crash
     expect(Array.isArray(results)).toBe(true);
   });
@@ -110,7 +110,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryIndex', () => {
       });
     }
 
-    const results = await index.searchEntities(queryEmb, { limit: 2, min_similarity: 0.0 });
+    const results = await index.searchEntities(queryEmb, { limit: 2, minSimilarity: 0.0 });
     expect(results.length).toBeLessThanOrEqual(2);
   });
 
@@ -125,7 +125,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryIndex', () => {
       updated_at: new Date(),
     });
 
-    const results = await index.searchEntities(randomEmbedding(), { min_similarity: 0.0 });
+    const results = await index.searchEntities(randomEmbedding(), { minSimilarity: 0.0 });
     // The entity without embedding should not appear
     expect(results.every(r => r.item.name !== 'No Embedding')).toBe(true);
   });
@@ -148,7 +148,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryIndex', () => {
     };
     await store.putFact(fact);
 
-    const results = await index.searchFacts(queryEmb, { min_similarity: 0.0 });
+    const results = await index.searchFacts(queryEmb, { minSimilarity: 0.0 });
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results[0].item.content).toBe('Test fact for search');
     expect(results[0].score).toBeGreaterThan(0);
@@ -166,7 +166,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryIndex', () => {
     };
     await store.putTheme(theme);
 
-    const results = await index.searchThemes(queryEmb, { min_similarity: 0.0 });
+    const results = await index.searchThemes(queryEmb, { minSimilarity: 0.0 });
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results[0].item.label).toBe('Architecture');
   });
@@ -186,14 +186,14 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryIndex', () => {
     };
     await store.putEpisode(episode);
 
-    const results = await index.searchEpisodes(queryEmb, { min_similarity: 0.0 });
+    const results = await index.searchEpisodes(queryEmb, { minSimilarity: 0.0 });
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results[0].item.topic).toBe('Search Test Episode');
   });
 
   test('empty table returns empty results', async () => {
     // Tables are cleared in beforeEach
-    const results = await index.searchEntities(randomEmbedding(), { min_similarity: 0.0 });
+    const results = await index.searchEntities(randomEmbedding(), { minSimilarity: 0.0 });
     expect(results).toHaveLength(0);
   });
 
@@ -211,7 +211,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryIndex', () => {
       updated_at: new Date(),
     });
 
-    const results = await index.searchEntities(queryEmb, { min_similarity: 0.0 });
+    const results = await index.searchEntities(queryEmb, { minSimilarity: 0.0 });
     expect(results.length).toBeGreaterThanOrEqual(1);
     // Exact same normalised vector should give similarity very close to 1
     expect(results[0].score).toBeGreaterThan(0.99);

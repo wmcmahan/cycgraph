@@ -39,9 +39,10 @@
   },
   "devDependencies": {
     "@ai-sdk/anthropic": "^3.0.76",
+    "@anthropic-ai/sdk": "^0.112.5",
     "@types/better-sqlite3": "^7.6.13",
-    "ai": "^6.0.116",
     "@types/node": "^25.3.5",
+    "ai": "^6.0.116",
     "tsx": "^4.19.4",
     "typescript": "7.0.2",
     "vitest": "^4.0.18"

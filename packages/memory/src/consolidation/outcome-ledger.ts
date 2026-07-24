@@ -13,7 +13,7 @@
  * a heuristic, not causal inference. Facts are co-injected, and run
  * difficulty varies — the retention gate mitigates this with minimum
  * trial counts, margins, and soft-delete eviction (recoverable via
- * `include_invalidated`), but the signal remains correlational.
+ * `includeInvalidated`), but the signal remains correlational.
  *
  * @module consolidation/outcome-ledger
  */
@@ -41,11 +41,11 @@ export type RunOutcome = z.infer<typeof RunOutcomeSchema>;
 
 /** Aggregate evidence for one fact across all recorded runs. */
 export interface FactStats {
-  fact_id: string;
+  factId: string;
   /** Number of runs the fact was injected into. */
   trials: number;
   /** Mean outcome score of those runs. */
-  mean_score: number;
+  meanScore: number;
   /**
    * Sample variance of those run scores (n−1 denominator).
    * `undefined` when `trials < 2` — variance needs a degree of freedom.
@@ -59,7 +59,7 @@ export interface OutcomeBaseline {
   /** Number of runs in the baseline. */
   runs: number;
   /** Mean outcome score across them (0 when `runs` is 0). */
-  mean_score: number;
+  meanScore: number;
   /** Sample variance (n−1 denominator); `undefined` when `runs < 2`. */
   variance?: number;
 }
@@ -78,6 +78,16 @@ export interface OutcomeLedger {
 
   /** Stats for one fact, or `null` if it appeared in no recorded run. */
   getFactStats(factId: string): Promise<FactStats | null>;
+
+  /**
+   * Batch variant of {@link getFactStats}: stats for each requested fact
+   * that appeared in at least one run (missing IDs absent from the Map).
+   * Optional — consumers fall back to per-ID getFactStats. DB-backed
+   * ledgers should implement it: gated retrieval queries trial counts for
+   * every candidate on every prompt build, and per-ID lookups are an N+1
+   * round-trip against Postgres.
+   */
+  getFactStatsBatch?(factIds: string[]): Promise<Map<string, FactStats>>;
 
   /** Stats for every fact that appeared in at least one recorded run. */
   listFactStats(): Promise<FactStats[]>;
@@ -124,11 +134,35 @@ export class InMemoryOutcomeLedger implements OutcomeLedger {
     if (scores.length === 0) return null;
     const { mean, variance } = summarize(scores);
     return {
-      fact_id: factId,
+      factId: factId,
       trials: scores.length,
-      mean_score: mean,
+      meanScore: mean,
       ...(variance !== undefined ? { variance } : {}),
     };
+  }
+
+  async getFactStatsBatch(factIds: string[]): Promise<Map<string, FactStats>> {
+    const wanted = new Set(factIds);
+    const byFact = new Map<string, number[]>();
+    for (const outcome of this.outcomes.values()) {
+      for (const factId of new Set(outcome.fact_ids)) {
+        if (!wanted.has(factId)) continue;
+        const scores = byFact.get(factId) ?? [];
+        scores.push(outcome.score);
+        byFact.set(factId, scores);
+      }
+    }
+    const result = new Map<string, FactStats>();
+    for (const [factId, scores] of byFact) {
+      const { mean, variance } = summarize(scores);
+      result.set(factId, {
+        factId,
+        trials: scores.length,
+        meanScore: mean,
+        ...(variance !== undefined ? { variance } : {}),
+      });
+    }
+    return result;
   }
 
   async listFactStats(): Promise<FactStats[]> {
@@ -141,16 +175,16 @@ export class InMemoryOutcomeLedger implements OutcomeLedger {
       }
     }
     return [...byFact.entries()]
-      .map(([fact_id, scores]) => {
+      .map(([factId, scores]) => {
         const { mean, variance } = summarize(scores);
         return {
-          fact_id,
+          factId,
           trials: scores.length,
-          mean_score: mean,
+          meanScore: mean,
           ...(variance !== undefined ? { variance } : {}),
         };
       })
-      .sort((a, b) => a.fact_id.localeCompare(b.fact_id));
+      .sort((a, b) => a.factId.localeCompare(b.factId));
   }
 
   async getBaseline(excludeFactId?: string): Promise<OutcomeBaseline> {
@@ -162,7 +196,7 @@ export class InMemoryOutcomeLedger implements OutcomeLedger {
     const { mean, variance } = summarize(scores);
     return {
       runs: scores.length,
-      mean_score: mean,
+      meanScore: mean,
       ...(variance !== undefined ? { variance } : {}),
     };
   }

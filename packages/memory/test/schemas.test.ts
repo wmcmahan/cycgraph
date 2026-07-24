@@ -132,14 +132,14 @@ describe('ThemeSchema', () => {
 describe('MemoryQuerySchema', () => {
   it('applies defaults', () => {
     const result = MemoryQuerySchema.parse({});
-    expect(result.max_hops).toBe(2);
+    expect(result.maxHops).toBe(2);
     expect(result.limit).toBe(20);
-    expect(result.min_similarity).toBe(0.5);
-    expect(result.include_invalidated).toBe(false);
+    expect(result.minSimilarity).toBe(0.5);
+    expect(result.includeInvalidated).toBe(false);
   });
 
-  it('rejects max_hops > 5', () => {
-    expect(() => MemoryQuerySchema.parse({ max_hops: 6 })).toThrow();
+  it('rejects maxHops > 5', () => {
+    expect(() => MemoryQuerySchema.parse({ maxHops: 6 })).toThrow();
   });
 });
 

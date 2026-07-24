@@ -110,10 +110,10 @@ const memoryWriter: MemoryWriter = async (facts) => {
 const memoryRetriever: MemoryRetriever = async (query, options) => {
   const result = await retrieveMemory(memoryStore, memoryIndex, {
     tags: query.tags ?? [LESSON_TAG],
-    max_hops: 0,
+    maxHops: 0,
     limit: options?.maxFacts ?? 20,
-    min_similarity: 0,
-    include_invalidated: false,
+    minSimilarity: 0,
+    includeInvalidated: false,
   });
   return {
     facts: result.facts.map((f) => ({ content: f.content, validFrom: f.valid_from })),
@@ -221,7 +221,7 @@ interface RunOutcome {
 }
 
 async function countLessons(): Promise<number> {
-  const facts = await memoryStore.findFacts({ include_invalidated: false, limit: 1000 });
+  const facts = await memoryStore.findFacts({ includeInvalidated: false, limit: 1000 });
   return facts.filter((f) => f.tags.includes(LESSON_TAG)).length;
 }
 
@@ -279,7 +279,7 @@ async function main() {
   );
   printRun('RUN 1 (no prior knowledge)', run1);
 
-  const facts = await memoryStore.findFacts({ include_invalidated: false, limit: 100 });
+  const facts = await memoryStore.findFacts({ includeInvalidated: false, limit: 100 });
   const lessonFacts = facts.filter((f) => f.tags.includes(LESSON_TAG));
   console.log(
     `\n  Memory store now contains ${lessonFacts.length} lesson facts tagged '${LESSON_TAG}'.`,

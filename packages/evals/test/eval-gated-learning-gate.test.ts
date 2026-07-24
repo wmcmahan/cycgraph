@@ -87,15 +87,15 @@ describe('eval-gated-learning gate (deterministic)', () => {
     });
 
     const report = await evaluateRetention(store, ledger, {
-      decision_rule: 'margin',
-      min_trials: 2,
-      promote_margin: 0.05,
-      evict_margin: 0.05,
-      max_trials: 6,
+      decisionRule: 'margin',
+      minTrials: 2,
+      promoteMargin: 0.05,
+      evictMargin: 0.05,
+      maxTrials: 6,
     });
 
-    const evictedIds = report.evicted.map((e) => e.fact_id).sort();
-    const promotedIds = report.promoted.map((p) => p.fact_id).sort();
+    const evictedIds = report.evicted.map((e) => e.factId).sort();
+    const promotedIds = report.promoted.map((p) => p.factId).sort();
 
     expect(evictedIds).toEqual([...poisonIds].sort());
     expect(promotedIds).toEqual([...goodIds].sort());
@@ -105,7 +105,7 @@ describe('eval-gated-learning gate (deterministic)', () => {
     for (const id of poisonIds) {
       expect((await store.getFact(id))?.invalidated_by).toMatch(/^eval-gate:/);
     }
-    const verified = await store.findFacts({ tags: ['verified'], include_invalidated: false });
+    const verified = await store.findFacts({ tags: ['verified'], includeInvalidated: false });
     expect(verified.map((f) => f.id).sort()).toEqual([...goodIds].sort());
   });
 
@@ -113,14 +113,14 @@ describe('eval-gated-learning gate (deterministic)', () => {
     // Modest effect, just 2 trials per cohort — the regime where the
     // point-estimate margin rule fires but the statistically-controlled
     // inference rule rightly withholds judgement.
-    const POLICY_BASE = { min_trials: 2, promote_margin: 0.05, evict_margin: 0.05, max_trials: 6 };
+    const POLICY_BASE = { minTrials: 2, promoteMargin: 0.05, evictMargin: 0.05, maxTrials: 6 };
     const SCENARIO = { goodScore: 0.62, poisonScore: 0.5, trials: 2 };
 
     const m = await buildScenario(SCENARIO);
-    const marginReport = await evaluateRetention(m.store, m.ledger, { ...POLICY_BASE, decision_rule: 'margin' });
+    const marginReport = await evaluateRetention(m.store, m.ledger, { ...POLICY_BASE, decisionRule: 'margin' });
 
     const i = await buildScenario(SCENARIO);
-    const inferenceReport = await evaluateRetention(i.store, i.ledger, { ...POLICY_BASE, decision_rule: 'inference' });
+    const inferenceReport = await evaluateRetention(i.store, i.ledger, { ...POLICY_BASE, decisionRule: 'inference' });
 
     // Margin rushes to judge on this thin evidence: it evicts all 3 poison.
     expect(marginReport.evicted.length).toBe(m.poisonIds.length);

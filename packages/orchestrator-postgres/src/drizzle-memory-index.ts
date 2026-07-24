@@ -139,7 +139,7 @@ export class DrizzleMemoryIndex implements MemoryIndex {
     embedding: number[],
     opts: SearchOptions = {},
   ): Promise<ScoredResult<Entity>[]> {
-    const { limit = 20, min_similarity = 0.5 } = opts;
+    const { limit = 20, minSimilarity = 0.5 } = opts;
     const vectorStr = `[${embedding.join(',')}]`;
 
     const rows = await this.read((db) => db
@@ -159,7 +159,7 @@ export class DrizzleMemoryIndex implements MemoryIndex {
       .from(memory_entities)
       .where(
         and(
-          sql`${memory_entities.embedding} IS NOT NULL AND 1 - (${memory_entities.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+          sql`${memory_entities.embedding} IS NOT NULL AND 1 - (${memory_entities.embedding} <=> ${vectorStr}::vector) >= ${minSimilarity}`,
           this.tenantEq(memory_entities.tenant_id),
         ),
       )
@@ -176,7 +176,7 @@ export class DrizzleMemoryIndex implements MemoryIndex {
     embedding: number[],
     opts: SearchOptions = {},
   ): Promise<ScoredResult<SemanticFact>[]> {
-    const { limit = 20, min_similarity = 0.5 } = opts;
+    const { limit = 20, minSimilarity = 0.5 } = opts;
     const vectorStr = `[${embedding.join(',')}]`;
 
     const rows = await this.read((db) => db
@@ -198,7 +198,7 @@ export class DrizzleMemoryIndex implements MemoryIndex {
       .from(memory_facts)
       .where(
         and(
-          sql`${memory_facts.embedding} IS NOT NULL AND 1 - (${memory_facts.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+          sql`${memory_facts.embedding} IS NOT NULL AND 1 - (${memory_facts.embedding} <=> ${vectorStr}::vector) >= ${minSimilarity}`,
           this.tenantEq(memory_facts.tenant_id),
         ),
       )
@@ -215,7 +215,7 @@ export class DrizzleMemoryIndex implements MemoryIndex {
     embedding: number[],
     opts: SearchOptions = {},
   ): Promise<ScoredResult<Theme>[]> {
-    const { limit = 20, min_similarity = 0.5 } = opts;
+    const { limit = 20, minSimilarity = 0.5 } = opts;
     const vectorStr = `[${embedding.join(',')}]`;
 
     const rows = await this.read((db) => db
@@ -231,7 +231,7 @@ export class DrizzleMemoryIndex implements MemoryIndex {
       .from(memory_themes)
       .where(
         and(
-          sql`${memory_themes.embedding} IS NOT NULL AND 1 - (${memory_themes.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+          sql`${memory_themes.embedding} IS NOT NULL AND 1 - (${memory_themes.embedding} <=> ${vectorStr}::vector) >= ${minSimilarity}`,
           this.tenantEq(memory_themes.tenant_id),
         ),
       )
@@ -248,7 +248,7 @@ export class DrizzleMemoryIndex implements MemoryIndex {
     embedding: number[],
     opts: SearchOptions = {},
   ): Promise<ScoredResult<Episode>[]> {
-    const { limit = 20, min_similarity = 0.5 } = opts;
+    const { limit = 20, minSimilarity = 0.5 } = opts;
     const vectorStr = `[${embedding.join(',')}]`;
 
     const rows = await this.read((db) => db
@@ -266,7 +266,7 @@ export class DrizzleMemoryIndex implements MemoryIndex {
       .from(memory_episodes)
       .where(
         and(
-          sql`${memory_episodes.embedding} IS NOT NULL AND 1 - (${memory_episodes.embedding} <=> ${vectorStr}::vector) >= ${min_similarity}`,
+          sql`${memory_episodes.embedding} IS NOT NULL AND 1 - (${memory_episodes.embedding} <=> ${vectorStr}::vector) >= ${minSimilarity}`,
           this.tenantEq(memory_episodes.tenant_id),
         ),
       )

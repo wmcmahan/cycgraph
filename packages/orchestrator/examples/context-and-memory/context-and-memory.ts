@@ -189,12 +189,12 @@ const PRIOR_KNOWLEDGE_TAG = 'llm-knowledge';
  */
 const memoryRetriever: MemoryRetriever = async (query, options) => {
   const result = await retrieveMemory(memoryStore, memoryIndex, {
-    entity_ids: query.entityIds,
+    entityIds: query.entityIds,
     tags: query.tags ?? [],
     limit: options?.maxFacts ?? 20,
-    min_similarity: 0.3,
-    max_hops: 2,
-    include_invalidated: false,
+    minSimilarity: 0.3,
+    maxHops: 2,
+    includeInvalidated: false,
   });
 
   return {
@@ -437,7 +437,7 @@ async function main() {
       logger.info(`  Conflicts found: ${conflicts.length}`);
 
       // Print results
-      const finalFacts = await memoryStore.findFacts({ include_invalidated: false });
+      const finalFacts = await memoryStore.findFacts({ includeInvalidated: false });
       const finalEntities = await memoryStore.findEntities();
       const finalThemes = await memoryStore.listThemes();
 
