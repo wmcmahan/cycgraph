@@ -1,0 +1,757 @@
+{
+ "config": {
+  "dataset": "hotpotqa-distractor-dev",
+  "datasetUrl": "https://web.archive.org/web/20260310132809id_/http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json",
+  "subsetSize": 100,
+  "seed": 20260716,
+  "ratios": [
+   0.7,
+   0.5,
+   0.3
+  ],
+  "budgetReference": "cycgraph-fast",
+  "adapters": [
+   "none",
+   "truncation-tail",
+   "truncation-head",
+   "random-drop",
+   "cycgraph-fast",
+   "cycgraph-balanced",
+   "cycgraph-maximum",
+   "llmlingua-2"
+  ]
+ },
+ "configHash": "6ab3e69cb54b7b25abcc505cbbe3f2bf7b50c0afc1e9cc95e1102df681d3be6e",
+ "subsetHash": "smoke (bundled items — NOT for reporting)",
+ "readerModel": "anthropic-claude-haiku-4-5-20251001",
+ "startedAt": "2026-07-17T13:29:50.636Z",
+ "cells": [
+  {
+   "adapter": "none",
+   "ratio": 1,
+   "achievedRatio": 1,
+   "meanExactMatch": 1,
+   "meanF1": 1,
+   "f1DeltaVsNone": 0,
+   "f1DeltaCi95": 0,
+   "meanCompressionMs": 0.03333333333330302,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 175,
+     "compressionMs": 0.051124999999956344
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 162,
+     "compressionMs": 0.024499999999989086
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 153,
+     "compressionMs": 0.02437499999996362
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast",
+   "ratio": 0.7,
+   "achievedRatio": 0.677283950617284,
+   "meanExactMatch": 0.3333333333333333,
+   "meanF1": 0.5555555555555555,
+   "f1DeltaVsNone": -0.4444444444444445,
+   "f1DeltaCi95": 0.5761858410762886,
+   "meanCompressionMs": 3.870319666666243,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 119,
+     "compressionMs": 7.1533339999996315
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 111,
+     "compressionMs": 1.8422499999996944
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0.6666666666666666,
+     "outputTokens": 102,
+     "compressionMs": 2.6153749999994034
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast",
+   "ratio": 0.5,
+   "achievedRatio": 0.49154338278521287,
+   "meanExactMatch": 0.6666666666666666,
+   "meanF1": 0.6666666666666666,
+   "f1DeltaVsNone": -0.3333333333333333,
+   "f1DeltaCi95": 0.6533333333333334,
+   "meanCompressionMs": 3.2828893333335145,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 87,
+     "compressionMs": 5.280791999999565
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 80,
+     "compressionMs": 2.2222920000003796
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 74,
+     "compressionMs": 2.345584000000599
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-fast",
+   "ratio": 0.3,
+   "achievedRatio": 0.2996617906421828,
+   "meanExactMatch": 0.3333333333333333,
+   "meanF1": 0.5555555555555555,
+   "f1DeltaVsNone": -0.4444444444444445,
+   "f1DeltaCi95": 0.5761858410762886,
+   "meanCompressionMs": 1.3315279999994043,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 54,
+     "compressionMs": 1.2145829999990383
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 48,
+     "compressionMs": 0.8219169999993028
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0.6666666666666666,
+     "outputTokens": 45,
+     "compressionMs": 1.9580839999998716
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-tail",
+   "ratio": 0.7,
+   "achievedRatio": 0.677283950617284,
+   "meanExactMatch": 1,
+   "meanF1": 1,
+   "f1DeltaVsNone": 0,
+   "f1DeltaCi95": 0,
+   "meanCompressionMs": 0.05580566666685627,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 119,
+     "compressionMs": 0.08254200000010314
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 111,
+     "compressionMs": 0.046875
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 102,
+     "compressionMs": 0.03800000000046566
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-tail",
+   "ratio": 0.5,
+   "achievedRatio": 0.49154338278521287,
+   "meanExactMatch": 1,
+   "meanF1": 1,
+   "f1DeltaVsNone": 0,
+   "f1DeltaCi95": 0,
+   "meanCompressionMs": 0.030264000000897795,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 87,
+     "compressionMs": 0.0297500000015134
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 80,
+     "compressionMs": 0.04062500000145519
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 74,
+     "compressionMs": 0.020416999999724794
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-tail",
+   "ratio": 0.3,
+   "achievedRatio": 0.2996617906421828,
+   "meanExactMatch": 0,
+   "meanF1": 0,
+   "f1DeltaVsNone": -1,
+   "f1DeltaCi95": 0,
+   "meanCompressionMs": 0.04000033333310663,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 54,
+     "compressionMs": 0.06350000000020373
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 48,
+     "compressionMs": 0.02254199999879347
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 45,
+     "compressionMs": 0.0339590000003227
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-head",
+   "ratio": 0.7,
+   "achievedRatio": 0.677283950617284,
+   "meanExactMatch": 0.3333333333333333,
+   "meanF1": 0.3333333333333333,
+   "f1DeltaVsNone": -0.6666666666666666,
+   "f1DeltaCi95": 0.6533333333333334,
+   "meanCompressionMs": 0.031972666665145276,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 119,
+     "compressionMs": 0.03562500000043656
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 111,
+     "compressionMs": 0.03183399999397807
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 102,
+     "compressionMs": 0.028459000001021195
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-head",
+   "ratio": 0.5,
+   "achievedRatio": 0.49154338278521287,
+   "meanExactMatch": 0,
+   "meanF1": 0,
+   "f1DeltaVsNone": -1,
+   "f1DeltaCi95": 0,
+   "meanCompressionMs": 0.039416666666511446,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 87,
+     "compressionMs": 0.03187500000058208
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 80,
+     "compressionMs": 0.03149999999732245
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 74,
+     "compressionMs": 0.054875000001629815
+    }
+   ]
+  },
+  {
+   "adapter": "truncation-head",
+   "ratio": 0.3,
+   "achievedRatio": 0.2996617906421828,
+   "meanExactMatch": 0,
+   "meanF1": 0,
+   "f1DeltaVsNone": -1,
+   "f1DeltaCi95": 0,
+   "meanCompressionMs": 0.02840266666559425,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 54,
+     "compressionMs": 0.027833000000100583
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 48,
+     "compressionMs": 0.029999999998835847
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 45,
+     "compressionMs": 0.027374999997846317
+    }
+   ]
+  },
+  {
+   "adapter": "random-drop",
+   "ratio": 0.7,
+   "achievedRatio": 0.6146059411418888,
+   "meanExactMatch": 0.6666666666666666,
+   "meanF1": 0.6666666666666666,
+   "f1DeltaVsNone": -0.3333333333333333,
+   "f1DeltaCi95": 0.6533333333333334,
+   "meanCompressionMs": 0.5602220000024923,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 107,
+     "compressionMs": 1.0357080000030692
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 98,
+     "compressionMs": 0.36349999999947613
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 96,
+     "compressionMs": 0.2814580000049318
+    }
+   ]
+  },
+  {
+   "adapter": "random-drop",
+   "ratio": 0.5,
+   "achievedRatio": 0.458997129716084,
+   "meanExactMatch": 0.3333333333333333,
+   "meanF1": 0.3333333333333333,
+   "f1DeltaVsNone": -0.6666666666666666,
+   "f1DeltaCi95": 0.6533333333333334,
+   "meanCompressionMs": 0.38684733333502663,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 79,
+     "compressionMs": 0.3836250000022119
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 79,
+     "compressionMs": 0.337708000006387
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 67,
+     "compressionMs": 0.439208999996481
+    }
+   ]
+  },
+  {
+   "adapter": "random-drop",
+   "ratio": 0.3,
+   "achievedRatio": 0.295852266832659,
+   "meanExactMatch": 0,
+   "meanF1": 0,
+   "f1DeltaVsNone": -1,
+   "f1DeltaCi95": 0,
+   "meanCompressionMs": 0.30051399999986944,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 52,
+     "compressionMs": 0.14424999999755528
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 48,
+     "compressionMs": 0.3914169999989099
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 45,
+     "compressionMs": 0.3658750000031432
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-balanced",
+   "ratio": 0.7,
+   "achievedRatio": 0.6267095480167376,
+   "meanExactMatch": 0.6666666666666666,
+   "meanF1": 0.8888888888888888,
+   "f1DeltaVsNone": -0.11111111111111112,
+   "f1DeltaCi95": 0.21777777777777782,
+   "meanCompressionMs": 3.119374666666166,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 107,
+     "compressionMs": 4.9210410000014235
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 106,
+     "compressionMs": 2.4004579999964335
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0.6666666666666666,
+     "outputTokens": 94,
+     "compressionMs": 2.0366250000006403
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-balanced",
+   "ratio": 0.5,
+   "achievedRatio": 0.45500293944738385,
+   "meanExactMatch": 0.3333333333333333,
+   "meanF1": 0.5555555555555555,
+   "f1DeltaVsNone": -0.4444444444444445,
+   "f1DeltaCi95": 0.5761858410762886,
+   "meanCompressionMs": 1.4793470000004163,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 79,
+     "compressionMs": 2.0230830000000424
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 76,
+     "compressionMs": 1.1765830000003916
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0.6666666666666666,
+     "outputTokens": 68,
+     "compressionMs": 1.238375000000815
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-balanced",
+   "ratio": 0.3,
+   "achievedRatio": 0.27921291973579554,
+   "meanExactMatch": 0.3333333333333333,
+   "meanF1": 0.35353535353535354,
+   "f1DeltaVsNone": -0.6464646464646465,
+   "f1DeltaCi95": 0.6344627051225383,
+   "meanCompressionMs": 2.3848610000034873,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 50,
+     "compressionMs": 2.896874999998545
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 46,
+     "compressionMs": 2.6455000000059954
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0.06060606060606061,
+     "outputTokens": 41,
+     "compressionMs": 1.6122080000059213
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-maximum",
+   "ratio": 0.7,
+   "achievedRatio": 0.6267095480167376,
+   "meanExactMatch": 0.6666666666666666,
+   "meanF1": 0.8888888888888888,
+   "f1DeltaVsNone": -0.11111111111111112,
+   "f1DeltaCi95": 0.21777777777777782,
+   "meanCompressionMs": 1.6130000000024058,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 107,
+     "compressionMs": 2.219167000002926
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 106,
+     "compressionMs": 0.928542000001471
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0.6666666666666666,
+     "outputTokens": 94,
+     "compressionMs": 1.6912910000028205
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-maximum",
+   "ratio": 0.5,
+   "achievedRatio": 0.45500293944738385,
+   "meanExactMatch": 0.3333333333333333,
+   "meanF1": 0.5555555555555555,
+   "f1DeltaVsNone": -0.4444444444444445,
+   "f1DeltaCi95": 0.5761858410762886,
+   "meanCompressionMs": 1.8216806666678167,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 79,
+     "compressionMs": 3.012417000005371
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 76,
+     "compressionMs": 0.951708000000508
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0.6666666666666666,
+     "outputTokens": 68,
+     "compressionMs": 1.500916999997571
+    }
+   ]
+  },
+  {
+   "adapter": "cycgraph-maximum",
+   "ratio": 0.3,
+   "achievedRatio": 0.27921291973579554,
+   "meanExactMatch": 0.3333333333333333,
+   "meanF1": 0.3333333333333333,
+   "f1DeltaVsNone": -0.6666666666666666,
+   "f1DeltaCi95": 0.6533333333333334,
+   "meanCompressionMs": 1.8526946666679578,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 50,
+     "compressionMs": 1.8392080000048736
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 46,
+     "compressionMs": 1.1020419999986188
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0,
+     "outputTokens": 41,
+     "compressionMs": 2.616834000000381
+    }
+   ]
+  },
+  {
+   "adapter": "llmlingua-2",
+   "ratio": 0.7,
+   "achievedRatio": 0.9437244527440605,
+   "meanExactMatch": 1,
+   "meanF1": 1,
+   "f1DeltaVsNone": 0,
+   "f1DeltaCi95": 0,
+   "meanCompressionMs": 1173.801999999996,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 171,
+     "compressionMs": 3294.2353329999896
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 150,
+     "compressionMs": 125.81079200000386
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 142,
+     "compressionMs": 101.35987499999464
+    }
+   ]
+  },
+  {
+   "adapter": "llmlingua-2",
+   "ratio": 0.5,
+   "achievedRatio": 0.7337254901960785,
+   "meanExactMatch": 0.6666666666666666,
+   "meanF1": 0.8888888888888888,
+   "f1DeltaVsNone": -0.11111111111111112,
+   "f1DeltaCi95": 0.21777777777777782,
+   "meanCompressionMs": 107.19108333333376,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 133,
+     "compressionMs": 108.30354100000113
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 117,
+     "compressionMs": 107.13883399999759
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0.6666666666666666,
+     "outputTokens": 110,
+     "compressionMs": 106.13087500000256
+    }
+   ]
+  },
+  {
+   "adapter": "llmlingua-2",
+   "ratio": 0.3,
+   "achievedRatio": 0.4531113186015147,
+   "meanExactMatch": 0.6666666666666666,
+   "meanF1": 0.8888888888888888,
+   "f1DeltaVsNone": -0.11111111111111112,
+   "f1DeltaCi95": 0.21777777777777782,
+   "meanCompressionMs": 106.70479166667307,
+   "questions": [
+    {
+     "questionId": "smoke-1",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 89,
+     "compressionMs": 104.77437500000815
+    },
+    {
+     "questionId": "smoke-2",
+     "exactMatch": 1,
+     "f1": 1,
+     "outputTokens": 69,
+     "compressionMs": 109.1098750000092
+    },
+    {
+     "questionId": "smoke-3",
+     "exactMatch": 0,
+     "f1": 0.6666666666666666,
+     "outputTokens": 65,
+     "compressionMs": 106.23012500000186
+    }
+   ]
+  }
+ ],
+ "skippedAdapters": []
+}

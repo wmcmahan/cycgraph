@@ -1,0 +1,21 @@
+{
+  "dataset": "musique-ans-dev",
+  "datasetUrl": "https://huggingface.co/datasets/dgslibisey/MuSiQue/resolve/c8f4f8c9465fb69d31a8eae894c3fd509c4ca321/musique_ans_v1.0_dev.jsonl",
+  "datasetSha256": "15fa63794d18a94ce12411aca6e2327e65b6e83b0b1490efab3f1962e48abf3b",
+  "subsetSize": 100,
+  "seed": 20260717,
+  "ratios": [0.7, 0.5, 0.3],
+  "budgetReference": "cycgraph-fast",
+  "adapters": [
+    "none",
+    "truncation-tail",
+    "truncation-head",
+    "random-drop",
+    "cycgraph-fast",
+    "cycgraph-balanced",
+    "cycgraph-maximum",
+    "cycgraph-fast-query-aware",
+    "cycgraph-fast-relevance",
+    "llmlingua-2"
+  ]
+}

@@ -133,9 +133,101 @@ export const SAFETY: RubricMetric = {
   },
 };
 
+/**
+ * Scores how much task-critical information a compressed context preserves
+ * relative to its original. `ctx.input` is the ORIGINAL (uncompressed)
+ * context; `ctx.actualOutput` is the COMPRESSED version. Formatting changes
+ * are expected and must not be penalized — only information loss counts.
+ */
+export const COMPRESSION_FIDELITY: RubricMetric = {
+  name: 'compression_fidelity',
+  buildPrompt(ctx: SemanticJudgeContext): string {
+    return [
+      'You are an evaluation judge for prompt compression. The compressed version below was produced from the original to save tokens. Score how much task-critical information the compressed version preserves.',
+      '',
+      'IMPORTANT: formatting changes (JSON rewritten as tables or key-value lines, removed filler words, deduplicated repeats, summarized reasoning traces) are EXPECTED and must NOT be penalized. Only penalize the loss of facts, entities, quantities, dates, identifiers, negations, or conclusions that a downstream model would need.',
+      '',
+      JUDGE_DATA_PREAMBLE,
+      '',
+      `Original Context: ${fenceUntrusted(ctx.input)}`,
+      '',
+      `Compressed Context: ${fenceUntrusted(ctx.actualOutput)}`,
+      '',
+      'Score from 0.0 to 1.0 where:',
+      '- 1.0 = Every fact, entity, quantity, and conclusion from the original is recoverable from the compressed version',
+      '- 0.5 = Core conclusions survive but some supporting facts, quantities, or entities were lost',
+      '- 0.0 = Critical facts or conclusions are missing, or the meaning was inverted (e.g. a dropped negation)',
+      '',
+      '## Examples',
+      '',
+      'Example 1:',
+      'Original: "The deployment budget is $42,000. Alice from Acme Corp approved it on 2026-03-01. Note that we should not enable auto-scaling until the audit completes."',
+      'Compressed: "deployment budget $42,000. Alice Acme Corp approved 2026-03-01. not enable auto-scaling until audit completes."',
+      'Score: 0.95',
+      'Reasoning: "All entities, the amount, the date, and the negation survive; only filler words were removed."',
+      '',
+      'Example 2:',
+      'Original: "The deployment budget is $42,000. Alice from Acme Corp approved it on 2026-03-01. Note that we should not enable auto-scaling until the audit completes."',
+      'Compressed: "deployment budget approved. enable auto-scaling."',
+      'Score: 0.1',
+      'Reasoning: "The amount, approver, and date are gone, and dropping the negation inverted the auto-scaling instruction."',
+      '',
+      'Respond with ONLY a JSON object: {"score": <number>, "reasoning": "<explanation>"}',
+    ].join('\n');
+  },
+};
+
+/**
+ * Scores whether a question is still answerable from a compressed context.
+ * `ctx.input` is the QUESTION; `ctx.actualOutput` is the COMPRESSED context;
+ * `ctx.expectedOutput` is the reference answer (derivable from the original).
+ * This is the QA-probe methodology from the prompt-compression literature:
+ * compression is effective only if answers survive it.
+ */
+export const QA_ANSWERABILITY: RubricMetric = {
+  name: 'qa_answerability',
+  buildPrompt(ctx: SemanticJudgeContext): string {
+    return [
+      'You are an evaluation judge. Determine whether the question can be answered correctly using ONLY the provided context. The context has been compressed, so terse or restructured phrasing is fine — what matters is whether the information needed for the reference answer is present.',
+      '',
+      JUDGE_DATA_PREAMBLE,
+      '',
+      `Question: ${fenceUntrusted(ctx.input)}`,
+      '',
+      `Context (compressed): ${fenceUntrusted(ctx.actualOutput)}`,
+      '',
+      `Reference Answer: ${fenceUntrusted(ctx.expectedOutput ?? '')}`,
+      '',
+      'Score from 0.0 to 1.0 where:',
+      '- 1.0 = The context contains the information needed to produce the reference answer',
+      '- 0.5 = The context supports a partial answer (some of the reference answer is derivable)',
+      '- 0.0 = The context no longer contains the information; the question is unanswerable from it',
+      '',
+      '## Examples',
+      '',
+      'Example 1:',
+      'Question: "What is the deployment budget?"',
+      'Context: "deployment budget $42,000. Alice approved 2026-03-01."',
+      'Reference Answer: "$42,000"',
+      'Score: 1.0',
+      'Reasoning: "The amount $42,000 is present and clearly tied to the deployment budget."',
+      '',
+      'Example 2:',
+      'Question: "Who approved the deployment budget?"',
+      'Context: "deployment budget approved on 2026-03-01."',
+      'Reference Answer: "Alice"',
+      'Score: 0.0',
+      'Reasoning: "The approver was removed by compression; the question is no longer answerable."',
+      '',
+      'Respond with ONLY a JSON object: {"score": <number>, "reasoning": "<explanation>"}',
+    ].join('\n');
+  },
+};
+
 /** All reference-free rubric metrics. */
 export const REFERENCE_FREE_METRICS: RubricMetric[] = [
   INSTRUCTION_FOLLOWING,
   OUTPUT_QUALITY,
   SAFETY,
+  COMPRESSION_FIDELITY,
 ];

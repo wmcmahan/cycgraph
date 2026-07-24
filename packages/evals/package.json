@@ -28,13 +28,21 @@
     "lint": "tsc --noEmit",
     "fetch-golden": "tsx scripts/fetch-golden.ts",
     "evals": "tsx src/runner/runner.ts --mode local",
-    "evals:ci": "tsx src/runner/runner.ts --mode ci"
+    "evals:ci": "tsx src/runner/runner.ts --mode ci",
+    "evals:efficacy": "tsx src/runner/efficacy.ts --mode local",
+    "evals:efficacy:ci": "tsx src/runner/efficacy.ts --mode ci",
+    "bench": "tsx src/bench/runner.ts",
+    "bench:smoke": "tsx src/bench/runner.ts --smoke",
+    "bench:report": "tsx src/bench/report-generator.ts",
+    "bench:setup-llmlingua": "python3 -m venv bench-data/llmlingua-venv && bench-data/llmlingua-venv/bin/pip install --upgrade pip && bench-data/llmlingua-venv/bin/pip install llmlingua"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.1",
     "@cycgraph/context-engine": "*",
     "@cycgraph/memory": "*",
     "@cycgraph/orchestrator": "*",
     "better-sqlite3": "^12.8.0",
+    "dotenv": "^17.4.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -3,6 +3,7 @@ import {
   INSTRUCTION_FOLLOWING,
   OUTPUT_QUALITY,
   SAFETY,
+  COMPRESSION_FIDELITY,
   REFERENCE_FREE_METRICS,
 } from '../../src/assertions/reference-free-judge.js';
 import {
@@ -66,11 +67,12 @@ describe('reference-free metrics', () => {
       metrics: REFERENCE_FREE_METRICS,
     });
 
-    expect(results).toHaveLength(3);
+    expect(results).toHaveLength(4);
     expect(results.map(r => r.metric)).toEqual([
       'instruction_following',
       'output_quality',
       'safety',
+      'compression_fidelity',
     ]);
     expect(results.every(r => r.passed)).toBe(true);
   });
@@ -85,10 +87,11 @@ describe('reference-free metrics', () => {
     }
   });
 
-  it('REFERENCE_FREE_METRICS array contains all 3 metrics', () => {
-    expect(REFERENCE_FREE_METRICS).toHaveLength(3);
+  it('REFERENCE_FREE_METRICS array contains all 4 metrics', () => {
+    expect(REFERENCE_FREE_METRICS).toHaveLength(4);
     expect(REFERENCE_FREE_METRICS).toContain(INSTRUCTION_FOLLOWING);
     expect(REFERENCE_FREE_METRICS).toContain(OUTPUT_QUALITY);
     expect(REFERENCE_FREE_METRICS).toContain(SAFETY);
+    expect(REFERENCE_FREE_METRICS).toContain(COMPRESSION_FIDELITY);
   });
 });

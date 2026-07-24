@@ -1,0 +1,20 @@
+{
+  "dataset": "hotpotqa-distractor-dev",
+  "datasetUrl": "https://web.archive.org/web/20260310132809id_/http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json",
+  "subsetSize": 100,
+  "seed": 20260716,
+  "ratios": [0.7, 0.5, 0.3],
+  "budgetReference": "cycgraph-fast",
+  "adapters": [
+    "none",
+    "truncation-tail",
+    "truncation-head",
+    "random-drop",
+    "cycgraph-fast",
+    "cycgraph-balanced",
+    "cycgraph-maximum",
+    "cycgraph-fast-query-aware",
+    "cycgraph-fast-relevance",
+    "llmlingua-2"
+  ]
+}
