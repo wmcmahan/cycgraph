@@ -119,10 +119,9 @@ export function evaluateSecurityPolicy(args: {
   // A prior human approval for this node (recorded on resume) lets it run
   // exactly once. The flag persists for the run, so a node revisited in a
   // loop after approval is not re-gated — a known v1 limitation.
-  const approved = (state.memory._policy_approved ?? {}) as Record<string, boolean>;
-  if (approved[node.id]) return undefined;
+  if (state.policy_approvals?.[node.id]) return undefined;
 
-  const registry = getTaintRegistry(state.memory);
+  const registry = getTaintRegistry(state);
   const taintedReadKeys = readableTaintedKeys(node, registry);
   if (taintedReadKeys.length === 0) return undefined;
 

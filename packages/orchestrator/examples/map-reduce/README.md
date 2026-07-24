@@ -32,9 +32,9 @@ sequenceDiagram
 
   S->>M: topics = ["topic1", "topic2", ..., "topicN"]
   par Fan-out
-    M->>R1: _map_item = "topic1"
-    M->>R2: _map_item = "topic2"
-    M->>RN: _map_item = "topicN"
+    M->>R1: task context map_item = "topic1"
+    M->>R2: task context map_item = "topic2"
+    M->>RN: task context map_item = "topicN"
   end
   R1-->>M: research notes
   R2-->>M: research notes
@@ -71,7 +71,7 @@ sequenceDiagram
 | Agent | Model | Temp | Reads | Writes |
 |-------|-------|------|-------|--------|
 | Splitter | claude-sonnet-4 | 0.5 | `goal`, `constraints` | `topics` |
-| Researcher | claude-sonnet-4 | 0.5 | `_map_item`, `_map_index`, `_map_total`, `goal` | `research` |
+| Researcher | claude-sonnet-4 | 0.5 | `goal` (+ map item via Task Context) | `research` |
 | Synthesizer | claude-sonnet-4 | 0.4 | `goal`, `mapper_results`, `mapper_count` | `summary` |
 
 ## Run
@@ -84,7 +84,7 @@ ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/map-reduce/map-reduce.ts
 ## Key Concepts
 
 - **Map node**: Resolves items via JSONPath (`$.memory.topics`), fans out to a worker node in parallel
-- **Worker injection**: Each worker receives `_map_item`, `_map_index`, `_map_total` in its state view
+- **Worker injection**: Each worker receives `map_item`, `map_index`, `map_total` in the `## Task Context` section of its prompt
 - **Results convention**: Map stores results as `mapper_results` (array), `mapper_count`, `mapper_errors`, `mapper_error_count`
 - **Synthesizer + agent_id**: Delegates to an LLM agent for intelligent synthesis (vs. simple concatenation)
 - **Error strategy**: `best_effort` — partial failures don't block the overall workflow

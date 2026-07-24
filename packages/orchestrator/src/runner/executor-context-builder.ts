@@ -33,7 +33,6 @@ import { executeSupervisor } from '../agent/supervisor-executor/executor.js';
 import { evaluateQualityExecutor } from '../agent/evaluator-executor/executor.js';
 import { extractFactsExecutor } from '../agent/extractor-executor/executor.js';
 import { agentFactory } from '../agent/agent-factory/index.js';
-import { getTaintRegistry } from '../utils/taint.js';
 import { resolveBuiltinsOnly } from './fallback-tool-resolver.js';
 
 /**
@@ -247,7 +246,6 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
         : evaluateQualityExecutor,
       extractFactsExecutor,
       loadAgent: (agentId: string) => agentFactory.loadAgent(agentId),
-      getTaintRegistry,
       resolveTools: runner.toolResolver
         ? (sources, agentId) => runner.toolResolver!.resolveTools(sources, agentId)
         : resolveBuiltinsOnly,

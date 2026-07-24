@@ -113,7 +113,7 @@ function buildInitialState(evalCase: EvalCase): WorkflowState {
     : undefined;
 
   return {
-    state_schema_version: 1,
+    state_schema_version: 2,
     workflow_id: evalCase.graph.id,
     run_id: uuidv4(),
     created_at: new Date(),
@@ -132,6 +132,12 @@ function buildInitialState(evalCase: EvalCase): WorkflowState {
     started_at: undefined,
     max_execution_time_ms: evalCase.timeout_ms || 60000,
     memory: evalCase.input,
+    taint_registry: {},
+    lesson_provenance: {},
+    policy_approvals: {},
+    subgraph_checkpoints: {},
+    subgraph_stack: [],
+    swarm_handoff_count: 0,
     total_tokens_used: 0,
     total_input_tokens: 0,
     total_output_tokens: 0,

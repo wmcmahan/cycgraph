@@ -79,11 +79,12 @@ export async function executeVotingNode(
     },
     stateView: {
       ...stateView,
-      memory: {
-        ...stateView.memory,
-        _vote_key: config.vote_key,
-        _voter_index: idx,
-        _voter_count: config.voter_agent_ids.length,
+      // Rendered into the voter's prompt as `## Task Context` (formerly
+      // `_`-prefixed memory keys that sanitizeForPrompt stripped).
+      taskContext: {
+        vote_key: config.vote_key,
+        voter_index: idx,
+        voter_count: config.voter_agent_ids.length,
       },
     },
   }));
@@ -97,7 +98,7 @@ export async function executeVotingNode(
       const tools = await ctx.deps.resolveTools(ensureSaveToMemory(agentConfig.tools, agentConfig.write_keys), task.node.agent_id!);
       const { onToken } = buildNodeCallbacks(task.node.id, ctx);
       const abortSignal = combineAbortSignals(ctx.abortSignal, taskSignal);
-      return ctx.deps.executeAgent(task.node.agent_id!, task.stateView, tools, attempt, { nodeId: task.node.id, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { modelOverride } : {}), ...(task.node.default_write_key ? { defaultWriteKey: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) });
+      return ctx.deps.executeAgent(task.node.agent_id!, task.stateView, tools, attempt, { nodeId: task.node.id, grantedWriteKeys: task.node.write_keys, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { modelOverride } : {}), ...(task.node.default_write_key ? { defaultWriteKey: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) });
     },
     { maxConcurrency: config.voter_agent_ids.length, errorStrategy: 'best_effort', taskTimeoutMs: config.task_timeout_ms },
   );

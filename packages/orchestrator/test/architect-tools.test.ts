@@ -115,9 +115,19 @@ describe('executeArchitectTool', () => {
     it('passes current_graph for modification mode', async () => {
       const { generateWorkflow } = await import('../src/architect/index.js');
 
+      // current_graph must be a structurally valid Graph — the handler
+      // rejects malformed graphs before entering modification mode.
       await executeArchitectTool('architect_draft_workflow', {
         prompt: 'Add a review step',
-        current_graph: { id: 'existing', name: 'Existing' },
+        current_graph: {
+          id: 'existing',
+          name: 'Existing',
+          description: 'Existing workflow',
+          nodes: [{ id: 'a', type: 'agent', agent_id: 'agent-a' }],
+          edges: [],
+          start_node: 'a',
+          end_nodes: ['a'],
+        },
       });
 
       expect(generateWorkflow).toHaveBeenCalledWith(
@@ -126,6 +136,20 @@ describe('executeArchitectTool', () => {
           currentGraph: expect.objectContaining({ id: 'existing' }),
         }),
       );
+    });
+
+    it('rejects a malformed current_graph with validation errors instead of drafting', async () => {
+      const { generateWorkflow } = await import('../src/architect/index.js');
+      (generateWorkflow as ReturnType<typeof vi.fn>).mockClear();
+
+      const result = await executeArchitectTool('architect_draft_workflow', {
+        prompt: 'Add a review step',
+        current_graph: { id: 'existing', name: 'Existing' },
+      });
+
+      expect(result).toHaveProperty('error');
+      expect(result).toHaveProperty('validation_errors');
+      expect(generateWorkflow).not.toHaveBeenCalled();
     });
 
     it('throws on missing prompt', async () => {

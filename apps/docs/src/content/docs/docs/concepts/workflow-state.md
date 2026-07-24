@@ -82,11 +82,27 @@ state.iteration_count; // number
 | `created_at` | `Date` | now | When this run was created. |
 | `updated_at` | `Date` | now | Last state mutation timestamp. |
 
+### Engine-owned registries (runner-managed)
+
+These fields hold data the engine trusts and agents never see. They live beside `memory` rather than inside it, so state slicing excludes them structurally: no node's state view ever contains them, and no memory write can touch them. Reducers keep the two registries **append-only**.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `taint_registry` | `TaintRegistry` | `{}` | Provenance of untrusted external data, keyed by memory key. See [Taint Tracking](/docs/concepts/taint-tracking/). |
+| `lesson_provenance` | `LessonProvenanceRegistry` | `{}` | Which retrieved facts entered which node's prompt (eval-gated learning evidence). Read with `getInjectedFactIds(finalState)`. |
+| `pending_approval` | `unknown` | — | Review payload for the active human-in-the-loop pause. |
+| `policy_approvals` | `Record<string, boolean>` | `{}` | Security-policy approvals granted by a human, keyed by node id. |
+| `subgraph_checkpoints` | `Record<string, unknown>` | `{}` | Paused child-run checkpoints for subgraph nodes awaiting a nested approval. |
+| `subgraph_stack` | `string[]` | `[]` | Ancestor graph ids in a child run (subgraph cycle/depth detection). |
+| `swarm_handoff_count` | `number` | `0` | Swarm peer-handoff counter (bounds `maxHandoffs`). |
+
+The `_`-prefixed key namespace remains the *wire format* inside action payloads: executors emit new taint or provenance entries under `_taint_registry` / `_lesson_provenance`, and reducers route them to these fields. Any unknown `_`-prefixed key in a memory update is dropped fail-closed and recorded in `memory_drops` with reason `reserved_key`.
+
 ### Persistence bookkeeping (runner-managed)
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `state_schema_version` | `number` | `1` | Schema version of this state shape. Loaded snapshots pass through `hydrateWorkflowState()`, which migrates older versions forward and refuses snapshots from a newer engine. |
+| `state_schema_version` | `number` | `2` | Schema version of this state shape. Loaded snapshots pass through `hydrateWorkflowState()`, which migrates older versions forward (v1 snapshots have their `memory._*` system keys lifted into the fields above) and refuses snapshots from a newer engine. |
 | `_last_event_sequence_id` | `number` | — | Event-log high-water mark at the moment the snapshot was persisted. Resume logic uses it to decide whether a logged action's effects are already inside the snapshot (crash-window idempotency). |
 
 These fields are managed by the runner — don't set them by hand. All temporal fields use coercing schemas (`z.coerce.date()`), so states loaded from JSON/jsonb storage hydrate back to real `Date` objects.

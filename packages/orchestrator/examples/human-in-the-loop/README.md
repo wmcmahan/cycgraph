@@ -38,7 +38,7 @@ sequenceDiagram
 
     R->>AN: execute (reads: draft)
     AN->>S: reducer: status = waiting
-    Note over S: status: waiting, _pending_approval: {...}
+    Note over S: status: waiting, pending_approval: {...}
 
     R->>U: return pausedState (status: waiting)
     Note over U,H: Workflow is paused — state is persisted

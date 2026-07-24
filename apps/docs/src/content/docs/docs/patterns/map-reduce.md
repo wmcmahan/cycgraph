@@ -25,7 +25,7 @@ flowchart TB
 ```
 
 1. **Input**: A list of data items (documents, URLs, sub-topics) is present in the workflow's state memory.
-2. **Fan Out (Map)**: The orchestrator launches a parallel worker agent for *each* item in the array simultaneously. Each worker receives just a single item injected into its state context as `_map_item`.
+2. **Fan Out (Map)**: The orchestrator launches a parallel worker agent for *each* item in the array simultaneously. Each worker receives just its single item as `map_item` in the `## Task Context` section of its prompt.
 3. **Wait**: The map node halts workflow progression until every single parallel task has either completed or timed out.
 4. **Aggregation (Synthesize)**: All the outputs from the workers are collected into a `mapper_results` array. A Synthesizer node reads this array and merges the fragments into a final, cohesive output.
 
@@ -57,13 +57,13 @@ const RESEARCHER_ID = registry.register({
   provider: 'anthropic',
   systemPrompt: [
     'You are a research specialist focused on a single sub-topic.',
-    'Your assigned sub-topic is provided in _map_item.',
+    'Your assigned sub-topic is provided as map_item in the Task Context section of your prompt.',
     'Produce concise, factual research notes about your specific sub-topic.',
   ].join(' '),
   temperature: 0.5,
   tools: [],
-  // We explicitly grant access to the injected _map_item variable
-  permissions: { readKeys: ['_map_item', 'goal'], writeKeys: ['research'] },
+  // The map item arrives via Task Context, so no read key is needed for it.
+  permissions: { readKeys: ['goal'], writeKeys: ['research'] },
 });
 
 const SYNTHESIZER_ID = registry.register({
@@ -110,7 +110,7 @@ const graph = createGraph({
       id: 'researcher',
       type: 'agent',
       agentId: RESEARCHER_ID,
-      readKeys: ['_map_item', 'goal'],
+      readKeys: ['goal'],
       writeKeys: ['research'],
     },
     // The synthesizer node definition
@@ -134,10 +134,10 @@ const graph = createGraph({
 ## Core concepts
 
 ### Understanding map variables
-When the map node launches your parallel workers, it intercepts their memory view and forcibly injects specific metadata variables into their scope. You must explicitly request these in your `readKeys` to make them visible to the LLM:
-- `_map_item`: The specific string, object, or number being processed by this worker.
-- `_map_index`: Which position in the array this item occupies (e.g. `0`, `1`, `2`).
-- `_map_total`: The total size of the input array.
+When the map node launches your parallel workers, it hands each one a `## Task Context` section in its prompt with three fields. They arrive automatically — no `readKeys` entry is needed, because task context is a separate channel from the memory blackboard:
+- `map_item`: The specific string, object, or number being processed by this worker.
+- `map_index`: Which position in the array this item occupies (e.g. `0`, `1`, `2`).
+- `map_total`: The total size of the input array.
 
 ### Model cost efficiency
 

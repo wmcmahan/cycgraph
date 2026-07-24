@@ -1,0 +1,5 @@
+---
+"@cycgraph/orchestrator": minor
+---
+
+Agent registry permissions become an optional ceiling (ADR 001). The graph node's `read_keys`/`write_keys` are now the authoritative grant; a registry entry's `permissions` block, when present, is a hard cap intersected with the grant (`intersectWriteGrant()`, `'*'` on either side defers to the other). A registry entry without a `permissions` block is uncapped — the node's grant alone governs — while an explicit empty block still means deny-all. The agent executor validates writes and routes text output against the effective (intersected) permission, which also fixes a silent output drop when a broadly-registered agent ran on a narrowly-granted node, and applies a declared read ceiling as a narrowing filter over the node-sliced state view. Breaking: `AgentConfigSchema.read_keys`/`write_keys` are now optional (`undefined` = uncapped), and `permissions: null` registry entries change meaning from deny-all to uncapped; hosts relying on null-as-deny-all should register explicit empty permission lists.

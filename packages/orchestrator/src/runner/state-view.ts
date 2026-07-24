@@ -5,14 +5,19 @@
  * security boundary that enforces read-key permissions — nodes only
  * see the memory keys listed in their `read_keys` array.
  *
+ * Engine-owned data (taint registry, lesson provenance, HITL state)
+ * lives in first-class `WorkflowState` fields, so it is structurally
+ * absent from the view's memory. Taint metadata for the node's
+ * READABLE keys is re-attached on the dedicated `taint` field
+ * (executor-only — never rendered into prompts) so derived-taint
+ * propagation works under least-privilege reads.
+ *
  * @module runner/state-view
  */
 
 import type { GraphNode } from '../types/graph.js';
 import type { WorkflowState, StateView, TaintRegistry } from '../types/state.js';
 import { getTaintRegistry } from '../utils/taint.js';
-
-const TAINT_REGISTRY_KEY = '_taint_registry';
 
 /**
  * Create a filtered state view for a node.
@@ -31,19 +36,16 @@ export function createStateView(state: WorkflowState, node: GraphNode): StateVie
     ? filterInternalKeys(state.memory)
     : filterMemory(state.memory, allowedKeys);
 
-  // Preserve taint info for the keys this node can actually read, so the agent
-  // executor can mark its outputs as derived-tainted when it reads untrusted
-  // data (`propagateDerivedTaint` inspects `memory._taint_registry`). Without
-  // this, derived taint never propagates for least-privilege read_keys. The
-  // registry is stripped from the agent PROMPT by `sanitizeForPrompt`, so it
-  // stays executor-only and never leaks into the model context.
-  const fullRegistry = getTaintRegistry(state.memory);
+  // Scope taint metadata to the keys this node can actually read, so the
+  // agent executor can mark its outputs as derived-tainted when it reads
+  // untrusted data. Rides on the dedicated `taint` field — never inside
+  // `memory`, so it cannot leak into the model context.
+  const fullRegistry = getTaintRegistry(state);
   const viewRegistry: TaintRegistry = {};
   for (const key of Object.keys(memory)) {
-    if (key in fullRegistry) viewRegistry[key] = fullRegistry[key];
-  }
-  if (Object.keys(viewRegistry).length > 0) {
-    memory[TAINT_REGISTRY_KEY] = viewRegistry;
+    // Object.hasOwn, not `in`: a memory key named `constructor`/`toString`
+    // must not pull a prototype member into the view registry.
+    if (Object.hasOwn(fullRegistry, key)) viewRegistry[key] = fullRegistry[key];
   }
 
   return {
@@ -52,14 +54,16 @@ export function createStateView(state: WorkflowState, node: GraphNode): StateVie
     goal: state.goal,
     constraints: state.constraints,
     memory,
+    ...(Object.keys(viewRegistry).length > 0 ? { taint: viewRegistry } : {}),
   };
 }
 
 /**
- * Strip internal (`_`-prefixed) keys from memory for wildcard access.
+ * Strip `_`-prefixed keys from memory for wildcard access.
  *
- * Internal keys like `_taint_registry` are system bookkeeping and
- * should never be exposed to agent prompts.
+ * Engine data no longer lives in memory (schema v2), so this is
+ * defense-in-depth: legacy or adapter-written `_` keys must still never
+ * reach agent prompts.
  */
 function filterInternalKeys(
   memory: Record<string, unknown>,

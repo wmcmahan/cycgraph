@@ -270,7 +270,7 @@ export class WorkflowWorker extends EventEmitter {
         }, this.heartbeatIntervalMs);
 
         this.activeJobs.set(job.id, {
-          runner: null as unknown as GraphRunner, // set inside processJob
+          runner: null, // set inside processJob once constructed
           heartbeatTimer,
           promise,
         });

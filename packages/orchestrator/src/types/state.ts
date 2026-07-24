@@ -58,6 +58,44 @@ export const WaitingReasonSchema = z.enum([
 
 export type WaitingReason = z.infer<typeof WaitingReasonSchema>;
 
+// ─── Taint Metadata (schema) ────────────────────────────────────────
+
+/**
+ * Provenance metadata for a single memory key. See {@link TaintRegistry}.
+ * Zod schema so the promoted `taint_registry` state field validates on load.
+ */
+export const TaintMetadataSchema = z.object({
+  /** Origin of the data. */
+  source: z.enum(['mcp_tool', 'tool_node', 'agent_response', 'derived', 'retrieval']),
+  /** Tool that produced the data (if `source` is tool-related). */
+  tool_name: z.string().optional(),
+  /** MCP server that provided the tool (if `source` is `"mcp_tool"`). */
+  server_id: z.string().optional(),
+  /** Agent that produced the data (if `source` is `"agent_response"`). */
+  agent_id: z.string().optional(),
+  /** ISO 8601 timestamp (string for JSON serialization). */
+  created_at: z.string(),
+});
+
+/** Taint registry: memory key → provenance of the untrusted data it holds. */
+export const TaintRegistrySchema = z.record(z.string(), TaintMetadataSchema);
+
+// ─── Lesson Provenance (schema) ─────────────────────────────────────
+
+/**
+ * One lesson-provenance entry: the facts injected into a node's prompt.
+ * Mirrors the {@link LessonProvenanceEntry} interface below; defined as a
+ * Zod schema so state/payload `.parse()` validates (and does not strip) it.
+ */
+export const LessonProvenanceEntrySchema = z.object({
+  node_id: z.string(),
+  agent_id: z.string().optional(),
+  fact_ids: z.array(z.string()),
+  retrieved_at: z.string(),
+});
+/** Registry of provenance entries keyed by per-entry UUID. */
+export const LessonProvenanceRegistrySchema = z.record(z.string(), LessonProvenanceEntrySchema);
+
 // ─── Workflow State ─────────────────────────────────────────────────
 
 /**
@@ -131,8 +169,49 @@ export const WorkflowStateSchema = z.object({
   max_execution_time_ms: z.number().default(3_600_000),
 
   // ── Working memory ──
-  /** Dynamic key-value store shared between nodes. */
+  /**
+   * Dynamic key-value store shared between nodes — the USER blackboard.
+   * As of schema v2 this holds only user-space keys: engine-owned data
+   * (taint, provenance, HITL, pattern state) lives in the first-class
+   * fields below, and reducers drop unknown `_`-prefixed keys arriving
+   * through any memory-merge channel (recorded in `memory_drops`).
+   */
   memory: z.record(z.string(), z.unknown()).default({}),
+
+  // ── Engine-owned registries (schema v2 — formerly `memory._*` keys) ──
+  /**
+   * Provenance of untrusted external data, keyed by memory key. Append-only:
+   * reducers merge new entries and never remove existing ones. Formerly
+   * `memory._taint_registry`; the wire encoding inside action payloads keeps
+   * that key, reducers route it here.
+   */
+  taint_registry: TaintRegistrySchema.default({}),
+  /**
+   * Retrieval provenance for eval-gated learning, keyed by per-entry UUID.
+   * Append-only with a deterministic ring-buffer trim. Formerly
+   * `memory._lesson_provenance`.
+   */
+  lesson_provenance: LessonProvenanceRegistrySchema.default({}),
+  /** Review payload for the active HITL pause. Formerly `memory._pending_approval`. */
+  pending_approval: z.unknown().optional(),
+  /**
+   * Security-policy approvals granted by a human, keyed by node id. A flag
+   * lets the gated node run (once per run — see security-policy.ts). Formerly
+   * `memory._policy_approved`.
+   */
+  policy_approvals: z.record(z.string(), z.boolean()).default({}),
+  /**
+   * Paused child-run checkpoints for subgraph nodes awaiting a nested HITL
+   * decision, keyed by subgraph node id. Formerly `memory._subgraph_resume_*`.
+   */
+  subgraph_checkpoints: z.record(z.string(), z.unknown()).default({}),
+  /**
+   * Ancestor graph ids for nested subgraph runs (cycle/depth detection in the
+   * CHILD run's state). Formerly `memory._subgraph_stack`.
+   */
+  subgraph_stack: z.array(z.string()).default([]),
+  /** Swarm peer-handoff counter (bounds `max_handoffs`). Formerly `memory._swarm_handoff_count`. */
+  swarm_handoff_count: z.number().int().nonnegative().default(0),
 
   // ── Token budget ──
   /** Cumulative tokens consumed across all LLM calls. */
@@ -203,7 +282,7 @@ export const WorkflowStateSchema = z.object({
    */
   memory_drops: z.array(z.object({
     key: z.string(),
-    reason: z.enum(['oversized', 'non_serializable']),
+    reason: z.enum(['oversized', 'non_serializable', 'reserved_key']),
     bytes: z.number().optional(),
     node_id: z.string().optional(),
     timestamp: z.coerce.date(),
@@ -251,7 +330,10 @@ export function createWorkflowState(input: WorkflowStateConfig): WorkflowState {
 // ─── State Hydration (load-boundary parsing + migration) ───────────
 
 /** Current WorkflowState schema version. Bump together with a migration entry. */
-export const CURRENT_STATE_SCHEMA_VERSION = 1;
+export const CURRENT_STATE_SCHEMA_VERSION = 2;
+
+/** Prefix formerly used to stash subgraph child checkpoints in memory (v1). */
+const V1_SUBGRAPH_RESUME_PREFIX = '_subgraph_resume_';
 
 /**
  * Ordered migrations applied to raw persisted state before parsing.
@@ -261,8 +343,51 @@ export const CURRENT_STATE_SCHEMA_VERSION = 1;
  * here — `hydrateWorkflowState` chains them so any historical snapshot loads.
  */
 const STATE_MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {
-  // Example shape for a future v1 → v2 migration:
-  // 1: (raw) => ({ ...raw, new_required_field: defaultValue, state_schema_version: 2 }),
+  /**
+   * v1 → v2: lift engine-owned `_*` keys out of `memory` into first-class
+   * state fields. The blackboard becomes user-space only; taint / provenance /
+   * HITL / pattern state gain typed, schema-validated homes. Unknown `_` keys
+   * are left in memory untouched (the reducers' reserved-key guard applies
+   * only to NEW writes — a migration must never destroy data it doesn't
+   * understand).
+   */
+  1: (raw) => {
+    const memory = { ...((raw.memory ?? {}) as Record<string, unknown>) };
+
+    const lift = (key: string): unknown => {
+      const value = memory[key];
+      delete memory[key];
+      return value;
+    };
+
+    const taintRegistry = lift('_taint_registry');
+    const lessonProvenance = lift('_lesson_provenance');
+    const pendingApproval = lift('_pending_approval');
+    const policyApprovals = lift('_policy_approved');
+    const subgraphStack = lift('_subgraph_stack');
+    const swarmHandoffCount = lift('_swarm_handoff_count');
+
+    const subgraphCheckpoints: Record<string, unknown> = {};
+    for (const key of Object.keys(memory)) {
+      if (key.startsWith(V1_SUBGRAPH_RESUME_PREFIX)) {
+        subgraphCheckpoints[key.slice(V1_SUBGRAPH_RESUME_PREFIX.length)] = memory[key];
+        delete memory[key];
+      }
+    }
+
+    return {
+      ...raw,
+      memory,
+      ...(taintRegistry !== undefined ? { taint_registry: taintRegistry } : {}),
+      ...(lessonProvenance !== undefined ? { lesson_provenance: lessonProvenance } : {}),
+      ...(pendingApproval !== undefined ? { pending_approval: pendingApproval } : {}),
+      ...(policyApprovals !== undefined ? { policy_approvals: policyApprovals } : {}),
+      ...(subgraphStack !== undefined ? { subgraph_stack: subgraphStack } : {}),
+      ...(typeof swarmHandoffCount === 'number' ? { swarm_handoff_count: swarmHandoffCount } : {}),
+      ...(Object.keys(subgraphCheckpoints).length > 0 ? { subgraph_checkpoints: subgraphCheckpoints } : {}),
+      state_schema_version: 2,
+    };
+  },
 };
 
 /**
@@ -334,6 +459,19 @@ export interface StateView {
   constraints: string[];
   /** Filtered memory (only keys in the agent's `read_keys`). */
   memory: Record<string, unknown>;
+  /**
+   * Taint metadata for the READABLE keys in `memory` (executor-only —
+   * never rendered into prompts). Lets the agent executor propagate
+   * derived taint under least-privilege reads.
+   */
+  taint?: TaintRegistry;
+  /**
+   * Ephemeral per-invocation context injected by compound-pattern
+   * executors (map item, evolution parent, annealing feedback, swarm
+   * peers, …). Rendered into the prompt as its own `## Task Context`
+   * section — NOT part of the memory blackboard and never persisted.
+   */
+  taskContext?: Record<string, unknown>;
 }
 
 // ─── Action Schema ──────────────────────────────────────────────────
@@ -364,21 +502,6 @@ export const UpdateMemoryPayloadSchema = z.object({
 });
 export type UpdateMemoryPayload = z.infer<typeof UpdateMemoryPayloadSchema>;
 
-/**
- * One lesson-provenance entry on an action payload: the facts injected
- * into a node's prompt via its `memory_query`. Mirrors the
- * {@link LessonProvenanceEntry} interface below; defined here as a Zod
- * schema so payload `.parse()` validates (and does not strip) it.
- */
-export const LessonProvenanceEntrySchema = z.object({
-  node_id: z.string(),
-  agent_id: z.string().optional(),
-  fact_ids: z.array(z.string()),
-  retrieved_at: z.string(),
-});
-/** Registry of provenance entries keyed by per-entry UUID. */
-export const LessonProvenanceRegistrySchema = z.record(z.string(), LessonProvenanceEntrySchema);
-
 export const SetStatusPayloadSchema = z.object({
   status: WorkflowStatusSchema,
   /**
@@ -388,6 +511,12 @@ export const SetStatusPayloadSchema = z.object({
    * supervisor retrieval is attributable to run outcomes, same as agent nodes.
    */
   lesson_provenance: LessonProvenanceRegistrySchema.optional(),
+  /**
+   * The supervisor's stated reason for declaring the workflow complete.
+   * Observability-only: not merged into state by the reducer, but preserved
+   * on the action (and therefore in the event log) for debugging.
+   */
+  supervisor_completion_reason: z.string().optional(),
 });
 export type SetStatusPayload = z.infer<typeof SetStatusPayloadSchema>;
 
@@ -407,6 +536,13 @@ export const HandoffPayloadSchema = z.object({
    * is attributable to run outcomes, same as agent nodes.
    */
   lesson_provenance: LessonProvenanceRegistrySchema.optional(),
+  /**
+   * Memory to merge as part of the handoff. Used by the swarm executor to
+   * carry the delegating agent's output (and the incremented
+   * `_swarm_handoff_count`) across the handoff — the content was already
+   * permission-filtered by the agent executor's write-key checks.
+   */
+  memory_updates: z.record(z.string(), z.unknown()).optional(),
 });
 export type HandoffPayload = z.infer<typeof HandoffPayloadSchema>;
 
@@ -465,17 +601,20 @@ export type TypedActionPayload =
   | { type: 'resume_from_human'; payload: ResumeFromHumanPayload }
   | { type: 'merge_parallel_results'; payload: MergeParallelResultsPayload };
 
+/** Typed payload for a given action type, derived from {@link ActionPayloadSchemas}. */
+export type ActionPayloadFor<T extends ActionType> = z.infer<(typeof ActionPayloadSchemas)[T]>;
+
 /**
  * Narrow an action's payload to the typed schema for its action type.
  * Returns the parsed payload or throws a `ZodError` on mismatch.
  *
  * Usage: `const { updates } = narrowActionPayload('update_memory', action.payload);`
  */
-export function narrowActionPayload(
-  type: ActionType,
+export function narrowActionPayload<T extends ActionType>(
+  type: T,
   payload: Record<string, unknown>,
-): Record<string, unknown> {
-  return ActionPayloadSchemas[type].parse(payload) as Record<string, unknown>;
+): ActionPayloadFor<T> {
+  return ActionPayloadSchemas[type].parse(payload) as ActionPayloadFor<T>;
 }
 
 // ─── Internal Action Types ──────────────────────────────────────────
@@ -582,26 +721,15 @@ export type Action = z.infer<typeof ActionSchema>;
 // ─── Taint Tracking ─────────────────────────────────────────────────
 
 /**
- * Provenance metadata for a single memory key.
- *
- * Tracked in `memory._taint_registry` to record where each piece of
- * data originated (MCP tool, agent response, derived computation, etc.).
+ * Provenance metadata for a single memory key. Tracked in
+ * `state.taint_registry` (schema v2; formerly `memory._taint_registry`)
+ * to record where each piece of data originated. Derived from
+ * {@link TaintMetadataSchema} so type and schema cannot drift.
  */
-export interface TaintMetadata {
-  /** Origin of the data. */
-  source: 'mcp_tool' | 'tool_node' | 'agent_response' | 'derived' | 'retrieval';
-  /** Tool that produced the data (if `source` is tool-related). */
-  tool_name?: string;
-  /** MCP server that provided the tool (if `source` is `"mcp_tool"`). */
-  server_id?: string;
-  /** Agent that produced the data (if `source` is `"agent_response"`). */
-  agent_id?: string;
-  /** ISO 8601 timestamp (string for JSON serialization). */
-  created_at: string;
-}
+export type TaintMetadata = z.infer<typeof TaintMetadataSchema>;
 
-/** Taint registry stored at `memory._taint_registry`. */
-export type TaintRegistry = Record<string, TaintMetadata>;
+/** Taint registry stored at `state.taint_registry`. */
+export type TaintRegistry = z.infer<typeof TaintRegistrySchema>;
 
 // ─── Lesson Provenance ──────────────────────────────────────────────
 
@@ -609,26 +737,15 @@ export type TaintRegistry = Record<string, TaintMetadata>;
  * One retrieval event: the memory facts that were injected into a
  * node's prompt via its `memory_query` directive.
  *
- * Recorded in `memory._lesson_provenance` so that, after the run, a
- * caller can attribute the run's outcome score to the lessons that
- * participated in it (eval-gated learning — see `@cycgraph/memory`'s
- * `OutcomeLedger` / `evaluateRetention`).
+ * Recorded in `state.lesson_provenance` (schema v2; formerly
+ * `memory._lesson_provenance`) so that, after the run, a caller can
+ * attribute the run's outcome score to the lessons that participated
+ * in it (eval-gated learning — see `@cycgraph/memory`'s
+ * `OutcomeLedger` / `evaluateRetention`). Keyed by per-entry UUID so
+ * concurrent sibling executions (voting / evolution / map) merge
+ * without collisions.
  */
-export interface LessonProvenanceEntry {
-  /** Node whose prompt received the facts. */
-  node_id: string;
-  /** Agent that executed the node. */
-  agent_id?: string;
-  /** IDs of the injected facts (only facts whose retriever supplied an id). */
-  fact_ids: string[];
-  /** ISO 8601 timestamp (string for JSON serialization). */
-  retrieved_at: string;
-}
+export type LessonProvenanceEntry = z.infer<typeof LessonProvenanceEntrySchema>;
 
-/**
- * Lesson provenance registry stored at `memory._lesson_provenance`,
- * keyed by a per-entry UUID so concurrent sibling executions
- * (voting / evolution / map) merge without collisions — same shape
- * discipline as the taint registry.
- */
-export type LessonProvenanceRegistry = Record<string, LessonProvenanceEntry>;
+/** Lesson provenance registry stored at `state.lesson_provenance`. */
+export type LessonProvenanceRegistry = z.infer<typeof LessonProvenanceRegistrySchema>;

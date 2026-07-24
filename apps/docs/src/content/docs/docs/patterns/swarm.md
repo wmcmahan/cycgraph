@@ -25,8 +25,8 @@ flowchart LR
 ```
 
 1. **Entry.** The workflow enters at one peer — whichever node is the graph's `start_node`.
-2. **Peer evaluation.** The active agent reads its goal alongside `_swarm_config.peer_nodes`, which the orchestrator injects into the agent's state view so it knows who else is available.
-3. **Handoff.** When the agent decides another peer is better suited, it writes `_peer_delegation: { peer_node_id, reason }` to memory. The orchestrator validates the target is in `peerNodes`, then dispatches a `handoff` action that routes execution to that peer. The agent's other memory updates are preserved across the handoff.
+2. **Peer evaluation.** The active agent reads its goal alongside a `swarm` object (peer nodes, handoff budget) that the orchestrator injects into the `## Task Context` section of its prompt, so it knows who else is available.
+3. **Handoff.** When the agent decides another peer is better suited, it writes `peer_delegation: { peer_node_id, reason }` to memory via `save_to_memory` (so `peer_delegation` must be in its write keys). The orchestrator validates the target is in `peerNodes`, then dispatches a `handoff` action that routes execution to that peer. The agent's other memory updates are preserved across the handoff.
 4. **Continuation or completion.** If the agent does not delegate, normal graph edges run. The workflow ends when execution reaches an `end_node` without a pending handoff.
 
 ## When to use this pattern
@@ -52,8 +52,8 @@ const RESEARCHER_ID = registry.register({
   provider: 'anthropic',
   systemPrompt: [
     'You specialize in fetching information and summarizing facts.',
-    'When the goal requires calculation, hand off to the Math Expert by writing',
-    '`_peer_delegation: { peer_node_id: "math_wiz", reason: "..." }` to memory.',
+    'When the goal requires calculation, hand off to the Math Expert by saving',
+    '`peer_delegation: { peer_node_id: "math_wiz", reason: "..." }` to memory.',
     'When code execution is needed, hand off to the Python Writer.',
   ].join(' '),
   temperature: 0.3,
@@ -145,9 +145,9 @@ const graph = createGraph({
 
 ## Core concepts
 
-### Handoff via `_peer_delegation`
+### Handoff via `peer_delegation`
 
-A swarm-mode agent hands off by writing a `_peer_delegation` object to memory:
+A swarm-mode agent hands off by writing a `peer_delegation` object to memory (via `save_to_memory`, so the key must be in its write keys):
 
 ```ts
 {
@@ -157,13 +157,13 @@ A swarm-mode agent hands off by writing a `_peer_delegation` object to memory:
 }
 ```
 
-The orchestrator strips this key, validates `peer_node_id`, and emits a `handoff` action that re-routes execution. The agent's other memory updates are preserved across the handoff.
+The orchestrator consumes this key, validates `peer_node_id`, and emits a `handoff` action that re-routes execution. The agent's other memory updates are preserved across the handoff.
 
-If the agent attempts to hand off to a node not in `peerNodes`, the runner throws `NodeConfigError`.
+If the agent attempts to hand off to a node not in `peerNodes`, the runner throws `NodeConfigError`. The permission to emit handoff actions is implied by the swarm config itself — no `write_keys` entry is needed for it.
 
 ### Visibility into peers
 
-Before each call, the orchestrator injects a `_swarm_config` object into the agent's state view so it can see who's available and how much budget is left:
+Before each call, the orchestrator injects a `swarm` object into the `## Task Context` section of the agent's prompt so it can see who's available and how much budget is left:
 
 ```ts
 {
@@ -177,4 +177,4 @@ Agents can reference this in their reasoning to decide whether further handoff i
 
 ### Max handoffs (circuit breaker)
 
-Swarms can derail into infinite ping-pong if two agents keep handing the same problem back. `maxHandoffs` halts further delegation once `_swarm_handoff_count` reaches the limit. After that, any `_peer_delegation` requests are silently dropped and the agent's other memory updates flow through normal graph edges.
+Swarms can derail into infinite ping-pong if two agents keep handing the same problem back. `maxHandoffs` halts further delegation once the state's `swarm_handoff_count` reaches the limit. After that, any `peer_delegation` requests are silently dropped and the agent's other memory updates flow through normal graph edges.

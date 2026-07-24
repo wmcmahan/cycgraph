@@ -7,7 +7,7 @@
  *   3. Synthesizer agent merges all research into a unified summary
  *
  * Demonstrates: map-reduce fan-out, parallel workers, synthesizer with agent_id,
- * JSONPath items resolution, state slicing with _map_item injection.
+ * JSONPath items resolution, per-item Task Context injection.
  *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/map-reduce/map-reduce.ts
@@ -69,7 +69,7 @@ const RESEARCHER_ID = registry.register({
   provider: 'anthropic',
   systemPrompt: [
     'You are a research specialist focused on a single sub-topic.',
-    'Your assigned sub-topic is provided in _map_item. The broader goal is in the goal field.',
+    'Your assigned sub-topic is provided as map_item in the Task Context section of your prompt. The broader goal is in the goal field.',
     'Produce concise, factual research notes (3-5 bullet points) about your specific sub-topic.',
     'Focus on key facts, data, and notable insights.',
   ].join(' '),
@@ -77,7 +77,7 @@ const RESEARCHER_ID = registry.register({
   maxSteps: 3,
   tools: [],
   permissions: {
-    readKeys: ['_map_item', '_map_index', '_map_total', 'goal'],
+    readKeys: ['goal'],
     writeKeys: ['research'],
   },
 });
@@ -142,7 +142,8 @@ const graph = createGraph({
       id: 'researcher',
       type: 'agent',
       agentId: RESEARCHER_ID,
-      readKeys: ['_map_item', '_map_index', '_map_total', 'goal'],
+      // The map item arrives via the Task Context prompt section, not memory.
+      readKeys: ['goal'],
       writeKeys: ['research'],
       failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
       requiresCompensation: false,

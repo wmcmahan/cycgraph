@@ -18,6 +18,7 @@ import { executeSwarmAgentNode } from './swarm.js';
 import { resolveModelForAgent } from './resolve-model.js';
 import { buildAgentMemoryOptions } from './memory-options.js';
 import { buildNodeCallbacks } from './node-callbacks.js';
+import { nodeIdempotencyKey } from './idempotency-key.js';
 
 const logger = createLogger('runner.node.agent');
 
@@ -84,6 +85,8 @@ export async function executeAgentNode(
   const tools = await ctx.deps.resolveTools(toolSources, agentId);
   return ctx.deps.executeAgent(agentId, stateView, tools, attempt, {
     nodeId: node.id,
+    idempotencyKey: nodeIdempotencyKey(node, ctx, attempt),
+    grantedWriteKeys: node.write_keys,
     abortSignal: ctx.abortSignal,
     onToken,
     onToolCall,

@@ -4,7 +4,10 @@ import type { WorkflowState, EdgeCondition } from '../src/index.js';
 import { v4 as uuidv4 } from 'uuid';
 
 describe('Conditional Edge Evaluation', () => {
-  const createMockState = (memory: Record<string, unknown>): WorkflowState => ({
+  const createMockState = (
+    memory: Record<string, unknown>,
+    taint?: Record<string, unknown>,
+  ): WorkflowState => ({
     workflow_id: uuidv4(),
     run_id: uuidv4(),
     created_at: new Date(),
@@ -18,10 +21,11 @@ describe('Conditional Edge Evaluation', () => {
     max_retries: 3,
     max_execution_time_ms: 3600000,
     memory,
+    taint_registry: taint ?? {},
     visited_nodes: [],
     max_iterations: 50,
     compensation_stack: [],
-  });
+  }) as WorkflowState;
 
   describe('always condition', () => {
     test('should always return true', () => {
@@ -203,10 +207,10 @@ describe('Conditional Edge Evaluation', () => {
         type: 'conditional',
         condition: 'memory.decision == "go"',
       };
-      const state = createMockState({
-        decision: 'go',
-        _taint_registry: { decision: { source: 'mcp_tool', tool_name: 'web_search', created_at: new Date().toISOString() } },
-      });
+      const state = createMockState(
+        { decision: 'go' },
+        { decision: { source: 'mcp_tool', tool_name: 'web_search', created_at: new Date().toISOString() } },
+      );
 
       // Default: warning only, still evaluates
       expect(evaluateCondition(condition, state)).toBe(true);
@@ -217,10 +221,10 @@ describe('Conditional Edge Evaluation', () => {
         type: 'conditional',
         condition: 'memory.decision == "go"',
       };
-      const state = createMockState({
-        decision: 'go',
-        _taint_registry: { decision: { source: 'mcp_tool', tool_name: 'web_search', created_at: new Date().toISOString() } },
-      });
+      const state = createMockState(
+        { decision: 'go' },
+        { decision: { source: 'mcp_tool', tool_name: 'web_search', created_at: new Date().toISOString() } },
+      );
 
       expect(evaluateCondition(condition, state, { strict_taint: true })).toBe(false);
     });

@@ -272,9 +272,9 @@ export const MCPServerEntrySchema = z.object({
   /** Agent IDs allowed to use this server. Omit or `undefined` for unrestricted access. */
   allowed_agents: z.array(z.string()).optional(),
   /** Connection timeout in milliseconds. */
-  timeout_ms: z.number().default(30_000),
+  timeout_ms: z.number().int().positive().max(3_600_000).default(30_000),
   /** Per-tool execution timeout in milliseconds. Applied to each tool call. */
-  tool_timeout_ms: z.number().optional(),
+  tool_timeout_ms: z.number().int().positive().max(3_600_000).optional(),
   /**
    * Max concurrent tool calls in flight against this server. Bounds fan-out
    * (e.g. evolution/voting/map candidates all calling the same server) so one
@@ -283,7 +283,7 @@ export const MCPServerEntrySchema = z.object({
    */
   max_concurrent_calls: z.number().int().positive().optional(),
   /** Maximum connection retries before giving up. @default 2 */
-  max_retries: z.number().optional(),
+  max_retries: z.number().int().min(0).max(10).optional(),
 }).superRefine((entry, ctx) => {
   // Hosted lockdown: reject stdio transports at the trust boundary (every
   // registry read/write parses this), so a tenant cannot persist a server that

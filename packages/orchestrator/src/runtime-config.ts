@@ -18,12 +18,24 @@ import { z } from 'zod';
 /**
  * Parse an integer from an environment variable. Returns `undefined` when the
  * variable is unset or empty so the Zod default can kick in.
+ *
+ * A set-but-unparseable value throws instead of silently falling back to the
+ * default — this module's contract is that misconfiguration fails fast, and a
+ * typo like `AGENT_TIMEOUT_MS=30s` silently running with the default timeout
+ * is exactly the failure mode it exists to prevent. (`Number`, not `parseInt`:
+ * `parseInt('30s')` would "succeed" as 30. Non-integers like `1.5` pass
+ * through to the schema's `.int()` for a descriptive error.)
  */
 function envInt(name: string): number | undefined {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === '') return undefined;
-  const parsed = parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  const parsed = Number(raw.trim());
+  if (!Number.isFinite(parsed)) {
+    throw new Error(
+      `Invalid runtime configuration: env var ${name}='${raw}' is not a number`,
+    );
+  }
+  return parsed;
 }
 
 /**

@@ -409,7 +409,8 @@ describe('Subgraph Execution', () => {
     };
 
     const deepStack = Array.from({ length: 32 }, (_, i) => `g${i}`);
-    const state = createTestState({ memory: { _subgraph_stack: deepStack } });
+    // First-class state field (schema v2) — formerly `memory._subgraph_stack`.
+    const state = createTestState({ subgraph_stack: deepStack });
     const loadGraphFn = vi.fn().mockResolvedValue(createToolGraph('child-graph'));
     const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
 
@@ -607,9 +608,9 @@ describe('Subgraph Execution', () => {
     // mapped key, and (like the real executor) marks its output derived-tainted.
     let childSawTaintedInput = false;
     (executeAgent as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      async (agentId: string, stateView: { memory: Record<string, unknown> }) => {
-        const reg = (stateView.memory._taint_registry ?? {}) as Record<string, unknown>;
-        childSawTaintedInput = 'child_input' in reg;
+      async (agentId: string, stateView: { memory: Record<string, unknown>; taint?: Record<string, unknown> }) => {
+        // Scoped taint rides on the view's dedicated field (schema v2).
+        childSawTaintedInput = 'child_input' in (stateView.taint ?? {});
         return {
           id: uuidv4(),
           idempotency_key: uuidv4(),
@@ -617,7 +618,8 @@ describe('Subgraph Execution', () => {
           payload: {
             updates: {
               child_output: 'processed',
-              _taint_registry: { ...reg, child_output: { source: 'derived', agent_id: agentId, created_at: new Date().toISOString() } },
+              // Wire encoding — only the NEW entry (the reducer appends).
+              _taint_registry: { child_output: { source: 'derived', agent_id: agentId, created_at: new Date().toISOString() } },
             },
           },
           metadata: { node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt: 1 },
@@ -654,7 +656,7 @@ describe('Subgraph Execution', () => {
     };
 
     const state = createTestState({ memory: { parent_input: 'untrusted content' } });
-    markTainted(state.memory, 'parent_input', { source: 'tool_node', tool_name: 'external_input', created_at: new Date().toISOString() });
+    state.taint_registry = markTainted({}, 'parent_input', { source: 'tool_node', tool_name: 'external_input', created_at: new Date().toISOString() });
 
     const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
     const finalState = await new GraphRunner(parentGraph, state, { loadGraphFn }).run();
@@ -663,7 +665,7 @@ describe('Subgraph Execution', () => {
     // INPUT: untrusted parent data entered the child still marked tainted.
     expect(childSawTaintedInput).toBe(true);
     // OUTPUT: taint came back to the parent — the subgraph cannot launder it.
-    const reg = (finalState.memory._taint_registry ?? {}) as Record<string, unknown>;
+    const reg = (finalState.taint_registry ?? {}) as Record<string, unknown>;
     expect('parent_result' in reg).toBe(true);
   });
 
@@ -712,13 +714,13 @@ describe('Subgraph Execution', () => {
     const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
 
     const state = createTestState({ memory: { parent_input: 'untrusted content' } });
-    markTainted(state.memory, 'parent_input', { source: 'tool_node', tool_name: 'external_input', created_at: new Date().toISOString() });
+    state.taint_registry = markTainted({}, 'parent_input', { source: 'tool_node', tool_name: 'external_input', created_at: new Date().toISOString() });
 
     // First run: the child gates the sensitive node → the PARENT pauses.
     const waiting = await new GraphRunner(parentGraph, state, { loadGraphFn, securityPolicy }).run();
     expect(waiting.status).toBe('waiting');
-    expect((waiting.memory._pending_approval as { subgraph_node_id?: string }).subgraph_node_id).toBe('sub-node');
-    expect(waiting.memory['_subgraph_resume_sub-node']).toBeDefined();
+    expect((waiting.pending_approval as { subgraph_node_id?: string }).subgraph_node_id).toBe('sub-node');
+    expect(waiting.subgraph_checkpoints['sub-node']).toBeDefined();
     expect(executeAgent).not.toHaveBeenCalled(); // gated BEFORE the child agent ran
     expect(waiting.memory.parent_result).toBeUndefined();
 

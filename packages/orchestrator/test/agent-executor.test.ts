@@ -372,17 +372,18 @@ describe('MCP taint draining', () => {
     expect(action.type).toBe('update_memory');
   });
 
-  it('merges MCP taint with existing derived taint', async () => {
+  it('emits new MCP taint on the wire without echoing existing entries', async () => {
     const stateView = makeStateView({
       memory: {
         topic: 'AI orchestration',
-        _taint_registry: {
-          topic: {
-            source: 'mcp_tool',
-            tool_name: 'prior_search',
-            server_id: 'old-server',
-            created_at: '2026-01-01T00:00:00.000Z',
-          },
+      },
+      // Existing taint rides on the view's dedicated field (schema v2).
+      taint: {
+        topic: {
+          source: 'mcp_tool' as const,
+          tool_name: 'prior_search',
+          server_id: 'old-server',
+          created_at: '2026-01-01T00:00:00.000Z',
         },
       },
     });
@@ -414,8 +415,10 @@ describe('MCP taint draining', () => {
 
     const updates = action.payload.updates as Record<string, unknown>;
     const registry = updates['_taint_registry'] as Record<string, any>;
-    // Should contain both the existing 'topic' taint and the new 'findings' MCP taint
-    expect(registry['topic']).toBeDefined();
+    // Only NEW entries go on the wire — the reducer appends them to
+    // `state.taint_registry`, so existing entries (`topic`) survive there
+    // without being echoed in every action.
+    expect(registry['topic']).toBeUndefined();
     expect(registry['findings']).toBeDefined();
     expect(registry['findings'].source).toBe('mcp_tool');
   });
@@ -427,5 +430,63 @@ describe('PermissionDeniedError', () => {
     expect(err.name).toBe('PermissionDeniedError');
     expect(err.message).toBe('test message');
     expect(err).toBeInstanceOf(Error);
+  });
+});
+
+describe('ceiling-and-grant routing (ADR 001)', () => {
+  it('broad agent ceiling + narrow node grant routes text to the granted key', async () => {
+    // The pre-ADR silent-drop scenario: agent registered for two graphs with
+    // ceiling ['notes','draft']; this node grants only ['draft']. The old
+    // heuristic consulted the agent list, saw two keys, and dropped the
+    // output. The intersection resolves to the sole granted key.
+    (agentFactory.loadAgent as any).mockResolvedValue(
+      makeAgentConfig({ write_keys: ['notes', 'draft'] }),
+    );
+    (streamText as any).mockReturnValue(mockStreamTextResult({
+      text: Promise.resolve('the finished draft'),
+    }));
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, {
+      nodeId: 'writer',
+      grantedWriteKeys: ['draft'],
+    });
+
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates.draft).toBe('the finished draft');
+    expect(updates.notes).toBeUndefined();
+  });
+
+  it('an uncapped agent (no ceiling) is governed by the node grant alone', async () => {
+    (agentFactory.loadAgent as any).mockResolvedValue(
+      makeAgentConfig({ write_keys: undefined, read_keys: undefined }),
+    );
+    (streamText as any).mockReturnValue(mockStreamTextResult({
+      text: Promise.resolve('output text'),
+    }));
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, {
+      nodeId: 'solo',
+      grantedWriteKeys: ['result'],
+    });
+
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates.result).toBe('output text');
+  });
+
+  it('a read ceiling narrows the node-sliced view', async () => {
+    (agentFactory.loadAgent as any).mockResolvedValue(
+      makeAgentConfig({ read_keys: ['topic'], write_keys: ['*'] }),
+    );
+    (streamText as any).mockReturnValue(mockStreamTextResult({
+      text: Promise.resolve('done'),
+    }));
+
+    await executeAgent('test-agent', makeStateView({
+      memory: { topic: 'AI orchestration', secret_notes: 'should not reach the prompt' },
+    }), {}, 1, { nodeId: 'n', grantedWriteKeys: ['*'] });
+
+    const systemPrompt = (streamText as any).mock.calls.at(-1)[0].system as string;
+    expect(systemPrompt).toContain('AI orchestration');
+    expect(systemPrompt).not.toContain('should not reach the prompt');
   });
 });

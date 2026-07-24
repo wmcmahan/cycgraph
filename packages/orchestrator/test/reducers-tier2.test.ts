@@ -55,7 +55,7 @@ describe('Tier 2 Reducers', () => {
       expect(newState.waiting_for).toBe('human_approval');
       expect(newState.waiting_since).toBeInstanceOf(Date);
       expect(newState.waiting_timeout_at).toBeInstanceOf(Date);
-      expect(newState.memory._pending_approval).toEqual({
+      expect(newState.pending_approval).toEqual({
         node_id: 'review',
         prompt_message: 'Review this',
       });
@@ -102,7 +102,7 @@ describe('Tier 2 Reducers', () => {
       state.waiting_for = 'human_approval';
       state.waiting_since = new Date();
       state.waiting_timeout_at = new Date();
-      state.memory._pending_approval = { node_id: 'review' };
+      state.pending_approval = { node_id: 'review' };
 
       const action = makeAction('resume_from_human', {
         decision: 'approved',
@@ -117,13 +117,13 @@ describe('Tier 2 Reducers', () => {
       expect(newState.waiting_timeout_at).toBeUndefined();
       expect(newState.memory.human_response).toBe('Looks good');
       expect(newState.memory.human_decision).toBe('approved');
-      expect(newState.memory._pending_approval).toBeUndefined();
+      expect(newState.pending_approval).toBeUndefined();
     });
 
     test('should merge additional memory_updates', () => {
       const state = createBaseState();
       state.status = 'waiting';
-      state.memory._pending_approval = {};
+      state.pending_approval = {};
 
       const action = makeAction('resume_from_human', {
         decision: 'edited',

@@ -33,7 +33,7 @@ At runtime, the engine creates a **state view** — a filtered projection of `Wo
 
 **Secure by default:** `read_keys` and `write_keys` both default to `[]`. A node that omits `read_keys` sees only `goal` and `constraints` — no memory keys — so state slicing protects you without opt-in. A node consuming an upstream output must declare it explicitly (`read_keys: ['research_notes']`).
 
-The wildcard `read_keys: ['*']` grants access to all non-internal memory keys; `validateGraph` warns on it because it defeats slicing. Internal keys (prefixed with `_`, such as `_taint_registry`) are always excluded from state views, and `_taint_registry` is additionally append-only through reducers — a node cannot clear or weaken taint via a crafted memory write.
+The wildcard `read_keys: ['*']` grants access to all memory keys; `validateGraph` warns on it because it defeats slicing. Engine-owned data (the taint registry, lesson provenance, HITL state) lives in first-class state fields rather than in memory, so it is structurally absent from every state view. The taint registry is additionally append-only through reducers, so a node cannot clear or weaken taint via a crafted memory write.
 
 ### Dot-notation nested key filtering
 
@@ -59,16 +59,29 @@ An agent with `read_keys: ['user.name', 'user.email']` receives a filtered `user
 
 Write permissions are enforced at two levels:
 
-1. **Agent executor** — After the LLM call completes, `validateMemoryUpdatePermissions()` checks every key the agent wrote against its `write_keys`. Unauthorized writes throw `PermissionDeniedError`.
+1. **Agent executor** — After the LLM call completes, `validateMemoryUpdatePermissions()` checks every key the agent wrote against the **effective** write permission: the node's grant intersected with the agent registry's optional ceiling. Unauthorized writes throw `PermissionDeniedError`.
 
-2. **Graph runner** — Before any action is applied to state, `validateAction()` re-validates the action against the node's `write_keys`. This second check catches edge cases where actions are constructed outside the agent executor.
+2. **Graph runner** — Before any action is applied to state, `validateAction()` re-validates the action against the node's *effective* write keys. This second check catches edge cases where actions are constructed outside the agent executor.
+
+### Implied grants
+
+Declared `write_keys` govern what a node's **agent** may write. Two families of grants are derived automatically, because the node's type or config already declares the intent:
+
+- **Control-flow permissions by node type.** A supervisor may emit `handoff` and completion actions; approval and subgraph nodes may pause the run; a swarm-config agent may hand off to peers. None of these need a `write_keys` entry.
+- **Executor-owned result keys by node config.** A verifier's `${result_key}` / `${result_key}_passed` pair, a reflection node's envelope, a tool node's `${id}_result`, and the fan-out nodes' aggregate keys are written by the executor itself, so the config that names them is the grant.
+
+The derivation lives in `effectiveWriteKeys()` (exported for tooling). Declaring an implied key explicitly is harmless — the two sets are unioned.
+
+### Ceiling and grant
+
+Node keys and agent-registry permissions play different roles. The **node's** `readKeys`/`writeKeys` are the authoritative *grant* — need-to-know is a property of the graph position. The **agent registry's** `permissions` block is an optional *ceiling*: a hard cap intersected with the grant, for agents that must never touch certain keys anywhere they appear (a shared summarizer capped away from credential keys, a tenant-level cap in a hosted deployment). A registry entry without a `permissions` block is uncapped — the node's grant alone governs. An explicit empty `permissions` block still means deny-all, so a deliberately locked-down agent stays locked down. The intersection logic is exported as `intersectWriteGrant()`.
 
 ```
 Agent LLM call → validateMemoryUpdatePermissions() → validateAction() → Reducer → State
                   ↑ PermissionDeniedError             ↑ PermissionDeniedError
 ```
 
-Internal keys (prefixed with `_`) are reserved for the engine. Agents are blocked from writing `_`-prefixed keys by the agent executor's validation layer (`extractMemoryUpdates` rejects them). The GraphRunner's `validateAction()` skips `_`-prefixed keys during permission checks — they are treated as trusted system metadata injected by the executor (e.g. `_taint_registry`), not as agent-authored writes.
+The `_`-prefixed key namespace is reserved for the engine's wire format inside action payloads. Agents are blocked from writing `_`-prefixed keys by the agent executor's validation layer (`extractMemoryUpdates` rejects them), and `validateAction()` skips them during permission checks because they are executor-injected system metadata, not agent-authored writes. At the reducer boundary, known wire keys (such as `_taint_registry`) are routed to their first-class state fields; unknown `_`-prefixed keys are dropped fail-closed and recorded in `memory_drops`.
 
 ## Prompt injection sanitization
 
@@ -92,7 +105,7 @@ External data is the most dangerous attack vector. cycgraph automatically tracks
 2. **Propagation** — When an agent reads tainted input keys and writes output, `propagateDerivedTaint()` marks the outputs as `derived`-tainted, preserving the chain of custody.
 3. **Inspection** — Downstream nodes can call `isTainted(memory, key)` or `getTaintInfo(memory, key)` to check provenance before trusting inputs.
 
-Taint metadata is stored in `memory._taint_registry` — an internal key that is invisible to agents (stripped from every state view), **append-only** through reducers (a crafted memory write cannot clear or weaken taint), and accumulated per-execution so concurrent voting/evolution/map sub-runs never cross-attribute provenance.
+Taint metadata is stored in the first-class `state.taint_registry` field. It is structurally invisible to agents (never part of a state view's memory), **append-only** through reducers (a crafted memory write cannot clear or weaken taint), and accumulated per-execution so concurrent voting/evolution/map sub-runs never cross-attribute provenance.
 
 ### Strict taint mode
 

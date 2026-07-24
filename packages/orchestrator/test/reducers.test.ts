@@ -620,7 +620,8 @@ describe('Reducers', () => {
       // add the new entries, never replace the registry wholesale.
       const state: WorkflowState = {
         ...createBaseState(),
-        memory: { _taint_registry: { existing_key: { source: 'mcp_tool', created_at: 't0' } } },
+        memory: {},
+        taint_registry: { existing_key: { source: 'mcp_tool', created_at: 't0' } },
       };
       const action: Action = {
         id: uuidv4(),
@@ -635,7 +636,7 @@ describe('Reducers', () => {
         metadata: { node_id: 'fanout', timestamp: new Date(), attempt: 1 },
       };
       const newState = rootReducer(state, action);
-      const registry = newState.memory._taint_registry as Record<string, unknown>;
+      const registry = newState.taint_registry as Record<string, unknown>;
       expect(registry.existing_key).toBeDefined();
       expect(registry.node_results).toMatchObject({ source: 'derived' });
     });

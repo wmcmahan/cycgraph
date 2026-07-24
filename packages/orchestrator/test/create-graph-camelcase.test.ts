@@ -59,7 +59,6 @@ describe('createGraph camelCase authoring', () => {
           supervisorConfig: {
             managedNodes: ['a', 'b'],
             maxIterations: 7,
-            completionCondition: '$.done',
           },
         },
       ],
@@ -69,7 +68,6 @@ describe('createGraph camelCase authoring', () => {
     const cfg = graph.nodes[0].supervisor_config!;
     expect(cfg.managed_nodes).toEqual(['a', 'b']);
     expect(cfg.max_iterations).toBe(7);
-    expect(cfg.completion_condition).toBe('$.done');
   });
 
   it('maps deeply nested failurePolicy + circuitBreaker', () => {

@@ -36,10 +36,9 @@ import {
 } from '../runtime-config.js';
 import {
   LESSON_PROVENANCE_KEY,
-  trimLessonProvenance,
-  mergeLessonProvenanceIntoMemory,
+  mergeLessonProvenance,
 } from '../utils/lesson-provenance.js';
-import type { LessonProvenanceRegistry } from '../types/state.js';
+import type { LessonProvenanceRegistry, TaintRegistry } from '../types/state.js';
 import { canTransitionStatus } from './status-transitions.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -85,8 +84,19 @@ export type Reducer = (state: WorkflowState, action: Action) => WorkflowState;
  * log written by a different engine version is replayed through reducers
  * whose semantics may have changed. Bump this whenever a reducer's
  * observable state transitions change.
+ *
+ * History:
+ *  - v2: engine-owned `_*` memory keys promoted to first-class state fields
+ *    (state schema v2) — reducers route wire-format system keys
+ *    (`_taint_registry`, `_lesson_provenance`, `_swarm_handoff_count`,
+ *    `_subgraph_resume_*`) to their fields via a single choke point and drop
+ *    unknown `_` keys fail-closed (`memory_drops` reason `reserved_key`).
+ *    Also: HITL reducers merge `memory_updates` through the same choke point;
+ *    usage-tracking internal reducers sanitize non-finite token/cost values
+ *    to 0; `handoff` merges its `memory_updates` (swarm agent output +
+ *    handoff counter, previously stripped).
  */
-export const REPLAY_VERSION = 1;
+export const REPLAY_VERSION = 2;
 
 /**
  * Derive the logical time of an action from its metadata timestamp.
@@ -119,7 +129,7 @@ export { MAX_SUPERVISOR_HISTORY, MAX_VISITED_NODES, MAX_MEMORY_DROPS };
  */
 export interface MemoryDropRecord {
   key: string;
-  reason: 'oversized' | 'non_serializable';
+  reason: 'oversized' | 'non_serializable' | 'reserved_key';
   bytes?: number;
   node_id?: string;
   timestamp: Date;
@@ -172,42 +182,128 @@ function appendVisited(visited: string[], nodeId: string): string[] {
   return next.length > MAX_VISITED_NODES ? next.slice(-MAX_VISITED_NODES) : next;
 }
 
-/** Well-known memory key for the taint registry (provenance of external data). */
+/**
+ * Coerce a usage payload value to a finite, non-negative number. A `NaN` or
+ * `undefined` from malformed provider usage must not reach the running totals:
+ * a single NaN makes `total_tokens_used` / `total_cost_usd` NaN, and since
+ * every `NaN > budget` comparison is false, budget enforcement would silently
+ * never fire again (same defense as `sanitizeTokens` in utils/pricing.ts).
+ */
+function finiteOr0(n: unknown): number {
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** WIRE key for the taint registry inside action payload `updates`. */
 const TAINT_REGISTRY_KEY = '_taint_registry';
+/** WIRE key for the swarm handoff counter inside handoff `memory_updates`. */
+const SWARM_HANDOFF_COUNT_KEY = '_swarm_handoff_count';
+/** WIRE key prefix for subgraph child checkpoints inside HITL `memory_updates`. */
+const SUBGRAPH_RESUME_PREFIX = '_subgraph_resume_';
 
 /**
- * Merge memory updates into existing memory, treating the taint registry as
- * **append-only**.
- *
- * Security: the taint registry records which memory keys hold untrusted
- * external data. If a node could overwrite `_taint_registry` wholesale, a
- * crafted `update_memory: { _taint_registry: {} }` would clear all taint and
- * let attacker-controlled data masquerade as trusted (bypassing strict_taint
- * routing). Legitimate writers already pass the full existing+new registry,
- * so a merge is correct for them and idempotent; for a malicious clear it
- * preserves every existing entry. Taint can be added, never removed, via a
- * normal memory update.
+ * The system-field portion of a routed memory update, ready to spread
+ * over state. `undefined` fields mean "unchanged".
  */
-function mergeMemory(
-  existing: Record<string, unknown>,
+interface RoutedSystemUpdates {
+  /** User-space updates (no `_`-prefixed keys) — go to `state.memory`. */
+  user: Record<string, unknown>;
+  /** New taint entries — appended to `state.taint_registry`. */
+  taint?: TaintRegistry;
+  /** New provenance entries — appended to `state.lesson_provenance`. */
+  provenance?: LessonProvenanceRegistry;
+  /** Updated swarm handoff counter. */
+  swarmHandoffCount?: number;
+  /** Subgraph checkpoint writes (value `undefined` = clear the stash). */
+  subgraphCheckpoints?: Record<string, unknown>;
+  /** Unknown `_` keys rejected fail-closed. */
+  drops: MemoryDropRecord[];
+}
+
+/**
+ * Route a memory-updates payload into user memory vs engine-owned state
+ * fields. This is THE choke point for the system/user namespace split:
+ *
+ *  - `_taint_registry` / `_lesson_provenance` — legacy wire encodings from
+ *    executors, routed to their state fields, **append-only** (a crafted
+ *    `{ _taint_registry: {} }` cannot clear taint; provenance likewise).
+ *  - `_swarm_handoff_count` / `_subgraph_resume_*` — pattern/control-flow
+ *    wire keys, routed to their state fields.
+ *  - Any OTHER `_`-prefixed key is dropped fail-closed and recorded in
+ *    `memory_drops` with reason `reserved_key` — the underscore namespace is
+ *    reserved for the engine, and an unknown key in it is either a typo or a
+ *    smuggling attempt. Applies uniformly to every memory-merge channel
+ *    (update_memory, merge_parallel_results, handoff, HITL), so a new
+ *    channel can never reopen the hole.
+ */
+function routeSystemUpdates(
   updates: Record<string, unknown>,
-): Record<string, unknown> {
-  const merged = { ...existing, ...updates };
-  if (TAINT_REGISTRY_KEY in updates || TAINT_REGISTRY_KEY in existing) {
-    const prev = (existing[TAINT_REGISTRY_KEY] ?? {}) as Record<string, unknown>;
-    const incoming = (updates[TAINT_REGISTRY_KEY] ?? {}) as Record<string, unknown>;
-    merged[TAINT_REGISTRY_KEY] = { ...prev, ...incoming };
+  nodeId: string | undefined,
+  now: Date,
+): RoutedSystemUpdates {
+  const routed: RoutedSystemUpdates = { user: {}, drops: [] };
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (!key.startsWith('_')) {
+      routed.user[key] = value;
+      continue;
+    }
+    if (key === TAINT_REGISTRY_KEY) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        routed.taint = { ...(routed.taint ?? {}), ...(value as TaintRegistry) };
+      }
+      continue;
+    }
+    if (key === LESSON_PROVENANCE_KEY) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        routed.provenance = { ...(routed.provenance ?? {}), ...(value as LessonProvenanceRegistry) };
+      }
+      continue;
+    }
+    if (key === SWARM_HANDOFF_COUNT_KEY) {
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+        routed.swarmHandoffCount = value;
+      }
+      continue;
+    }
+    if (key.startsWith(SUBGRAPH_RESUME_PREFIX)) {
+      const checkpointNodeId = key.slice(SUBGRAPH_RESUME_PREFIX.length);
+      routed.subgraphCheckpoints = {
+        ...(routed.subgraphCheckpoints ?? {}),
+        [checkpointNodeId]: value,
+      };
+      continue;
+    }
+    routed.drops.push({ key, reason: 'reserved_key', node_id: nodeId, timestamp: now });
+    logger.warn('reserved_memory_key_dropped', { key, node_id: nodeId });
   }
-  // Lesson provenance gets the same append-only treatment: entries are
-  // evidence for eval-gated retention, so a crafted clear must not erase
-  // them. The trim is pure and deterministic (replay-safe); its cap lives
-  // at MAX_LESSON_PROVENANCE_ENTRIES — see the REPLAY WARNING there.
-  if (LESSON_PROVENANCE_KEY in updates || LESSON_PROVENANCE_KEY in existing) {
-    const prev = (existing[LESSON_PROVENANCE_KEY] ?? {}) as LessonProvenanceRegistry;
-    const incoming = (updates[LESSON_PROVENANCE_KEY] ?? {}) as LessonProvenanceRegistry;
-    merged[LESSON_PROVENANCE_KEY] = trimLessonProvenance({ ...prev, ...incoming });
+
+  return routed;
+}
+
+/**
+ * Apply the system-field portion of a routed update to state. Registries
+ * are append-only; checkpoints support explicit clearing.
+ */
+function applySystemUpdates(
+  state: WorkflowState,
+  routed: RoutedSystemUpdates,
+): Pick<WorkflowState, 'taint_registry' | 'lesson_provenance' | 'swarm_handoff_count' | 'subgraph_checkpoints'> {
+  let checkpoints = state.subgraph_checkpoints;
+  if (routed.subgraphCheckpoints) {
+    checkpoints = { ...checkpoints };
+    for (const [nodeId, value] of Object.entries(routed.subgraphCheckpoints)) {
+      if (value === undefined) delete checkpoints[nodeId];
+      else checkpoints[nodeId] = value;
+    }
   }
-  return merged;
+  return {
+    taint_registry: routed.taint
+      ? { ...state.taint_registry, ...routed.taint }
+      : state.taint_registry,
+    lesson_provenance: mergeLessonProvenance(state.lesson_provenance, routed.provenance),
+    swarm_handoff_count: routed.swarmHandoffCount ?? state.swarm_handoff_count,
+    subgraph_checkpoints: checkpoints,
+  };
 }
 
 // ─── Public Reducers ────────────────────────────────────────────────
@@ -222,12 +318,16 @@ export const updateMemoryReducer: Reducer = (state, action) => {
   if (action.type !== 'update_memory') return state;
 
   const { updates } = UpdateMemoryPayloadSchema.parse(action.payload);
-  const { filtered, drops } = filterOversizedValues(updates, action.metadata?.node_id, timeOf(action));
+  const routed = routeSystemUpdates(updates, action.metadata?.node_id, timeOf(action));
+  // Size caps apply to USER memory only — the engine registries are bounded
+  // by their own mechanisms (append-only entries, provenance ring buffer).
+  const { filtered, drops } = filterOversizedValues(routed.user, action.metadata?.node_id, timeOf(action));
 
   return {
     ...state,
-    memory: mergeMemory(state.memory, filtered),
-    memory_drops: appendMemoryDrops(state.memory_drops, drops),
+    memory: { ...state.memory, ...filtered },
+    ...applySystemUpdates(state, routed),
+    memory_drops: appendMemoryDrops(state.memory_drops, [...routed.drops, ...drops]),
     updated_at: timeOf(action),
   };
 };
@@ -252,7 +352,7 @@ export const setStatusReducer: Reducer = (state, action) => {
   if (!lesson_provenance) return transitioned;
   return {
     ...transitioned,
-    memory: mergeLessonProvenanceIntoMemory(transitioned.memory, lesson_provenance),
+    lesson_provenance: mergeLessonProvenance(transitioned.lesson_provenance, lesson_provenance),
   };
 };
 
@@ -284,7 +384,8 @@ export const gotoNodeReducer: Reducer = (state, action) => {
 export const handoffReducer: Reducer = (state, action) => {
   if (action.type !== 'handoff') return state;
 
-  const { node_id, supervisor_id, reasoning, lesson_provenance } = HandoffPayloadSchema.parse(action.payload);
+  const { node_id, supervisor_id, reasoning, lesson_provenance, memory_updates } =
+    HandoffPayloadSchema.parse(action.payload);
 
   const newHistory = [
     ...state.supervisor_history,
@@ -297,6 +398,14 @@ export const handoffReducer: Reducer = (state, action) => {
     },
   ];
 
+  // Swarm handoffs carry the delegating agent's output (plus the incremented
+  // handoff counter) in `memory_updates`. Routed through the same choke point
+  // as `update_memory` — without this merge, the agent's work was silently
+  // dropped and `max_handoffs` never bound.
+  const routed = routeSystemUpdates(memory_updates ?? {}, action.metadata?.node_id, timeOf(action));
+  const { filtered, drops } = filterOversizedValues(routed.user, action.metadata?.node_id, timeOf(action));
+  const systemFields = applySystemUpdates(state, routed);
+
   return {
     ...state,
     current_node: node_id,
@@ -304,9 +413,12 @@ export const handoffReducer: Reducer = (state, action) => {
     supervisor_history: newHistory.length > MAX_SUPERVISOR_HISTORY
       ? newHistory.slice(-MAX_SUPERVISOR_HISTORY)
       : newHistory,
+    memory: { ...state.memory, ...filtered },
+    ...systemFields,
     // Carry the supervisor's injected-fact provenance, append-only, so the
     // facts that shaped this routing decision are attributable to the run.
-    memory: mergeLessonProvenanceIntoMemory(state.memory, lesson_provenance),
+    lesson_provenance: mergeLessonProvenance(systemFields.lesson_provenance, lesson_provenance),
+    memory_drops: appendMemoryDrops(state.memory_drops, [...routed.drops, ...drops]),
     updated_at: timeOf(action),
   };
 };
@@ -328,18 +440,29 @@ export const requestHumanInputReducer: Reducer = (state, action) => {
   const now = timeOf(action);
   const timeout_ms = parsed.timeout_ms || 86_400_000;
 
+  // Extra memory (e.g. a subgraph child checkpoint) goes through the same
+  // routing choke point as every other memory merge: registries stay
+  // append-only and checkpoints land in `subgraph_checkpoints` — where the
+  // per-value size cap deliberately does not apply (a child checkpoint can
+  // legitimately be large). User keys are size-filtered as usual.
+  const routed = routeSystemUpdates(
+    parsed.memory_updates && typeof parsed.memory_updates === 'object' ? parsed.memory_updates : {},
+    action.metadata?.node_id,
+    now,
+  );
+  const { filtered, drops } = filterOversizedValues(routed.user, action.metadata?.node_id, now);
+
   // Guarded: don't move a terminal run into `waiting`.
   return transitionStatus(state, 'waiting', action, {
     waiting_for: (parsed.waiting_for as WaitingReason) || 'human_approval',
     waiting_since: now,
     waiting_timeout_at: new Date(now.getTime() + timeout_ms),
-    memory: {
-      ...state.memory,
-      // Stash extra memory (e.g. a subgraph child checkpoint) before
-      // `_pending_approval` so it cannot overwrite it.
-      ...(parsed.memory_updates && typeof parsed.memory_updates === 'object' ? parsed.memory_updates : {}),
-      _pending_approval: parsed.pending_approval,
-    },
+    memory: { ...state.memory, ...filtered },
+    ...applySystemUpdates(state, routed),
+    // First-class field — structurally outside the blackboard, so
+    // `memory_updates` can never overwrite it.
+    pending_approval: parsed.pending_approval,
+    memory_drops: appendMemoryDrops(state.memory_drops, [...routed.drops, ...drops]),
   });
 };
 
@@ -366,19 +489,21 @@ export const resumeFromHumanReducer: Reducer = (state, action) => {
     Object.assign(memoryUpdates, parsed.memory_updates);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
-  const { _pending_approval, ...restMemory } = state.memory;
+  const routed = routeSystemUpdates(memoryUpdates, action.metadata?.node_id, timeOf(action));
+  const { filtered, drops } = filterOversizedValues(routed.user, action.metadata?.node_id, timeOf(action));
 
   // Guarded: a run that reached a terminal state (e.g. timed out while waiting)
-  // can't be resumed back to `running`.
+  // can't be resumed back to `running`. The routing choke point keeps the
+  // taint / lesson-provenance registries append-only against a crafted
+  // resume payload.
   return transitionStatus(state, 'running', action, {
     waiting_for: undefined,
     waiting_since: undefined,
     waiting_timeout_at: undefined,
-    memory: {
-      ...restMemory,
-      ...memoryUpdates,
-    },
+    pending_approval: undefined,
+    memory: { ...state.memory, ...filtered },
+    ...applySystemUpdates(state, routed),
+    memory_drops: appendMemoryDrops(state.memory_drops, [...routed.drops, ...drops]),
   });
 };
 
@@ -392,7 +517,8 @@ export const mergeParallelResultsReducer: Reducer = (state, action) => {
   if (action.type !== 'merge_parallel_results') return state;
 
   const { updates } = MergeParallelResultsPayloadSchema.parse(action.payload);
-  const { filtered, drops } = filterOversizedValues(updates, action.metadata?.node_id, timeOf(action));
+  const routed = routeSystemUpdates(updates, action.metadata?.node_id, timeOf(action));
+  const { filtered, drops } = filterOversizedValues(routed.user, action.metadata?.node_id, timeOf(action));
 
   // Token accounting is intentionally NOT done here. The runner dispatches a
   // separate `_track_tokens` internal action from `action.metadata.token_usage`
@@ -404,8 +530,9 @@ export const mergeParallelResultsReducer: Reducer = (state, action) => {
   // real budget) while input/output were counted once — an inconsistent state.
   return {
     ...state,
-    memory: mergeMemory(state.memory, filtered),
-    memory_drops: appendMemoryDrops(state.memory_drops, drops),
+    memory: { ...state.memory, ...filtered },
+    ...applySystemUpdates(state, routed),
+    memory_drops: appendMemoryDrops(state.memory_drops, [...routed.drops, ...drops]),
     updated_at: timeOf(action),
   };
 };
@@ -492,9 +619,9 @@ export const internalReducer: Reducer = (state, action) => {
       return transitionStatus(state, 'cancelled', action);
 
     case '_track_tokens': {
-      const tokens = action.payload.tokens as number;
-      const inputTokens = (action.payload.input_tokens as number) ?? 0;
-      const outputTokens = (action.payload.output_tokens as number) ?? 0;
+      const tokens = finiteOr0(action.payload.tokens);
+      const inputTokens = finiteOr0(action.payload.input_tokens);
+      const outputTokens = finiteOr0(action.payload.output_tokens);
       return {
         ...state,
         total_tokens_used: (state.total_tokens_used || 0) + tokens,
@@ -505,7 +632,7 @@ export const internalReducer: Reducer = (state, action) => {
     }
 
     case '_track_cost': {
-      const costUsd = action.payload.cost_usd as number;
+      const costUsd = finiteOr0(action.payload.cost_usd);
       return {
         ...state,
         total_cost_usd: (state.total_cost_usd ?? 0) + costUsd,
@@ -515,9 +642,9 @@ export const internalReducer: Reducer = (state, action) => {
 
     case '_track_model_usage': {
       const model = action.payload.model as string;
-      const inputTokens = (action.payload.input_tokens as number) ?? 0;
-      const outputTokens = (action.payload.output_tokens as number) ?? 0;
-      const costUsd = (action.payload.cost_usd as number) ?? 0;
+      const inputTokens = finiteOr0(action.payload.input_tokens);
+      const outputTokens = finiteOr0(action.payload.output_tokens);
+      const costUsd = finiteOr0(action.payload.cost_usd);
       const prev = state.model_breakdown?.[model] ?? {
         input_tokens: 0,
         output_tokens: 0,

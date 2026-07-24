@@ -55,8 +55,8 @@ export const WorkflowEventSchema = z.object({
   internal_type: z.string().optional(),
   /** Internal payload (for `internal_dispatched` events). */
   internal_payload: z.record(z.string(), z.unknown()).optional(),
-  /** When the event was recorded. */
-  created_at: z.date(),
+  /** When the event was recorded. Coerced — events round-trip through jsonb. */
+  created_at: z.coerce.date(),
 });
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventSchema>;

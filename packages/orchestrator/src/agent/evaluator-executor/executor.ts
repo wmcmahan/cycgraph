@@ -13,6 +13,8 @@ import { generateText, Output } from 'ai';
 import { z } from 'zod';
 import { agentFactory } from '../agent-factory/index.js';
 import { AgentLoadError } from '../agent-factory/errors.js';
+import { AgentExecutionError } from '../agent-executor/errors.js';
+import { classifyRetryable } from '../agent-executor/error-classification.js';
 import { createEvaluatorPrompt, createEvaluatorSystemPrompt } from './prompts.js';
 import { createLogger } from '../../utils/logger.js';
 import { getTracer, withSpan } from '../../utils/tracing.js';
@@ -70,13 +72,24 @@ export async function evaluateQualityExecutor(
 
     logger.info('evaluating', { evaluator_agent_id: evaluatorAgentId, goal_length: goal.length });
 
-    const { output: evaluation, usage } = await generateText({
-      model,
-      system: systemPrompt,
-      prompt,
-      output: Output.object({ schema: EvaluationSchema }),
-      ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
-    });
+    let evaluation: z.infer<typeof EvaluationSchema>;
+    let usage: { totalTokens?: number } | undefined;
+    try {
+      const result = await generateText({
+        model,
+        system: systemPrompt,
+        prompt,
+        output: Output.object({ schema: EvaluationSchema }),
+        ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
+      });
+      evaluation = result.output;
+      usage = result.usage;
+    } catch (error) {
+      // Same taxonomy as agent/supervisor calls: carry the retryable
+      // classification so the runner's retry loop short-circuits a
+      // deterministic 400 instead of re-issuing it max_retries times.
+      throw new AgentExecutionError(evaluatorAgentId, error, undefined, classifyRetryable(error));
+    }
 
     const tokensUsed = usage?.totalTokens ?? 0;
 

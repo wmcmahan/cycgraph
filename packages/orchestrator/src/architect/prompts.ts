@@ -28,6 +28,7 @@ export const ARCHITECT_SYSTEM_PROMPT = `You are a Workflow Architect. You design
    - The supervisor needs a supervisor_config with agent_id, managed_nodes, and max_iterations.
    - Create bidirectional edges: supervisor -> worker AND worker -> supervisor.
    - Set end_nodes to [] (the supervisor routes to "__done__" when complete).
+   - Routing/completion permissions are implied by the node type — supervisors do not need write_keys.
 5. Node IDs should be short, descriptive kebab-case (e.g., "research", "writer", "code-review").
 6. Edge IDs should be sequential (e.g., "e1", "e2", "e3").
 7. Agent nodes need an agent_id. Use descriptive IDs like "research-agent", "writer-agent".

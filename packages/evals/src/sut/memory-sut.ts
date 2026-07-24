@@ -331,12 +331,16 @@ function parseConflictInput(input: string): SemanticFact[] {
   for (const key of ['factA', 'factB']) {
     const value = raw[key];
     if (value === undefined) continue;
+    // Conflict candidates must share an entity id (the detector only
+    // compares facts about the same entity), so both parsed facts carry
+    // the same fixture subject — matching how resolved facts look after
+    // EntityResolver has run.
     if (typeof value === 'string') {
       facts.push({
         id: `f-${key}-${randomUUID()}`,
         content: value,
         source_episode_ids: [],
-        entity_ids: [],
+        entity_ids: ['e-conflict-subject'],
         provenance: { source: 'system', created_at: FIXTURE_NOW },
         valid_from: FIXTURE_PAST,
         tags: [],
@@ -347,7 +351,7 @@ function parseConflictInput(input: string): SemanticFact[] {
         id: `f-${key}-${randomUUID()}`,
         content: typeof obj.content === 'string' ? obj.content : '',
         source_episode_ids: [],
-        entity_ids: [],
+        entity_ids: ['e-conflict-subject'],
         provenance: { source: 'system', created_at: FIXTURE_NOW },
         valid_from: obj.valid_from
           ? new Date(obj.valid_from as string)

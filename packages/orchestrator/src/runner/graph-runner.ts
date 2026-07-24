@@ -20,6 +20,7 @@ import { StreamChannel } from './stream-channel.js';
 import { BudgetMonitor } from './budget-monitor.js';
 import { PersistenceCoordinator } from './persistence-coordinator.js';
 import { validateGraph } from '../validation/graph-validator.js';
+import { effectiveWriteKeys } from '../validation/effective-permissions.js';
 import { ActionSchema } from '../types/state.js';
 import { createLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/context.js';
@@ -530,17 +531,24 @@ export class GraphRunner extends EventEmitter {
    * Bypasses permission checks since these are trusted internal operations.
    */
   private dispatchInternal(type: string, payload: Record<string, unknown> = {}): void {
+    const now = new Date();
     const action: Action = {
       id: uuidv4(),
-      idempotency_key: `_internal:${type}:${Date.now()}`,
+      idempotency_key: `_internal:${type}:${now.getTime()}`,
       type: type as Action['type'],
       payload,
-      metadata: { node_id: '_runner', timestamp: new Date(), attempt: 1 },
+      metadata: { node_id: '_runner', timestamp: now, attempt: 1 },
     };
     this.state = internalReducer(this.state, action);
 
-    // Fire-and-forget: log internal dispatch to event store
-    this.events.append('internal_dispatched', { internal_type: type, internal_payload: payload });
+    // Fire-and-forget: log internal dispatch to event store. The dispatch
+    // timestamp rides in the payload so replay (recover.ts) can reconstruct
+    // the exact `timeOf(action)` the live reducer saw — the event row's
+    // `created_at` is written later and drifts by milliseconds.
+    this.events.append('internal_dispatched', {
+      internal_type: type,
+      internal_payload: { ...payload, _dispatched_at: now.toISOString() },
+    });
   }
 
   /**
@@ -846,7 +854,17 @@ export class GraphRunner extends EventEmitter {
           }
           const skipNext = getNextNode(this.edgeMap, this.nodeMap, currentNode, this.state, this.routingOptions);
           if (!skipNext) {
-            this.dispatchInternal('_complete');
+            // Same dead-end semantics as the main path below: a non-end node
+            // with no matching edge fails loud unless implicit completion was
+            // opted into — a crash-resume must not turn a dead-end into a
+            // silently "completed" partial run.
+            if (this.allowImplicitCompletion) {
+              this.dispatchInternal('_complete');
+            } else {
+              const deadEnd = new NoMatchingEdgeError(currentNode.id);
+              this.dispatchInternal('_fail', { last_error: deadEnd.message });
+              this.lastRunError = deadEnd;
+            }
             await this.persistState();
             yield* this.drainPendingEvents();
             break;
@@ -965,10 +983,13 @@ export class GraphRunner extends EventEmitter {
           );
         }
 
-        // Validate action against permissions. Policy-injected gates are
+        // Validate action against permissions: declared write_keys PLUS the
+        // grants implied by the node's type/config (control-flow tokens for
+        // supervisor/approval/subgraph/swarm, executor-owned result keys for
+        // verifier/reflection/fan-out/tool nodes). Policy-injected gates are
         // SYSTEM actions (not the node's own output), so they intentionally
         // bypass the node's write-key permission check.
-        if (!policyInjected && !validateAction(action, currentNode.write_keys)) {
+        if (!policyInjected && !validateAction(action, effectiveWriteKeys(currentNode))) {
           throw new PermissionDeniedError(`Node ${currentNode.id} tried to write to unauthorized keys`);
         }
 
@@ -1244,9 +1265,28 @@ export class GraphRunner extends EventEmitter {
           timestamp: Date.now(),
         };
       }
+
+      // cancel() dispatches `_cancel` AFTER the loop's last per-step persist,
+      // so without this the durable snapshot would show the run as 'running'
+      // forever. Best-effort — the run is over either way.
+      if (this.state.status === 'cancelled') {
+        await this.persistState().catch((persistError) => {
+          logger.error('cancelled_state_persist_failed', persistError, {
+            run_id: this.state.run_id,
+          });
+        });
+        yield* this.drainPendingEvents();
+      }
     } catch (error) {
-      // If aborted via cancel(), don't overwrite the cancelled status
+      // If aborted via cancel(), don't overwrite the cancelled status — but
+      // DO persist it: the `_cancel` dispatch happened after the last
+      // per-step persist, so the snapshot still says 'running'.
       if (this.abortController.signal.aborted && this.state.status === 'cancelled') {
+        await this.persistState().catch((persistError) => {
+          logger.error('cancelled_state_persist_failed', persistError, {
+            run_id: this.state.run_id,
+          });
+        });
         return;
       }
 
@@ -1396,6 +1436,7 @@ export class GraphRunner extends EventEmitter {
       this.edgeMap,
       this.nodeMap,
       this.routingOptions,
+      { allowImplicitCompletion: this.allowImplicitCompletion },
     );
     this.state = outcome.state;
 

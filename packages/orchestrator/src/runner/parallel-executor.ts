@@ -58,10 +58,15 @@ export interface ParallelExecutionConfig {
 /**
  * Execute tasks in parallel with concurrency control.
  *
- * Tasks are chunked into batches of `maxConcurrency`. Within each
- * batch, all tasks run concurrently. Under `fail_fast`, the first
- * failure aborts the batch. Under `best_effort`, all results
- * (including failures) are collected.
+ * Worker-pool design (not fixed batches): at most `maxConcurrency` tasks
+ * are in flight, and a new task starts as soon as any slot frees up — a
+ * slow task delays only its own slot, not a whole batch. Results are
+ * returned in task order regardless of completion order.
+ *
+ * Under `fail_fast`, the first failure stops the pool from claiming new
+ * tasks; in-flight tasks settle, their results are kept, and the failure
+ * is thrown. Under `best_effort`, every task runs and failures are
+ * collected as unsuccessful results.
  *
  * When `taskTimeoutMs` is set, each task gets an `AbortController`
  * whose signal is aborted on timeout. The `executeFn` receives an
@@ -77,115 +82,98 @@ export async function executeParallel(
   executeFn: (task: ParallelTask, signal?: AbortSignal) => Promise<Action>,
   config: ParallelExecutionConfig,
 ): Promise<ParallelResult[]> {
-  const results: ParallelResult[] = [];
-
-  // Chunk tasks into batches of maxConcurrency
-  const batches: ParallelTask[][] = [];
-  for (let i = 0; i < tasks.length; i += config.maxConcurrency) {
-    batches.push(tasks.slice(i, i + config.maxConcurrency));
-  }
+  // Sparse by index: under fail_fast, unclaimed tasks leave holes that are
+  // compacted before returning (order is preserved via the index).
+  const results: Array<ParallelResult | undefined> = new Array(tasks.length);
+  let failure: Error | null = null;
+  let nextIndex = 0;
+  const limit = Math.max(1, Math.min(config.maxConcurrency, tasks.length || 1));
 
   logger.info('parallel_execution_start', {
     total_tasks: tasks.length,
-    batches: batches.length,
     max_concurrency: config.maxConcurrency,
     error_strategy: config.errorStrategy,
   });
 
-  for (let batchStart = 0; batchStart < tasks.length; batchStart += config.maxConcurrency) {
-    const batch = batches[batchStart / config.maxConcurrency];
+  const runOne = async (taskIndex: number): Promise<void> => {
+    const task = tasks[taskIndex];
+    try {
+      let action: Action;
 
-    const batchPromises = batch.map(async (task, batchIndex): Promise<ParallelResult> => {
-      const taskIndex = batchStart + batchIndex;
+      if (config.taskTimeoutMs) {
+        // Create an AbortController for cooperative cancellation.
+        // The signal is passed to executeFn so LLM calls can be aborted.
+        // Promise.race ensures the timeout rejects immediately even if
+        // executeFn doesn't check the signal (resource leak prevention).
+        const abortController = new AbortController();
+        const timeoutMs = config.taskTimeoutMs;
 
-      try {
-        let action: Action;
-
-        if (config.taskTimeoutMs) {
-          // Create an AbortController for cooperative cancellation.
-          // The signal is passed to executeFn so LLM calls can be aborted.
-          // Promise.race ensures the timeout rejects immediately even if
-          // executeFn doesn't check the signal (resource leak prevention).
-          const abortController = new AbortController();
-          const timeoutMs = config.taskTimeoutMs;
-
-          action = await Promise.race([
-            executeFn(task, abortController.signal),
-            new Promise<never>((_, reject) => {
-              const timeoutId = setTimeout(() => {
-                abortController.abort(new Error(`Task ${taskIndex} (${task.node.id}) timed out after ${timeoutMs}ms`));
-                reject(new Error(`Task ${taskIndex} (${task.node.id}) timed out after ${timeoutMs}ms`));
-              }, timeoutMs);
-              // Clean up timer if the task completes or the signal is aborted first
-              abortController.signal.addEventListener('abort', () => clearTimeout(timeoutId), { once: true });
-            }),
-          ]);
-
-          // Task completed before timeout — abort to clean up the timer
-          if (!abortController.signal.aborted) {
-            abortController.abort();
-          }
-        } else {
-          action = await executeFn(task);
-        }
-
-        const extMetadata = action.metadata as Record<string, unknown>;
-        const tokenUsage = extMetadata?.token_usage as { totalTokens?: number } | undefined;
-
-        return {
-          taskIndex,
-          nodeId: task.node.id,
-          action,
-          success: true,
-          tokensUsed: tokenUsage?.totalTokens,
-        };
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        logger.warn('parallel_task_failed', { task_index: taskIndex, node_id: task.node.id, error: errorMsg });
-
-        return {
-          taskIndex,
-          nodeId: task.node.id,
-          success: false,
-          error: errorMsg,
-        };
-      }
-    });
-
-    if (config.errorStrategy === 'fail_fast') {
-      try {
-        const batchResults = await Promise.all(
-          batchPromises.map(async (p) => {
-            const result = await p;
-            if (!result.success) {
-              throw new Error(`Task ${result.taskIndex} (${result.nodeId}) failed: ${result.error}`);
-            }
-            return result;
+        action = await Promise.race([
+          executeFn(task, abortController.signal),
+          new Promise<never>((_, reject) => {
+            const timeoutId = setTimeout(() => {
+              abortController.abort(new Error(`Task ${taskIndex} (${task.node.id}) timed out after ${timeoutMs}ms`));
+              reject(new Error(`Task ${taskIndex} (${task.node.id}) timed out after ${timeoutMs}ms`));
+            }, timeoutMs);
+            // Clean up timer if the task completes or the signal is aborted first
+            abortController.signal.addEventListener('abort', () => clearTimeout(timeoutId), { once: true });
           }),
-        );
-        results.push(...batchResults);
-      } catch (error) {
-        const settled = await Promise.allSettled(batchPromises);
-        for (const s of settled) {
-          if (s.status === 'fulfilled') results.push(s.value);
+        ]);
+
+        // Task completed before timeout — abort to clean up the timer
+        if (!abortController.signal.aborted) {
+          abortController.abort();
         }
-        throw error;
+      } else {
+        action = await executeFn(task);
       }
-    } else {
-      const settled = await Promise.allSettled(batchPromises);
-      for (const s of settled) {
-        if (s.status === 'fulfilled') {
-          results.push(s.value);
-        }
+
+      const extMetadata = action.metadata as Record<string, unknown>;
+      const tokenUsage = extMetadata?.token_usage as { totalTokens?: number } | undefined;
+
+      results[taskIndex] = {
+        taskIndex,
+        nodeId: task.node.id,
+        action,
+        success: true,
+        tokensUsed: tokenUsage?.totalTokens,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.warn('parallel_task_failed', { task_index: taskIndex, node_id: task.node.id, error: errorMsg });
+
+      results[taskIndex] = {
+        taskIndex,
+        nodeId: task.node.id,
+        success: false,
+        error: errorMsg,
+      };
+
+      if (config.errorStrategy === 'fail_fast' && !failure) {
+        failure = new Error(`Task ${taskIndex} (${task.node.id}) failed: ${errorMsg}`);
       }
     }
-  }
+  };
 
+  const worker = async (): Promise<void> => {
+    while (true) {
+      // fail_fast: stop claiming new tasks once a failure is recorded.
+      if (failure) return;
+      const current = nextIndex++;
+      if (current >= tasks.length) return;
+      await runOne(current);
+    }
+  };
+
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+
+  const compacted = results.filter((r): r is ParallelResult => r !== undefined);
   logger.info('parallel_execution_complete', {
-    total: results.length,
-    successful: results.filter(r => r.success).length,
-    failed: results.filter(r => !r.success).length,
+    total: compacted.length,
+    successful: compacted.filter(r => r.success).length,
+    failed: compacted.filter(r => !r.success).length,
   });
 
-  return results;
+  if (failure) throw failure;
+  return compacted;
 }

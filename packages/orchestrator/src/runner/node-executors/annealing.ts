@@ -84,15 +84,16 @@ export async function executeAnnealingLoop(
     const temperature = config.initial_temperature +
       (config.final_temperature - config.initial_temperature) * progress;
 
-    // Inject annealing metadata into state view
+    // Per-iteration context on the dedicated channel — rendered into the
+    // prompt as `## Task Context` (formerly `_`-prefixed memory keys that
+    // sanitizeForPrompt stripped, so the feedback never reached the LLM).
     const annealingView: StateView = {
       ...stateView,
-      memory: {
-        ...stateView.memory,
-        _annealing_iteration: iter,
-        _annealing_temperature: temperature,
+      taskContext: {
+        annealing_iteration: iter,
+        annealing_temperature: temperature,
         ...(bestAction && iter > 0
-          ? { _annealing_feedback: `Previous best score: ${bestScore}. Improve quality.` }
+          ? { feedback: `Previous best score: ${bestScore}. Improve quality.` }
           : {}),
       },
     };
@@ -101,6 +102,8 @@ export async function executeAnnealingLoop(
     const action = await ctx.deps.executeAgent(agentId, annealingView, tools, attempt, {
       temperatureOverride: temperature,
       nodeId: node.id,
+      idempotencyKey: nodeIdempotencyKey(node, ctx, attempt),
+      grantedWriteKeys: node.write_keys,
       abortSignal: ctx.abortSignal,
       onToken,
       drainTaintEntries: ctx.deps.drainTaintEntries,

@@ -138,18 +138,17 @@ const createState = (overrides: Partial<WorkflowState> = {}): WorkflowState => (
 // ─── Utility Tests ──────────────────────────────────────────────────────
 
 describe('Taint Utilities', () => {
-  test('markTainted stores metadata in _taint_registry', () => {
-    const memory: Record<string, unknown> = { search_result: 'hello' };
+  test('markTainted returns a new registry with the entry (pure)', () => {
+    const registry: TaintRegistry = {};
 
-    markTainted(memory, 'search_result', {
+    const next = markTainted(registry, 'search_result', {
       source: 'mcp_tool',
       tool_name: 'web_search',
       created_at: '2024-01-01T00:00:00.000Z',
     });
 
-    const registry = memory['_taint_registry'] as TaintRegistry;
-    expect(registry).toBeDefined();
-    expect(registry['search_result']).toEqual({
+    expect(registry).toEqual({}); // input untouched
+    expect(next['search_result']).toEqual({
       source: 'mcp_tool',
       tool_name: 'web_search',
       created_at: '2024-01-01T00:00:00.000Z',
@@ -157,31 +156,25 @@ describe('Taint Utilities', () => {
   });
 
   test('isTainted returns true for tainted keys, false for clean ones', () => {
-    const memory: Record<string, unknown> = {
-      clean: 'safe data',
-      dirty: 'external data',
-      _taint_registry: {
-        dirty: { source: 'mcp_tool', tool_name: 'web_search', created_at: '2024-01-01T00:00:00.000Z' },
-      },
+    const registry: TaintRegistry = {
+      dirty: { source: 'mcp_tool', tool_name: 'web_search', created_at: '2024-01-01T00:00:00.000Z' },
     };
 
-    expect(isTainted(memory, 'dirty')).toBe(true);
-    expect(isTainted(memory, 'clean')).toBe(false);
-    expect(isTainted(memory, 'nonexistent')).toBe(false);
+    expect(isTainted(registry, 'dirty')).toBe(true);
+    expect(isTainted(registry, 'clean')).toBe(false);
+    expect(isTainted(registry, 'nonexistent')).toBe(false);
   });
 
-  test('getTaintRegistry returns empty object when no registry exists', () => {
-    const memory: Record<string, unknown> = { foo: 'bar' };
-    expect(getTaintRegistry(memory)).toEqual({});
+  test('getTaintRegistry returns empty object when the state field is absent', () => {
+    expect(getTaintRegistry({ taint_registry: undefined as never })).toEqual({});
   });
 
-  test('getTaintRegistry returns existing registry', () => {
+  test('getTaintRegistry returns the state field', () => {
     const registry: TaintRegistry = {
       key1: { source: 'mcp_tool', tool_name: 'web_search', created_at: '2024-01-01T00:00:00.000Z' },
     };
-    const memory: Record<string, unknown> = { _taint_registry: registry };
 
-    expect(getTaintRegistry(memory)).toEqual(registry);
+    expect(getTaintRegistry({ taint_registry: registry })).toEqual(registry);
   });
 
   test('getTaintInfo returns metadata for tainted key', () => {
@@ -190,23 +183,19 @@ describe('Taint Utilities', () => {
       tool_name: 'browser',
       created_at: '2024-01-01T00:00:00.000Z',
     };
-    const memory: Record<string, unknown> = {
-      _taint_registry: { page_content: meta },
-    };
+    const registry: TaintRegistry = { page_content: meta };
 
-    expect(getTaintInfo(memory, 'page_content')).toEqual(meta);
-    expect(getTaintInfo(memory, 'clean_key')).toBeUndefined();
+    expect(getTaintInfo(registry, 'page_content')).toEqual(meta);
+    expect(getTaintInfo(registry, 'clean_key')).toBeUndefined();
   });
 
-  test('propagateDerivedTaint marks outputs when inputs are tainted', () => {
-    const memory: Record<string, unknown> = {
-      search_result: 'external data',
-      _taint_registry: {
-        search_result: { source: 'mcp_tool', tool_name: 'web_search', created_at: '2024-01-01T00:00:00.000Z' },
-      },
+  test('propagateDerivedTaint marks outputs when readable inputs are tainted', () => {
+    const memory: Record<string, unknown> = { search_result: 'external data' };
+    const registry: TaintRegistry = {
+      search_result: { source: 'mcp_tool', tool_name: 'web_search', created_at: '2024-01-01T00:00:00.000Z' },
     };
 
-    const result = propagateDerivedTaint(memory, ['summary', 'analysis'], 'researcher');
+    const result = propagateDerivedTaint(memory, registry, ['summary', 'analysis'], 'researcher');
 
     expect(result['summary']).toEqual(
       expect.objectContaining({ source: 'derived', agent_id: 'researcher' }),
@@ -217,25 +206,10 @@ describe('Taint Utilities', () => {
   });
 
   test('propagateDerivedTaint returns empty when no inputs are tainted', () => {
-    const memory: Record<string, unknown> = {
-      clean_data: 'safe',
-    };
+    const memory: Record<string, unknown> = { clean_data: 'safe' };
 
-    const result = propagateDerivedTaint(memory, ['output'], 'agent-1');
+    const result = propagateDerivedTaint(memory, {}, ['output'], 'agent-1');
     expect(result).toEqual({});
-  });
-
-  test('propagateDerivedTaint does not taint _taint_registry itself', () => {
-    const memory: Record<string, unknown> = {
-      dirty: 'external',
-      _taint_registry: {
-        dirty: { source: 'mcp_tool', tool_name: 'x', created_at: '2024-01-01T00:00:00.000Z' },
-      },
-    };
-
-    const result = propagateDerivedTaint(memory, ['_taint_registry', 'output'], 'agent-1');
-    expect(result['_taint_registry']).toBeUndefined();
-    expect(result['output']).toBeDefined();
   });
 });
 
@@ -264,12 +238,13 @@ describe('Supervisor — Taint Warnings', () => {
       constraints: [],
       memory: {
         search_result: 'some external data',
-        _taint_registry: {
-          search_result: {
-            source: 'mcp_tool',
-            tool_name: 'web_search',
-            created_at: '2024-01-01T00:00:00.000Z',
-          },
+      },
+      // Scoped taint rides on the dedicated StateView field (schema v2).
+      taint: {
+        search_result: {
+          source: 'mcp_tool' as const,
+          tool_name: 'web_search',
+          created_at: '2024-01-01T00:00:00.000Z',
         },
       },
     };
@@ -418,20 +393,21 @@ describe('GraphRunner — strict_taint routing', () => {
     end_nodes: ['go_node', 'safe_node'],
   });
 
-  const taintedDecision = () => ({
-    decision: 'go',
-    _taint_registry: { decision: { source: 'mcp_tool' as const, tool_name: 'web_search', created_at: new Date().toISOString() } },
+  // Taint lives on the first-class state field (schema v2).
+  const taintedDecisionState = () => createState({
+    memory: { decision: 'go' },
+    taint_registry: { decision: { source: 'mcp_tool' as const, tool_name: 'web_search', created_at: new Date().toISOString() } },
   });
 
   test('default (strict_taint false): routes on the tainted key', async () => {
-    const runner = new GraphRunner(buildBranchGraph(false), createState({ memory: taintedDecision() }));
+    const runner = new GraphRunner(buildBranchGraph(false), taintedDecisionState());
     const final = await runner.run();
     expect(final.visited_nodes).toContain('go_node');
     expect(final.visited_nodes).not.toContain('safe_node');
   });
 
   test('strict_taint true: refuses to route on the tainted key, takes the safe edge', async () => {
-    const runner = new GraphRunner(buildBranchGraph(true), createState({ memory: taintedDecision() }));
+    const runner = new GraphRunner(buildBranchGraph(true), taintedDecisionState());
     const final = await runner.run();
     expect(final.visited_nodes).toContain('safe_node');
     expect(final.visited_nodes).not.toContain('go_node');

@@ -220,7 +220,7 @@ export interface MemoryDroppedEvent {
   /** The memory key that was dropped from the update. */
   key: string;
   /** Why the value was dropped. */
-  reason: 'oversized' | 'non_serializable';
+  reason: 'oversized' | 'non_serializable' | 'reserved_key';
   /** Serialized size in bytes (only set when `reason === 'oversized'`). */
   bytes?: number;
   timestamp: number;

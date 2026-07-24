@@ -51,7 +51,8 @@ const graph = createGraph({
       id: 'review',
       type: 'approval',
       readKeys: ['*'],
-      writeKeys: ['*', 'control_flow'],
+      // The pause permission is implied by the approval type — no writeKeys needed.
+      writeKeys: [],
       approvalConfig: {
         approvalType: 'human_review',
         promptMessage: 'Please review the draft before publication.',
@@ -83,7 +84,7 @@ const runner1 = new GraphRunner(graph, initialState, {
 const pausedState = await runner1.run();
 
 if (pausedState.status === 'waiting') {
-  const pending = pausedState.memory._pending_approval;
+  const pending = pausedState.pending_approval;
   
   // E.g. Send to Slack: 
   // "Please review the draft before publication."

@@ -38,6 +38,10 @@ function toGraphDefinitionJson(graph: Graph): GraphDefinitionJson {
     start_node: graph.start_node,
     end_nodes: graph.end_nodes,
     description: graph.description,
+    // The runner reads this directly off the loaded graph (no re-parse), so
+    // dropping it here would silently downgrade strict taint enforcement to
+    // warn-mode after a persistence round-trip.
+    strict_taint: graph.strict_taint,
   };
 }
 
@@ -74,6 +78,25 @@ export function toWorkflowStateJson(state: WorkflowState): WorkflowStateJson {
     max_execution_time_ms: state.max_execution_time_ms,
     max_iterations: state.max_iterations,
     compensation_stack: state.compensation_stack,
+    // These rows feed `loadLatestWorkflowState` → `hydrateWorkflowState` on
+    // crash recovery: any field omitted here silently resets to its schema
+    // default on resume. `budget_usd` in particular must survive, or a
+    // resumed run continues with NO cost cap.
+    state_schema_version: state.state_schema_version,
+    _last_event_sequence_id: state._last_event_sequence_id,
+    budget_usd: state.budget_usd,
+    _cost_alert_thresholds_fired: state._cost_alert_thresholds_fired,
+    model_breakdown: state.model_breakdown,
+    memory_drops: state.memory_drops,
+    // Engine-owned registries (schema v2) — omitting any of these would
+    // silently reset it on crash recovery (taint/provenance/HITL state lost).
+    taint_registry: state.taint_registry,
+    lesson_provenance: state.lesson_provenance,
+    pending_approval: state.pending_approval,
+    policy_approvals: state.policy_approvals,
+    subgraph_checkpoints: state.subgraph_checkpoints,
+    subgraph_stack: state.subgraph_stack,
+    swarm_handoff_count: state.swarm_handoff_count,
   };
 }
 

@@ -64,6 +64,10 @@ export class InMemoryPersistenceProvider implements PersistenceProvider {
       start_node: graph.start_node,
       end_nodes: graph.end_nodes,
       description: graph.description,
+      // The runner reads this directly off the loaded graph (no re-parse), so
+      // dropping it here would silently downgrade strict taint enforcement to
+      // warn-mode after a persistence round-trip.
+      strict_taint: graph.strict_taint,
     };
     this.graphs.set(graph.id, {
       id: graph.id,
@@ -107,7 +111,9 @@ export class InMemoryPersistenceProvider implements PersistenceProvider {
       status: state.status,
       created_at: existing?.created_at ?? state.created_at ?? new Date(),
       parent_run_id: null,
-      completed_at: isTerminal ? new Date() : null,
+      // Preserve the original completion timestamp on re-saves of an
+      // already-terminal run.
+      completed_at: isTerminal ? (existing?.completed_at ?? new Date()) : null,
       archived_at: existing?.archived_at ?? null,
     });
   }
@@ -132,7 +138,7 @@ export class InMemoryPersistenceProvider implements PersistenceProvider {
     this.runs.set(runId, {
       ...run,
       status,
-      completed_at: TERMINAL_STATUSES.has(status) ? new Date() : null,
+      completed_at: TERMINAL_STATUSES.has(status) ? (run.completed_at ?? new Date()) : null,
     });
     return 1;
   }
@@ -173,6 +179,25 @@ export class InMemoryPersistenceProvider implements PersistenceProvider {
       max_execution_time_ms: state.max_execution_time_ms,
       max_iterations: state.max_iterations,
       compensation_stack: state.compensation_stack,
+      // Keep parity with the full-state snapshot: cost/budget accounting and
+      // runner bookkeeping must survive a round-trip through the JSON shape.
+      state_schema_version: state.state_schema_version,
+      _last_event_sequence_id: state._last_event_sequence_id,
+      total_input_tokens: state.total_input_tokens,
+      total_output_tokens: state.total_output_tokens,
+      total_cost_usd: state.total_cost_usd,
+      budget_usd: state.budget_usd,
+      _cost_alert_thresholds_fired: state._cost_alert_thresholds_fired,
+      model_breakdown: state.model_breakdown,
+      memory_drops: state.memory_drops,
+      // Engine-owned registries (schema v2).
+      taint_registry: state.taint_registry,
+      lesson_provenance: state.lesson_provenance,
+      pending_approval: state.pending_approval,
+      policy_approvals: state.policy_approvals,
+      subgraph_checkpoints: state.subgraph_checkpoints,
+      subgraph_stack: state.subgraph_stack,
+      swarm_handoff_count: state.swarm_handoff_count,
     };
     existing.push({
       version: maxVersion + 1,

@@ -266,7 +266,6 @@ The top-level schema given to the LLM via `Output.object()`:
     agent_id: string,                      // Supervisor agent's config ID
     managed_nodes: string[],               // IDs of worker nodes
     max_iterations: number,                // Default: 10
-    completion_condition?: string,         // Optional expression
   },
   read_keys: string[],                     // Default: ["*"]
   write_keys: string[],                    // Default: []

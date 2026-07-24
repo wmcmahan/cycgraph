@@ -143,3 +143,71 @@ describe('load boundaries hydrate state', () => {
     expect(loaded!.started_at).toEqual(new Date('2026-03-15T12:00:00Z'));
   });
 });
+
+// ─── v1 → v2 migration (engine-owned keys promoted out of memory) ────────
+
+describe('state schema v1 → v2 migration', () => {
+  const v1Snapshot = () => ({
+    state_schema_version: 1,
+    workflow_id: '11111111-1111-4111-8111-111111111111',
+    run_id: '22222222-2222-4222-8222-222222222222',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    goal: 'migrate me',
+    constraints: [],
+    status: 'waiting',
+    memory: {
+      user_key: 'stays',
+      _taint_registry: { user_key: { source: 'mcp_tool', tool_name: 'fetch', created_at: '2026-01-01T00:00:00.000Z' } },
+      _lesson_provenance: { e1: { node_id: 'n', fact_ids: ['f1'], retrieved_at: '2026-01-01T00:00:00.000Z' } },
+      _pending_approval: { node_id: 'review' },
+      _policy_approved: { sink: true },
+      _subgraph_stack: ['g1'],
+      _swarm_handoff_count: 3,
+      '_subgraph_resume_sub-node': { child: 'checkpoint' },
+      _unknown_system_key: 'preserved-not-destroyed',
+    },
+  });
+
+  test('lifts engine-owned keys into first-class fields', () => {
+    const state = hydrateWorkflowState(v1Snapshot());
+
+    expect(state.state_schema_version).toBe(2);
+    expect(state.taint_registry.user_key).toMatchObject({ source: 'mcp_tool' });
+    expect(state.lesson_provenance.e1.fact_ids).toEqual(['f1']);
+    expect(state.pending_approval).toEqual({ node_id: 'review' });
+    expect(state.policy_approvals).toEqual({ sink: true });
+    expect(state.subgraph_stack).toEqual(['g1']);
+    expect(state.swarm_handoff_count).toBe(3);
+    expect(state.subgraph_checkpoints['sub-node']).toEqual({ child: 'checkpoint' });
+  });
+
+  test('cleans lifted keys from memory but never destroys unknown ones', () => {
+    const state = hydrateWorkflowState(v1Snapshot());
+
+    expect(state.memory.user_key).toBe('stays');
+    expect(state.memory._taint_registry).toBeUndefined();
+    expect(state.memory._lesson_provenance).toBeUndefined();
+    expect(state.memory._pending_approval).toBeUndefined();
+    // A migration must not delete data it doesn't understand.
+    expect(state.memory._unknown_system_key).toBe('preserved-not-destroyed');
+  });
+
+  test('a v1 snapshot without system keys migrates to empty defaults', () => {
+    const raw = v1Snapshot();
+    raw.memory = { user_key: 'stays' } as never;
+    const state = hydrateWorkflowState(raw);
+
+    expect(state.state_schema_version).toBe(2);
+    expect(state.taint_registry).toEqual({});
+    expect(state.lesson_provenance).toEqual({});
+    expect(state.subgraph_checkpoints).toEqual({});
+    expect(state.swarm_handoff_count).toBe(0);
+  });
+
+  test('a v2 snapshot passes through unchanged', () => {
+    const v2 = { ...v1Snapshot(), state_schema_version: 2, memory: { user_key: 'x' }, taint_registry: {}, lesson_provenance: {}, policy_approvals: {}, subgraph_checkpoints: {}, subgraph_stack: [], swarm_handoff_count: 1 };
+    const state = hydrateWorkflowState(v2);
+    expect(state.swarm_handoff_count).toBe(1);
+  });
+});

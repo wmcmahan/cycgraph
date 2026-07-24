@@ -59,8 +59,13 @@ export const AgentConfigSchema = z.object({
   provider: z.string(),
   /** System prompt — defines the agent's behaviour and constraints. */
   system: z.string(),
-  /** Sampling temperature (0 = deterministic, 1 = creative). */
-  temperature: z.number().min(0).max(1).default(0.7),
+  /**
+   * Sampling temperature (0 = deterministic). Range 0–2 to match the widest
+   * provider surface (OpenAI, Ollama); Anthropic caps at 1 and a higher value
+   * is rejected by the cross-field check below rather than erroring mid-run
+   * at the API.
+   */
+  temperature: z.number().min(0).max(2).default(0.7),
   /** Maximum tool-call steps before the agent is forced to stop. */
   maxSteps: z.number().min(1).max(50).default(10),
 
@@ -98,12 +103,27 @@ export const AgentConfigSchema = z.object({
   /** Structured tool source declarations. References built-in tools and registered MCP servers by ID. */
   tools: z.array(ToolSourceSchema).default([]),
 
-  // ── Zero Trust Permissions (deny-all by default) ──
+  // ── Permission CEILING (optional — ADR 001) ──
+  //
+  // The graph NODE's read_keys/write_keys are the authoritative grant; these
+  // fields, when present, are a hard cap intersected with the grant ("this
+  // agent may never touch more than X, anywhere"). `undefined` = uncapped.
+  // An EXPLICIT empty array still means deny-all.
 
-  /** Memory keys the agent may read. `['*']` = wildcard. */
-  read_keys: z.array(z.string()).default([]),
-  /** Memory keys the agent may write. `['*']` = wildcard. */
-  write_keys: z.array(z.string()).default([]),
+  /** Memory-key read ceiling. `['*']` = uncapped; `undefined` = uncapped. */
+  read_keys: z.array(z.string()).optional(),
+  /** Memory-key write ceiling. `['*']` = uncapped; `undefined` = uncapped. */
+  write_keys: z.array(z.string()).optional(),
+}).superRefine((config, ctx) => {
+  // Anthropic's API rejects temperature > 1 — fail at config validation, not
+  // mid-run at the provider.
+  if (config.provider === 'anthropic' && config.temperature > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['temperature'],
+      message: `temperature ${config.temperature} exceeds Anthropic's maximum of 1`,
+    });
+  }
 });
 
 /** Inferred TypeScript type for a validated agent config. */

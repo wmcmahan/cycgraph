@@ -74,8 +74,8 @@ const WRITER_ID = registry.register({
   systemPrompt: [
     'You are a creative writer.',
     'Write a poem based on the prompt.',
-    'If `_evolution_parent` is provided, use it as a starting point. The parent scored `_evolution_parent_fitness`—aim to do better.',
-    'Current generation: `_evolution_generation`.',
+    'If `parent` is provided in the Task Context section, use it as a starting point. The parent scored `parent_fitness` — aim to do better.',
+    'Current generation: `generation` in the Task Context.',
   ].join(' '),
   // Temperature is overridden by the evolution node dynamically
   temperature: 1.0, 
@@ -137,9 +137,9 @@ const graph = createGraph({
 
 Each candidate receives the previous generation's winner automatically in its state view. Your candidate agent's system prompt must explicitly address these variables to "mutate" successfully:
 
-> "If `_evolution_parent` is provided, use it as a starting point. The parent scored `_evolution_parent_fitness`—aim to do better. Current generation: `_evolution_generation`."
+> "If `parent` is provided in the Task Context section, use it as a starting point. The parent scored `parent_fitness` — aim to do better. Current generation: `generation`."
 
-The evaluator's critique of the parent is also injected as `_evolution_parent_reasoning` — feed it to your candidate prompt so each generation fixes the *specific* gaps the judge named, rather than mutating blindly.
+The evaluator's critique of the parent is also injected as `parent_reasoning` in the Task Context, so each generation can fix the *specific* gaps the judge named rather than mutating blindly.
 
 ### Elitism
 

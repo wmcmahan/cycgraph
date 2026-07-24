@@ -45,8 +45,6 @@ const LLMSupervisorConfigSchema = z.object({
   managed_nodes: z.array(z.string()),
   /** Maximum routing iterations before auto-completing. */
   max_iterations: z.number().int().min(1).max(1000).default(10),
-  /** Optional expression that triggers early completion. */
-  completion_condition: z.string().optional(),
 });
 
 /** A single node in the LLM-generated graph. */

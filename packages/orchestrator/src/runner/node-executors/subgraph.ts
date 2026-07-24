@@ -10,11 +10,11 @@
  */
 
 import type { GraphNode } from '../../types/graph.js';
-import type { Action, WorkflowState, StateView, TaintMetadata } from '../../types/state.js';
+import type { Action, WorkflowState, StateView, TaintMetadata, TaintRegistry } from '../../types/state.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../utils/logger.js';
 import { NodeConfigError } from '../errors.js';
-import { getTaintInfo, getTaintRegistry, markTainted } from '../../utils/taint.js';
+import { getTaintInfo, markTainted } from '../../utils/taint.js';
 import type { NodeExecutorContext } from './context.js';
 import { nodeIdempotencyKey } from './idempotency-key.js';
 import { SubgraphIncompleteError } from './errors.js';
@@ -80,8 +80,9 @@ export async function executeSubgraphNode(
 
   logger.info('subgraph_executing', { node_id: node.id, subgraph_id: config.subgraph_id });
 
-  // Cycle detection: prevent A → B → A recursion.
-  const subgraphStack = (ctx.state.memory._subgraph_stack as string[]) ?? [];
+  // Cycle detection: prevent A → B → A recursion. First-class state field
+  // (schema v2) — formerly `memory._subgraph_stack`.
+  const subgraphStack = ctx.state.subgraph_stack ?? [];
   if (subgraphStack.includes(config.subgraph_id)) {
     throw new NodeConfigError(node.id, 'subgraph', `non-cyclic graph (cycle: ${[...subgraphStack, config.subgraph_id].join(' -> ')})`);
   }
@@ -101,18 +102,18 @@ export async function executeSubgraphNode(
     throw new NodeConfigError(node.id, 'subgraph', `graph "${config.subgraph_id}"`);
   }
 
-  // Build isolated child memory with mapped inputs
-  const childMemory: Record<string, unknown> = {
-    _subgraph_stack: [...subgraphStack, ctx.graph.id],
-  };
+  // Build isolated child memory with mapped inputs. Taint carries across the
+  // composition boundary on the child's first-class registry: an untrusted
+  // parent value must stay untrusted inside the child, or the child's
+  // sensitive nodes would run ungated. (`stateView.taint` is scoped to this
+  // node's readable keys.)
+  const childMemory: Record<string, unknown> = {};
+  let childTaint: TaintRegistry = {};
   for (const [parentKey, childKey] of Object.entries(config.input_mapping)) {
     if (parentKey in stateView.memory) {
       childMemory[childKey] = stateView.memory[parentKey];
-      // Carry taint across the composition boundary: an untrusted parent value
-      // must stay untrusted inside the child, or the child's sensitive nodes
-      // would run ungated. (`stateView` re-attaches taint for readable keys.)
-      const info = getTaintInfo(stateView.memory, parentKey);
-      if (info) markTainted(childMemory, childKey, info);
+      const info = getTaintInfo(stateView.taint ?? {}, parentKey);
+      if (info) childTaint = markTainted(childTaint, childKey, info);
     }
   }
 
@@ -130,7 +131,7 @@ export async function executeSubgraphNode(
     : undefined;
 
   const childState: WorkflowState = {
-    state_schema_version: 1,
+    state_schema_version: 2,
     workflow_id: config.subgraph_id,
     run_id: uuidv4(),
     created_at: new Date(),
@@ -149,6 +150,13 @@ export async function executeSubgraphNode(
     started_at: undefined,
     max_execution_time_ms: 3_600_000,
     memory: childMemory,
+    taint_registry: childTaint,
+    lesson_provenance: {},
+    policy_approvals: {},
+    subgraph_checkpoints: {},
+    // Ancestor chain for cycle/depth detection in the child (schema v2 field).
+    subgraph_stack: [...subgraphStack, ctx.graph.id],
+    swarm_handoff_count: 0,
     total_tokens_used: 0,
     total_input_tokens: 0,
     total_output_tokens: 0,
@@ -186,11 +194,14 @@ export async function executeSubgraphNode(
   };
 
   // Resume support: a prior run of THIS node paused its child for human
-  // approval (a nested gate) and stashed the child checkpoint here. On resume,
-  // rehydrate it (z.coerce.date revives the JSON-round-tripped Dates) and
-  // forward the human decision instead of starting the child over.
+  // approval (a nested gate) and stashed the child checkpoint in
+  // `state.subgraph_checkpoints` (schema v2 field). On resume, rehydrate it
+  // (z.coerce.date revives the JSON-round-tripped Dates) and forward the
+  // human decision instead of starting the child over. On the wire, the
+  // stash still travels as a `_subgraph_resume_<node>` key inside
+  // `memory_updates`; the reducer routes it to the field.
   const resumeKey = `_subgraph_resume_${node.id}`;
-  const stashed = ctx.state.memory[resumeKey];
+  const stashed = ctx.state.subgraph_checkpoints?.[node.id];
 
   let finalChildState: WorkflowState;
   if (stashed) {
@@ -234,17 +245,18 @@ export async function executeSubgraphNode(
   // boundary: data the child marked untrusted stays untrusted in the parent.
   const outputUpdates: Record<string, unknown> = {};
   const outputTaint: Record<string, TaintMetadata> = {};
+  const childRegistry = finalChildState.taint_registry ?? {};
   for (const [childKey, parentKey] of Object.entries(config.output_mapping)) {
     if (childKey in finalChildState.memory) {
       outputUpdates[parentKey] = finalChildState.memory[childKey];
-      const info = getTaintInfo(finalChildState.memory, childKey);
+      const info = getTaintInfo(childRegistry, childKey);
       if (info) outputTaint[parentKey] = info;
     }
   }
   if (Object.keys(outputTaint).length > 0) {
-    // `_taint_registry` is a system key (excluded from write-key permission
-    // checks), so this is authorized regardless of the node's write_keys.
-    outputUpdates['_taint_registry'] = { ...getTaintRegistry(ctx.state.memory), ...outputTaint };
+    // Wire encoding — only the NEW entries; the reducer's routing choke
+    // point appends them to `state.taint_registry`.
+    outputUpdates['_taint_registry'] = outputTaint;
   }
   // Clear the resume stash now the child has completed.
   if (stashed) outputUpdates[resumeKey] = undefined;

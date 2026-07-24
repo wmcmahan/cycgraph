@@ -293,7 +293,7 @@ reflectionConfig: {
 }
 ```
 
-**2. Pass fact IDs through your retriever and attribute outcomes** — the runner records which facts were injected into each run's prompts (`memory._lesson_provenance`). After scoring the run however you like (evals harness, business KPI, LLM judge), feed the ledger:
+**2. Pass fact IDs through your retriever and attribute outcomes** — the runner records which facts were injected into each run's prompts in the `state.lesson_provenance` field. After scoring the run however you like (evals harness, business KPI, LLM judge), feed the ledger:
 
 ```typescript
 import { getInjectedFactIds } from '@cycgraph/orchestrator';
@@ -366,7 +366,7 @@ Tuning fields on `RetentionPolicySchema`: `decision_rule` (`'inference'` | `'mar
 
 - A retriever adapter that strips `id` from facts records no provenance — gating silently degrades to today's keep-everything behaviour.
 - `candidate_slots: 0` means candidates are never retrieved, never accrue trials, and are held forever.
-- Supervisor-node retrieval **is** provenance-tracked: the supervisor carries a `_lesson_provenance` entry on its `handoff`/`set_status` action and the matching reducer merges it append-only, so facts injected into a routing prompt are attributable to the run's outcome just like agent nodes.
+- Supervisor-node retrieval **is** provenance-tracked: the supervisor carries a provenance entry on its `handoff`/`set_status` action and the matching reducer merges it append-only into `state.lesson_provenance`, so facts injected into a routing prompt are attributable to the run's outcome just like agent nodes.
 
 ## Runnable examples
 

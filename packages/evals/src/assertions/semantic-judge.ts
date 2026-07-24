@@ -274,6 +274,18 @@ export function parseJudgeResponse(raw: string): JudgeResponse {
 
     return { score, reasoning };
   } catch {
+    // The judge sometimes emits invalid JSON: its reasoning string quotes
+    // values verbatim (e.g. conflict_types (["negation"])), and the unescaped
+    // quotes break JSON.parse. The numeric score field itself is still
+    // well-formed, so salvage it by regex rather than zeroing the verdict.
+    const scoreMatch = jsonMatch[0].match(/"score"\s*:\s*(-?\d+(?:\.\d+)?)/);
+    if (scoreMatch) {
+      const salvaged = Math.max(0, Math.min(1, parseFloat(scoreMatch[1])));
+      return {
+        score: salvaged,
+        reasoning: `Salvaged score from malformed judge JSON: ${raw.slice(0, 200)}`,
+      };
+    }
     return { score: 0, reasoning: `Failed to parse judge JSON: ${raw.slice(0, 200)}` };
   }
 }

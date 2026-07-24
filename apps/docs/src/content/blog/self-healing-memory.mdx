@@ -81,7 +81,7 @@ you can audit the scoring rather than take our word for it.
 Three small pieces, none of them magic:
 
 **Provenance.** The runner records which fact IDs were injected into each run's
-prompts, in an append-only `_lesson_provenance` registry on the workflow state. After
+prompts, in an append-only `lesson_provenance` registry on the workflow state. After
 a run, `getInjectedFactIds(finalState)` tells you exactly which lessons participated.
 
 **A ledger.** You score the run however you like — a rubric, a business KPI, an LLM

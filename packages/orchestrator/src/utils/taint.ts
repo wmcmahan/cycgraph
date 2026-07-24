@@ -1,111 +1,82 @@
 /**
  * Taint Tracking Utilities
  *
- * Manages a taint registry stored at `memory._taint_registry`.
- * External data (MCP tool results, etc.) is marked as tainted so
- * downstream consumers (supervisors, agents) know not to trust it
- * for routing decisions or security-sensitive operations.
+ * Operates on the `WorkflowState.taint_registry` field (schema v2 —
+ * formerly stashed at `memory._taint_registry`). External data (MCP tool
+ * results, etc.) is marked as tainted so downstream consumers
+ * (supervisors, agents, the security policy, strict_taint routing) know
+ * not to trust it.
  *
- * The registry key `_taint_registry` is protected by the existing
- * agent-executor rule that blocks writes to keys starting with `_`.
+ * The registry lives on state as a first-class field, so state slicing
+ * excludes it structurally — no prefix conventions involved. Inside
+ * ACTION payloads the wire encoding keeps the legacy `_taint_registry`
+ * key; reducers route it to the state field (append-only).
+ *
+ * All functions here are pure — registries are values, never mutated.
  *
  * @module utils/taint
  */
 
-import type { TaintMetadata, TaintRegistry } from '../types/state.js';
-
-/** Well-known memory key for the taint registry. */
-const TAINT_REGISTRY_KEY = '_taint_registry';
+import type { TaintMetadata, TaintRegistry, WorkflowState } from '../types/state.js';
 
 /**
- * Mark a memory key as tainted with source metadata.
- *
- * Mutates `memory` in place by writing the updated registry back to
- * `memory._taint_registry`.
- *
- * @param memory - Workflow memory object.
- * @param key - Memory key to mark as tainted.
- * @param meta - Provenance metadata for the tainted value.
- */
-export function markTainted(
-  memory: Record<string, unknown>,
-  key: string,
-  meta: TaintMetadata,
-): void {
-  const registry = getTaintRegistry(memory);
-  registry[key] = meta;
-  memory[TAINT_REGISTRY_KEY] = registry;
-}
-
-/**
- * Check if a memory key is tainted.
- *
- * @param memory - Workflow memory object.
- * @param key - Memory key to check.
- * @returns `true` if the key has an entry in the taint registry.
- */
-export function isTainted(
-  memory: Record<string, unknown>,
-  key: string,
-): boolean {
-  const registry = getTaintRegistry(memory);
-  return key in registry;
-}
-
-/**
- * Get the full taint registry from memory.
- *
- * Returns an empty object if no registry exists or the stored value
- * is not a plain object.
- *
- * @param memory - Workflow memory object.
- * @returns The taint registry (may be empty).
+ * Read the taint registry from workflow state. Returns an empty registry
+ * when absent (e.g. a hand-built state that skipped schema defaults).
  */
 export function getTaintRegistry(
-  memory: Record<string, unknown>,
+  state: Pick<WorkflowState, 'taint_registry'>,
 ): TaintRegistry {
-  const raw = memory[TAINT_REGISTRY_KEY];
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return raw as TaintRegistry;
-  }
-  return {};
+  return state.taint_registry ?? {};
 }
 
 /**
- * Get taint metadata for a specific memory key.
- *
- * @param memory - Workflow memory object.
- * @param key - Memory key to look up.
- * @returns Taint metadata, or `undefined` if the key is not tainted.
+ * Return a new registry with `key` marked tainted. Pure — the input
+ * registry is never mutated (state changes only happen through reducers).
  */
+export function markTainted(
+  registry: TaintRegistry,
+  key: string,
+  meta: TaintMetadata,
+): TaintRegistry {
+  return { ...registry, [key]: meta };
+}
+
+/** Check if a key has an entry in the taint registry. */
+export function isTainted(registry: TaintRegistry, key: string): boolean {
+  // Object.hasOwn, not `in`: a key named `constructor`/`toString`
+  // must not read as tainted via the prototype chain.
+  return Object.hasOwn(registry, key);
+}
+
+/** Get taint metadata for a key, or `undefined` if not tainted. */
 export function getTaintInfo(
-  memory: Record<string, unknown>,
+  registry: TaintRegistry,
   key: string,
 ): TaintMetadata | undefined {
-  const registry = getTaintRegistry(memory);
-  return registry[key];
+  return Object.hasOwn(registry, key) ? registry[key] : undefined;
 }
 
 /**
- * Propagate taint from input memory keys to output keys.
+ * Propagate taint from readable input keys to output keys.
  *
  * If **any** of the agent's readable memory keys are tainted, all
  * `outputKeys` are marked as `derived`-tainted (the agent may have
  * incorporated tainted data into its output).
  *
- * @param memory - Workflow memory object.
+ * @param readableMemory - The memory slice the agent could read (its state view).
+ * @param registry - Taint registry scoped to those readable keys.
  * @param outputKeys - Memory keys written by the agent.
  * @param agentId - ID of the agent that produced the outputs.
  * @returns Partial taint registry with only the new entries (empty if no taint propagated).
  */
 export function propagateDerivedTaint(
-  memory: Record<string, unknown>,
+  readableMemory: Record<string, unknown>,
+  registry: TaintRegistry,
   outputKeys: string[],
   agentId: string,
 ): TaintRegistry {
-  const registry = getTaintRegistry(memory);
-  const hasTaintedInputs = Object.keys(memory).some(
-    k => k in registry && k !== TAINT_REGISTRY_KEY,
+  const hasTaintedInputs = Object.keys(readableMemory).some(
+    k => Object.hasOwn(registry, k),
   );
 
   if (!hasTaintedInputs) {
@@ -116,7 +87,6 @@ export function propagateDerivedTaint(
   const now = new Date().toISOString();
 
   for (const key of outputKeys) {
-    if (key === TAINT_REGISTRY_KEY) continue;
     newEntries[key] = {
       source: 'derived',
       agent_id: agentId,
@@ -132,8 +102,8 @@ export function propagateDerivedTaint(
  * output keys.
  *
  * The fan-out executors (map / voting / evolution) bury each worker's memory
- * updates — including any `_taint_registry` the worker produced from MCP or
- * derived taint — under fresh parent keys (e.g. `${node}_results`,
+ * updates — including any wire-format `_taint_registry` the worker produced
+ * from MCP or derived taint — under fresh parent keys (e.g. `${node}_results`,
  * `${node}_consensus`, `${node}_winner`). Without re-surfacing that taint, the
  * parent state records the aggregate key as trusted even though it holds data
  * derived from untrusted worker output, and downstream routing / taint gating
@@ -161,7 +131,7 @@ export function aggregateParallelTaint(
   let anyTainted = false;
   for (const updates of workerUpdates) {
     if (!updates || typeof updates !== 'object') continue;
-    const registry = updates[TAINT_REGISTRY_KEY];
+    const registry = updates['_taint_registry'];
     if (
       registry &&
       typeof registry === 'object' &&
@@ -180,7 +150,6 @@ export function aggregateParallelTaint(
   const newEntries: TaintRegistry = {};
   const now = new Date().toISOString();
   for (const key of aggregateKeys) {
-    if (key === TAINT_REGISTRY_KEY) continue;
     newEntries[key] = {
       source: 'derived',
       agent_id: nodeId,

@@ -12,7 +12,7 @@
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/human-in-the-loop/human-in-the-loop.ts
  */
 
-import * as readline from 'node:readline/promises';
+import * as readline from 'node:readline';
 import {
   GraphRunner,
   InMemoryPersistenceProvider,
@@ -191,8 +191,63 @@ function createRunner(state: WorkflowState): GraphRunner {
 
 // ─── 5. Interactive prompt ───────────────────────────────────────────────
 
-async function promptHuman(draft: string): Promise<HumanResponse> {
+/**
+ * Line-queue prompter over stdin.
+ *
+ * `readline.question()` alone loses input when stdin is a pipe: lines that
+ * arrive between two questions are emitted with no listener armed and are
+ * silently dropped, and when stdin hits EOF while a question is pending the
+ * promise never settles — the event loop drains and the process exits 0
+ * mid-workflow. This wrapper buffers every line as it arrives and rejects
+ * pending asks on EOF, so both `printf 'yes\n\n' | tsx ...` and interactive
+ * terminal use behave correctly.
+ */
+function createPrompter() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const buffered: string[] = [];
+  const waiters: Array<{ resolve: (line: string) => void; reject: (err: Error) => void }> = [];
+  let closed = false;
+
+  rl.on('line', (line) => {
+    const waiter = waiters.shift();
+    if (waiter) {
+      // Interactive terminals echo typed input natively; echo piped input
+      // ourselves so the transcript shows the consumed answer either way.
+      if (!process.stdin.isTTY) process.stdout.write(`${line}\n`);
+      waiter.resolve(line);
+    } else {
+      buffered.push(line);
+    }
+  });
+
+  rl.on('close', () => {
+    closed = true;
+    for (const waiter of waiters.splice(0)) {
+      waiter.reject(new Error('stdin closed before an answer was received'));
+    }
+  });
+
+  return {
+    ask(prompt: string): Promise<string> {
+      process.stdout.write(prompt);
+      const queued = buffered.shift();
+      if (queued !== undefined) {
+        if (!process.stdin.isTTY) process.stdout.write(`${queued}\n`);
+        return Promise.resolve(queued);
+      }
+      if (closed) {
+        return Promise.reject(new Error('stdin closed before an answer was received'));
+      }
+      return new Promise((resolve, reject) => waiters.push({ resolve, reject }));
+    },
+    close(): void {
+      rl.close();
+    },
+  };
+}
+
+async function promptHuman(draft: string): Promise<HumanResponse> {
+  const prompter = createPrompter();
 
   try {
     console.log('\n╔══════════════════════════════════════════╗');
@@ -202,24 +257,24 @@ async function promptHuman(draft: string): Promise<HumanResponse> {
     console.log(draft);
     console.log('\n──────────────────────────────────────────');
 
-    const answer = await rl.question('\nApprove this draft? (yes/no): ');
+    const answer = await prompter.ask('\nApprove this draft? (yes/no): ');
     const approved = answer.trim().toLowerCase().startsWith('y');
 
     if (approved) {
-      const feedback = await rl.question('Any feedback for the publisher? (press Enter to skip): ');
+      const feedback = await prompter.ask('Any feedback for the publisher? (press Enter to skip): ');
       return {
         decision: 'approved',
         data: feedback || 'Approved without changes.',
       };
     } else {
-      const reason = await rl.question('Reason for rejection: ');
+      const reason = await prompter.ask('Reason for rejection: ');
       return {
         decision: 'rejected',
         data: reason || 'Rejected by reviewer.',
       };
     }
   } finally {
-    rl.close();
+    prompter.close();
   }
 }
 
@@ -239,7 +294,7 @@ async function main() {
     }
 
     // Show the pending approval details
-    const pending = pausedState.memory._pending_approval as {
+    const pending = pausedState.pending_approval as {
       prompt_message: string;
       review_data: Record<string, unknown>;
     };

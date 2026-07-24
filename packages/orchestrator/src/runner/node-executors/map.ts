@@ -57,6 +57,7 @@ export async function executeWorkerWithStateView(
       const abortSignal = combineAbortSignals(ctx.abortSignal, taskSignal);
       return ctx.deps.executeAgent(agentId, stateView, tools, attempt, {
         nodeId: node.id,
+        grantedWriteKeys: node.write_keys,
         abortSignal,
         onToken,
         drainTaintEntries: ctx.deps.drainTaintEntries,
@@ -168,15 +169,18 @@ export async function executeMapNode(
     throw new NodeConfigError(node.id, 'map', `worker node "${config.worker_node_id}"`);
   }
 
+  // Per-item context rides on the dedicated taskContext channel and is
+  // rendered into the worker's prompt as a `## Task Context` section.
+  // (Formerly `_map_*` memory keys, which sanitizeForPrompt stripped —
+  // workers never actually saw their item.)
   const tasks: ParallelTask[] = items.map((item, index) => ({
     node: workerNode,
     stateView: {
       ...stateView,
-      memory: {
-        ...stateView.memory,
-        _map_item: item,
-        _map_index: index,
-        _map_total: items.length,
+      taskContext: {
+        map_item: item,
+        map_index: index,
+        map_total: items.length,
       },
     },
     inputItem: item,
