@@ -1,5 +1,17 @@
 # @cycgraph/orchestrator
 
+## 0.9.0
+
+### Minor Changes
+
+- c5b4a94: Agent registry permissions become an optional ceiling (ADR 001). The graph node's `read_keys`/`write_keys` are now the authoritative grant; a registry entry's `permissions` block, when present, is a hard cap intersected with the grant (`intersectWriteGrant()`, `'*'` on either side defers to the other). A registry entry without a `permissions` block is uncapped — the node's grant alone governs — while an explicit empty block still means deny-all. The agent executor validates writes and routes text output against the effective (intersected) permission, which also fixes a silent output drop when a broadly-registered agent ran on a narrowly-granted node, and applies a declared read ceiling as a narrowing filter over the node-sliced state view. Breaking: `AgentConfigSchema.read_keys`/`write_keys` are now optional (`undefined` = uncapped), and `permissions: null` registry entries change meaning from deny-all to uncapped; hosts relying on null-as-deny-all should register explicit empty permission lists.
+- c5b4a94: Write permissions are now partially derived instead of fully hand-written. Node types imply their control-flow grants (supervisor: `handoff` + completion, approval/subgraph: HITL pause, swarm-config agents: peer handoff), and executor-owned result keys are implied by node config (verifier result pair, reflection envelope, tool `${id}_result`, map/voting/evolution aggregates). The `control_flow`/`status` pseudo-keys and result keys no longer need to appear in `write_keys` — declared keys remain the authority for what the node's agent writes, and redundant declarations stay valid. The derivation is exported as `effectiveWriteKeys()` / `impliedActionPermissions()` / `impliedResultKeys()`. `validateGraph` gains a dangling-read warning for `read_keys` entries nothing in the graph can produce, and drops the now-obsolete errors requiring pseudo-keys and result keys in `write_keys`.
+- c5b4a94: State schema v2: engine-owned data moves out of the memory blackboard into first-class `WorkflowState` fields (`taint_registry`, `lesson_provenance`, `pending_approval`, `policy_approvals`, `subgraph_checkpoints`, `subgraph_stack`, `swarm_handoff_count`). Persisted v1 snapshots migrate automatically on load via `hydrateWorkflowState`. Reducers route the wire-format `_taint_registry` / `_lesson_provenance` payload keys to the new fields through a single choke point and drop unknown `_`-prefixed memory keys fail-closed (recorded in `memory_drops` with reason `reserved_key`).
+
+  Compound-pattern executors (map, voting, evolution, annealing, swarm) now deliver per-invocation inputs through a new `StateView.taskContext` channel, rendered into prompts as a `## Task Context` section. This fixes a latent bug where the old `_`-prefixed context keys were stripped from prompts by injection sanitization, so workers never saw their map item, evolution candidates never saw their parent or its critique, and annealing feedback never reached the LLM.
+
+  Breaking API changes: taint utilities are now registry-centric (`getTaintRegistry(state)`, pure `markTainted(registry, key, meta)`, `propagateDerivedTaint(memory, registry, outputKeys, agentId)`); HITL consumers read `state.pending_approval` instead of `memory._pending_approval`; swarm agents delegate via the writable `peer_delegation` memory key (the old `_peer_delegation` was unwritable by real agents) and swarm nodes require `control_flow` in `write_keys`.
+
 ## 0.8.0
 
 ### Minor Changes
