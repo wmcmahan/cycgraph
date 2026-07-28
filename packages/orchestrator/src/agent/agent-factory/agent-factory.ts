@@ -100,11 +100,12 @@ export class AgentFactory {
   }
 
   /**
-   * Build a default agent config with deny-all permissions.
+   * Build a default agent config with a deny-all permission CEILING.
    *
    * Used as a fallback when the agent is not in the registry or the
-   * registry is not configured. Deny-all (`read_keys: [], write_keys: []`)
-   * ensures the agent cannot read or write any memory keys.
+   * registry is not configured. The EXPLICIT empty ceiling stays deny-all
+   * under ADR 001 semantics — an unknown/unregistered agent must not gain
+   * write access from a node grant.
    *
    * @param agent_id - The ID to assign to the default config.
    * @returns A validated {@link AgentConfig} with sensible defaults.
@@ -175,9 +176,9 @@ export class AgentFactory {
         throw new AgentNotFoundError(agent_id);
       }
 
-      // Permissions are nullable — default to deny-all
-      const permissions = dbAgent.permissions ?? { read_keys: [], write_keys: [] };
-
+      // Permissions are an optional CEILING (ADR 001): absent → uncapped
+      // (the node's grant alone governs); present → intersected with the
+      // node's grant, and an EXPLICIT empty list still means deny-all.
       const config: AgentConfig = {
         id: dbAgent.id,
         name: dbAgent.name,
@@ -190,8 +191,12 @@ export class AgentFactory {
         tools: dbAgent.tools,
         ...(dbAgent.provider_options ? { providerOptions: { [dbAgent.provider]: dbAgent.provider_options } } : {}),
         ...(dbAgent.model_preference ? { model_preference: dbAgent.model_preference } : {}),
-        read_keys: permissions.read_keys ?? [],
-        write_keys: permissions.write_keys ?? [],
+        ...(dbAgent.permissions
+          ? {
+              read_keys: dbAgent.permissions.read_keys ?? [],
+              write_keys: dbAgent.permissions.write_keys ?? [],
+            }
+          : {}),
       };
 
       const validated = AgentConfigSchema.parse(config);

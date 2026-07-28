@@ -22,7 +22,7 @@ The exclusion list is hard for a regex engine: the candidate has to encode a neg
 Rather than fight that with synthetic tasks, this example **runs all `max_generations` regardless of fitness** (the threshold is set above 1.0). The visible output is then:
 
 - 4 generations × 4 candidates = 16 parallel LLM calls
-- Parent regex and per-test reasoning propagated to every subsequent generation via `_evolution_parent` / `_evolution_parent_reasoning`
+- Parent regex and per-test reasoning propagated to every subsequent generation via the `parent` / `parent_reasoning` Task Context fields
 - Temperature annealed from 1.0 to 0.3 across generations
 - Deterministic fitness function called for every candidate
 - Cost-tracking that aggregates across all generations

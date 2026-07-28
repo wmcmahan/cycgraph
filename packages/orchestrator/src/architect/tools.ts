@@ -59,7 +59,10 @@ export const architectToolDefinitions: Record<string, ToolDefinition> = {
       'Returns a Graph JSON for review. Pass current_graph to modify an existing workflow.',
     parameters: z.object({
       prompt: z.string().describe('Natural language description of the workflow to create or change to make'),
-      currentGraph: z.record(z.string(), z.unknown()).optional().describe('Optional: existing graph JSON to modify'),
+      // snake_case: LLM-facing tool arg schemas are wire format (and this must
+      // match DraftWorkflowArgsSchema — the handler's parse silently strips a
+      // mismatched key, which turned every modification into a from-scratch draft).
+      current_graph: z.record(z.string(), z.unknown()).optional().describe('Optional: existing graph JSON to modify'),
     }),
   },
 
@@ -173,9 +176,24 @@ async function handleDraftWorkflow(args: Record<string, unknown>) {
 
   logger.info('tool_draft', { prompt: prompt.slice(0, 80) });
 
+  // Validate the agent-supplied graph before modification mode — a malformed
+  // object would crash graphToLLMSnapshot mid-call. Surface the errors to the
+  // LLM as a tool result it can act on instead.
+  let validatedCurrent: Graph | undefined;
+  if (currentGraph) {
+    const parsed = GraphSchema.safeParse(currentGraph);
+    if (!parsed.success) {
+      return {
+        error: 'current_graph is not a valid Graph — fix it or omit it to draft from scratch.',
+        validation_errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).slice(0, 10),
+      };
+    }
+    validatedCurrent = parsed.data;
+  }
+
   const result = await generateWorkflow({
     prompt,
-    currentGraph: currentGraph as Graph | undefined,
+    currentGraph: validatedCurrent,
   });
 
   return {

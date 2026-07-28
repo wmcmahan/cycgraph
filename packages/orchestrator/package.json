@@ -57,7 +57,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "check:pricing": "tsx scripts/check-model-pricing.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.76",

@@ -93,19 +93,17 @@ describe('Default MCP Servers', () => {
     });
 
     test('does not mutate original server entries', async () => {
-      const originalEnv = WEB_SEARCH_SERVER.transport.type === 'stdio'
-        ? { ...WEB_SEARCH_SERVER.transport.env }
-        : {};
-
       await registerDefaultMCPServers(registry, {
         braveApiKey: 'BSA-override',
         allowedAgents: ['agent-x'],
       });
 
-      // Original should be unchanged
+      // Original should be unchanged: no allowed_agents applied, and no env
+      // injected (the constant deliberately carries no BRAVE_API_KEY — the
+      // key is injected only into the registered copy).
       expect(WEB_SEARCH_SERVER.allowed_agents).toBeUndefined();
       if (WEB_SEARCH_SERVER.transport.type === 'stdio') {
-        expect(WEB_SEARCH_SERVER.transport.env).toEqual(originalEnv);
+        expect(WEB_SEARCH_SERVER.transport.env).toBeUndefined();
       }
     });
 

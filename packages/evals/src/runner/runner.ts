@@ -24,6 +24,7 @@
 
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { createAnthropicProvider } from '../providers/anthropic.js';
 import { createOllamaProvider } from '../providers/ollama.js';
 import { createOpenAIProvider } from '../providers/openai.js';
 import { computeDrift } from '../assertions/drift-calculator.js';
@@ -51,10 +52,16 @@ interface DeterministicSuiteModule {
 // ─── Provider Selection ────────────────────────────────────────────
 
 function selectProvider(config: EvalRunConfig): EvalProvider {
-  if (config.mode === 'ci') {
-    return createOpenAIProvider();
+  switch (config.judgeProvider) {
+    case 'anthropic':
+      return createAnthropicProvider();
+    case 'openai':
+      return createOpenAIProvider();
+    case 'ollama':
+      return createOllamaProvider();
+    default:
+      return config.mode === 'ci' ? createOpenAIProvider() : createOllamaProvider();
   }
-  return createOllamaProvider();
 }
 
 /** Default sample count when the caller doesn't override it. */
@@ -348,6 +355,7 @@ async function main(): Promise<void> {
       baseline: { type: 'boolean', default: false },
       'deterministic-only': { type: 'boolean', default: false },
       'sut-model': { type: 'string' },
+      provider: { type: 'string' },
       'baseline-noise-floor': { type: 'string' },
       commit: { type: 'string' },
     },
@@ -372,6 +380,10 @@ async function main(): Promise<void> {
     deterministicOnly: Boolean(values['deterministic-only']),
     sutModel:
       typeof values['sut-model'] === 'string' ? values['sut-model'] : undefined,
+    judgeProvider:
+      values.provider === 'anthropic' || values.provider === 'openai' || values.provider === 'ollama'
+        ? values.provider
+        : undefined,
     baselineNoiseFloor: noiseFloor,
     commit: typeof values.commit === 'string' ? values.commit : undefined,
   });

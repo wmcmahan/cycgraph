@@ -23,6 +23,7 @@
 import { compileExpression } from 'filtrex';
 import type { Graph, GraphNode, GraphEdge } from '../types/graph.js';
 import { FILTREX_COMPILE_OPTIONS, normalizeConditionExpression } from '../utils/condition-expression.js';
+import { impliedResultKeys } from './effective-permissions.js';
 
 /**
  * Result of a graph validation pass.
@@ -145,6 +146,20 @@ export function validateGraph(graph: Graph): ValidationResult {
           `Edge '${edge.id}': condition expression '${edge.condition.condition}' has syntax error: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
+
+      // filtrex has NO boolean literals: a bare `true`/`false` resolves as an
+      // unknown property → undefined. `memory.flag == true` then compares
+      // undefined == undefined and matches when the key is MISSING — the
+      // exact opposite of the author's intent. Warn at load time. (Quoted
+      // strings are stripped first so `memory.s == 'true'` doesn't trip it.)
+      const unquoted = edge.condition.condition.replace(/"[^"]*"|'[^']*'/g, '');
+      if (/\b(true|false)\b/.test(unquoted)) {
+        warnings.push(
+          `Edge '${edge.id}': condition uses a bare 'true'/'false' — filtrex has no boolean literals, ` +
+          `so it resolves to undefined (and 'x == true' matches when x is MISSING). ` +
+          `Use the bare truthy check ('memory.flag'), or compare against 1/0 or a string value.`,
+        );
+      }
     }
 
     if (nodeMap.has(edge.source)) {
@@ -169,6 +184,13 @@ export function validateGraph(graph: Graph): ValidationResult {
   }
 
   // ── Reachability (BFS with index pointer for O(1) dequeue) ───────────
+  //
+  // Traverses explicit edges PLUS implicit control-flow references: a
+  // supervisor reaches its managed nodes via handoff, a map node fans out to
+  // its worker/synthesizer, swarm peers hand off to each other, and an
+  // approval gate routes to its rejection node — none of which require an
+  // explicit edge. Without these, correctly-wired compound nodes generate
+  // false "unreachable" warnings that teach authors to ignore warnings.
 
   const reachable = new Set<string>();
   const queue: string[] = [graph.start_node];
@@ -187,6 +209,14 @@ export function validateGraph(graph: Graph): ValidationResult {
         }
       }
     }
+    const node = nodeMap.get(current);
+    if (node) {
+      for (const target of implicitTargets(node)) {
+        if (nodeMap.has(target) && !reachable.has(target)) {
+          queue.push(target);
+        }
+      }
+    }
   }
 
   for (const node of graph.nodes) {
@@ -197,11 +227,59 @@ export function validateGraph(graph: Graph): ValidationResult {
 
   // ── Dead-end detection ───────────────────────────────────────────────
 
+  // Map workers/synthesizers return control to their map node implicitly —
+  // having no outgoing edges is their normal shape, not a dead end.
+  const implicitReturnNodes = new Set<string>();
+  for (const node of graph.nodes) {
+    if (node.map_reduce_config) {
+      implicitReturnNodes.add(node.map_reduce_config.worker_node_id);
+      if (node.map_reduce_config.synthesizer_node_id) {
+        implicitReturnNodes.add(node.map_reduce_config.synthesizer_node_id);
+      }
+    }
+  }
+
   for (const node of graph.nodes) {
     if (endNodeSet.has(node.id)) continue;
+    if (implicitReturnNodes.has(node.id)) continue;
     const edges = outgoingEdges.get(node.id);
     if (!edges || edges.length === 0) {
       warnings.push(`Node '${node.id}' has no outgoing edges and is not an end node (potential dead end)`);
+    }
+  }
+
+  // ── Dangling-read detection ──────────────────────────────────────────
+  //
+  // A read_keys entry that NOTHING in the graph can produce is almost
+  // certainly a typo — at runtime it silently yields an empty slice and a
+  // confused agent. Warning (not error) because initial workflow memory can
+  // legitimately seed keys the graph itself never writes.
+
+  const anyWildcardWriter = graph.nodes.some((n) => n.write_keys.includes('*'));
+  if (!anyWildcardWriter) {
+    const producible = new Set<string>(['goal', 'constraints']);
+    for (const node of graph.nodes) {
+      for (const key of node.write_keys) {
+        if (key !== '*') producible.add(key);
+      }
+      for (const key of impliedResultKeys(node)) producible.add(key);
+      if (node.default_write_key) producible.add(node.default_write_key);
+      // Agent-style nodes may route text output to the fallback key.
+      if (node.type === 'agent' || node.type === 'synthesizer') {
+        producible.add(`${node.id}_output`);
+      }
+    }
+    for (const node of graph.nodes) {
+      for (const key of node.read_keys) {
+        if (key === '*') continue;
+        const topLevel = key.split('.')[0];
+        if (!producible.has(topLevel)) {
+          warnings.push(
+            `Node '${node.id}': read_keys entry '${key}' is not produced by any node in this graph — ` +
+            `if it is not seeded via initial workflow memory, the node will see an empty value (possible typo)`,
+          );
+        }
+      }
     }
   }
 
@@ -217,6 +295,27 @@ export function validateGraph(graph: Graph): ValidationResult {
     errors,
     warnings,
   };
+}
+
+/**
+ * Node IDs a compound node can transfer control to without an explicit edge:
+ * supervisor handoffs, map fan-out, swarm peer handoffs, approval rejection
+ * routing. Used by the reachability BFS.
+ */
+function implicitTargets(node: GraphNode): string[] {
+  const targets: string[] = [];
+  if (node.supervisor_config) targets.push(...node.supervisor_config.managed_nodes);
+  if (node.map_reduce_config) {
+    targets.push(node.map_reduce_config.worker_node_id);
+    if (node.map_reduce_config.synthesizer_node_id) {
+      targets.push(node.map_reduce_config.synthesizer_node_id);
+    }
+  }
+  if (node.swarm_config) targets.push(...node.swarm_config.peer_nodes);
+  if (node.approval_config?.rejection_node_id) {
+    targets.push(node.approval_config.rejection_node_id);
+  }
+  return targets;
 }
 
 // ─── Type-specific Node Validation ──────────────────────────────────
@@ -345,6 +444,8 @@ function validateNodeByType(
         if (managed_nodes.includes(node.id)) {
           warnings.push(`Supervisor '${node.id}' manages itself (potential infinite loop)`);
         }
+        // Routing (`handoff`) and completion (`set_status`) permissions are
+        // implied by the node type — see validation/effective-permissions.ts.
       }
       break;
     }
@@ -368,12 +469,36 @@ function validateNodeByType(
       break;
     }
 
+    case 'verifier': {
+      if (!node.verifier_config) {
+        errors.push(`Verifier node '${node.id}' is missing verifier_config`);
+        break;
+      }
+      const vConfig = node.verifier_config;
+      // The result keys the verifier writes are implied grants — see
+      // validation/effective-permissions.ts. Only the READ side needs
+      // checking: the value under verification is read through the sliced
+      // state view; without the read grant it is silently `undefined` and
+      // the verifier judges nothing.
+      if (vConfig.type === 'llm_judge' || vConfig.type === 'jsonpath') {
+        const verifierReadKeys = new Set(node.read_keys);
+        if (!verifierReadKeys.has('*') && !verifierReadKeys.has(vConfig.target_key)) {
+          errors.push(
+            `Verifier node '${node.id}': target_key '${vConfig.target_key}' is not in read_keys — the value to verify would not be visible`,
+          );
+        }
+      }
+      break;
+    }
+
     case 'reflection': {
       if (!node.reflection_config) {
         errors.push(`Reflection node '${node.id}' is missing reflection_config`);
         break;
       }
       const refConfig = node.reflection_config;
+      // The reflection envelope's result key is an implied grant — see
+      // validation/effective-permissions.ts. Only the read side is checked.
       const readKeys = new Set(node.read_keys);
       const wildcard = readKeys.has('*');
       if (!wildcard) {
@@ -400,7 +525,7 @@ function validateNodeByType(
       break;
     }
 
-    // router, synthesizer, verifier — no type-specific cross-field checks
+    // router, synthesizer — no type-specific cross-field checks
     // beyond what Zod enforces on the discriminated config schemas.
     default:
       break;

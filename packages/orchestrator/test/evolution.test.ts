@@ -122,8 +122,8 @@ function setupDefaultAgentMock() {
   candidateCallCount = 0;
   mockExecuteAgent.mockImplementation(async (agentId: string, stateView: any, _tools: any, attempt: number) => {
     candidateCallCount++;
-    const gen = stateView.memory._evolution_generation ?? 0;
-    const idx = stateView.memory._evolution_candidate_index ?? 0;
+    const gen = stateView.taskContext?.generation ?? 0;
+    const idx = stateView.taskContext?.candidate_index ?? 0;
     return {
       id: uuidv4(),
       idempotency_key: uuidv4(),
@@ -348,20 +348,20 @@ describe('Evolution (DGM) Node', () => {
 
       // Gen 0 candidates: no parent context
       const gen0Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].memory._evolution_generation === 0
+        (call: any[]) => call[1].taskContext?.generation === 0
       );
       for (const call of gen0Calls) {
-        expect(call[1].memory._evolution_parent).toBeUndefined();
-        expect(call[1].memory._evolution_parent_fitness).toBeUndefined();
+        expect(call[1].taskContext?.parent).toBeUndefined();
+        expect(call[1].taskContext?.parent_fitness).toBeUndefined();
       }
 
       // Gen 1 candidates: parent context injected
       const gen1Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].memory._evolution_generation === 1
+        (call: any[]) => call[1].taskContext?.generation === 1
       );
       for (const call of gen1Calls) {
-        expect(call[1].memory._evolution_parent).toBeDefined();
-        expect(call[1].memory._evolution_parent_fitness).toBeDefined();
+        expect(call[1].taskContext?.parent).toBeDefined();
+        expect(call[1].taskContext?.parent_fitness).toBeDefined();
       }
     });
 
@@ -375,10 +375,10 @@ describe('Evolution (DGM) Node', () => {
       await runner.run();
 
       for (const call of mockExecuteAgent.mock.calls) {
-        const memory = call[1].memory;
-        expect(memory._evolution_parent).toBeUndefined();
-        expect(memory._evolution_parent_fitness).toBeUndefined();
-        expect(memory._evolution_generation).toBe(0);
+        const taskContext = call[1].taskContext;
+        expect(taskContext?.parent).toBeUndefined();
+        expect(taskContext?.parent_fitness).toBeUndefined();
+        expect(taskContext?.generation).toBe(0);
       }
     });
 
@@ -419,13 +419,13 @@ describe('Evolution (DGM) Node', () => {
 
       // Gen 0: temp = 1.0, Gen 1: temp = 0.5, Gen 2: temp = 0.0
       const gen0Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].memory._evolution_generation === 0
+        (call: any[]) => call[1].taskContext?.generation === 0
       );
       const gen1Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].memory._evolution_generation === 1
+        (call: any[]) => call[1].taskContext?.generation === 1
       );
       const gen2Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].memory._evolution_generation === 2
+        (call: any[]) => call[1].taskContext?.generation === 2
       );
 
       // Check temperatureOverride in options (5th arg)
@@ -622,11 +622,11 @@ describe('Evolution (DGM) Node', () => {
 
       // Gen 1 candidates should have parent context injected
       const gen1Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].memory._evolution_generation === 1
+        (call: any[]) => call[1].taskContext?.generation === 1
       );
       for (const call of gen1Calls) {
-        expect(call[1].memory._evolution_parent).toBeDefined();
-        expect(call[1].memory._evolution_parent_fitness).toBeDefined();
+        expect(call[1].taskContext?.parent).toBeDefined();
+        expect(call[1].taskContext?.parent_fitness).toBeDefined();
       }
     });
   });

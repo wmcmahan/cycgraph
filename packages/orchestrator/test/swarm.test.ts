@@ -183,7 +183,7 @@ describe('Swarm', () => {
 
     const graph = createSwarmGraph(1);
     const state = createState();
-    state.memory._swarm_handoff_count = 1; // Already at max
+    state.swarm_handoff_count = 1; // Already at max
 
     const runner = new GraphRunner(graph, state);
     const finalState = await runner.run();
@@ -201,13 +201,14 @@ describe('Swarm', () => {
     const runner = new GraphRunner(graph, state);
     const finalState = await runner.run();
 
-    // The handoff should have set _swarm_handoff_count
-    // (exact value depends on how many handoffs occurred before completion)
     const handoffHistory = finalState.supervisor_history;
     expect(handoffHistory.length).toBeGreaterThan(0);
+    // The handoff's memory_updates must actually land in memory — this is
+    // what makes max_handoffs enforceable across handoffs.
+    expect(finalState.swarm_handoff_count as number).toBeGreaterThanOrEqual(1);
   });
 
-  test('should inject _swarm_config into agent stateView', async () => {
+  test('should inject swarm context into agent taskContext', async () => {
     delegateTarget = null;
     const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
     (executeAgent as any).mockClear();
@@ -220,7 +221,7 @@ describe('Swarm', () => {
 
     const firstCall = (executeAgent as any).mock.calls[0];
     const stateView = firstCall[1];
-    expect(stateView.memory._swarm_config).toBeDefined();
-    expect(stateView.memory._swarm_config.peer_nodes).toContain('agent-b');
+    expect(stateView.taskContext?.swarm).toBeDefined();
+    expect(stateView.taskContext?.swarm.peer_nodes).toContain('agent-b');
   });
 });

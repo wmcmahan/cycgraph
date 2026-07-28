@@ -54,7 +54,14 @@ export class Logger {
     private readonly component: string,
     options?: { level?: LogLevel; context?: LogContext },
   ) {
-    this.minLevel = options?.level ?? (process.env.LOG_LEVEL as LogLevel) ?? 'info';
+    // An unrecognized LOG_LEVEL (typo, empty string) must fall back to 'info',
+    // not become the min level — an unknown level has no priority, which would
+    // disable filtering entirely and emit debug noise in production.
+    const envLevel = process.env.LOG_LEVEL;
+    const validEnvLevel = envLevel && envLevel in LOG_LEVEL_PRIORITY
+      ? (envLevel as LogLevel)
+      : undefined;
+    this.minLevel = options?.level ?? validEnvLevel ?? 'info';
     this.defaultContext = options?.context ?? {};
   }
 

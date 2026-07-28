@@ -53,6 +53,21 @@ describe('parseJudgeResponse', () => {
     expect(result.score).toBe(0.8);
     expect(result.reasoning).toBe('No reasoning provided');
   });
+
+  it('salvages the score when reasoning contains unescaped quotes', () => {
+    // Observed live: the judge quotes values verbatim in its reasoning
+    // (["negation"]), producing invalid JSON. The score must survive.
+    const raw = '```json\n{ "score": 1.0, "reasoning": "identical: conflict_types (["negation"]), max_confidence (0.8)" }\n```';
+    const result = parseJudgeResponse(raw);
+
+    expect(result.score).toBe(1.0);
+    expect(result.reasoning).toContain('Salvaged score');
+  });
+
+  it('clamps a salvaged score into [0, 1]', () => {
+    const raw = '{ "score": 1.7, "reasoning": "broken "quotes" here" }';
+    expect(parseJudgeResponse(raw).score).toBe(1.0);
+  });
 });
 
 describe('evaluateMetric', () => {

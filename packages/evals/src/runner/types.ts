@@ -18,6 +18,13 @@ export interface EvalRunConfig {
   /** Execution mode: 'local' (Ollama) or 'ci' (GPT-4o). */
   mode: EvalMode;
 
+  /**
+   * Judge provider override. By default the mode picks the judge
+   * ('local' → Ollama, 'ci' → OpenAI); set 'anthropic' to judge with
+   * Claude instead (requires ANTHROPIC_API_KEY). CLI: `--provider`.
+   */
+  judgeProvider?: 'ollama' | 'openai' | 'anthropic';
+
   /** Suite names to run. If omitted, all suites are executed. */
   suites?: SuiteName[];
 

@@ -129,13 +129,19 @@ export async function recoverGraphRunner(
     // Minimal pending state the reducers will transform into the
     // reconstructed state.
     startState = {
-      state_schema_version: 1,
+      state_schema_version: 2,
       workflow_id: graph.id,
       run_id: runId,
       status: 'pending',
       goal: cfg.goal ?? '',
       constraints: cfg.constraints ?? [],
       memory: {},
+      taint_registry: {},
+      lesson_provenance: {},
+      policy_approvals: {},
+      subgraph_checkpoints: {},
+      subgraph_stack: [],
+      swarm_handoff_count: 0,
       iteration_count: 0,
       retry_count: 0,
       max_retries: cfg.max_retries ?? 3,
@@ -198,12 +204,20 @@ export async function recoverGraphRunner(
       executedActionIds.push({ nodeId, iterationCount: state.iteration_count });
       replayedActions++;
     } else if (event.event_type === 'internal_dispatched' && event.internal_type) {
+      // Prefer the exact dispatch timestamp the live run stamped into the
+      // payload (see dispatchInternal) — the event row's `created_at` is
+      // written later and drifts by milliseconds, which would break the
+      // byte-identical replay guarantee for `started_at` / `updated_at`.
+      // Older logs (pre-stamp) fall back to `created_at` as before.
+      const dispatchedAt = typeof event.internal_payload?._dispatched_at === 'string'
+        ? new Date(event.internal_payload._dispatched_at as string)
+        : event.created_at;
       const internalAction: Action = {
         id: uuidv4(),
         idempotency_key: `_replay:${event.internal_type}:${event.sequence_id}`,
         type: event.internal_type as Action['type'],
         payload: (event.internal_payload ?? {}) as Record<string, unknown>,
-        metadata: { node_id: '_runner', timestamp: event.created_at, attempt: 1 },
+        metadata: { node_id: '_runner', timestamp: dispatchedAt, attempt: 1 },
       };
       state = internalReducer(state, internalAction);
       replayedInternals++;

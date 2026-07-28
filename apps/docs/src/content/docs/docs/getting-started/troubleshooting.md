@@ -156,7 +156,7 @@ The retrieved-memory section is rendered as `<memory>...</memory>` inside the sy
 ### Workflow runs forever or hits `max_iterations`
 
 A cyclic graph is looping on the same nodes. Common causes:
-- Supervisor's `completion_condition` never satisfies.
+- The supervisor never routes to `__done__` because its system prompt gives no clear completion criteria.
 - Conditional edge always routes back to a previous node.
 - `max_iterations` on supervisor/evolution/annealing is too high relative to the actual convergence.
 

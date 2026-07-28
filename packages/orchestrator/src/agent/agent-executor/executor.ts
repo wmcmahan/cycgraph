@@ -31,7 +31,7 @@ import { createLogger } from '../../utils/logger.js';
 import { getTracer, withSpan } from '../../utils/tracing.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { TaintMetadata } from '../../types/state.js';
-import { getTaintRegistry, propagateDerivedTaint } from '../../utils/taint.js';
+import { propagateDerivedTaint } from '../../utils/taint.js';
 import { LESSON_PROVENANCE_KEY, mintLessonProvenance } from '../../utils/lesson-provenance.js';
 import { retrieveForPrompt } from '../retrieve-for-prompt.js';
 import { resolveEffectiveModelConfig } from '../model-override.js';
@@ -39,6 +39,7 @@ import { buildSystemPrompt, buildTaskPrompt } from './prompts.js';
 import { DEFAULT_AGENT_TIMEOUT_MS } from '../constants.js';
 import { extractMemoryUpdates } from './memory.js';
 import { validateMemoryUpdatePermissions } from './validation.js';
+import { intersectWriteGrant } from '../../validation/effective-permissions.js';
 import { AgentTimeoutError, AgentExecutionError, type PartialUsage } from './errors.js';
 
 const logger = createLogger('agent.executor');
@@ -118,6 +119,19 @@ export async function executeAgent(
     /** Default write key from node config for orchestrator-managed text output. */
     defaultWriteKey?: string;
     /**
+     * Deterministic idempotency key for the produced action (the canonical
+     * `node:iteration:attempt` form from `nodeIdempotencyKey`). Falls back to
+     * a random UUID when the executor is invoked outside a graph node context.
+     */
+    idempotencyKey?: string;
+    /**
+     * The NODE's write grant (its `write_keys`, including `'*'`). The
+     * effective write permission is this grant intersected with the agent
+     * config's optional ceiling (ADR 001). When absent (executor invoked
+     * outside a graph node), the ceiling alone governs.
+     */
+    grantedWriteKeys?: string[];
+    /**
      * Memory retriever to call before prompt construction. Combined with
      * `memory_query` and rendered into the system prompt's Relevant Memory section.
      */
@@ -157,24 +171,35 @@ export async function executeAgent(
     const tools = buildToolSet(rawTools, agentId);
     const hasSaveToMemoryTool = 'save_to_memory' in tools;
 
+    // Ceiling-and-grant (ADR 001): the node's grant intersected with the
+    // agent config's optional ceiling is the effective write permission —
+    // used for prompt instructions, output routing, and validation below.
+    const effectiveWrite = intersectWriteGrant(options?.grantedWriteKeys, config.write_keys);
+
+    // Read ceiling: when the agent config declares one, filter the node's
+    // already-sliced view down to the intersection. The node's read_keys
+    // remain the grant; this only ever narrows.
+    const view = applyReadCeiling(stateView, config.read_keys);
+
     // Resolve memory retrieval (best-effort — failures must never block
     // execution; the agent still gets the workflow-state memory below).
     const retrievedMemory = await retrieveForPrompt(
       options?.memoryRetriever,
       options?.memoryQuery,
-      stateView,
+      view,
       effectiveConfig.model,
     );
 
     // Build context-aware prompt (with injection guards)
-    const systemPrompt = buildSystemPrompt(config, stateView, {
+    const systemPrompt = buildSystemPrompt(config, view, {
       contextCompressor: options?.contextCompressor,
       model: effectiveConfig.model,
       onCompressed: options?.onContextCompressed,
       hasSaveToMemoryTool,
       retrievedMemory,
+      effectiveWriteKeys: effectiveWrite,
     });
-    const taskPrompt = buildTaskPrompt(stateView, attempt);
+    const taskPrompt = buildTaskPrompt(view, attempt);
 
     logger.info('executing', {
       agent_id: agentId,
@@ -209,7 +234,9 @@ export async function executeAgent(
         tools,
         stopWhen: stepCountIs(config.maxSteps),
         abortSignal: combinedSignal,
-        ...(options?.temperatureOverride !== undefined ? { temperature: options.temperatureOverride } : {}),
+        ...(options?.temperatureOverride !== undefined
+          ? { temperature: clampTemperature(options.temperatureOverride, effectiveConfig.provider, agentId) }
+          : {}),
         ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
         ...(options?.onToolCall ? {
           experimental_onToolCallStart: (event) => {
@@ -322,9 +349,10 @@ export async function executeAgent(
       });
     }
 
-    // Extract memory updates from tool results
+    // Extract memory updates from tool results, validated and routed against
+    // the EFFECTIVE write permission (grant ∩ ceiling).
     const fallbackKey = options?.nodeId ? `${options.nodeId}_output` : 'agent_response';
-    const memoryUpdates = extractMemoryUpdates(text, toolCalls, config.write_keys, fallbackKey, options?.defaultWriteKey);
+    const memoryUpdates = extractMemoryUpdates(text, toolCalls, effectiveWrite, fallbackKey, options?.defaultWriteKey);
 
     // Apply MCP taint: if any MCP tools were called during this execution,
     // mark all output memory keys as tainted by MCP tool origin.
@@ -333,17 +361,22 @@ export async function executeAgent(
     // race-free when sibling executions (voting/evolution/map) run concurrently.
     const mcpTaintEntries = options?.drainTaintEntries?.(rawTools);
 
-    // Propagate taint: if any input memory keys were tainted, mark outputs as derived-tainted
+    // Propagate taint: if any READABLE input keys were tainted (per the view's
+    // scoped registry), mark outputs as derived-tainted.
     const outputKeys = Object.keys(memoryUpdates);
     if (outputKeys.length > 0) {
-      const taintUpdates = propagateDerivedTaint(stateView.memory, outputKeys, agentId);
+      const taintUpdates = propagateDerivedTaint(
+        view.memory,
+        view.taint ?? {},
+        outputKeys,
+        agentId,
+      );
 
       // Merge MCP direct taint: when MCP tools were called and taint entries exist,
       // apply mcp_tool taint to all output keys (we can't trace which specific
       // MCP result ended up in which key, so taint conservatively)
       if (mcpToolCalls.length > 0 && mcpTaintEntries && mcpTaintEntries.size > 0) {
         for (const key of outputKeys) {
-          if (key === '_taint_registry') continue;
           // Use the first taint entry as representative (all originated from MCP tools in this execution)
           const [, firstEntry] = mcpTaintEntries.entries().next().value as [string, TaintMetadata];
           taintUpdates[key] = {
@@ -361,14 +394,14 @@ export async function executeAgent(
       // poisoned document can't drive a downstream sensitive action ungated.
       if (options?.memoryQuery?.untrusted && (retrievedMemory?.facts?.length ?? 0) > 0) {
         for (const key of outputKeys) {
-          if (key === '_taint_registry') continue;
           taintUpdates[key] = { source: 'retrieval', agent_id: agentId, created_at: new Date().toISOString() };
         }
       }
 
+      // Only the NEW entries go on the wire — the reducer's routing choke
+      // point appends them to `state.taint_registry` (append-only).
       if (Object.keys(taintUpdates).length > 0) {
-        const existingRegistry = getTaintRegistry(stateView.memory);
-        memoryUpdates['_taint_registry'] = { ...existingRegistry, ...taintUpdates };
+        memoryUpdates['_taint_registry'] = taintUpdates;
       }
     }
 
@@ -399,13 +432,16 @@ export async function executeAgent(
     // Build action — internal metadata is in metadata, not polluting memory
     const action: Action = {
       id: uuidv4(),
-      idempotency_key: uuidv4(),
+      idempotency_key: options?.idempotencyKey ?? uuidv4(),
       type: 'update_memory',
       payload: {
         updates: memoryUpdates,
       },
       metadata: {
-        node_id: agentId,
+        // The GRAPH NODE id — reducers attribute memory drops and recovery
+        // attributes events via this field. Falls back to the agent id only
+        // when the executor is invoked outside a graph node context.
+        node_id: options?.nodeId ?? agentId,
         agent_id: agentId,
         model: effectiveConfig.model,
         ...(options?.modelOverride ? {
@@ -442,11 +478,61 @@ export async function executeAgent(
     span.setAttribute('agent.tokens.total', tokenUsage.totalTokens);
     span.setAttribute('agent.tools_called', toolCalls.length);
 
-    // Validate against Zero Trust permissions
-    validateMemoryUpdatePermissions(action, config.write_keys);
+    // Validate against Zero Trust permissions (grant ∩ ceiling)
+    validateMemoryUpdatePermissions(action, effectiveWrite);
 
     return action;
   });
+}
+
+/**
+ * Narrow a state view by the agent config's optional read CEILING (ADR 001).
+ * The node's `read_keys` produced the incoming view (the grant); a declared
+ * agent-level ceiling can only remove keys from it, never add. `'*'` or an
+ * undefined ceiling passes the view through unchanged.
+ */
+function applyReadCeiling(stateView: StateView, ceiling: string[] | undefined): StateView {
+  if (ceiling === undefined || ceiling.includes('*')) return stateView;
+
+  const cap = new Set(ceiling.map((k) => k.split('.')[0]));
+  const memory: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(stateView.memory)) {
+    if (cap.has(key)) memory[key] = value;
+  }
+  let taint: StateView['taint'];
+  if (stateView.taint) {
+    taint = {};
+    for (const [key, value] of Object.entries(stateView.taint)) {
+      if (cap.has(key)) taint[key] = value;
+    }
+  }
+  return {
+    ...stateView,
+    memory,
+    ...(taint && Object.keys(taint).length > 0 ? { taint } : { taint: undefined }),
+  };
+}
+
+/**
+ * Clamp a temperature override to the provider's supported range.
+ *
+ * Annealing / evolution configs allow temperatures up to 2 (the widest
+ * provider surface), but Anthropic's API rejects values above 1 — without
+ * clamping, a high-temperature annealing iteration on an Anthropic agent
+ * hard-errors mid-loop instead of running slightly less hot.
+ */
+function clampTemperature(value: number, provider: string, agentId: string): number {
+  const max = provider === 'anthropic' ? 1 : 2;
+  const clamped = Math.min(Math.max(0, value), max);
+  if (clamped !== value) {
+    logger.warn('temperature_override_clamped', {
+      agent_id: agentId,
+      provider,
+      requested: value,
+      clamped,
+    });
+  }
+  return clamped;
 }
 
 /**

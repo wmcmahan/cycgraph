@@ -3,27 +3,27 @@
   "datasets": [
     {
       "name": "orchestrator",
-      "file": "data/orchestrator-v1.sqlite.gz",
-      "sha256": "9609c0b924970b66796a2465f2aafde8c6918e349b09827fea1270e7d2604033",
+      "file": "data/orchestrator-v3.sqlite.gz",
+      "sha256": "73b06063860f878286e10706668bf4d5f6b361ad9b752672b3ec02010ceae3e6",
       "trajectoryCount": 18,
-      "schemaVersion": "2.0.0",
-      "lastUpdated": "2026-04-06T20:02:42.517Z"
+      "schemaVersion": "3.0.0",
+      "lastUpdated": "2026-07-24T20:54:48.690Z"
     },
     {
       "name": "context-engine",
-      "file": "data/context-engine-v1.sqlite.gz",
-      "sha256": "0782ae4e0995c5b1b553bf323997275289d91723779a65bc5d99db1e761e15e6",
+      "file": "data/context-engine-v3.sqlite.gz",
+      "sha256": "5556402f72477c29b41819066929e12cb1c1d64cf863d3335b124dc2d29f969c",
       "trajectoryCount": 18,
-      "schemaVersion": "2.0.0",
-      "lastUpdated": "2026-04-06T20:02:42.517Z"
+      "schemaVersion": "3.0.0",
+      "lastUpdated": "2026-07-24T20:40:22.792Z"
     },
     {
       "name": "memory",
-      "file": "data/memory-v1.sqlite.gz",
-      "sha256": "4bc02ae17f5a6bfd6bb2f4c51ed4a6d241af9e3b587ef5e2e4374ac9881670c0",
+      "file": "data/memory-v3.sqlite.gz",
+      "sha256": "337938698f2526d3fdbb4aca6b250b5454d6404095cc69b2ca66c5982f6d513a",
       "trajectoryCount": 18,
-      "schemaVersion": "2.0.0",
-      "lastUpdated": "2026-04-06T20:02:42.518Z"
+      "schemaVersion": "3.0.0",
+      "lastUpdated": "2026-07-24T20:40:22.402Z"
     }
   ]
 }

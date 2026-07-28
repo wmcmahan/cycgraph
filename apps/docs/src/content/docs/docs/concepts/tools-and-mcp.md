@@ -216,7 +216,7 @@ All results returned from MCP tools are automatically taint-tracked. The raw too
 This design ensures:
 
 - The **LLM sees clean results** — no taint metadata leaks into the model's context
-- The **taint registry is accurate** — provenance is tracked in `memory._taint_registry`
+- The **taint registry is accurate** — provenance is tracked in the first-class `state.taint_registry` field
 - The **tool node executor** also correctly handles taint for `tool`-type nodes
 
 See [Taint Tracking](/docs/concepts/taint-tracking/) for the full taint propagation model and API reference.

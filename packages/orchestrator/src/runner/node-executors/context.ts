@@ -60,8 +60,8 @@ export interface TaintedToolResultShape {
 export interface AgentConfigShape {
   /** Structured tool source declarations. */
   tools: ToolSource[];
-  /** Memory keys the agent may write. */
-  write_keys: string[];
+  /** Memory-key write CEILING (ADR 001). `undefined` = uncapped. */
+  write_keys?: string[];
   /** LLM provider (e.g. `'anthropic'`). */
   provider: string;
   /** Static fallback model identifier. */
@@ -88,6 +88,10 @@ export interface ExecutorDependencies {
     options?: {
       temperatureOverride?: number;
       nodeId?: string;
+      /** Deterministic action idempotency key (`node:iteration:attempt`). */
+      idempotencyKey?: string;
+      /** The node's write grant, intersected with the agent's optional ceiling (ADR 001). */
+      grantedWriteKeys?: string[];
       abortSignal?: AbortSignal;
       onToken?: (token: string) => void;
       onToolCall?: (event: { toolName: string; toolCallId: string; args: unknown }) => void;
@@ -170,9 +174,6 @@ export interface ExecutorDependencies {
 
   /** Load an agent's configuration. */
   loadAgent: (agentId: string) => Promise<AgentConfigShape>;
-
-  /** Get the taint registry from workflow memory. */
-  getTaintRegistry: (memory: Record<string, unknown>) => Record<string, unknown>;
 
   /**
    * Drain accumulated MCP taint entries after agent execution. Pass the

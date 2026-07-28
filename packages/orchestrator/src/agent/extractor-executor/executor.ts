@@ -15,6 +15,8 @@
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
 import { agentFactory } from '../agent-factory/index.js';
+import { AgentExecutionError } from '../agent-executor/errors.js';
+import { classifyRetryable } from '../agent-executor/error-classification.js';
 import { createExtractorPrompt, createExtractorSystemPrompt } from './prompts.js';
 import { createLogger } from '../../utils/logger.js';
 import { getTracer, withSpan } from '../../utils/tracing.js';
@@ -75,13 +77,24 @@ export async function extractFactsExecutor(
       source_kind: typeof source,
     });
 
-    const { output: extraction, usage } = await generateText({
-      model,
-      system: systemPrompt,
-      prompt,
-      output: Output.object({ schema: ExtractionSchema }),
-      ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
-    });
+    let extraction: z.infer<typeof ExtractionSchema>;
+    let usage: { totalTokens?: number } | undefined;
+    try {
+      const result = await generateText({
+        model,
+        system: systemPrompt,
+        prompt,
+        output: Output.object({ schema: ExtractionSchema }),
+        ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
+      });
+      extraction = result.output;
+      usage = result.usage;
+    } catch (error) {
+      // Same taxonomy as agent/supervisor calls: carry the retryable
+      // classification so the runner's retry loop short-circuits a
+      // deterministic 400 instead of re-issuing it max_retries times.
+      throw new AgentExecutionError(extractorAgentId, error, undefined, classifyRetryable(error));
+    }
 
     const tokensUsed = usage?.totalTokens ?? 0;
 

@@ -62,6 +62,10 @@ Nodes declare which state keys they can read and write. Both **default to `[]` (
 
 This enforces the **principle of least privilege** — a writer agent can't read database credentials, and a researcher can't overwrite the final draft. Because the default is `[]`, a node that consumes an upstream node's output **must declare it**: a writer reading research notes needs `readKeys: ['notes']`, not the implicit full access of earlier versions.
 
+Two families of write grants are **implied** and never need declaring: control-flow permissions that follow from the node's type (a supervisor may route and complete, approval/subgraph nodes may pause, a swarm agent may hand off), and the result keys a node's own executor writes (a verifier's result pair, a reflection envelope, a tool node's `${id}_result`, fan-out aggregate keys). `writeKeys` is for what the node's *agent* writes.
+
+`validateGraph` also warns when a `readKeys` entry is not produced by any node in the graph (declared, implied, or default write key) — usually a typo that would otherwise surface as a silently empty value at runtime. Keys seeded through initial workflow memory are the legitimate exception, which is why this is a warning rather than an error.
+
 ## Compensation (Saga pattern)
 
 Nodes can opt into compensation for rollback support by setting `requiresCompensation: true`. If the workflow fails after a compensatable node completes, the orchestrator executes the `compensation_stack` in reverse order — unwinding side effects like a database transaction rollback.
@@ -123,14 +127,13 @@ Each node type has an optional config block that controls its behaviour. These a
 
 ### `supervisorConfig`
 
-Used by `supervisor` nodes. The supervisor LLM dynamically routes work between managed sub-nodes until a completion condition is met or the iteration limit is reached.
+Used by `supervisor` nodes. The supervisor LLM dynamically routes work between managed sub-nodes until it decides the goal is met (routing to `__done__`) or the iteration limit is reached.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `agentId` | `string` | — | Agent ID for the routing LLM. Falls back to `node.agentId` if omitted. |
 | `managedNodes` | `string[]` | *required* | Node IDs this supervisor can delegate to. |
 | `maxIterations` | `number` | `10` | Max routing iterations before forced completion (loop guard). |
-| `completionCondition` | `string` | — | JSONPath expression that, when truthy, signals completion. |
 
 ### `subgraphConfig`
 
@@ -143,7 +146,7 @@ Used by `subgraph` nodes. Executes an entire nested workflow as a single step, w
 | `outputMapping` | `Record<string, string>` | `{}` | Maps child memory keys → parent memory keys. |
 | `maxIterations` | `number` | `50` | Iteration cap for the child workflow. |
 
-The child gets a **fresh, isolated** `WorkflowState`. Only mapped keys cross the boundary. The child inherits the parent's remaining token budget. A `_subgraph_stack` prevents cyclic nesting (e.g. `A → B → A` throws immediately).
+The child gets a **fresh, isolated** `WorkflowState`. Only mapped keys cross the boundary. The child inherits the parent's remaining token budget. The `subgraphStack` state field prevents cyclic nesting (e.g. `A → B → A` throws immediately).
 
 ### `approvalConfig`
 
@@ -295,6 +298,8 @@ Uses the `extractFactsExecutor` primitive to distill structured lessons via an L
 ### `memoryQuery`
 
 Used by `agent`, `supervisor`, and any wrapper-agent node (annealing, map worker, swarm, synthesizer, voting voter, evolution candidate). When set, the runner calls `memoryRetriever` once before building the node's prompt and renders the result into a `## Relevant Memory` section.
+
+Compound-pattern executors additionally deliver per-invocation inputs (the map item, the evolution parent and its critique, annealing feedback, swarm peers) through a separate `## Task Context` prompt section. That context is ephemeral — it never touches the memory blackboard and needs no `readKeys` entry.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

@@ -163,8 +163,6 @@ export const SupervisorConfigSchema = z.object({
   managed_nodes: z.array(z.string()).max(200),
   /** Max routing iterations before forced completion (loop guard). Capped to bound runaway LLM spend. */
   max_iterations: z.number().int().min(1).max(1000).default(10),
-  /** JSONPath expression that, when truthy, signals completion. */
-  completion_condition: z.string().optional(),
 });
 
 export type SupervisorConfig = z.infer<typeof SupervisorConfigSchema>;
@@ -183,8 +181,8 @@ export const ApprovalGateConfigSchema = z.object({
   prompt_message: z.string().default('Please review and approve this workflow step.'),
   /** Memory keys the reviewer should see (`['*']` = all). */
   review_keys: z.array(z.string()).default(['*']),
-  /** Timeout before auto-rejection (default: 24 hours). */
-  timeout_ms: z.number().default(86_400_000),
+  /** Timeout before auto-rejection (default: 24 hours, max: 30 days). Must be positive — a non-positive value would put the deadline in the past and auto-reject immediately. */
+  timeout_ms: z.number().int().positive().max(2_592_000_000).default(86_400_000),
   /** Node to route to on rejection (if unset, workflow fails). */
   rejection_node_id: z.string().optional(),
 });
@@ -274,7 +272,7 @@ export const VotingConfigSchema = z.object({
   /** Memory key where each voter writes their vote. */
   vote_key: z.string().default('vote'),
   /** Minimum number of votes required for quorum. */
-  quorum: z.number().min(1).optional(),
+  quorum: z.number().int().min(1).optional(),
   /** Agent ID for the `llm_judge` strategy. */
   judge_agent_id: z.string().optional(),
   /** Per-agent weights for the `weighted_vote` strategy. */
@@ -326,7 +324,7 @@ export const EvolutionConfigSchema = z.object({
   /** Selection strategy for choosing parents. */
   selection_strategy: z.enum(['rank', 'tournament', 'roulette']).default('rank'),
   /** Top candidates preserved unchanged across generations (elitism). */
-  elite_count: z.number().min(0).default(1),
+  elite_count: z.number().int().min(0).max(100).default(1),
   /** Maximum number of generations. Capped to bound total LLM spend (population × generations × 2). */
   max_generations: z.number().int().min(1).max(100).default(10),
   /**
@@ -347,7 +345,7 @@ export const EvolutionConfigSchema = z.object({
   /** Ending temperature (exploitation). */
   final_temperature: z.number().min(0).max(2).default(0.3),
   /** Tournament size for `tournament` strategy. */
-  tournament_size: z.number().min(2).default(3),
+  tournament_size: z.number().int().min(2).max(100).default(3),
   /** Max concurrent candidate evaluations. Capped to bound parallel LLM fan-out. */
   max_concurrency: z.number().int().min(1).max(50).default(5),
   /** How to handle candidate generation errors. */
@@ -377,7 +375,8 @@ const VerifierCommonFields = {
    *   - `${result_key}`        → `VerificationResult` object
    *   - `${result_key}_passed` → boolean (for ergonomic edge conditions)
    *
-   * Both keys must appear in the node's `write_keys`.
+   * Both keys are implied write grants — the node does not need to list
+   * them in `write_keys` (see `validation/effective-permissions.ts`).
    */
   result_key: z.string().optional(),
   /**

@@ -90,9 +90,9 @@ export async function executeToolNode(
   }
 
   if (taint) {
-    const registry = ctx.deps.getTaintRegistry(ctx.state.memory);
-    registry[resultKey] = taint;
-    updates['_taint_registry'] = registry;
+    // Wire encoding — only the NEW entry; the reducer's routing choke point
+    // appends it to `state.taint_registry` (append-only).
+    updates['_taint_registry'] = { [resultKey]: taint };
   }
 
   return {

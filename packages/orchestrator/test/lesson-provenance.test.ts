@@ -72,7 +72,7 @@ describe('lesson provenance reducer merge', () => {
       [LESSON_PROVENANCE_KEY]: { [keyB]: entry('critique', ['f2'], '2026-06-11T10:01:00.000Z') },
     }));
 
-    const registry = getLessonProvenanceRegistry(s2.memory);
+    const registry = getLessonProvenanceRegistry(s2);
     expect(Object.keys(registry).sort()).toEqual([keyA, keyB].sort());
     expect(registry[keyA].fact_ids).toEqual(['f1']);
     expect(registry[keyB].fact_ids).toEqual(['f2']);
@@ -89,7 +89,7 @@ describe('lesson provenance reducer merge', () => {
       [LESSON_PROVENANCE_KEY]: {},
     }));
 
-    expect(Object.keys(getLessonProvenanceRegistry(s2.memory))).toEqual([key]);
+    expect(Object.keys(getLessonProvenanceRegistry(s2))).toEqual([key]);
   });
 
   test('merge_parallel_results merges provenance identically', () => {
@@ -116,7 +116,7 @@ describe('lesson provenance reducer merge', () => {
     };
     const s2 = mergeParallelResultsReducer(s1, mergeAction);
 
-    const registry = getLessonProvenanceRegistry(s2.memory);
+    const registry = getLessonProvenanceRegistry(s2);
     expect(Object.keys(registry).sort()).toEqual([keyA, keyB].sort());
   });
 
@@ -178,7 +178,7 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
       [keyB]: entry('sup', ['f2'], '2026-06-11T10:01:00.000Z'),
     }));
 
-    expect(Object.keys(getLessonProvenanceRegistry(s2.memory)).sort()).toEqual([keyA, keyB].sort());
+    expect(Object.keys(getLessonProvenanceRegistry(s2)).sort()).toEqual([keyA, keyB].sort());
     expect(getInjectedFactIds(s2)).toEqual(['f1', 'f2']);
     // The routing side-effects still happen.
     expect(s2.current_node).toBe('worker-a');
@@ -203,7 +203,7 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
       [LESSON_PROVENANCE_KEY]: { [key]: entry('agent', ['f1'], '2026-06-11T10:00:00.000Z') },
     }));
     const s2 = handoffReducer(s1, makeHandoff());
-    expect(Object.keys(getLessonProvenanceRegistry(s2.memory))).toEqual([key]);
+    expect(Object.keys(getLessonProvenanceRegistry(s2))).toEqual([key]);
   });
 
   test('a crafted empty registry on a supervisor action cannot clear existing entries', () => {
@@ -214,7 +214,7 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
     }));
     const s2 = handoffReducer(s1, makeHandoff({}));
     const s3 = setStatusReducer(s2, makeComplete({}));
-    expect(Object.keys(getLessonProvenanceRegistry(s3.memory))).toEqual([key]);
+    expect(Object.keys(getLessonProvenanceRegistry(s3))).toEqual([key]);
   });
 
   test('replay is deterministic across mixed agent + supervisor actions', () => {
@@ -225,7 +225,7 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
       makeHandoff({ [keyB]: entry('sup', ['f2'], '2026-06-11T10:01:00.000Z') }),
     ];
     const fold = () => actions.reduce((s, a) => rootReducer(s, a), createBaseState());
-    expect(getLessonProvenanceRegistry(fold().memory)).toEqual(getLessonProvenanceRegistry(fold().memory));
+    expect(getLessonProvenanceRegistry(fold())).toEqual(getLessonProvenanceRegistry(fold()));
     expect(getInjectedFactIds(fold())).toEqual(['f1', 'f2']);
   });
 });
@@ -233,7 +233,7 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
 describe('lesson provenance helpers', () => {
   test('getLessonProvenance returns entries oldest-first deterministically', () => {
     const state = createBaseState();
-    state.memory[LESSON_PROVENANCE_KEY] = {
+    state.lesson_provenance = {
       b: entry('second', ['f2'], '2026-06-11T10:01:00.000Z'),
       a: entry('first', ['f1'], '2026-06-11T10:00:00.000Z'),
       // Same timestamp as `b` — key is the tiebreak.
@@ -245,7 +245,7 @@ describe('lesson provenance helpers', () => {
 
   test('getInjectedFactIds dedupes across entries in stable order', () => {
     const state = createBaseState();
-    state.memory[LESSON_PROVENANCE_KEY] = {
+    state.lesson_provenance = {
       a: entry('n1', ['f1', 'f2'], '2026-06-11T10:00:00.000Z'),
       b: entry('n2', ['f2', 'f3'], '2026-06-11T10:01:00.000Z'),
     };
@@ -253,12 +253,9 @@ describe('lesson provenance helpers', () => {
     expect(getInjectedFactIds(state)).toEqual(['f1', 'f2', 'f3']);
   });
 
-  test('helpers tolerate a missing or malformed registry', () => {
+  test('helpers tolerate a missing registry', () => {
     const state = createBaseState();
     expect(getLessonProvenance(state)).toEqual([]);
-    expect(getInjectedFactIds(state)).toEqual([]);
-
-    state.memory[LESSON_PROVENANCE_KEY] = 'corrupted';
     expect(getInjectedFactIds(state)).toEqual([]);
   });
 });
@@ -280,7 +277,7 @@ describe('replay determinism', () => {
     const first = fold();
     const second = fold();
 
-    expect(getLessonProvenanceRegistry(second.memory)).toEqual(getLessonProvenanceRegistry(first.memory));
+    expect(getLessonProvenanceRegistry(second)).toEqual(getLessonProvenanceRegistry(first));
     expect(getInjectedFactIds(second)).toEqual(getInjectedFactIds(first));
   });
 });

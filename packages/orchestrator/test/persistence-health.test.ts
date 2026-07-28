@@ -4,7 +4,6 @@ import {
   getPersistenceHealth,
   resetPersistenceHealth,
   PersistenceUnavailableError,
-  toWorkflowStateJson,
 } from '../src/db/persistence-health.js';
 import type { PersistenceProvider } from '../src/persistence/interfaces.js';
 import type { WorkflowState } from '../src/types/state.js';
@@ -178,46 +177,5 @@ describe('Persistence Health', () => {
       expect(err.name).toBe('PersistenceUnavailableError');
       expect(err.message).toBe('test');
     });
-  });
-});
-
-// ─── toWorkflowStateJson ──────────────────────────────────────────
-
-describe('toWorkflowStateJson', () => {
-  it('picks known workflow state fields', () => {
-    const state = makeState({
-      memory: { data: 'value' },
-      total_tokens_used: 200,
-    });
-    const json = toWorkflowStateJson(state);
-
-    expect(json.workflow_id).toBe('wf-1');
-    expect(json.run_id).toBe('run-1');
-    expect(json.status).toBe('running');
-    expect(json.memory).toEqual({ data: 'value' });
-    expect(json.total_tokens_used).toBe(200);
-    expect(json.iteration_count).toBe(5);
-    expect(json.visited_nodes).toEqual(['start', 'node-1']);
-  });
-
-  it('excludes internal runtime properties', () => {
-    const state = makeState();
-    (state as any)._internal_prop = 'should not appear';
-    const json = toWorkflowStateJson(state);
-
-    expect(json._internal_prop).toBeUndefined();
-  });
-
-  it('includes all serializable date fields', () => {
-    const state = makeState({
-      started_at: new Date('2025-06-01'),
-      waiting_since: new Date('2025-06-02'),
-      waiting_timeout_at: new Date('2025-06-03'),
-    });
-    const json = toWorkflowStateJson(state);
-
-    expect(json.started_at).toEqual(new Date('2025-06-01'));
-    expect(json.waiting_since).toEqual(new Date('2025-06-02'));
-    expect(json.waiting_timeout_at).toEqual(new Date('2025-06-03'));
   });
 });

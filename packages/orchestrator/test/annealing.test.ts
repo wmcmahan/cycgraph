@@ -29,7 +29,7 @@ let agentCallCount = 0;
 vi.mock('../src/agent/agent-executor/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, stateView: any, _t: any, attempt: number, options?: any) => {
     agentCallCount++;
-    const iter = stateView.memory._annealing_iteration ?? 0;
+    const iter = stateView.taskContext?.annealing_iteration ?? 0;
     // Simulate improving quality over iterations
     const score = Math.min(0.3 + iter * 0.25, 1.0);
     return {
@@ -243,7 +243,7 @@ describe('Self-Annealing Loops', () => {
 
     // Check that the stateView passed to executeAgent contains annealing fields
     const firstCallStateView = (executeAgent as any).mock.calls[0][1];
-    expect(firstCallStateView.memory._annealing_iteration).toBe(0);
-    expect(firstCallStateView.memory._annealing_temperature).toBeDefined();
+    expect(firstCallStateView.taskContext?.annealing_iteration).toBe(0);
+    expect(firstCallStateView.taskContext?.annealing_temperature).toBeDefined();
   });
 });

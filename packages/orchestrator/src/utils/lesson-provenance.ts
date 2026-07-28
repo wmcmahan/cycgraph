@@ -2,19 +2,22 @@
  * Lesson Provenance Utilities
  *
  * Manages the lesson provenance registry stored at
- * `memory._lesson_provenance`: one entry per retrieval event, recording
+ * `state.lesson_provenance` (schema v2 — formerly
+ * `memory._lesson_provenance`): one entry per retrieval event, recording
  * which memory facts were injected into which node's prompt. After the
  * run, `getInjectedFactIds(finalState)` yields the fact IDs to feed an
  * outcome ledger (`@cycgraph/memory`'s eval-gated retention).
  *
- * Entries are minted inside `update_memory` action payloads at
- * execution time (like `TaintMetadata.created_at`), so event-log replay
- * reproduces them verbatim. The reducer merges registries append-only
- * and applies `trimLessonProvenance` — both pure and deterministic.
+ * Entries are minted inside action payloads at execution time (like
+ * `TaintMetadata.created_at`), so event-log replay reproduces them
+ * verbatim. Inside payloads the wire encoding keeps the legacy
+ * `_lesson_provenance` key ({@link LESSON_PROVENANCE_KEY}); reducers
+ * route it to the state field, merging append-only with
+ * `trimLessonProvenance` — both pure and deterministic.
  *
- * The `_` prefix keeps the registry out of every node's StateView and
- * exempts it from write-permission validation, mirroring
- * `_taint_registry`.
+ * As a first-class state field, the registry is structurally outside
+ * every node's StateView and outside write-permission checks — no
+ * prefix convention involved.
  *
  * @module utils/lesson-provenance
  */
@@ -26,7 +29,10 @@ import type {
   WorkflowState,
 } from '../types/state.js';
 
-/** Well-known memory key for the lesson provenance registry. */
+/**
+ * WIRE key for lesson provenance inside action payload `updates`.
+ * Executors emit it; reducers route it to `state.lesson_provenance`.
+ */
 export const LESSON_PROVENANCE_KEY = '_lesson_provenance';
 
 /**
@@ -69,17 +75,13 @@ export function mintLessonProvenance(
 export const MAX_LESSON_PROVENANCE_ENTRIES = 256;
 
 /**
- * Get the lesson provenance registry from a memory object.
- * Returns an empty object when absent or malformed.
+ * Get the lesson provenance registry from workflow state.
+ * Returns an empty registry when absent (hand-built states).
  */
 export function getLessonProvenanceRegistry(
-  memory: Record<string, unknown>,
+  state: Pick<WorkflowState, 'lesson_provenance'>,
 ): LessonProvenanceRegistry {
-  const raw = memory[LESSON_PROVENANCE_KEY];
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return raw as LessonProvenanceRegistry;
-  }
-  return {};
+  return state.lesson_provenance ?? {};
 }
 
 /** Total order: `retrieved_at` then entry key — stable across replays. */
@@ -95,7 +97,7 @@ function compareEntries(
  * All provenance entries for a run, oldest first (deterministic order).
  */
 export function getLessonProvenance(state: WorkflowState): LessonProvenanceEntry[] {
-  return Object.entries(getLessonProvenanceRegistry(state.memory))
+  return Object.entries(getLessonProvenanceRegistry(state))
     .sort(compareEntries)
     .map(([, entry]) => entry);
 }
@@ -120,25 +122,20 @@ export function getInjectedFactIds(state: WorkflowState): string[] {
 }
 
 /**
- * Merge an incoming provenance registry into a memory object,
- * append-only and trimmed — the same discipline `mergeMemory` applies to
- * `update_memory` actions, exposed for reducers (handoff / set_status)
- * whose actions carry provenance outside the memory-updates channel.
+ * Merge an incoming provenance registry into an existing one,
+ * append-only and trimmed. Used by reducers to fold wire-format
+ * provenance (from action payloads) into `state.lesson_provenance`.
  *
  * Pure and deterministic (the incoming entries are minted at
  * action-creation time, so replay re-applies identical values). Returns
- * the input memory unchanged when there is nothing to merge.
+ * the previous registry unchanged when there is nothing to merge.
  */
-export function mergeLessonProvenanceIntoMemory(
-  memory: Record<string, unknown>,
+export function mergeLessonProvenance(
+  prev: LessonProvenanceRegistry,
   incoming: LessonProvenanceRegistry | undefined,
-): Record<string, unknown> {
-  if (!incoming || Object.keys(incoming).length === 0) return memory;
-  const prev = getLessonProvenanceRegistry(memory);
-  return {
-    ...memory,
-    [LESSON_PROVENANCE_KEY]: trimLessonProvenance({ ...prev, ...incoming }),
-  };
+): LessonProvenanceRegistry {
+  if (!incoming || Object.keys(incoming).length === 0) return prev;
+  return trimLessonProvenance({ ...prev, ...incoming });
 }
 
 /**

@@ -431,7 +431,7 @@ export class MCPConnectionManager implements ToolResolver {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        return await this.connectToServer(serverId);
+        return await this.connectToServer(serverId, entry);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (attempt < maxRetries) {
@@ -489,14 +489,11 @@ export class MCPConnectionManager implements ToolResolver {
   }
 
   /**
-   * Connect to an MCP server by looking up its config in the registry.
+   * Connect to an MCP server. The caller (connectWithRetry) has already
+   * loaded and validated the registry entry — reloading per attempt would
+   * just triple the registry round-trips.
    */
-  private async connectToServer(serverId: string): Promise<MCPClientType> {
-    const entry = await this.registry.loadServer(serverId);
-    if (!entry) {
-      throw new MCPServerNotFoundError(serverId);
-    }
-
+  private async connectToServer(serverId: string, entry: MCPServerEntry): Promise<MCPClientType> {
     const transport = await this.buildTransport(entry);
     const createClient = await getCreateMCPClient();
 

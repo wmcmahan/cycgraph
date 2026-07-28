@@ -39,7 +39,7 @@ export interface HumanResponseOutcome {
   /** The `resume_from_human` action, for durable event-log recording. */
   resumeAction: Action;
   /** Internal dispatches to fire AFTER recording the action, in order. */
-  dispatches: Array<{ type: '_advance' | '_cancel'; payload?: Record<string, unknown> }>;
+  dispatches: Array<{ type: '_advance' | '_cancel' | '_complete' | '_fail'; payload?: Record<string, unknown> }>;
 }
 
 /**
@@ -53,8 +53,12 @@ export function computeHumanResponseOutcome(
   edgeMap: Map<string, GraphEdge[]>,
   nodeMap: Map<string, GraphNode>,
   routingOptions: { strict_taint: boolean },
+  options?: {
+    /** Mirrors `GraphRunnerOptions.allowImplicitCompletion` for the approved-dead-end case. */
+    allowImplicitCompletion?: boolean;
+  },
 ): HumanResponseOutcome {
-  const pendingApproval = state.memory._pending_approval as {
+  const pendingApproval = state.pending_approval as {
     node_id?: string;
     rejection_node_id?: string;
     policy_gate?: boolean;
@@ -108,21 +112,42 @@ export function computeHumanResponseOutcome(
     // the gated node has NOT executed yet — the policy held it before it ran.
     // Record the approval and re-enter the SAME node (do not advance) so it
     // now runs. `evaluateSecurityPolicy` sees the flag and lets it through once.
-    const approved = {
-      ...((nextState.memory._policy_approved as Record<string, boolean> | undefined) ?? {}),
-      [pendingApproval.node_id]: true,
-    };
     nextState = {
       ...nextState,
-      memory: { ...nextState.memory, _policy_approved: approved },
+      policy_approvals: {
+        ...nextState.policy_approvals,
+        [pendingApproval.node_id]: true,
+      },
     };
   } else {
     // Approved: advance to the next node from the approval node.
     const approvalNode = graph.nodes.find(n => n.id === pendingApproval?.node_id);
     if (approvalNode) {
-      const nextNode = getNextNode(edgeMap, nodeMap, approvalNode, nextState, routingOptions);
-      if (nextNode) {
-        dispatches.push({ type: '_advance', payload: { node_id: nextNode.id } });
+      if (graph.end_nodes.includes(approvalNode.id)) {
+        // Approval-as-final-gate: an approved end node completes the run.
+        dispatches.push({ type: '_complete' });
+      } else {
+        const nextNode = getNextNode(edgeMap, nodeMap, approvalNode, nextState, routingOptions);
+        if (nextNode) {
+          dispatches.push({ type: '_advance', payload: { node_id: nextNode.id } });
+        } else if (options?.allowImplicitCompletion) {
+          dispatches.push({ type: '_complete' });
+        } else {
+          // Approved, but no outgoing edge matched and this is not an end
+          // node. Without a terminal dispatch the run would re-enter the
+          // approval node and pause again — an infinite approve-loop. Fail
+          // loud instead, mirroring the runner's NoMatchingEdgeError
+          // semantics for dead-ends.
+          dispatches.push({
+            type: '_fail',
+            payload: {
+              last_error:
+                `Approval node '${approvalNode.id}' was approved but has no outgoing edge whose ` +
+                `condition matched and is not an end node — execution cannot proceed. Check the ` +
+                `node's edge conditions, or add it to end_nodes if approval is meant to complete the run.`,
+            },
+          });
+        }
       }
     }
   }

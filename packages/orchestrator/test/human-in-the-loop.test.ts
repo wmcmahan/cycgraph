@@ -99,7 +99,8 @@ const createHITLGraph = (rejectionNodeId?: string): Graph => ({
         rejection_node_id: rejectionNodeId,
       },
       read_keys: ['*'],
-      write_keys: ['*', 'control_flow'],
+      // Empty on purpose: the approval type implies its control-flow grant.
+      write_keys: [],
       failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 100, max_backoff_ms: 100 },
       requires_compensation: false,
     },
@@ -146,8 +147,8 @@ describe('Human-in-the-Loop', () => {
 
     expect(finalState.status).toBe('waiting');
     expect(finalState.waiting_for).toBe('human_approval');
-    expect(finalState.memory._pending_approval).toBeDefined();
-    expect((finalState.memory._pending_approval as any).prompt_message).toBe('Please review the draft.');
+    expect(finalState.pending_approval).toBeDefined();
+    expect((finalState.pending_approval as any).prompt_message).toBe('Please review the draft.');
   });
 
   test('approval node should include review data in pending approval', async () => {
@@ -158,7 +159,7 @@ describe('Human-in-the-Loop', () => {
     const runner = new GraphRunner(graph, state);
     const finalState = await runner.run();
 
-    const pending = finalState.memory._pending_approval as any;
+    const pending = finalState.pending_approval as any;
     expect(pending.review_data.draft).toBe('review this content');
   });
 
@@ -235,6 +236,71 @@ describe('Human-in-the-Loop', () => {
     expect(resumedState.memory.human_decision).toBe('rejected');
   });
 
+  test('approving an approval node that IS an end node completes the run', async () => {
+    const graph = createHITLGraph();
+    // Approval-as-final-gate: review terminates the graph.
+    graph.edges = graph.edges.filter(e => e.source !== 'review');
+    graph.end_nodes = ['review'];
+    const state = createState();
+    const eventLog = new InMemoryEventLogWriter();
+
+    const runner1 = new GraphRunner(graph, state, { eventLog });
+    const pausedState = await runner1.run();
+    expect(pausedState.status).toBe('waiting');
+
+    const runner2 = new GraphRunner(graph, { ...pausedState }, { eventLog });
+    runner2.applyHumanResponse({ decision: 'approved', data: 'ship it' });
+    const resumedState = await runner2.run();
+
+    expect(resumedState.status).toBe('completed');
+    expect(resumedState.memory.human_decision).toBe('approved');
+  });
+
+  test('approving with no matching outgoing edge fails loud instead of re-pausing forever', async () => {
+    const graph = createHITLGraph();
+    // Dead-end: review is NOT an end node and its only outgoing edge never matches.
+    graph.edges = graph.edges.map(e =>
+      e.source === 'review'
+        ? { ...e, condition: { type: 'conditional' as const, condition: '1 == 2' } }
+        : e,
+    );
+    const state = createState();
+    const eventLog = new InMemoryEventLogWriter();
+
+    const runner1 = new GraphRunner(graph, state, { eventLog });
+    const pausedState = await runner1.run();
+    expect(pausedState.status).toBe('waiting');
+
+    const runner2 = new GraphRunner(graph, { ...pausedState }, { eventLog });
+    runner2.applyHumanResponse({ decision: 'approved' });
+    const resumedState = await runner2.run();
+
+    expect(resumedState.status).toBe('failed');
+    expect(resumedState.last_error).toContain('no outgoing edge');
+    expect(resumedState.visited_nodes).not.toContain('publish');
+  });
+
+  test('approving a dead-end with allowImplicitCompletion completes instead of failing', async () => {
+    const graph = createHITLGraph();
+    graph.edges = graph.edges.map(e =>
+      e.source === 'review'
+        ? { ...e, condition: { type: 'conditional' as const, condition: '1 == 2' } }
+        : e,
+    );
+    const state = createState();
+    const eventLog = new InMemoryEventLogWriter();
+
+    const runner1 = new GraphRunner(graph, state, { eventLog });
+    const pausedState = await runner1.run();
+    expect(pausedState.status).toBe('waiting');
+
+    const runner2 = new GraphRunner(graph, { ...pausedState }, { eventLog, allowImplicitCompletion: true });
+    runner2.applyHumanResponse({ decision: 'approved' });
+    const resumedState = await runner2.run();
+
+    expect(resumedState.status).toBe('completed');
+  });
+
   test('applyHumanResponse should clear pending approval', async () => {
     const graph = createHITLGraph();
     const state = createState();
@@ -247,7 +313,7 @@ describe('Human-in-the-Loop', () => {
     runner2.applyHumanResponse({ decision: 'approved' });
 
     const resumedState = await runner2.run();
-    expect(resumedState.memory._pending_approval).toBeUndefined();
+    expect(resumedState.pending_approval).toBeUndefined();
   });
 
   test('applyHumanResponse with memory_updates should merge them', async () => {

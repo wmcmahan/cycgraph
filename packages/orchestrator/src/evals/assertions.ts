@@ -45,7 +45,9 @@ export async function checkAssertion(
     }
 
     case 'memory_contains': {
-      const passed = assertion.key in finalState.memory;
+      // Object.hasOwn, not `in`: a key named `constructor`/`toString` must
+      // not pass via the prototype chain.
+      const passed = Object.hasOwn(finalState.memory, assertion.key);
       return {
         assertion,
         passed,

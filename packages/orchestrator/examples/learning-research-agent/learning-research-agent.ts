@@ -189,6 +189,9 @@ const graph = createGraph({
         sourceKeys: ['research_notes'],
         extractor: { type: 'rule_based', minSentenceLength: 25 },
         tags: ['lesson', LESSON_TAG],
+        // The result key is an implied write grant; pin it because the code
+        // below reads this specific name from final memory.
+        resultKey: 'research_notes_reflection',
       },
       failurePolicy: {
         maxRetries: 1,

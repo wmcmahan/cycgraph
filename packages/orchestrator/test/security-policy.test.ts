@@ -96,7 +96,8 @@ const taintedState = (): WorkflowState => {
     total_tokens_used: 0,
     supervisor_history: [],
   };
-  markTainted(state.memory, 'input', {
+  // Taint lives on the first-class state field (schema v2).
+  state.taint_registry = markTainted({}, 'input', {
     source: 'tool_node',
     tool_name: 'external_input',
     created_at: new Date().toISOString(),
@@ -121,7 +122,7 @@ describe('security policy enforcement', () => {
     const policy: SecurityPolicy = vi.fn(() => ({ effect: 'block' }));
     const state = taintedState();
     // Remove the taint registry so nothing is untrusted.
-    delete state.memory._taint_registry;
+    state.taint_registry = {};
     const runner = new GraphRunner(createGraph(), state, { securityPolicy: policy });
     const final = await runner.run();
 
@@ -164,7 +165,7 @@ describe('security policy enforcement', () => {
     expect(final.waiting_for).toBe('human_approval');
     // The gated node has not run yet.
     expect(final.memory.sink_result).toBeUndefined();
-    const pending = final.memory._pending_approval as any;
+    const pending = final.pending_approval as any;
     expect(pending.policy_gate).toBe(true);
     expect(pending.node_id).toBe('sink');
     expect(pending.review_data.sensitivity).toEqual(['egress']);

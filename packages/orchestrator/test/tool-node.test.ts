@@ -154,17 +154,18 @@ describe('executeToolNode', () => {
       });
     });
 
-    test('calls getTaintRegistry with state memory', async () => {
+    test('emits only the NEW taint entry on the wire (reducer appends to state)', async () => {
       const taintedResult = { result: 'data', taint: { source: 'external' } };
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue(taintedResult) },
       });
-      mockGetTaintRegistry.mockReturnValue({});
 
-      await executeToolNode(node, mockCtx.createStateView(node), 0, mockCtx);
+      const action = await executeToolNode(node, mockCtx.createStateView(node), 0, mockCtx);
 
-      expect(mockGetTaintRegistry).toHaveBeenCalledWith(mockCtx.state.memory);
+      const updates = action.payload.updates as Record<string, unknown>;
+      const registry = updates['_taint_registry'] as Record<string, unknown>;
+      expect(Object.keys(registry)).toEqual(['tool-node_result']);
     });
   });
 

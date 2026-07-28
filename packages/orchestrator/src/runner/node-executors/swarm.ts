@@ -1,9 +1,15 @@
 /**
  * Swarm Agent Node Executor
  *
- * Executes an agent with peer delegation capability. The agent
- * can request handoff to a peer node by writing `_peer_delegation`
- * to its output, which is converted into a `handoff` action.
+ * Executes an agent with peer delegation capability. The agent requests
+ * handoff to a peer by writing a `peer_delegation` object
+ * (`{ peer_node_id, reason }`) to its output — typically via the
+ * `save_to_memory` tool, so `peer_delegation` must be in the agent's
+ * `write_keys`. The executor converts it into a `handoff` action.
+ *
+ * The legacy `_peer_delegation` key is still honoured for
+ * executor-level callers, but real agents cannot produce it: the agent
+ * executor blocks `_`-prefixed keys in agent output.
  *
  * @module runner/node-executors/swarm
  */
@@ -52,13 +58,16 @@ export async function executeSwarmAgentNode(
     peer_nodes: config.peer_nodes,
   });
 
-  const handoffCount = (stateView.memory._swarm_handoff_count as number) || 0;
+  // First-class state field (schema v2) — formerly `memory._swarm_handoff_count`.
+  const handoffCount = ctx.state.swarm_handoff_count ?? 0;
 
   const swarmView: StateView = {
     ...stateView,
-    memory: {
-      ...stateView.memory,
-      _swarm_config: {
+    // Rendered into the agent's prompt as `## Task Context` so the agent
+    // can see its peers and remaining handoff budget (formerly a `_`-prefixed
+    // memory key that sanitizeForPrompt stripped).
+    taskContext: {
+      swarm: {
         peer_nodes: config.peer_nodes,
         max_handoffs: config.max_handoffs,
         handoff_count: handoffCount,
@@ -72,6 +81,8 @@ export async function executeSwarmAgentNode(
   const { onToken } = buildNodeCallbacks(node.id, ctx);
   const action = await ctx.deps.executeAgent(agentId, swarmView, tools, attempt, {
     nodeId: node.id,
+    idempotencyKey: nodeIdempotencyKey(node, ctx, attempt),
+    grantedWriteKeys: node.write_keys,
     abortSignal: ctx.abortSignal,
     onToken,
     drainTaintEntries: ctx.deps.drainTaintEntries,
@@ -81,7 +92,9 @@ export async function executeSwarmAgentNode(
   });
 
   const updates = action.payload.updates as Record<string, unknown>;
-  const delegation = updates._peer_delegation as
+  // `peer_delegation` is the agent-writable key; `_peer_delegation` is kept
+  // for executor-level callers (agents cannot write `_`-prefixed keys).
+  const delegation = (updates.peer_delegation ?? updates._peer_delegation) as
     | { peer_node_id: string; reason: string; context?: unknown }
     | undefined;
 
@@ -93,8 +106,13 @@ export async function executeSwarmAgentNode(
     if (handoffCount >= config.max_handoffs) {
       logger.warn('swarm_max_handoffs', { node_id: node.id, count: handoffCount, max: config.max_handoffs });
       delete updates._peer_delegation;
+      delete updates.peer_delegation;
       return action;
     }
+
+    // Omit the delegation directive from the carried memory — it has been
+    // consumed by this handoff.
+    const { _peer_delegation, peer_delegation, ...outputUpdates } = updates;
 
     return {
       id: uuidv4(),
@@ -105,9 +123,8 @@ export async function executeSwarmAgentNode(
         supervisor_id: node.id,
         reasoning: delegation.reason,
         memory_updates: {
-          ...updates,
+          ...outputUpdates,
           _swarm_handoff_count: handoffCount + 1,
-          _peer_delegation: undefined,
         },
       },
       metadata: {

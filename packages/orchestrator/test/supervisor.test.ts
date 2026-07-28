@@ -75,7 +75,8 @@ const createSupervisorGraph = (): Graph => ({
         max_iterations: 10,
       },
       read_keys: ['*'],
-      write_keys: [],
+      // handoff / completion actions are permission-checked against these.
+      write_keys: ['control_flow', 'status'],
       failure_policy: {
         max_retries: 1,
         backoff_strategy: 'fixed',
@@ -161,17 +162,6 @@ describe('Supervisor Schema Tests', () => {
 
       const parsed = SupervisorConfigSchema.parse(config);
       expect(parsed.max_iterations).toBe(10);
-    });
-
-    test('should accept optional completion_condition', () => {
-      const config = {
-        agent_id: 'supervisor-agent',
-        managed_nodes: ['research'],
-        completion_condition: '$.memory.all_done == true',
-      };
-
-      const parsed = SupervisorConfigSchema.parse(config);
-      expect(parsed.completion_condition).toBe('$.memory.all_done == true');
     });
 
     test('should accept missing agent_id (optional, falls back to node.agent_id)', () => {

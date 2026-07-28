@@ -3,7 +3,10 @@ import { createStateView } from '../src/runner/state-view.js';
 import type { WorkflowState } from '../src/types/state.js';
 import type { GraphNode } from '../src/types/graph.js';
 
-function makeState(memory: Record<string, unknown> = {}): WorkflowState {
+function makeState(
+  memory: Record<string, unknown> = {},
+  taint?: Record<string, unknown>,
+): WorkflowState {
   return {
     workflow_id: 'wf-1',
     run_id: 'run-1',
@@ -12,6 +15,7 @@ function makeState(memory: Record<string, unknown> = {}): WorkflowState {
     goal: 'test goal',
     constraints: ['no external calls'],
     memory,
+    taint_registry: taint ?? {},
     node_results: {},
     node_history: [],
   } as WorkflowState;
@@ -114,34 +118,34 @@ describe('createStateView', () => {
   });
 
   describe('internal key filtering', () => {
-    test('carries _taint_registry for readable tainted keys (executor-only)', () => {
-      // The view now retains taint info for the keys the node can read so the
-      // agent executor can propagate derived taint. It is stripped from the
-      // agent PROMPT by sanitizeForPrompt, not from the view itself.
-      const state = makeState({
-        findings: 'visible',
-        _taint_registry: { findings: { source: 'web_search' } },
-      });
+    test('carries taint for readable tainted keys on the dedicated field (executor-only)', () => {
+      // The view retains taint info for the keys the node can read so the
+      // agent executor can propagate derived taint. It rides on `view.taint`
+      // (never inside memory), so it structurally cannot reach the prompt.
+      const state = makeState(
+        { findings: 'visible' },
+        { findings: { source: 'web_search' } },
+      );
 
       const view = createStateView(state, makeNode(['*']));
 
       expect(view.memory).toHaveProperty('findings');
-      expect(view.memory._taint_registry).toEqual({ findings: { source: 'web_search' } });
+      expect(view.memory).not.toHaveProperty('_taint_registry');
+      expect(view.taint).toEqual({ findings: { source: 'web_search' } });
     });
 
     test('only carries taint entries for keys the node can read', () => {
-      const state = makeState({
-        readable: 'x',
-        secret: 'y',
-        _taint_registry: { readable: { source: 'web_search' }, secret: { source: 'web_search' } },
-      });
+      const state = makeState(
+        { readable: 'x', secret: 'y' },
+        { readable: { source: 'web_search' }, secret: { source: 'web_search' } },
+      );
 
       const view = createStateView(state, makeNode(['readable']));
 
       expect(view.memory).toHaveProperty('readable');
       expect(view.memory).not.toHaveProperty('secret');
       // Taint for the unreadable `secret` key is not leaked into the view.
-      expect(view.memory._taint_registry).toEqual({ readable: { source: 'web_search' } });
+      expect(view.taint).toEqual({ readable: { source: 'web_search' } });
     });
 
     test('should strip all _-prefixed keys from wildcard access', () => {

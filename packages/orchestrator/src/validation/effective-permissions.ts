@@ -1,0 +1,157 @@
+/**
+ * Effective Write Permissions
+ *
+ * Derives the write grants a node holds BEYOND its declared `write_keys`.
+ * Two families are implied rather than hand-written, because in both cases
+ * the node's type or config already IS the declaration of intent:
+ *
+ * 1. **Action permissions implied by node type.** A `supervisor` node exists
+ *    to route (`handoff` → `control_flow`) and to complete the run
+ *    (`set_status` → `status`); an `approval` or `subgraph` node exists to
+ *    pause for a human (`request_human_input` → `control_flow`); an agent
+ *    node with `swarm_config` exists to hand off to peers. Requiring authors
+ *    to also spell these out as pseudo-keys in `write_keys` was the single
+ *    most common way to ship a graph that could not run.
+ *
+ * 2. **Executor-owned result keys implied by node config.** The verifier
+ *    ALWAYS writes `${result_key}` and `${result_key}_passed`; reflection
+ *    always writes its envelope; map/voting/evolution always write their
+ *    aggregate keys; a tool node writes `${id}_result`. These writes are
+ *    produced by the executor, not authored by an LLM — the config that
+ *    names them is the grant.
+ *
+ * `write_keys` remains the authority for what the node's AGENT may write
+ * (its LLM-authored output). Redundantly declaring an implied key is
+ * harmless.
+ *
+ * Lives in `validation/` so both the load-time validator (dangling-read
+ * analysis) and the runner (dispatch-time permission check) can share it
+ * without a `validation → runner` dependency.
+ *
+ * @module validation/effective-permissions
+ */
+
+import type { GraphNode } from '../types/graph.js';
+
+/**
+ * Action-permission pseudo-keys implied by the node's type/config.
+ * See `validateAction` in `reducers/index.ts` for what each token gates.
+ */
+export function impliedActionPermissions(node: GraphNode): string[] {
+  const implied: string[] = [];
+  switch (node.type) {
+    case 'supervisor':
+      // handoff → control_flow; completion set_status → status.
+      implied.push('control_flow', 'status');
+      break;
+    case 'approval':
+    case 'subgraph':
+      // request_human_input (approval pause / nested-HITL pause) → control_flow.
+      implied.push('control_flow');
+      break;
+    case 'agent':
+      // A swarm-mode agent emits handoff actions when delegating to a peer.
+      if (node.swarm_config) implied.push('control_flow');
+      break;
+    default:
+      break;
+  }
+  return implied;
+}
+
+/**
+ * Executor-owned memory keys this node's own machinery writes, derived from
+ * its type and config. The agent-node text-output fallback key
+ * (`${id}_output`) is deliberately NOT implied: granting it would change the
+ * output-routing heuristics for existing graphs (the sole-concrete-key rule
+ * would stop firing).
+ */
+export function impliedResultKeys(node: GraphNode): string[] {
+  const keys: string[] = [];
+  switch (node.type) {
+    case 'verifier': {
+      const resultKey = node.verifier_config?.result_key ?? `${node.id}_verification`;
+      keys.push(resultKey, `${resultKey}_passed`);
+      break;
+    }
+    case 'reflection': {
+      keys.push(node.reflection_config?.result_key ?? `${node.id}_reflection`);
+      break;
+    }
+    case 'map':
+      keys.push(
+        `${node.id}_results`,
+        `${node.id}_errors`,
+        `${node.id}_count`,
+        `${node.id}_error_count`,
+      );
+      break;
+    case 'voting':
+      keys.push(`${node.id}_consensus`, `${node.id}_votes`);
+      break;
+    case 'evolution':
+      keys.push(
+        `${node.id}_winner`,
+        `${node.id}_winner_fitness`,
+        `${node.id}_winner_reasoning`,
+        `${node.id}_generation`,
+        `${node.id}_fitness_history`,
+        `${node.id}_population`,
+        `${node.id}_budget_stopped`,
+      );
+      break;
+    case 'tool':
+      keys.push(`${node.id}_result`);
+      break;
+    case 'synthesizer':
+      // The agent-less merge path writes `${id}_synthesis`. (The agent path
+      // routes output through the agent's write keys like any agent node.)
+      keys.push(`${node.id}_synthesis`);
+      break;
+    default:
+      break;
+  }
+  return keys;
+}
+
+/**
+ * The full set of write grants the runner's dispatch-time permission check
+ * validates a node's action against: declared `write_keys` plus everything
+ * implied by the node's type and config.
+ */
+export function effectiveWriteKeys(node: GraphNode): string[] {
+  return [
+    ...node.write_keys,
+    ...impliedActionPermissions(node),
+    ...impliedResultKeys(node),
+  ];
+}
+
+/**
+ * Ceiling-and-grant intersection (ADR 001).
+ *
+ * The NODE's keys are the authoritative *grant* (need-to-know is a property
+ * of the graph position). The AGENT registry's permissions, when present,
+ * are a *ceiling* — "this agent may never touch more than X, anywhere". The
+ * effective permission is their intersection.
+ *
+ * Semantics:
+ *  - `ceiling === undefined` → the agent imposes no cap; the grant governs.
+ *    (A registry entry without a `permissions` block is uncapped.)
+ *  - An EXPLICIT empty ceiling (`permissions: { write_keys: [] }`) still
+ *    means deny-all — a deliberately locked-down agent stays locked down.
+ *  - `'*'` on either side defers to the other side's list.
+ *  - `grant === undefined` (executor invoked outside a graph node) → the
+ *    ceiling alone governs; with no ceiling either, the result is `['*']`.
+ */
+export function intersectWriteGrant(
+  grant: string[] | undefined,
+  ceiling: string[] | undefined,
+): string[] {
+  if (ceiling === undefined) return grant ?? ['*'];
+  if (grant === undefined) return ceiling;
+  if (ceiling.includes('*')) return grant;
+  if (grant.includes('*')) return ceiling;
+  const cap = new Set(ceiling);
+  return grant.filter((k) => cap.has(k));
+}

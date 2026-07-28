@@ -16,6 +16,8 @@ export type { SnakeToCamel, Camelize } from './case-mapping.js';
 export {
   WorkflowStatusSchema,
   WaitingReasonSchema,
+  TaintMetadataSchema,
+  TaintRegistrySchema,
   WorkflowStateSchema,
   createWorkflowState,
   CURRENT_STATE_SCHEMA_VERSION,
@@ -51,6 +53,7 @@ export type {
   ResumeFromHumanPayload,
   MergeParallelResultsPayload,
   TypedActionPayload,
+  ActionPayloadFor,
   InternalActionType,
   Action,
   TaintMetadata,

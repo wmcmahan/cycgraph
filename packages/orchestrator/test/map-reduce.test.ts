@@ -19,7 +19,7 @@ vi.mock('@opentelemetry/api', () => ({
 
 vi.mock('../src/agent/agent-executor/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, stateView: any, _t: any, attempt: number) => {
-    const item = stateView.memory._map_item;
+    const item = stateView.taskContext?.map_item;
     return {
       id: uuidv4(),
       idempotency_key: uuidv4(),
@@ -151,16 +151,16 @@ describe('Map-Reduce', () => {
     expect(finalState.memory.mapper_count).toBe(2);
   });
 
-  test('should inject _map_item, _map_index, _map_total into worker stateView', async () => {
+  test('should inject map item context into worker taskContext', async () => {
     const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
 
     // Track all calls to capture stateViews
     const capturedViews: any[] = [];
     (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number, _opts?: any) => {
-      if (stateView.memory._map_item !== undefined) {
+      if (stateView.taskContext?.map_item !== undefined) {
         capturedViews.push(stateView);
       }
-      const item = stateView.memory._map_item;
+      const item = stateView.taskContext?.map_item;
       return {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -184,9 +184,9 @@ describe('Map-Reduce', () => {
 
     // Check stateView for first call
     const sv0 = capturedViews[0];
-    expect(sv0.memory._map_item).toBe('alpha');
-    expect(sv0.memory._map_index).toBe(0);
-    expect(sv0.memory._map_total).toBe(2);
+    expect(sv0.taskContext?.map_item).toBe('alpha');
+    expect(sv0.taskContext?.map_index).toBe(0);
+    expect(sv0.taskContext?.map_total).toBe(2);
   });
 
   test('should handle empty items list', async () => {
@@ -204,7 +204,7 @@ describe('Map-Reduce', () => {
   test('should collect errors in best_effort mode', async () => {
     const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
     (executeAgent as any).mockImplementation(async (agentId: string, sv: any, _t: any, attempt: number, _opts?: any) => {
-      if (sv.memory._map_index === 1) throw new Error('Worker failed');
+      if (sv.taskContext?.map_index === 1) throw new Error('Worker failed');
       return {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -226,7 +226,7 @@ describe('Map-Reduce', () => {
 
     // Reset mock to original behavior
     (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number, _opts?: any) => {
-      const item = stateView.memory._map_item;
+      const item = stateView.taskContext?.map_item;
       return {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -316,7 +316,7 @@ describe('Map-Reduce', () => {
     // Ensure the mock returns token_usage
     const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
     (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number, _opts?: any) => {
-      const item = stateView.memory._map_item;
+      const item = stateView.taskContext?.map_item;
       return {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -348,7 +348,7 @@ describe('Map-Reduce', () => {
     // downstream routing/gating can't see the untrusted provenance.
     const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
     (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number, _opts?: any) => {
-      const item = stateView.memory._map_item;
+      const item = stateView.taskContext?.map_item;
       const outKey = `${agentId}_result`;
       return {
         id: uuidv4(),
@@ -370,7 +370,7 @@ describe('Map-Reduce', () => {
     const runner = new GraphRunner(graph, createState());
     const finalState = await runner.run();
 
-    const registry = finalState.memory._taint_registry as Record<string, unknown> | undefined;
+    const registry = finalState.taint_registry as Record<string, unknown> | undefined;
     expect(registry).toBeDefined();
     // The aggregate key holding worker output is marked derived-tainted.
     expect(registry!.mapper_results).toMatchObject({ source: 'derived' });

@@ -200,7 +200,7 @@ async function main() {
     console.log(finalState.memory.summary ?? '(none)');
 
     // Show taint tracking (MCP tool outputs are automatically tainted)
-    const taintRegistry = finalState.memory._taint_registry as Record<string, unknown> | undefined;
+    const taintRegistry = finalState.taint_registry as Record<string, unknown> | undefined;
     if (taintRegistry && Object.keys(taintRegistry).length > 0) {
       console.log('\n═══ Taint Registry ═══');
       console.log('(MCP-sourced data automatically tracked for provenance)');

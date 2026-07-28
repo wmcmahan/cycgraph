@@ -22,7 +22,7 @@ Agents are simply configurations that describe how to use an LLM to perform a ta
 | `tools` | `ToolSourceConfig[]` | `[]` | MCP tools |
 | `modelPreference` | `ModelTier` | — | Capability tier (`'high'`, `'medium'`, `'low'`) for [budget-aware model selection](/docs/guides/model-selection/). When set and a resolver is configured, overrides `model` at runtime. |
 | `providerOptions` | `object` | — | Provider-specific options |
-| `permissions` | `object` | *required* | Zero-trust state permissions (`readKeys`, `writeKeys`) |
+| `permissions` | `object` | — | Optional permission **ceiling** (`readKeys`, `writeKeys`). The graph node's keys are the authoritative grant; when a ceiling is present the effective permission is the intersection of the two. Omit it for no cap. An explicit empty ceiling means deny-all. |
 
 ## Agent registry
 
@@ -55,10 +55,9 @@ const researcherId = registry.register({
   temperature: 0.5,
   maxSteps: 5,
   tools: [{ type: 'mcp', serverId: 'web-search' }],
-  permissions: {
-    readKeys: ['topic'],
-    writeKeys: ['notes']
-  },
+  // No permissions block: the node's readKeys/writeKeys alone govern what
+  // this agent sees and writes wherever it is placed. Add a permissions
+  // ceiling only when the agent must be capped across every graph.
 });
 ```
 
@@ -74,10 +73,6 @@ const writerId = registry.register({
   provider: 'anthropic',
   systemPrompt: 'You write clear summaries.',
   tools: [],
-  permissions: {
-    readKeys: ['notes'],
-    writeKeys: ['draft']
-  },
 });
 ```
 

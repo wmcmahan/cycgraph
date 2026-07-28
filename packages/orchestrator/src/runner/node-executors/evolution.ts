@@ -30,6 +30,35 @@ import { aggregateParallelTaint } from '../../utils/taint.js';
 const logger = createLogger('runner.node.evolution');
 
 /**
+ * FNV-1a hash of a string → 32-bit unsigned seed.
+ */
+function hashSeed(str: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * mulberry32 — small deterministic PRNG. Seeded per (run, node, generation)
+ * so tournament/roulette selection is reproducible for a given run instead
+ * of being the engine's one `Math.random()` corner: re-running the same
+ * run id against the same candidate scores selects the same parents, which
+ * makes evolution behavior debuggable and testable.
+ */
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
  * Select a parent candidate using the configured strategy.
  *
  * - **rank**: pick the top candidate (index 0 after sort).
@@ -39,12 +68,14 @@ const logger = createLogger('runner.node.evolution');
  * @param candidates - Sorted descending by fitness.
  * @param strategy - Selection strategy name.
  * @param tournamentSize - Tournament group size (only for 'tournament').
+ * @param rng - Deterministic random source in [0, 1).
  * @returns The selected candidate.
  */
 function selectWinner(
   candidates: ScoredCandidate[],
   strategy: 'rank' | 'tournament' | 'roulette',
   tournamentSize: number = 3,
+  rng: () => number = Math.random,
 ): ScoredCandidate {
   if (candidates.length === 1) return candidates[0];
 
@@ -57,7 +88,7 @@ function selectWinner(
       // Fisher-Yates partial shuffle to pick `size` random candidates
       const indices = candidates.map((_, i) => i);
       for (let i = 0; i < size; i++) {
-        const j = i + Math.floor(Math.random() * (indices.length - i));
+        const j = i + Math.floor(rng() * (indices.length - i));
         [indices[i], indices[j]] = [indices[j], indices[i]];
       }
       const group = indices.slice(0, size).map(i => candidates[i]);
@@ -69,7 +100,7 @@ function selectWinner(
       const totalFitness = candidates.reduce((sum, c) => sum + c.fitness, 0);
       // Fallback to rank if all fitness values are zero
       if (totalFitness === 0) return candidates[0];
-      const spin = Math.random() * totalFitness;
+      const spin = rng() * totalFitness;
       let cumulative = 0;
       for (const candidate of candidates) {
         cumulative += candidate.fitness;
@@ -208,20 +239,22 @@ export async function executeEvolutionNode(
       },
       stateView: {
         ...stateView,
-        memory: {
-          ...stateView.memory,
-          _evolution_generation: gen,
-          _evolution_candidate_index: idx,
-          _evolution_population_size: config.population_size,
-          _evolution_best_fitness: bestCandidate?.fitness ?? null,
+        // Rendered into the candidate's prompt as `## Task Context`
+        // (formerly `_`-prefixed memory keys that sanitizeForPrompt
+        // stripped — candidates never saw their parent or its feedback).
+        taskContext: {
+          generation: gen,
+          candidate_index: idx,
+          population_size: config.population_size,
+          best_fitness: bestCandidate?.fitness ?? null,
           ...(gen > 0 && parentForNextGen ? {
-            _evolution_parent: parentForNextGen.output,
-            _evolution_parent_fitness: parentForNextGen.fitness,
+            parent: parentForNextGen.output,
+            parent_fitness: parentForNextGen.fitness,
             // Reasoning surfaces *why* the parent scored what it did.
             // Critical for iteration — without it, the candidate has no
             // signal about which specific tests the parent failed and
             // can only blindly mutate.
-            _evolution_parent_reasoning: parentForNextGen.reasoning,
+            parent_reasoning: parentForNextGen.reasoning,
           } : {}),
         },
       },
@@ -243,7 +276,7 @@ export async function executeEvolutionNode(
           task.stateView,
           tools,
           attempt,
-          { temperatureOverride: temperature, nodeId: task.node.id, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { modelOverride } : {}), ...(task.node.default_write_key ? { defaultWriteKey: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) },
+          { temperatureOverride: temperature, nodeId: task.node.id, grantedWriteKeys: task.node.write_keys, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { modelOverride } : {}), ...(task.node.default_write_key ? { defaultWriteKey: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) },
         );
       },
       { maxConcurrency: config.max_concurrency, errorStrategy: config.error_strategy, taskTimeoutMs: config.task_timeout_ms },
@@ -368,11 +401,13 @@ export async function executeEvolutionNode(
     const genBestFitness = candidates[0].fitness;
     fitnessHistory.push(genBestFitness);
 
-    // Select parent for next generation using configured strategy
+    // Select parent for next generation using configured strategy. The RNG is
+    // seeded from (run, node, generation) so selection is reproducible.
     const selectedParent = selectWinner(
       candidates,
       config.selection_strategy,
       config.tournament_size,
+      mulberry32(hashSeed(`${stateView.run_id}:${node.id}:${gen}`)),
     );
 
     logger.info('evolution_generation_complete', {

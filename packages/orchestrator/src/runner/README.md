@@ -237,11 +237,11 @@ async function execute*Node(
 | **Tool** | `tool.ts` | `update_memory` | Calls `executeToolCall()` → stores result in `{node_id}_result`. Propagates taint from MCP tools |
 | **Router** | `router.ts` | `noop` | Pass-through; actual routing handled by `getNextNode()` via edge conditions |
 | **Supervisor** | `supervisor.ts` | `handoff` / `set_status` | Delegates to `executeSupervisor()` for LLM-powered routing |
-| **Approval** | `approval.ts` | `noop` | Pauses workflow with `waiting` status; stores `_pending_approval` in memory |
+| **Approval** | `approval.ts` | `noop` | Pauses workflow with `waiting` status; stores the review payload in `state.pending_approval` |
 | **Annealing** | `annealing.ts` | `update_memory` | Iterative improvement loop with temperature interpolation and quality evaluation |
 | **Map** | `map.ts` | `merge_parallel_results` | Fans out items to parallel workers via `executeParallel()` |
 | **Synthesizer** | `synthesizer.ts` | `update_memory` | Merges `_results` keys or delegates to an agent for LLM-based synthesis |
-| **Subgraph** | `subgraph.ts` | `update_memory` | Spawns a child `GraphRunner` with mapped I/O; cycle detection via `_subgraph_stack` |
+| **Subgraph** | `subgraph.ts` | `update_memory` | Spawns a child `GraphRunner` with mapped I/O; cycle detection via the `subgraph_stack` state field |
 | **Voting** | `voting.ts` | `merge_parallel_results` | Parallel voter agents + consensus (majority, weighted, or LLM judge) |
 | **Swarm** | `swarm.ts` | `handoff` / `update_memory` | Agent with peer delegation; validates handoff targets and enforces `max_handoffs` |
 | **Evolution** | `evolution.ts` | `merge_parallel_results` | Population-based DGM: N candidates per generation, fitness evaluation, stagnation detection, temperature scheduling |
@@ -264,7 +264,7 @@ The self-annealing executor iterates to improve output quality:
 ```
 for iter in 0..max_iterations:
   1. Interpolate temperature: T = initial + (final - initial) * progress
-  2. Inject annealing context (_annealing_iteration, _annealing_temperature, _annealing_feedback)
+  2. Inject annealing context via taskContext (annealing_iteration, annealing_temperature, feedback)
   3. Execute agent with temperature override
   4. Evaluate quality (via evaluator agent or JSONPath score extraction)
   5. Track best result by score
@@ -280,8 +280,8 @@ for gen in 0..max_generations:
   1. Interpolate temperature: T = initial + (final - initial) * (gen / (max_generations - 1))
   2. Create N parallel tasks (one per population_size)
      - Gen 0: no parent context
-     - Gen 1+: inject _evolution_parent (winner output), _evolution_parent_fitness
-     - Always inject: _evolution_generation, _evolution_candidate_index, _evolution_population_size
+     - Gen 1+: taskContext gets parent (winner output), parent_fitness, parent_reasoning
+     - Always in taskContext: generation, candidate_index, population_size
   3. executeParallel(tasks) — fan out candidate agents with temperature_override
   4. For each successful candidate, call evaluateQualityExecutor → fitness score
   5. Sort by fitness descending
@@ -302,7 +302,7 @@ Output action (`merge_parallel_results`):
 The approval executor implements a human-in-the-loop gate:
 
 1. Extracts `review_data_path` from memory (if configured)
-2. Stores `_pending_approval` in memory with `node_id`, `rejection_node_id`, review data
+2. Stores the review payload in `state.pending_approval` with `node_id`, `rejection_node_id`, review data
 3. Sets workflow status to `waiting` via `_wait` internal dispatch
 4. Returns a `noop` action — the workflow pauses until `applyHumanResponse()` is called
 
@@ -310,7 +310,7 @@ The approval executor implements a human-in-the-loop gate:
 
 The subgraph executor enables nested workflow composition:
 
-1. **Cycle detection** — checks `_subgraph_stack` to prevent `A → B → A` cycles
+1. **Cycle detection** — checks the `subgraph_stack` state field to prevent `A → B → A` cycles
 2. **Graph loading** — calls `loadGraphFn(subgraph_id)` to resolve the child graph
 3. **State isolation** — builds a fresh `WorkflowState` with mapped inputs from `input_mapping`
 4. **Budget inheritance** — passes remaining token budget to child runner

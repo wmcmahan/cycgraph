@@ -99,6 +99,12 @@ export * from './persistence/index.js';
 
 export { validateGraph } from './validation/graph-validator.js';
 export type { ValidationResult } from './validation/graph-validator.js';
+export {
+  effectiveWriteKeys,
+  impliedActionPermissions,
+  impliedResultKeys,
+  intersectWriteGrant,
+} from './validation/effective-permissions.js';
 
 // ─── Agent Runtime ──────────────────────────────────────────────────
 
@@ -216,7 +222,14 @@ export type { LogLevel } from './utils/logger.js';
 export { initTracing, getTracer, withSpan } from './utils/tracing.js';
 export { runWithContext, getCurrentContext } from './utils/context.js';
 export type { RunContext } from './utils/context.js';
-export { calculateCost, MODEL_PRICING } from './utils/pricing.js';
+export {
+  calculateCost,
+  MODEL_PRICING,
+  setModelPricing,
+  loadPricingTable,
+  getModelPricing,
+  clearPricingOverrides,
+} from './utils/pricing.js';
 export type { ModelPricing } from './utils/pricing.js';
 export {
   initMetrics,

@@ -132,7 +132,7 @@ interface TaintMetadata {
 type TaintRegistry = Record<string, TaintMetadata>;
 ```
 
-Stored at `memory._taint_registry`. Keys prefixed with `_` are system-reserved and cannot be written by agents.
+Stored in the first-class `state.taint_registry` field (schema v2). The `_`-prefixed key namespace is reserved for the engine wire format inside action payloads and cannot be written by agents.
 
 ---
 
@@ -196,7 +196,6 @@ The complete graph definition that the `GraphRunner` executes.
 | `agent_id` | `string` | *required* | LLM agent for routing decisions |
 | `managed_nodes` | `string[]` | *required* | Node IDs this supervisor can delegate to |
 | `max_iterations` | `number` | `10` | Safety limit on routing iterations |
-| `completion_condition` | `string?` | — | Optional expression for forced completion |
 
 ### ApprovalGateConfig
 

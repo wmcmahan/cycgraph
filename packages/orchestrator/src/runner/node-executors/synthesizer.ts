@@ -44,6 +44,8 @@ export async function executeSynthesizerNode(
     const { onToken } = buildNodeCallbacks(node.id, ctx);
     return ctx.deps.executeAgent(node.agent_id, stateView, tools, attempt, {
       nodeId: node.id,
+      idempotencyKey: nodeIdempotencyKey(node, ctx, attempt),
+      grantedWriteKeys: node.write_keys,
       abortSignal: ctx.abortSignal,
       onToken,
       drainTaintEntries: ctx.deps.drainTaintEntries,

@@ -213,7 +213,7 @@ describe('Voting/Consensus', () => {
       const finalState = await new GraphRunner(graph, state).run();
 
       expect(finalState.status).toBe('completed');
-      const registry = finalState.memory['_lesson_provenance'] as Record<string, any>;
+      const registry = finalState.lesson_provenance as Record<string, any>;
       expect(Object.keys(registry).sort()).toEqual(['entry-voter-a', 'entry-voter-b', 'entry-voter-c']);
       expect(registry['entry-voter-b'].fact_ids).toEqual(['fact-voter-b']);
       // Provenance never leaks into the consensus/vote outputs.

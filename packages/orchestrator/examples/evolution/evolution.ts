@@ -94,8 +94,8 @@ const fitnessFunction: FitnessFunction = async (output) => {
 
   const score = (charScore + wordScore + durability + agents + noFiller) / 5;
 
-  // The reasoning becomes `_evolution_parent_reasoning` for the next generation,
-  // so spell out exactly what to fix.
+  // The reasoning becomes `parent_reasoning` in the next generation's Task
+  // Context, so spell out exactly what to fix.
   const reasoning = [
     `length ${chars}/${TARGET_CHARS} chars (${charScore.toFixed(2)})`,
     `words ${words}/${TARGET_WORDS} (${wordScore.toFixed(2)})`,
@@ -121,9 +121,9 @@ const CANDIDATE_ID = registry.register({
     'You write a single product tagline that must hit this spec exactly:',
     SPEC,
     '',
-    'The data block may contain two keys from the previous generation:',
-    '  - `_evolution_parent`: the best tagline so far.',
-    '  - `_evolution_parent_reasoning`: its score breakdown, e.g. "length 63/55 chars".',
+    'The Task Context section may contain two keys from the previous generation:',
+    '  - `parent`: the best tagline so far.',
+    '  - `parent_reasoning`: its score breakdown, e.g. "length 63/55 chars".',
     'When present, EDIT the parent toward the spec: if it is too long, cut words or',
     'shorten them; if too short, add a word; preserve the parts already marked MET.',
     'Aim for the exact character and word counts — count carefully.',

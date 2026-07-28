@@ -149,7 +149,7 @@ const CANDIDATE_ID = registry.register({
     'You must match HTTP 4xx status codes (exactly three digits, 400 through 499).',
     'You must NOT match 401, 403, or 404 — these three specific codes are excluded.',
     'You must NOT match: codes outside the 4xx range, codes with more or fewer than 3 digits, or non-numeric content.',
-    'If a parent pattern is provided (from a previous generation), study it carefully along with `_evolution_parent_reasoning` which lists exactly which tests passed (✓) and failed (✗).',
+    'If a parent pattern is provided in the Task Context section (from a previous generation), study it carefully along with `parent_reasoning` which lists exactly which tests passed (✓) and failed (✗).',
     'Use the per-test failures to make a TARGETED change — fix the failing tests without breaking the passing ones.',
     'Anchors (^ and $) are usually needed.',
   ].join(' '),

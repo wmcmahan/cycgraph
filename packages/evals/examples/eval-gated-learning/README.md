@@ -14,7 +14,7 @@ The "verified lessons" loop, end to end — including an adversarial test:
 ## The mechanism
 
 1. **Provenance** — the orchestrator records which fact IDs were injected
-   into each run's prompts (`memory._lesson_provenance`); read them with
+   into each run's prompts (`state.lesson_provenance`); read them with
    `getInjectedFactIds(finalState)`.
 2. **Attribution** — after scoring each run (same external scorers as the
    [compound-learning benchmark](../compound-learning-benchmark/)), the

@@ -244,13 +244,19 @@ export interface AgentRegistryEntry {
    * remaining budget. When absent, `model` is used directly.
    */
   model_preference?: ModelTier;
-  /** Zero-trust permissions (deny-all when `null`). */
+  /**
+   * Optional permission CEILING (ADR 001). The graph node's keys are the
+   * authoritative grant; when this block is present, the effective
+   * permission is the intersection of the two. `null` / absent = uncapped
+   * (the node's grant alone governs). An EXPLICIT empty list still means
+   * deny-all — a deliberately locked-down agent stays locked down.
+   */
   permissions: {
     /** Whether the agent runs in a sandboxed environment. */
     sandbox?: boolean;
-    /** Memory keys the agent may read. */
+    /** Memory-key read ceiling. */
     read_keys: string[];
-    /** Memory keys the agent may write. */
+    /** Memory-key write ceiling. */
     write_keys: string[];
     /** Per-run cost budget in USD. */
     budget_usd?: number;

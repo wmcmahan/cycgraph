@@ -18,6 +18,9 @@
 
 import type { MCPServerEntry, MCPServerConfig } from '../types/tools.js';
 import type { MCPServerRegistry } from '../persistence/interfaces.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('mcp.default-servers');
 
 // ─── Server Definitions ─────────────────────────────────────────────
 
@@ -25,7 +28,12 @@ import type { MCPServerRegistry } from '../persistence/interfaces.js';
  * Web Search MCP server configuration.
  *
  * Uses `@modelcontextprotocol/server-brave-search` (stdio transport via npx).
- * Requires `BRAVE_API_KEY` environment variable for the Brave Search API.
+ * Requires `BRAVE_API_KEY` for the Brave Search API — injected at
+ * *registration* time by {@link registerDefaultMCPServers} (from its
+ * `braveApiKey` option or `process.env.BRAVE_API_KEY`). Deliberately NOT
+ * captured here at module load: a load-time snapshot silently misses env vars
+ * set after import (the classic dotenv-ordering footgun). If you register
+ * this constant directly, add the key to `transport.env` yourself.
  *
  * Tools provided:
  * - `brave_web_search` — Search the web and return results
@@ -40,11 +48,6 @@ export const WEB_SEARCH_SERVER: MCPServerEntry = {
     type: 'stdio',
     command: 'npx',
     args: ['--silent', '-y', '@modelcontextprotocol/server-brave-search'],
-    env: {
-      // BRAVE_API_KEY is forwarded from the host environment at connection time.
-      // The MCPConnectionManager passes env vars to the stdio child process.
-      ...(process.env.BRAVE_API_KEY ? { BRAVE_API_KEY: process.env.BRAVE_API_KEY } : {}),
-    },
   },
   timeout_ms: 30_000,
 };
@@ -137,7 +140,7 @@ export interface RegisterDefaultMCPServersOptions {
  * // Register only web-search with a specific API key
  * registerDefaultMCPServers(mcpRegistry, {
  *   only: ['web-search'],
- *   brave_api_key: 'BSA-...',
+ *   braveApiKey: 'BSA-...',
  * });
  *
  * // Register all except web-search (fetch only)
@@ -166,7 +169,7 @@ export async function registerDefaultMCPServers(
       entry = { ...entry, allowed_agents: allowedAgents };
     }
 
-    // Apply braveApiKey override for web-search
+    // Inject the Brave API key at registration time (option → env var).
     if (server.id === 'web-search' && entry.transport.type === 'stdio') {
       const apiKey = braveApiKey ?? process.env.BRAVE_API_KEY;
       if (apiKey) {
@@ -177,6 +180,10 @@ export async function registerDefaultMCPServers(
             env: { ...entry.transport.env, BRAVE_API_KEY: apiKey },
           },
         };
+      } else {
+        logger.warn('web_search_registered_without_api_key', {
+          hint: 'set BRAVE_API_KEY (or pass braveApiKey) or web-search tool calls will fail at runtime',
+        });
       }
     }
 

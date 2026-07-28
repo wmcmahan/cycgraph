@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Track warned models across tests by resetting module state
 let calculateCost: typeof import('../src/utils/pricing.js').calculateCost;
 let MODEL_PRICING: typeof import('../src/utils/pricing.js').MODEL_PRICING;
+let setModelPricing: typeof import('../src/utils/pricing.js').setModelPricing;
+let loadPricingTable: typeof import('../src/utils/pricing.js').loadPricingTable;
+let getModelPricing: typeof import('../src/utils/pricing.js').getModelPricing;
 
 // Mock logger to capture warnings
 const warnFn = vi.fn();
@@ -22,6 +25,9 @@ beforeEach(async () => {
   const mod = await import('../src/utils/pricing.js');
   calculateCost = mod.calculateCost;
   MODEL_PRICING = mod.MODEL_PRICING;
+  setModelPricing = mod.setModelPricing;
+  loadPricingTable = mod.loadPricingTable;
+  getModelPricing = mod.getModelPricing;
 });
 
 describe('calculateCost', () => {
@@ -109,5 +115,55 @@ describe('MODEL_PRICING', () => {
     expect(MODEL_PRICING['llama3.1:8b']!.outputPerMToken).toBe(0);
     expect(MODEL_PRICING['qwen2.5:7b']!.inputPerMToken).toBe(0);
     expect(MODEL_PRICING['qwen2.5:7b']!.outputPerMToken).toBe(0);
+  });
+});
+
+describe('runtime pricing overrides', () => {
+  it('setModelPricing registers pricing for an unknown model', () => {
+    setModelPricing('my-custom-model', { inputPerMToken: 4, outputPerMToken: 16 });
+    expect(calculateCost('my-custom-model', 1_000_000, 1_000_000)).toBeCloseTo(20);
+    expect(warnFn).not.toHaveBeenCalled();
+  });
+
+  it('overrides take precedence over the static table', () => {
+    setModelPricing('gpt-4o', { inputPerMToken: 1, outputPerMToken: 2 });
+    expect(calculateCost('gpt-4o', 1_000_000, 1_000_000)).toBeCloseTo(3);
+    expect(getModelPricing('gpt-4o')).toEqual({ inputPerMToken: 1, outputPerMToken: 2 });
+    // Static table itself is untouched.
+    expect(MODEL_PRICING['gpt-4o']).toEqual({ inputPerMToken: 2.5, outputPerMToken: 10 });
+  });
+
+  it('loadPricingTable bulk-registers entries', () => {
+    loadPricingTable({
+      'model-a': { inputPerMToken: 1, outputPerMToken: 1 },
+      'model-b': { inputPerMToken: 2, outputPerMToken: 2 },
+    });
+    expect(calculateCost('model-a', 1_000_000, 0)).toBeCloseTo(1);
+    expect(calculateCost('model-b', 0, 1_000_000)).toBeCloseTo(2);
+  });
+
+  it('rejects non-finite or negative pricing', () => {
+    expect(() => setModelPricing('bad', { inputPerMToken: NaN, outputPerMToken: 1 })).toThrow(/finite/);
+    expect(() => setModelPricing('bad', { inputPerMToken: 1, outputPerMToken: -5 })).toThrow(/finite/);
+    expect(() => setModelPricing('bad', { inputPerMToken: Infinity, outputPerMToken: 1 })).toThrow(/finite/);
+  });
+
+  it('loadPricingTable rejects atomically — a bad entry applies nothing', () => {
+    expect(() =>
+      loadPricingTable({
+        'good-model': { inputPerMToken: 1, outputPerMToken: 1 },
+        'bad-model': { inputPerMToken: NaN, outputPerMToken: 1 },
+      }),
+    ).toThrow(/finite/);
+    // The valid entry must NOT have been applied.
+    expect(getModelPricing('good-model')).toBeUndefined();
+  });
+
+  it('registering pricing clears the unknown-model warning state', () => {
+    calculateCost('late-priced-model', 100, 100);
+    expect(warnFn).toHaveBeenCalledTimes(1);
+    setModelPricing('late-priced-model', { inputPerMToken: 1, outputPerMToken: 1 });
+    calculateCost('late-priced-model', 100, 100);
+    expect(warnFn).toHaveBeenCalledTimes(1); // no new warning — it is priced now
   });
 });

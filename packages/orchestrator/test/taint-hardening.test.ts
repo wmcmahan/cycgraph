@@ -16,11 +16,10 @@ vi.mock('../src/utils/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-import { updateMemoryReducer, mergeParallelResultsReducer } from '../src/reducers/index.js';
+import { updateMemoryReducer, mergeParallelResultsReducer, handoffReducer } from '../src/reducers/index.js';
 import { executeToolNode } from '../src/runner/node-executors/tool.js';
 import { MCPConnectionManager } from '../src/mcp/connection-manager.js';
 import { InMemoryMCPServerRegistry } from '../src/persistence/in-memory.js';
-import { getTaintRegistry } from '../src/utils/taint.js';
 import type { Action, WorkflowState } from '../src/types/state.js';
 import type { GraphNode } from '../src/types/graph.js';
 import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
@@ -35,9 +34,10 @@ function makeAction(updates: Record<string, unknown>, type: Action['type'] = 'up
   };
 }
 
-function baseState(memory: Record<string, unknown>): WorkflowState {
+function baseState(memory: Record<string, unknown>, taint?: Record<string, unknown>): WorkflowState {
   return {
-    state_schema_version: 1,
+    state_schema_version: 2,
+    taint_registry: taint ?? {},
     workflow_id: uuidv4(),
     run_id: uuidv4(),
     created_at: new Date(),
@@ -69,38 +69,38 @@ describe('M5: _taint_registry cannot be cleared via update_memory', () => {
   };
 
   test('a crafted empty _taint_registry preserves existing entries', () => {
-    const state = baseState({ page: 'attacker text', _taint_registry: existingTaint });
+    const state = baseState({ page: 'attacker text' }, existingTaint);
     const next = updateMemoryReducer(state, makeAction({ _taint_registry: {} }));
-    expect(next.memory._taint_registry).toEqual(existingTaint);
+    expect(next.taint_registry).toEqual(existingTaint);
   });
 
   test('overwriting a specific key to remove its taint is ignored (merge keeps it)', () => {
-    const state = baseState({ page: 'x', _taint_registry: existingTaint });
+    const state = baseState({ page: 'x' }, existingTaint);
     // Attacker tries to drop the `page` taint by sending a registry without it.
     const next = updateMemoryReducer(state, makeAction({
       _taint_registry: { other: { source: 'derived', created_at: '2026-01-02T00:00:00Z' } },
     }));
-    const reg = next.memory._taint_registry as Record<string, unknown>;
+    const reg = next.taint_registry as Record<string, unknown>;
     expect(reg.page).toEqual(existingTaint.page); // still tainted
     expect(reg.other).toBeDefined();              // new entry added
   });
 
   test('legitimate additive taint writes still work', () => {
-    const state = baseState({ _taint_registry: existingTaint });
+    const state = baseState({}, existingTaint);
     const next = updateMemoryReducer(state, makeAction({
       _taint_registry: { ...existingTaint, doc: { source: 'mcp_tool', tool_name: 'search', server_id: 'web', created_at: '2026-01-03T00:00:00Z' } },
     }));
-    const reg = next.memory._taint_registry as Record<string, unknown>;
+    const reg = next.taint_registry as Record<string, unknown>;
     expect(Object.keys(reg).sort()).toEqual(['doc', 'page']);
   });
 
   test('merge_parallel_results is also append-only for taint', () => {
-    const state = baseState({ _taint_registry: existingTaint });
+    const state = baseState({}, existingTaint);
     const next = mergeParallelResultsReducer(
       state,
       makeAction({ _taint_registry: {} }, 'merge_parallel_results'),
     );
-    expect(next.memory._taint_registry).toEqual(existingTaint);
+    expect(next.taint_registry).toEqual(existingTaint);
   });
 });
 
@@ -122,7 +122,6 @@ describe('H1: standalone tool nodes taint MCP output', () => {
       deps: {
         resolveTools: vi.fn().mockResolvedValue(resolvedTools),
         drainTaintEntries: vi.fn((t?: unknown) => (t === resolvedTools ? accumulated : new Map())),
-        getTaintRegistry: (mem: Record<string, unknown>) => getTaintRegistry(mem),
       },
     } as unknown as NodeExecutorContext;
 
@@ -155,7 +154,6 @@ describe('H1: standalone tool nodes taint MCP output', () => {
       deps: {
         resolveTools: vi.fn().mockResolvedValue(resolvedTools),
         drainTaintEntries: vi.fn(() => new Map()),
-        getTaintRegistry: (mem: Record<string, unknown>) => getTaintRegistry(mem),
       },
     } as unknown as NodeExecutorContext;
 
@@ -195,5 +193,43 @@ describe('race: drainTaintEntries(tools) isolates concurrent resolutions', () =>
     expect(drainA).not.toBe(drainB);
     expect(drainA.size).toBe(0);
     expect(drainB.size).toBe(0);
+  });
+});
+
+// ─── Reserved-key guard: unknown `_` keys are dropped fail-closed ────────
+
+describe('reserved memory-key guard', () => {
+  test('unknown _ keys are dropped and recorded in memory_drops', () => {
+    const state = baseState({});
+    const next = updateMemoryReducer(state, makeAction({
+      legit: 'kept',
+      _smuggled_key: 'dropped',
+    }));
+
+    expect(next.memory.legit).toBe('kept');
+    expect(next.memory._smuggled_key).toBeUndefined();
+    const drop = next.memory_drops.find((d) => d.key === '_smuggled_key');
+    expect(drop?.reason).toBe('reserved_key');
+  });
+
+  test('the guard applies to handoff memory_updates too', () => {
+    const state = baseState({});
+    const action = {
+      id: uuidv4(),
+      idempotency_key: uuidv4(),
+      type: 'handoff' as const,
+      payload: {
+        node_id: 'peer',
+        supervisor_id: 'sup',
+        reasoning: 'r',
+        memory_updates: { agent_output: 'kept', _sneaky: 'dropped' },
+      },
+      metadata: { node_id: 'sup', timestamp: new Date(), attempt: 1 },
+    };
+    const next = handoffReducer(state, action);
+
+    expect(next.memory.agent_output).toBe('kept');
+    expect(next.memory._sneaky).toBeUndefined();
+    expect(next.memory_drops.some((d) => d.key === '_sneaky' && d.reason === 'reserved_key')).toBe(true);
   });
 });

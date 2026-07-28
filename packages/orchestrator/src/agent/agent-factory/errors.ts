@@ -14,8 +14,10 @@ import { CycgraphError } from '../../errors.js';
  * Thrown when an agent ID cannot be resolved — either the ID is not a valid
  * UUID or the registry returned `null`.
  *
- * The factory catches this error internally and falls back to a default
- * config with deny-all permissions.
+ * Fails closed by default: the factory propagates this error so a typo'd or
+ * deleted agent_id surfaces loudly. Only when `setAllowDefaultFallback(true)`
+ * is set (tests / lightweight dev) does the factory catch it and fall back
+ * to the deny-all default config.
  *
  * @example
  * ```ts
@@ -31,8 +33,10 @@ export class AgentNotFoundError extends CycgraphError {
 }
 
 /**
- * Thrown when `createModel` encounters a provider string that has no
- * corresponding AI SDK integration (i.e. not `'openai'` or `'anthropic'`).
+ * Thrown when model resolution encounters a provider name that is not
+ * registered in the {@link ProviderRegistry} (built-ins: `openai`,
+ * `anthropic`; others register via `configureProviderRegistry` /
+ * `registerOllamaProvider`).
  *
  * @example
  * ```ts

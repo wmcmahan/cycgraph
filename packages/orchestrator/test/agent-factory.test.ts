@@ -144,7 +144,7 @@ describe('AgentFactory', () => {
       expect(config.write_keys).toEqual([]);
     });
 
-    it('handles null permissions safely', async () => {
+    it('null permissions mean UNCAPPED (no ceiling) — ADR 001', async () => {
       registry.register({
         id: TEST_UUID,
         name: 'Test Agent',
@@ -156,6 +156,25 @@ describe('AgentFactory', () => {
         max_steps: 5,
         tools: [],
         permissions: null,
+      });
+      const config = await factory.loadAgent(TEST_UUID);
+      // Absent ceiling: the node's grant alone governs at execution time.
+      expect(config.read_keys).toBeUndefined();
+      expect(config.write_keys).toBeUndefined();
+    });
+
+    it('an EXPLICIT empty permissions block stays deny-all — ADR 001', async () => {
+      registry.register({
+        id: TEST_UUID,
+        name: 'Locked Agent',
+        description: 'test',
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        system_prompt: 'You are helpful',
+        temperature: 0.5,
+        max_steps: 5,
+        tools: [],
+        permissions: { read_keys: [], write_keys: [] },
       });
       const config = await factory.loadAgent(TEST_UUID);
       expect(config.read_keys).toEqual([]);
