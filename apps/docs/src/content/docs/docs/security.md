@@ -5,9 +5,9 @@ description: Zero Trust model, state slicing, permission enforcement, and econom
 
 cycgraph operates under a **Zero Trust** security model built on three assumptions:
 
-1. **Input is malicious** — users and external data may contain injection attacks
-2. **Agents are fallible** — LLMs can be jailbroken or manipulated
-3. **State is leaky** — agents should only see what they need to see
+1. **Input is malicious**: users and external data may contain injection attacks.
+2. **Agents are fallible**: LLMs can be jailbroken or manipulated.
+3. **State is leaky**: agents should only see what they need to see.
 
 Every layer of the engine enforces these assumptions through concrete mechanisms described below.
 
@@ -29,9 +29,9 @@ const WRITER_ID = registry.register({
 });
 ```
 
-At runtime, the engine creates a **state view** — a filtered projection of `WorkflowState.memory` containing only the keys listed in `read_keys`. An agent configured with `read_keys: ['goal', 'research_notes']` receives `undefined` for every other key, including `db_credentials`, `api_keys`, or any other sensitive data in state.
+At runtime, the engine creates a **state view**: a filtered projection of `WorkflowState.memory` containing only the keys listed in `read_keys`. An agent configured with `read_keys: ['goal', 'research_notes']` receives `undefined` for every other key, including `db_credentials`, `api_keys`, or any other sensitive data in state.
 
-**Secure by default:** `read_keys` and `write_keys` both default to `[]`. A node that omits `read_keys` sees only `goal` and `constraints` — no memory keys — so state slicing protects you without opt-in. A node consuming an upstream output must declare it explicitly (`read_keys: ['research_notes']`).
+**Secure by default:** `read_keys` and `write_keys` both default to `[]`. A node that omits `read_keys` sees only `goal` and `constraints`, no memory keys, so state slicing protects you without opt-in. A node consuming an upstream output must declare it explicitly (`read_keys: ['research_notes']`).
 
 The wildcard `read_keys: ['*']` grants access to all memory keys; `validateGraph` warns on it because it defeats slicing. Engine-owned data (the taint registry, lesson provenance, HITL state) lives in first-class state fields rather than in memory, so it is structurally absent from every state view. The taint registry is additionally append-only through reducers, so a node cannot clear or weaken taint via a crafted memory write.
 
@@ -53,15 +53,15 @@ const WRITER_ID = registry.register({
 });
 ```
 
-An agent with `read_keys: ['user.name', 'user.email']` receives a filtered `user` object containing only `{ name, email }` — all other fields (e.g. `user.ssn`, `user.api_key`) are excluded from its state view.
+An agent with `read_keys: ['user.name', 'user.email']` receives a filtered `user` object containing only `{ name, email }`. All other fields such as `user.ssn` and `user.api_key` are excluded from its state view.
 
 ## Write permission enforcement
 
 Write permissions are enforced at two levels:
 
-1. **Agent executor** — After the LLM call completes, `validateMemoryUpdatePermissions()` checks every key the agent wrote against the **effective** write permission: the node's grant intersected with the agent registry's optional ceiling. Unauthorized writes throw `PermissionDeniedError`.
+1. **Agent executor.** After the LLM call completes, `validateMemoryUpdatePermissions()` checks every key the agent wrote against the **effective** write permission: the node's grant intersected with the agent registry's optional ceiling. Unauthorized writes throw `PermissionDeniedError`.
 
-2. **Graph runner** — Before any action is applied to state, `validateAction()` re-validates the action against the node's *effective* write keys. This second check catches edge cases where actions are constructed outside the agent executor.
+2. **Graph runner.** Before any action is applied to state, `validateAction()` re-validates the action against the node's *effective* write keys. This second check catches edge cases where actions are constructed outside the agent executor.
 
 ### Implied grants
 
@@ -70,11 +70,11 @@ Declared `write_keys` govern what a node's **agent** may write. Two families of 
 - **Control-flow permissions by node type.** A supervisor may emit `handoff` and completion actions; approval and subgraph nodes may pause the run; a swarm-config agent may hand off to peers. None of these need a `write_keys` entry.
 - **Executor-owned result keys by node config.** A verifier's `${result_key}` / `${result_key}_passed` pair, a reflection node's envelope, a tool node's `${id}_result`, and the fan-out nodes' aggregate keys are written by the executor itself, so the config that names them is the grant.
 
-The derivation lives in `effectiveWriteKeys()` (exported for tooling). Declaring an implied key explicitly is harmless — the two sets are unioned.
+The derivation lives in `effectiveWriteKeys()` (exported for tooling). Declaring an implied key explicitly is harmless, because the two sets are unioned.
 
 ### Ceiling and grant
 
-Node keys and agent-registry permissions play different roles. The **node's** `readKeys`/`writeKeys` are the authoritative *grant* — need-to-know is a property of the graph position. The **agent registry's** `permissions` block is an optional *ceiling*: a hard cap intersected with the grant, for agents that must never touch certain keys anywhere they appear (a shared summarizer capped away from credential keys, a tenant-level cap in a hosted deployment). A registry entry without a `permissions` block is uncapped — the node's grant alone governs. An explicit empty `permissions` block still means deny-all, so a deliberately locked-down agent stays locked down. The intersection logic is exported as `intersectWriteGrant()`.
+Node keys and agent-registry permissions play different roles. The **node's** `readKeys`/`writeKeys` are the authoritative *grant*, because need-to-know is a property of the graph position. The **agent registry's** `permissions` block is an optional *ceiling*: a hard cap intersected with the grant, for agents that must never touch certain keys anywhere they appear, such as a shared summarizer capped away from credential keys or a tenant-level cap in a hosted deployment. A registry entry without a `permissions` block is uncapped, so the node's grant alone governs. An explicit empty `permissions` block still means deny-all, so a deliberately locked-down agent stays locked down. The intersection logic is exported as `intersectWriteGrant()`.
 
 ```
 Agent LLM call → validateMemoryUpdatePermissions() → validateAction() → Reducer → State
@@ -87,11 +87,11 @@ The `_`-prefixed key namespace is reserved for the engine's wire format inside a
 
 All agent inputs pass through a sanitization pipeline before reaching the LLM. These sanitizers defend against known prompt injection techniques:
 
-- **NFKC Unicode normalization** — Converts lookalike characters (e.g. Cyrillic homographs like `а` → `a`) to their canonical forms, preventing visual spoofing attacks.
-- **Carriage return stripping** — Removes `\r` characters that can be used to hide injected instructions in terminal-style overwrite attacks.
-- **Consecutive newline normalization** — Collapses runs of 3+ newlines to 2, preventing whitespace-based prompt boundary confusion.
-- **Directional override stripping** — Removes Unicode bidirectional override characters (U+202A–U+202E, U+2066–U+2069) that can reverse visible text direction to disguise injected content.
-- **Base64-encoded injection detection** — Detects and rejects inputs containing base64-encoded strings that decode to known injection patterns (e.g. `ignore previous instructions`).
+- **NFKC Unicode normalization.** Converts lookalike characters such as Cyrillic homographs (`а` → `a`) to their canonical forms, preventing visual spoofing attacks.
+- **Carriage return stripping.** Removes `\r` characters that can be used to hide injected instructions in terminal-style overwrite attacks.
+- **Consecutive newline normalization.** Collapses runs of 3+ newlines to 2, preventing whitespace-based prompt boundary confusion.
+- **Directional override stripping.** Removes Unicode bidirectional override characters (U+202A–U+202E, U+2066–U+2069) that can reverse visible text direction to disguise injected content.
+- **Base64-encoded injection detection.** Detects and rejects inputs containing base64-encoded strings that decode to known injection patterns such as `ignore previous instructions`.
 
 These sanitizers run on all agent system prompts and user messages before LLM invocation.
 
@@ -101,9 +101,9 @@ External data is the most dangerous attack vector. cycgraph automatically tracks
 
 **How it works:**
 
-1. **Flagging** — All MCP tool results are automatically wrapped with taint metadata (source type, tool name, server ID, timestamp) via `wrapToolWithTaint()`. Both `agent` nodes and standalone `tool` nodes taint their MCP output.
-2. **Propagation** — When an agent reads tainted input keys and writes output, `propagateDerivedTaint()` marks the outputs as `derived`-tainted, preserving the chain of custody.
-3. **Inspection** — Downstream nodes can call `isTainted(memory, key)` or `getTaintInfo(memory, key)` to check provenance before trusting inputs.
+1. **Flagging.** All MCP tool results are automatically wrapped with taint metadata (source type, tool name, server ID, timestamp) via `wrapToolWithTaint()`. Both `agent` nodes and standalone `tool` nodes taint their MCP output.
+2. **Propagation.** When an agent reads tainted input keys and writes output, `propagateDerivedTaint()` marks the outputs as `derived`-tainted, preserving the chain of custody.
+3. **Inspection.** Downstream nodes can call `isTainted(memory, key)` or `getTaintInfo(memory, key)` to check provenance before trusting inputs.
 
 Taint metadata is stored in the first-class `state.taint_registry` field. It is structurally invisible to agents (never part of a state view's memory), **append-only** through reducers (a crafted memory write cannot clear or weaken taint), and accumulated per-execution so concurrent voting/evolution/map sub-runs never cross-attribute provenance.
 
@@ -202,7 +202,7 @@ Agents never see MCP server transport configurations or secrets.
 
 ### Trusted MCP Server Registry
 
-Server connection configs (URLs, commands, auth headers) live in the **MCP Server Registry** — an admin-only data store. Agent configs reference servers by ID only:
+Server connection configs (URLs, commands, auth headers) live in the **MCP Server Registry**, an admin-only data store. Agent configs reference servers by ID only:
 
 ```typescript
 // Agent config — no transport details, no secrets
@@ -228,13 +228,13 @@ When `allowed_agents` is set, the `MCPConnectionManager` validates the requestin
 
 ### Transport restrictions
 
-- **stdio** — Only allowlisted commands (`npx`, `node`, `python3`, `python`, `uvx`). No arbitrary shell execution.
-- **http/sse** — URLs stored in the registry, never in agent configs. Secrets stay server-side.
-- **SSRF guard** — http/sse URLs are blocked from resolving to private, loopback, link-local, or cloud-metadata addresses (`169.254.169.254`, `127.0.0.1`, RFC1918, `[::1]`, `fc00::/7`, …). Set `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true` to allow them for local development.
+- **stdio.** Only allowlisted commands (`npx`, `node`, `python3`, `python`, `uvx`). No arbitrary shell execution.
+- **http/sse.** URLs stored in the registry, never in agent configs. Secrets stay server-side.
+- **SSRF guard.** http/sse URLs are blocked from resolving to private, loopback, link-local, or cloud-metadata addresses (`169.254.169.254`, `127.0.0.1`, RFC1918, `[::1]`, `fc00::/7`, …). Set `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true` to allow them for local development.
 
 ### Registry validation at the trust boundary
 
-`saveServer` and `loadServer` re-validate every entry through `MCPServerEntrySchema` on **both** write and read — not just at compile time. The stdio allowlist and SSRF guard are therefore enforced even against a JS caller, an `any` cast, a direct SQL write, or a migration. An entry with a disallowed command or a private-IP URL is rejected before it can ever be spawned or connected.
+`saveServer` and `loadServer` re-validate every entry through `MCPServerEntrySchema` on **both** write and read, not just at compile time. The stdio allowlist and SSRF guard are therefore enforced even against a JS caller, an `any` cast, a direct SQL write, or a migration. An entry with a disallowed command or a private-IP URL is rejected before it can ever be spawned or connected.
 
 ### Automatic taint wrapping
 
@@ -301,7 +301,7 @@ All security-related errors are typed and exported from `@cycgraph/orchestrator`
 
 ## Next steps
 
-- [Taint Tracking](/docs/concepts/taint-tracking/) — full taint API reference
-- [Cost & Budget Tracking](/docs/concepts/cost-tracking/) — pricing tables and usage recording
-- [Tools & MCP](/docs/concepts/tools-and-mcp/) — MCP server registry and access control
-- [Persistence](/docs/concepts/persistence/) — state versioning and event log
+- [Taint Tracking](/docs/concepts/taint-tracking/): full taint API reference
+- [Cost & Budget Tracking](/docs/concepts/cost-tracking/): pricing tables and usage recording
+- [Tools & MCP](/docs/concepts/tools-and-mcp/): MCP server registry and access control
+- [Persistence](/docs/concepts/persistence/): state versioning and event log

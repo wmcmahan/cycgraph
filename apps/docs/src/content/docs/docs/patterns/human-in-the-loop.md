@@ -126,7 +126,7 @@ When the workflow resumes:
 
 When `timeoutMs` is set on an approval node, the engine sets `waiting_timeout_at` on the workflow state to the current time plus the timeout duration. This creates a hard deadline for human response.
 
-If the workflow is resumed after the deadline has expired, the engine transitions the workflow to `timeout` status immediately with a `WorkflowTimeoutError` — the human's response is discarded and execution does not continue. This prevents workflows from waiting indefinitely for human approval that may never come.
+If the workflow is resumed after the deadline has expired, the engine transitions the workflow to `timeout` status immediately with a `WorkflowTimeoutError`. The human's response is discarded and execution does not continue. This prevents workflows from waiting indefinitely for human approval that may never come.
 
 ```typescript
 {
@@ -149,7 +149,7 @@ When using the [WorkflowWorker](/docs/concepts/distributed-execution/) for distr
 
 1. The API enqueues a `{ type: 'start' }` job
 2. A worker runs the workflow until it hits an approval node → returns `status: 'waiting'`
-3. The worker calls `queue.release(jobId)` — transitions the job to `paused` status, freeing the slot immediately (no blocking). The paused job is **not** re-claimable by `dequeue`, so the worker won't re-execute the approval gate.
+3. The worker calls `queue.release(jobId)`, which transitions the job to `paused` status and frees the slot immediately without blocking. The paused job is **not** re-claimable by `dequeue`, so the worker won't re-execute the approval gate.
 4. Later, the API acks the original paused job (cleanup) and enqueues a `{ type: 'resume', human_response: { decision: 'approved' } }` job
 5. A worker (same or different) picks up the resume job, recovers via event log, applies the response, and continues
 
@@ -178,4 +178,4 @@ await queue.enqueue({
 });
 ```
 
-The key distinction: `release` (not `nack`) transitions the job to `paused` status without counting it as a failure. Paused jobs are not re-claimable by `dequeue` — this prevents the worker from re-executing the approval gate in a loop while awaiting a human response. A separate `resume` job carries the human's response.
+The key distinction: `release` (not `nack`) transitions the job to `paused` status without counting it as a failure. Paused jobs are not re-claimable by `dequeue`, which prevents the worker from re-executing the approval gate in a loop while awaiting a human response. A separate `resume` job carries the human's response.

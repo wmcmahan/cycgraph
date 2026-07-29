@@ -3,7 +3,7 @@ title: Budget-Aware Model Selection
 description: Automatically select the right model based on capability needs and remaining budget.
 ---
 
-cycgraph can dynamically choose which LLM model to use for each agent at runtime. Instead of hardcoding a model, agents declare a **capability tier** (`high`, `medium`, or `low`), and the engine resolves it to a concrete model — downgrading automatically when the workflow budget is running low.
+cycgraph can dynamically choose which LLM model to use for each agent at runtime. Instead of hardcoding a model, agents declare a **capability tier** (`high`, `medium`, or `low`), and the engine resolves it to a concrete model, downgrading automatically when the workflow budget is running low.
 
 ## How it works
 
@@ -103,9 +103,9 @@ Each resolution produces one of three reasons:
 
 | Reason | Meaning |
 |--------|---------|
-| `preferred` | The agent got its requested tier — budget is healthy |
+| `preferred` | The agent got its requested tier; budget is healthy |
 | `budget_downgrade` | Stepped down one tier to conserve budget |
-| `budget_critical` | Forced to the lowest tier — budget is nearly exhausted |
+| `budget_critical` | Forced to the lowest tier; budget is nearly exhausted |
 
 ## Listening to resolution events
 
@@ -249,18 +249,18 @@ for await (const event of runner.stream()) {
 
 ## Limitations
 
-- **Architect unaware** — the Workflow Architect does not yet generate graphs with `modelPreference` set; you must configure it via the registry
-- **Single-step lookahead** — the resolver estimates cost for one call at a time, not the remaining workflow
+- **Architect unaware.** The Workflow Architect does not yet generate graphs with `modelPreference` set, so you must configure it via the registry.
+- **Single-step lookahead.** The resolver estimates cost for one call at a time, not the remaining workflow.
 
 ## Security
 
-- Budget is read **only** from top-level `WorkflowState` fields (`budget_usd`, `total_cost_usd`), never from `memory` — this prevents agents from manipulating their own resolution by writing fake budget values
+- Budget is read **only** from top-level `WorkflowState` fields (`budget_usd`, `total_cost_usd`), never from `memory`. This prevents agents from manipulating their own resolution by writing fake budget values.
 - The tier map is frozen at construction time and cannot be mutated at runtime
 - All resolver-internal metadata uses `_` prefix keys for bookkeeping
 
 ## Next steps
 
-- [Cost & Budget Tracking](/docs/concepts/cost-tracking/) — set budgets and monitor spending
-- [Custom LLM Providers](/docs/guides/custom-providers/) — register providers referenced in your tier map
-- [Agents](/docs/concepts/agents/) — full agent configuration reference
-- [Streaming](/docs/concepts/streaming/) — consume `model:resolved` events in real time
+- [Cost & Budget Tracking](/docs/concepts/cost-tracking/): set budgets and monitor spending
+- [Custom LLM Providers](/docs/guides/custom-providers/): register providers referenced in your tier map
+- [Agents](/docs/concepts/agents/): full agent configuration reference
+- [Streaming](/docs/concepts/streaming/): consume `model:resolved` events in real time

@@ -1,9 +1,9 @@
 ---
 title: Running the Eval Harness
-description: Practical CLI usage for @cycgraph/evals — local, CI, deterministic-only, multi-sample, and baseline modes.
+description: Practical CLI usage for @cycgraph/evals across local, CI, deterministic-only, multi-sample, and baseline modes.
 ---
 
-The eval harness has one entry point — `npm run evals` — and a handful of flags that compose. This guide walks through the modes you'll actually use.
+The eval harness has one entry point, `npm run evals`, plus a handful of flags that compose. This guide walks through the modes you'll actually use.
 
 ## The four common modes
 
@@ -28,7 +28,7 @@ Use as a pre-commit hook or a fast PR signal. Does not exercise any LLM-bound co
 npm run evals --workspace=packages/evals
 ```
 
-Runs both tracks against a local Ollama model. Free but slower (~30s) and the judge is weaker than a frontier model — useful for "does this even compile" but not for production gating.
+Runs both tracks against a local Ollama model. Free but slower (~30s), and the judge is weaker than a frontier model, so it's useful for "does this even compile" but not for production gating.
 
 ### 3. Full CI evaluation (GPT-4o, multi-sample)
 
@@ -73,7 +73,7 @@ See [Drift & Baselines](/docs/concepts/drift-and-baselines/) for what counts as 
 | `--commit` | string | (auto) | Short git SHA stamped onto a new baseline snapshot |
 
 :::note
-`--suite integration` is a valid flag, but no golden dataset ships for it — the manifest only carries goldens for `orchestrator`, `memory`, and `context-engine` (18 trajectories each), and `integration` is excluded from the default suite set. Selecting it runs nothing against goldens until you record integration trajectories.
+`--suite integration` is a valid flag, but no golden dataset ships for it. The manifest only carries goldens for `orchestrator`, `memory`, and `context-engine` (18 trajectories each), and `integration` is excluded from the default suite set. Selecting it runs nothing against goldens until you record integration trajectories.
 :::
 
 ### Combining flags
@@ -127,16 +127,16 @@ Future enhancements (deferred from Phase 1):
 
 ## Troubleshooting
 
-**"Ollama: connection refused"** — Start the server with `ollama serve`. Confirm the model is pulled: `ollama list`.
+**"Ollama: connection refused"**: start the server with `ollama serve`. Confirm the model is pulled with `ollama list`.
 
-**"Cost warning: estimated $X exceeds threshold"** — The CI mode estimates total token usage. The default warning fires at $5; raise it via the provider option in code or accept it and continue (the warning is non-blocking).
+**"Cost warning: estimated $X exceeds threshold"**: the CI mode estimates total token usage. The default warning fires at $5. Raise it via the provider option in code, or accept it and continue, since the warning is non-blocking.
 
-**"Baseline schema version mismatch"** — You're loading an older snapshot than the current code understands. Delete `golden/baselines/main-latest.json` and re-run with `--baseline` to bootstrap a fresh one.
+**"Baseline schema version mismatch"**: you're loading an older snapshot than the current code understands. Delete `golden/baselines/main-latest.json` and re-run with `--baseline` to bootstrap a fresh one.
 
-**"No prior baseline"** — Expected on the first run with `--baseline`. The current run becomes the baseline.
+**"No prior baseline"**: expected on the first run with `--baseline`. The current run becomes the baseline.
 
 ## Related
 
-- [Eval Harness](/docs/concepts/eval-harness/) — what's running under the hood
-- [Recording Goldens](/docs/guides/recording-goldens/) — refresh the trajectories the harness uses
-- [Drift & Baselines](/docs/concepts/drift-and-baselines/) — what the numbers mean
+- [Eval Harness](/docs/concepts/eval-harness/): what's running under the hood
+- [Recording Goldens](/docs/guides/recording-goldens/): refresh the trajectories the harness uses
+- [Drift & Baselines](/docs/concepts/drift-and-baselines/): what the numbers mean

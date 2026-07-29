@@ -3,7 +3,7 @@ title: Tools & MCP
 description: How agents interact with external systems via tool sources and the Model Context Protocol.
 ---
 
-Agents need tools to interact with the world. cycgraph uses structured **tool sources** and the **Model Context Protocol (MCP)** for secure, standardized tool integration. This decouples the agent definition from the underlying transport configuration and connection secrets.
+Agents need tools to interact with the world. Agents use structured **tool sources** and the **Model Context Protocol (MCP)** for secure, standardized tool integration. This decouples the agent definition from the underlying transport configuration and connection secrets.
 
 ## Tool source types
 
@@ -26,22 +26,6 @@ const RESEARCH_AGENT = agentRegistry.register({
     { type: 'builtin', name: 'save_to_memory' },
     { type: 'mcp', serverId: 'web-search' }
   ],
-});
-```
-
-:::note
-The `save_to_memory` tool is **opt-in**. The orchestrator automatically captures agent text output and routes it to the node's write key, so single-key agents don't need it. Declare `save_to_memory` explicitly only when an agent needs to write structured data to **multiple** memory keys.
-:::
-
-```typescript
-// Single-key agent — no save_to_memory needed
-const WRITER = agentRegistry.register({
-  name: 'Writer',
-  model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: 'You write clear summaries.',
-  tools: [],
-  permissions: { readKeys: ['notes'], writeKeys: ['draft'] },
 });
 ```
 
@@ -74,11 +58,16 @@ Graph nodes can override an agent's configured tools for a specific execution st
 }
 ```
 
-In this example, `save_to_memory` is included because the node may need to write structured data to multiple keys. For nodes that write to a single key, you can omit it — the orchestrator captures text output automatically.
+In this example, `save_to_memory` is included because the node may need to write structured data to multiple keys. For nodes that write to a single key, you can omit it, and the orchestrator captures text output automatically.
+
+**Refs:**
+- [ToolSource](#toolsource): Discriminated union of the two tool declaration shapes.
+- [BuiltinToolSource](#builtintoolsource): A tool the orchestrator provides directly.
+- [MCPToolSource](#mcptoolsource): A tool provided by a registered MCP server, referenced by ID.
 
 ## MCP Server Registry
 
-The **trusted MCP Server Registry** holds transport configurations and connection secrets. This is the security boundary — agents reference servers by ID, but never see connection details.
+The **trusted MCP Server Registry** holds transport configurations and connection secrets. This is the security boundary: agents reference servers by ID, but never see connection details.
 
 ### Registering servers
 
@@ -135,16 +124,9 @@ mcpRegistry.register({
 | `http` | Remote MCP servers (stateless) | SSRF-guarded URLs (no private/loopback/metadata hosts) |
 | `sse` | Remote MCP servers (streaming) | SSRF-guarded URLs (no private/loopback/metadata hosts) |
 
-Every entry is re-validated through `MCPServerEntrySchema` on **both** `saveServer` and `loadServer`, so the command allowlist and SSRF guard are enforced even against a direct DB write, a migration, or an `any`-typed caller — not just at compile time. http/sse URLs that resolve to private, loopback, link-local, or cloud-metadata addresses are rejected; set `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true` to allow them in local development.
+Every entry is re-validated through `MCPServerEntrySchema` on **both** `saveServer` and `loadServer`, so the command allowlist and SSRF guard are enforced even against a direct DB write, a migration, or an `any`-typed caller, not just at compile time. http/sse URLs that resolve to private, loopback, link-local, or cloud-metadata addresses are rejected; set `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true` to allow them in local development.
 
-Each `MCPServerEntry` also supports the following optional fields:
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `timeoutMs` | `number` | — | Connection-level timeout for the MCP transport |
-| `toolTimeoutMs` | `number` | — | Per-tool-call execution timeout (overrides manager default) |
-| `maxRetries` | `number` | `2` | Number of connection retry attempts with exponential backoff |
-| `allowedAgents` | `string[]` | — | Restrict which agents can access this server |
+Each entry also accepts optional resilience and access-control fields: `timeoutMs`, `toolTimeoutMs`, `maxConcurrentCalls`, `maxRetries`, and `allowedAgents`. See [`MCPServerConfig`](#mcpserverconfig) for the full field reference.
 
 ### Access control
 
@@ -209,55 +191,147 @@ Set to `0` to disable caching.
 
 **Manual reconnection**: Use `manager.reconnect(serverId)` to invalidate a stale connection and force a fresh reconnection on the next `resolveTools()` call.
 
+**Refs:**
+- [`InMemoryMCPServerRegistry`](#inmemorymcpserverregistry): Zero-dependency registry for tests and single-process runs.
+- [`MCPConnectionManager`](#mcpconnectionmanager): Resolves an agent's tool sources into executable tools.
+- [`MCPServerEntrySchema`](#mcpserverentryschema): The validation boundary enforced on every read and write.
+- [MCPServerConfig](#mcpserverconfig): Authoring shape for a registry entry.
+- [MCPTransportConfig](#mcptransportconfig): The stdio, http, and sse transport shapes.
+- [MCPServerRegistry](#mcpserverregistry): The registry contract both implementations satisfy.
+- [MCPConnectionManagerOptions](#mcpconnectionmanageroptions): Cache, timeout, and concurrency tuning.
+
 ## Taint tracking
 
-All results returned from MCP tools are automatically taint-tracked. The raw tool result is returned directly to the LLM (no wrapper), while taint metadata is accumulated internally by the `MCPConnectionManager`. After agent execution completes, taint entries are drained via `drainTaintEntries()` and applied to any memory keys that received MCP tool results.
+All results returned from MCP tools are automatically taint-tracked. The raw tool result is returned directly to the LLM (no wrapper), while taint metadata is accumulated and tracked internally. After agent execution completes, taint entries are drained and applied to any memory keys that received MCP tool results.
 
 This design ensures:
 
-- The **LLM sees clean results** — no taint metadata leaks into the model's context
-- The **taint registry is accurate** — provenance is tracked in the first-class `state.taint_registry` field
-- The **tool node executor** also correctly handles taint for `tool`-type nodes
+- The **LLM sees clean results**: no taint metadata leaks into the model's context.
+- The **taint registry is accurate**: provenance is tracked in the first-class `state.taint_registry` field.
+- The **tool node executor** also correctly handles taint for `tool`-type nodes.
 
 See [Taint Tracking](/docs/concepts/taint-tracking/) for the full taint propagation model and API reference.
 
-## Default MCP servers
+## API
 
-cycgraph includes pre-configured entries for two common MCP reference servers. Use `registerDefaultMCPServers()` for one-line setup:
+### `InMemoryMCPServerRegistry`
 
-```typescript
-import {
-  InMemoryMCPServerRegistry,
-  registerDefaultMCPServers,
-  MCPConnectionManager,
-} from '@cycgraph/orchestrator';
-
-const mcpRegistry = new InMemoryMCPServerRegistry();
-await registerDefaultMCPServers(mcpRegistry);
-// Registers: web-search (Brave Search via npx) and fetch (URL content via uvx)
-```
-
-| Server ID | Package | Command | Requires |
-|-----------|---------|---------|----------|
-| `web-search` | `@modelcontextprotocol/server-brave-search` | `npx` | `BRAVE_API_KEY` env var |
-| `fetch` | `mcp-server-fetch` (Python) | `uvx` | `uv` package manager |
-
-Options for selective registration:
+Zero-dependency [`MCPServerRegistry`](#mcpserverregistry) backed by a Map. Suitable for tests, single-process runs, and local development. Every write and read re-validates through [`MCPServerEntrySchema`](#mcpserverentryschema), so the stdio command allowlist and the URL SSRF guard hold even against a direct map tamper or an `any`-typed caller.
 
 ```typescript
-// Only fetch (no web search)
-await registerDefaultMCPServers(mcpRegistry, { only: ['fetch'] });
-
-// Override the Brave API key
-await registerDefaultMCPServers(mcpRegistry, { brave_api_key: 'BSA-...' });
-
-// Restrict to specific agents
-await registerDefaultMCPServers(mcpRegistry, { allowedAgents: [RESEARCHER_ID] });
+new InMemoryMCPServerRegistry()
 ```
+
+It accepts the camelCase [`MCPServerConfig`](#mcpserverconfig) authoring shape on write. Stored entries and `loadServer` results come back in the snake_case `MCPServerEntry` wire shape. `register(entry)` is a synchronous convenience alias for `saveServer`, handy in tests and setup code.
+
+For production durability, use `DrizzleMCPServerRegistry` from `@cycgraph/orchestrator-postgres`. It implements the same interface against Postgres so server configs survive restarts.
+
+### `MCPConnectionManager`
+
+Resolves an agent's `ToolSource[]` into executable AI SDK tools. Create one per `GraphRunner.run()` invocation and call `closeAll()` when the run finishes. It implements the `ToolResolver` contract the runner injects.
+
+```typescript
+new MCPConnectionManager(registry: MCPServerRegistry, options?: MCPConnectionManagerOptions)
+```
+
+| Method | Description |
+|--------|-------------|
+| `resolveTools(sources, agentId?)` | Resolve `ToolSource[]` to a toolset. Enforces per-server `allowedAgents` access control, caches tool manifests, and applies per-tool timeouts. |
+| `reconnect(serverId)` | Invalidate a stale connection and its cached manifest, forcing a fresh connection on the next `resolveTools`. |
+| `closeAll()` | Close every open client. Call once the run completes. |
+
+##### Options
+
+The options are [`MCPConnectionManagerOptions`](#mcpconnectionmanageroptions).
+
+### `MCPServerEntrySchema`
+
+The Zod schema every server entry is validated against, on **both** `saveServer` and `loadServer`. This is the trust boundary. The stdio command allowlist (`npx`, `node`, `python3`, `python`, `uvx`) and the URL SSRF guard are enforced here, so a direct database write, a migration, or an `any`-typed caller can't slip past them. Parsing also fills defaults such as `timeoutMs` (30000) and `maxRetries` (2), and rejects stdio transports when `MCP_STDIO_DISABLED=true`.
+
+```typescript
+MCPServerEntrySchema.parse(entry): MCPServerEntry
+```
+
+## Interfaces
+
+### ToolSource
+
+Discriminated union on `type` of the two tool declaration shapes an agent or node lists in its `tools` array. Authored in camelCase, then resolved at execution time by [`MCPConnectionManager`](#mcpconnectionmanager).
+
+```typescript
+type ToolSource = BuiltinToolSource | MCPToolSource
+```
+
+### BuiltinToolSource
+
+A tool the orchestrator provides directly, with no external connection.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `'builtin'` | Discriminant. |
+| `name` | `'save_to_memory'` \| `'architect_draft_workflow'` \| `'architect_publish_workflow'` \| `'architect_get_workflow'` | Built-in tool name. |
+
+### MCPToolSource
+
+A tool provided by a registered MCP server, referenced by ID. It never contains transport config.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | `'mcp'` | required | Discriminant. |
+| `serverId` | `string` | required | ID of a server in the MCP Server Registry. Alphanumeric, hyphens, and underscores. |
+| `toolNames` | `string[]` | all tools | Filter to specific tools from the server. Omit for all of them. |
+
+### MCPServerConfig
+
+The camelCase authoring shape for a registry entry, accepted by `saveServer` and `register`. The stored and `loadServer`-returned form is the equivalent snake_case `MCPServerEntry`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `string` | required | Unique server identifier, also used in tool namespacing. |
+| `name` | `string` | required | Human-readable name. |
+| `description` | `string` | — | What the server provides. |
+| `transport` | [`MCPTransportConfig`](#mcptransportconfig) | required | Connection transport (stdio, http, or sse). |
+| `allowedAgents` | `string[]` | unrestricted | Agent IDs permitted to use this server. Omit for open access. |
+| `timeoutMs` | `number` | `30000` | Connection-level timeout. |
+| `toolTimeoutMs` | `number` | — | Per-tool-call timeout, overrides the manager default. |
+| `maxConcurrentCalls` | `number` | unlimited | Cap on concurrent tool calls against this server. |
+| `maxRetries` | `number` | `2` | Connection retry attempts, with exponential backoff. |
+
+### MCPTransportConfig
+
+Discriminated union on `type` of the three transports. `stdio` runs a local process from a fixed command allowlist. `http` and `sse` reach remote servers over SSRF-guarded URLs.
+
+| Transport | Fields |
+|-----------|--------|
+| `stdio` | `command` (`'npx'` \| `'node'` \| `'python3'` \| `'python'` \| `'uvx'`), `args: string[]`, `env?: Record<string, string>` |
+| `http` | `url: string`, `headers?: Record<string, string>` |
+| `sse` | `url: string`, `headers?: Record<string, string>` |
+
+### MCPServerRegistry
+
+The trusted store of transport configs and the security boundary between agent configs and connection secrets. Agents reference servers by ID and never see connection details. Both `InMemoryMCPServerRegistry` and `DrizzleMCPServerRegistry` implement it.
+
+| Method | Description |
+|--------|-------------|
+| `saveServer(entry)` | Register or update a server from the camelCase [`MCPServerConfig`](#mcpserverconfig) shape. Re-validates through the schema. |
+| `loadServer(id)` | Load a server by ID, or `null` if absent. Re-validates on read. |
+| `listServers()` | List all registered servers. |
+| `deleteServer(id)` | Remove a server by ID. Returns `true` if it existed. |
+
+### MCPConnectionManagerOptions
+
+Constructor options for [`MCPConnectionManager`](#mcpconnectionmanager). Every field is optional.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `cache_ttl_ms` | `number` | `300000` | TTL for cached tool manifests. `0` disables caching. |
+| `default_tool_timeout_ms` | `number` | `30000` | Default per-tool timeout, overridable per server via `toolTimeoutMs`. `0` disables it. |
+| `default_max_concurrent_calls` | `number` | `0` | Default cap on concurrent calls per server. `0` means unlimited. |
+| `tool_circuit_breaker` | `ToolCircuitBreakerOptions` \| `null` | 5 failures, 30s cooldown, 2 successes to close | Per-tool circuit breaker tuning. `null` disables per-tool breakers, leaving connection-level retry in place. |
 
 ## Next steps
 
-- [Adding MCP Tools](/docs/guides/adding-tools/) — wiring tools into the execution pipeline and building custom MCP servers
-- [Agents](/docs/concepts/agents/) — how agents use tools
-- [Nodes](/docs/concepts/nodes/) — node-level tool overrides
-- [Security](/docs/security/) — access control and taint tracking
+- [Adding MCP Tools](/docs/guides/adding-tools/): wiring tools into the execution pipeline and building custom MCP servers
+- [Agents](/docs/concepts/agents/): how agents use tools
+- [Nodes](/docs/concepts/nodes/): node-level tool overrides
+- [Security](/docs/security/): access control and taint tracking

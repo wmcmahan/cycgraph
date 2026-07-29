@@ -88,15 +88,15 @@ const runner = new GraphRunner(graph, state, { contextCompressor });
 
 **What this means:**
 
-- The orchestrator sanitizes memory before the compressor sees it, and the compressed output lands inside the same `<data>` boundary tags as uncompressed memory — compression runs inside the trust boundary, not across it.
+- The orchestrator sanitizes memory before the compressor sees it, and the compressed output lands inside the same `<data>` boundary tags as uncompressed memory. Compression runs inside the trust boundary, not across it.
 
 - The workflow goal is the query, so relevance allocation keeps goal-relevant memory as prompts grow.
 
-- The integration fails open: if your compressor throws or returns `null`, the runner falls back to plain `JSON.stringify` with a 50KB byte cap — compression is an optimization, never a correctness dependency.
+- The integration fails open: if your compressor throws or returns `null`, the runner falls back to plain `JSON.stringify` with a 50KB byte cap. Compression is an optimization, never a correctness dependency.
 
 ## Multi-turn agent loop
 
-This example is for applications that drive their own conversation loop **without** the orchestrator — a chatbot backend, a REPL assistant, a custom agent. "Session" and "turn" here are your application's concepts, not the engine's or the orchestrator's (inside an orchestration graph, the runner drives execution and calls your `contextCompressor` on every prompt build — there is no loop to write).
+This example is for applications that drive their own conversation loop **without** the orchestrator: a chatbot backend, a REPL assistant, a custom agent. "Session" and "turn" here are your application's concepts, not the engine's or the orchestrator's. Inside an orchestration graph, the runner drives execution and calls your `contextCompressor` on every prompt build, so there is no loop to write.
 
 Long-running sessions re-compress mostly unchanged context every turn, and they interact with a second cache you don't own: the provider's prompt cache. This example wires the engine's three caching layers together:
 
@@ -174,7 +174,7 @@ for (const turn of turns) {
 
 - The incremental pipeline saves compute by not re-compressing unchanged segments.
 
-- The cache policy protects the provider's discount by refusing to re-optimize the prompt prefix — a compressor that rewrites the prefix every turn saves tokens while forfeiting cached-token pricing, which can cost more than it saves.
+- The cache policy protects the provider's discount by refusing to re-optimize the prompt prefix. A compressor that rewrites the prefix every turn saves tokens while forfeiting cached-token pricing, which can cost more than it saves.
 
 - Locking before compression is what keeps the two aligned, and `diagnoseCacheStability` tells you when dynamic content (timestamps, UUIDs) is silently invalidating the prefix anyway.
 
@@ -214,11 +214,11 @@ const result = pipeline.compress({
 
 **What this means:**
 
-- Retrieval decides *what's relevant enough to fetch*; the adaptive stage decides *what's important enough to keep* when the fetched payload exceeds the budget — recent facts and facts from well-populated themes win.
+- Retrieval decides *what's relevant enough to fetch*; the adaptive stage decides *what's important enough to keep* when the fetched payload exceeds the budget, so recent facts and facts from well-populated themes win.
 
 - The format stage then squeezes the surviving JSON shape, and the allocator guarantees the fit.
 
-- Because the payload is structured (role `memory`), no stage will token-prune inside it — over-budget structured content tail-truncates cleanly instead of being corrupted.
+- Because the payload is structured (role `memory`), no stage will token-prune inside it. Over-budget structured content tail-truncates cleanly instead of being corrupted.
 
 For the retrieval side of this stack, see [Memory System](/docs/guides/memory/).
 
@@ -247,21 +247,21 @@ const pipeline = createPipeline({
 const result = pipeline.compress({ segments, budget });
 ```
 
-The same pattern applies to neural importance scoring: `precomputeImportanceScores(segments, compressionProvider)` feeds `createSelfInformationStage({ precomputed })`. If you skip pre-computation, semantic dedup finds nothing to compare and self-information falls back to the n-gram scorer — both degrade gracefully rather than blocking.
+The same pattern applies to neural importance scoring: `precomputeImportanceScores(segments, compressionProvider)` feeds `createSelfInformationStage({ precomputed })`. If you skip pre-computation, semantic dedup finds nothing to compare and self-information falls back to the n-gram scorer. Both degrade gracefully rather than blocking.
 
-**What this means:** the hot path stays deterministic and fast even when providers are wired in — all network latency is paid once, up front, where you control it. Consider wrapping provider-backed stages in a [circuit breaker](/docs/concepts/context-engine/#circuit-breaker) so they bypass themselves on workloads where they stop earning their latency.
+**What this means:** the hot path stays deterministic and fast even when providers are wired in, because all network latency is paid once, up front, where you control it. Consider wrapping provider-backed stages in a [circuit breaker](/docs/concepts/context-engine/#circuit-breaker) so they bypass themselves on workloads where they stop earning their latency.
 
-## Choosing a preset — and when to go custom
+## Choosing a preset, and when to go custom
 
 The presets are content-profile decisions, not a quality ladder:
 
-- **`fast`** — the default choice for extractive workloads: dense factual documents, tool outputs, retrieved passages where every sentence may matter. Its stages are lossless-or-safe (format, exact dedup, allocator), so information loss happens only under budget pressure — and the [benchmarks](/docs/concepts/context-engine/#relevance-allocation-query-aware) show it beating the heavier presets on downstream QA at matched budgets.
-- **`balanced` / `maximum`** — for verbose, redundant, reasoning-heavy payloads: long chat histories, agent scratch work, repeated boilerplate. The pruning and distillation stages earn their keep exactly where there's filler to remove; on dense factual content those same deletions land on substance.
-- **Always pass `query` when the task is known** — it's free when absent, and at tight budgets relevance allocation is the largest quality lever the engine has.
-- **Go custom** when you need provider-backed stages (never in presets), memory/graph formatters outside `maximum`, or a different allocator configuration — compose with `createPipeline` and keep per-segment stages first, allocator last. See the [stage catalog](/docs/concepts/context-engine/#stages).
+- **`fast`**: the default choice for extractive workloads such as dense factual documents, tool outputs, and retrieved passages where every sentence may matter. Its stages are lossless-or-safe (format, exact dedup, allocator), so information loss happens only under budget pressure, and the [benchmarks](/docs/concepts/context-engine/#relevance-allocation-query-aware) show it beating the heavier presets on downstream QA at matched budgets.
+- **`balanced` / `maximum`**: for verbose, redundant, reasoning-heavy payloads such as long chat histories, agent scratch work, and repeated boilerplate. The pruning and distillation stages earn their keep exactly where there's filler to remove; on dense factual content those same deletions land on substance.
+- **Always pass `query` when the task is known.** It's free when absent, and at tight budgets relevance allocation is the largest quality lever the engine has.
+- **Go custom** when you need provider-backed stages (never in presets), memory/graph formatters outside `maximum`, or a different allocator configuration. Compose with `createPipeline` and keep per-segment stages first, allocator last. See the [stage catalog](/docs/concepts/context-engine/#stages).
 
 ## Next steps
 
-- [Context Engine](/docs/concepts/context-engine/) — architecture, stage catalog, and full API reference
-- [Memory System](/docs/concepts/memory/) — the knowledge graph that feeds the context engine
-- [Budget-Aware Model Selection](/docs/guides/model-selection/) — how model choice affects compression
+- [Context Engine](/docs/concepts/context-engine/): architecture, stage catalog, and full API reference
+- [Memory System](/docs/concepts/memory/): the knowledge graph that feeds the context engine
+- [Budget-Aware Model Selection](/docs/guides/model-selection/): how model choice affects compression

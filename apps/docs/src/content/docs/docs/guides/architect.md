@@ -5,7 +5,7 @@ description: Generate workflow graphs from natural language prompts.
 
 The **Workflow Architect** generates valid, executable [Graph](/docs/concepts/graphs/) definitions from natural language descriptions using an LLM. Instead of hand-writing nodes and edges, you describe what you want and the Architect produces the graph structure.
 
-Generated graphs are **never executed automatically** — they're returned for review before you run or publish them.
+Generated graphs are **never executed automatically**. They're returned for review before you run or publish them.
 
 ## Generating a workflow
 
@@ -41,7 +41,7 @@ const { graph, warnings } = await generateWorkflow({
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `graph` | `Graph` | The generated, validated graph — ready to run or publish. |
+| `graph` | `Graph` | The generated, validated graph, ready to run or publish. |
 | `raw` | `LLMGraph` | Raw LLM output before conversion (useful for debugging). |
 | `attempts` | `number` | Number of generation attempts (1 = first try, 2+ = self-corrected). |
 | `warnings` | `string[]` | Non-fatal warnings from graph validation. |
@@ -62,7 +62,7 @@ This is useful for incrementally building up complex workflows through conversat
 
 ## Running a generated graph
 
-Once you have a graph, use it like any other — create state and run:
+Once you have a graph, use it like any other. Create state and run:
 
 ```typescript
 import { GraphRunner, createWorkflowState } from '@cycgraph/orchestrator';
@@ -83,7 +83,7 @@ Instead of calling `generateWorkflow()` directly, you can give the Architect's b
 
 ### Step 1: Initialize persistence
 
-The publish and get tools need to save/load graphs from your storage backend. Call `initArchitectTools()` once at application startup with `saveGraph` and `loadGraph` callbacks. Any persistence implementation works — in-memory for development, Drizzle/Postgres for production:
+The publish and get tools need to save/load graphs from your storage backend. Call `initArchitectTools()` once at application startup with `saveGraph` and `loadGraph` callbacks. Any persistence implementation works: in-memory for development, Drizzle/Postgres for production.
 
 ```typescript
 import { InMemoryPersistenceProvider, initArchitectTools } from '@cycgraph/orchestrator';
@@ -96,7 +96,7 @@ initArchitectTools({
 });
 ```
 
-For production, swap in `DrizzlePersistenceProvider` from `@cycgraph/orchestrator-postgres` — the callback signatures are identical.
+For production, swap in `DrizzlePersistenceProvider` from `@cycgraph/orchestrator-postgres`. The callback signatures are identical.
 
 `architect_publish_workflow` always validates the graph (`GraphSchema.parse` + `validateGraph`) before it reaches `saveGraph`, so an agent cannot publish a malformed or unsafe graph. For agent-driven publishing you should also gate it: provide a `canPublish` callback that returns `true` to allow, or a string reason to deny (e.g. require human approval or check a privileged credential).
 
@@ -110,7 +110,7 @@ initArchitectTools({
 ```
 
 :::note
-The draft tool works without initialization — it only generates graphs in memory. The publish and get tools will throw `ArchitectError` if called before `initArchitectTools()`. A graph that fails schema or referential validation is returned as an error result (not persisted), and a `canPublish` denial returns an error result too.
+The draft tool works without initialization, because it only generates graphs in memory. The publish and get tools will throw `ArchitectError` if called before `initArchitectTools()`. A graph that fails schema or referential validation is returned as an error result (not persisted), and a `canPublish` denial returns an error result too.
 :::
 
 ### Step 2: Register an agent with Architect tools
@@ -163,6 +163,6 @@ Agent: [calls architect_publish_workflow] → saved to registry
 
 ## Next steps
 
-- [Graphs](/docs/concepts/graphs/) — the graph format the Architect generates
-- [Nodes](/docs/concepts/nodes/) — the full node type reference
-- [Supervisor](/docs/patterns/supervisor/) — combine the Architect with supervisor routing
+- [Graphs](/docs/concepts/graphs/): the graph format the Architect generates
+- [Nodes](/docs/concepts/nodes/): the full node type reference
+- [Supervisor](/docs/patterns/supervisor/): combine the Architect with supervisor routing

@@ -1,9 +1,9 @@
 ---
 title: Evolution (DGM)
-description: Population-based selection — run N candidates in parallel, score them, and breed the next generation.
+description: Population-based selection. Run N candidates in parallel, score them, and breed the next generation.
 ---
 
-The **Evolution** pattern — inspired by Darwin Gödel Machines — runs multiple candidate solutions in parallel, scores each with a fitness evaluator, selects the best, and breeds the next generation using the winner's output as context.
+The **Evolution** pattern, inspired by Darwin Gödel Machines, runs multiple candidate solutions in parallel, scores each with a fitness evaluator, selects the best, and breeds the next generation using the winner's output as context.
 
 The loop continues across multiple generations until a fitness threshold is met or a stagnation condition is reached. The LLM itself acts as the mutation operator: each candidate receives the winning parent in its prompt alongside a temperature that decreases generation by generation, producing controlled variation that converges over time.
 
@@ -143,13 +143,13 @@ The evaluator's critique of the parent is also injected as `parent_reasoning` in
 
 ### Elitism
 
-`eliteCount` (default `1`) carries the top N candidates of each generation forward **unchanged** — not re-generated, not re-scored. This guarantees the best-so-far can never be lost to a noisy generation, so `${nodeId}_fitness_history` is monotonic (it climbs or holds, never dips), and it saves the LLM calls those slots would have cost (each generation after the first issues `populationSize - eliteCount` candidate calls). Set `eliteCount: 0` to breed every candidate fresh instead.
+`eliteCount` (default `1`) carries the top N candidates of each generation forward **unchanged**: not re-generated, not re-scored. This guarantees the best-so-far can never be lost to a noisy generation, so `${nodeId}_fitness_history` climbs or holds but never dips. It also saves the LLM calls those slots would have cost, since each generation after the first issues `populationSize - eliteCount` candidate calls. Set `eliteCount: 0` to breed every candidate fresh instead.
 
 ### Cost considerations
 
-Evolution executes many LLM calls. With a population size of 5 and max generations of 10, you trigger up to 50 candidate executions plus 50 evaluations — easily 100x the cost of a single-shot generation.
+Evolution executes many LLM calls. With a population size of 5 and max generations of 10, you trigger up to 50 candidate executions plus 50 evaluations. That is easily 100x the cost of a single-shot generation.
 
-Both candidate generation **and** evaluator scoring run in parallel, bounded by `maxConcurrency` — a generation takes roughly one evaluation's wall-clock rather than scoring candidates one at a time.
+Both candidate generation **and** evaluator scoring run in parallel, bounded by `maxConcurrency`, so a generation takes roughly one evaluation's wall-clock rather than scoring candidates one at a time.
 
 Two safeguards keep this manageable:
 
@@ -158,4 +158,4 @@ Two safeguards keep this manageable:
 
 ### Outputs
 
-The node writes `${nodeId}_winner` (the best candidate's full output), `${nodeId}_winner_fitness`, `${nodeId}_winner_reasoning`, `${nodeId}_fitness_history`, and `${nodeId}_population`. Note that `_population` holds per-candidate fitness **summaries** (`index`, `fitness`, `reasoning`, `tokens_used`) — not every candidate's full output — to keep state and checkpoints small. The winning output is available in full under `_winner`.
+The node writes `${nodeId}_winner` (the best candidate's full output), `${nodeId}_winner_fitness`, `${nodeId}_winner_reasoning`, `${nodeId}_fitness_history`, and `${nodeId}_population`. Note that `_population` holds per-candidate fitness **summaries** (`index`, `fitness`, `reasoning`, `tokens_used`) rather than every candidate's full output, to keep state and checkpoints small. The winning output is available in full under `_winner`.

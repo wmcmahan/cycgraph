@@ -8,7 +8,7 @@ A **suite** in `@cycgraph/evals` is a per-package collection of golden trajector
 - A **deterministic** track that runs library code in-process and emits assertion results
 - An **SUT-driven semantic** track that dispatches trajectories through the real package code and grades the observed output with an LLM judge
 
-This guide walks through adding a new suite — covering the directory layout, the runner registration, and the recording integration.
+This guide walks through adding a new suite. It covers the directory layout, the runner registration, and the recording integration.
 
 ## When to add a suite
 
@@ -16,7 +16,7 @@ This guide walks through adding a new suite — covering the directory layout, t
 - An existing package has grown enough that its existing suite is unwieldy and warrants splitting
 - You want a cross-cutting integration suite that exercises a multi-package flow (like the existing `integration` suite)
 
-Don't add a suite to test a single feature — add a trajectory to an existing suite instead.
+Don't add a suite to test a single feature. Add a trajectory to an existing suite instead.
 
 ## Directory layout
 
@@ -25,7 +25,7 @@ packages/evals/src/suites/<your-suite>/
 └── suite.ts           # runDeterministic + buildSutSuite exports
 ```
 
-No `prompts.ts` or `assertions.ts` files — the SUT-driven contract declares metrics and trajectory IDs directly. The rubric metric IS the prompt.
+No `prompts.ts` or `assertions.ts` files: the SUT-driven contract declares metrics and trajectory IDs directly. The rubric metric IS the prompt.
 
 ## Step 1: declare the suite name in the schema
 
@@ -156,7 +156,7 @@ async function loadSutSuiteConfig(
 }
 ```
 
-Static imports are intentional — they make missing suites a compile error rather than a runtime mystery and they're bundler-friendly.
+Static imports are intentional. They make missing suites a compile error rather than a runtime mystery, and they're bundler-friendly.
 
 ## Step 4: add the suite to default loading (optional)
 
@@ -210,7 +210,7 @@ case 'your-suite':
   return planYourSuiteTrajectory(trajectory);
 ```
 
-Then build a `src/sut/your-suite-sut.ts` with handlers for each tag family — see [Adding a SUT Handler](/docs/guides/adding-sut-handler/).
+Then build a `src/sut/your-suite-sut.ts` with handlers for each tag family. See [Adding a SUT Handler](/docs/guides/adding-sut-handler/).
 
 ## Step 7: write tests
 
@@ -241,6 +241,6 @@ npm run evals --workspace=packages/evals -- --suite your-suite
 
 ## Related
 
-- [Eval Harness](/docs/concepts/eval-harness/) — overall architecture
-- [Adding a SUT Handler](/docs/guides/adding-sut-handler/) — extending the recording layer
-- [Eval Assertions](/docs/concepts/eval-assertions/) — choosing the right assertion family
+- [Eval Harness](/docs/concepts/eval-harness/): overall architecture
+- [Adding a SUT Handler](/docs/guides/adding-sut-handler/): extending the recording layer
+- [Eval Assertions](/docs/concepts/eval-assertions/): choosing the right assertion family

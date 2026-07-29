@@ -1,6 +1,6 @@
 ---
 title: Swarm
-description: Peer-to-peer handoffs — specialized agents pass control to one another based on the next-best skill.
+description: Peer-to-peer handoffs where specialized agents pass control to one another based on the next-best skill.
 ---
 
 The **Swarm** pattern lets a network of specialized agents collaborate by handing control off to one another based on which peer is best suited for the next step.
@@ -24,16 +24,16 @@ flowchart LR
     C --> Done
 ```
 
-1. **Entry.** The workflow enters at one peer — whichever node is the graph's `start_node`.
+1. **Entry.** The workflow enters at one peer, whichever node is the graph's `start_node`.
 2. **Peer evaluation.** The active agent reads its goal alongside a `swarm` object (peer nodes, handoff budget) that the orchestrator injects into the `## Task Context` section of its prompt, so it knows who else is available.
 3. **Handoff.** When the agent decides another peer is better suited, it writes `peer_delegation: { peer_node_id, reason }` to memory via `save_to_memory` (so `peer_delegation` must be in its write keys). The orchestrator validates the target is in `peerNodes`, then dispatches a `handoff` action that routes execution to that peer. The agent's other memory updates are preserved across the handoff.
 4. **Continuation or completion.** If the agent does not delegate, normal graph edges run. The workflow ends when execution reaches an `end_node` without a pending handoff.
 
 ## When to use this pattern
 
-- **Highly diverse toolsets** — many specialized tools (UI interactions, database queries, code execution) that would overwhelm a single LLM's context. Split them across specialists, one per domain.
-- **Unpredictable execution order** — problems where the next best step depends on prior results, not a fixed pipeline.
-- **Autonomous troubleshooting** — a "Triage" agent hands off to "Database Config", which realizes it's actually an infrastructure issue and hands off to "DevOps".
+- **Highly diverse toolsets.** Many specialized tools such as UI interactions, database queries, and code execution would overwhelm a single LLM's context. Split them across specialists, one per domain.
+- **Unpredictable execution order.** Problems where the next best step depends on prior results, not a fixed pipeline.
+- **Autonomous troubleshooting.** A "Triage" agent hands off to "Database Config", which realizes it's actually an infrastructure issue and hands off to "DevOps".
 
 ## Implementation example
 
@@ -86,7 +86,7 @@ const PYTHON_WRITER_ID = registry.register({
 
 ### 2. The swarm graph
 
-Each peer is a standard `agent` node with `swarmConfig` listing the other peers it can hand off to. Edges define what happens when no handoff is requested — typically a default forward path or a route to a terminal node.
+Each peer is a standard `agent` node with `swarmConfig` listing the other peers it can hand off to. Edges define what happens when no handoff is requested, typically a default forward path or a route to a terminal node.
 
 ```typescript
 import { createGraph } from '@cycgraph/orchestrator';
@@ -159,7 +159,7 @@ A swarm-mode agent hands off by writing a `peer_delegation` object to memory (vi
 
 The orchestrator consumes this key, validates `peer_node_id`, and emits a `handoff` action that re-routes execution. The agent's other memory updates are preserved across the handoff.
 
-If the agent attempts to hand off to a node not in `peerNodes`, the runner throws `NodeConfigError`. The permission to emit handoff actions is implied by the swarm config itself — no `write_keys` entry is needed for it.
+If the agent attempts to hand off to a node not in `peerNodes`, the runner throws `NodeConfigError`. The permission to emit handoff actions is implied by the swarm config itself, so no `write_keys` entry is needed for it.
 
 ### Visibility into peers
 

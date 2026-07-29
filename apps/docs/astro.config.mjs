@@ -108,17 +108,16 @@ export default defineConfig({
           label: 'Getting Started',
           items: [
             { label: 'Introduction', slug: 'docs/getting-started/introduction' },
-            { label: 'Quick Start', slug: 'docs/getting-started/quick-start' },
           ],
         },
         {
           label: 'Core Concepts',
           items: [
-            { label: 'How cycgraph works', slug: 'docs/concepts/overview' },
             { label: 'Graphs', slug: 'docs/concepts/graphs' },
             { label: 'Nodes', slug: 'docs/concepts/nodes' },
             { label: 'Agents', slug: 'docs/concepts/agents' },
             { label: 'Workflow State', slug: 'docs/concepts/workflow-state' },
+            { label: 'Graph Runner', slug: 'docs/concepts/graph-runner' },
             { label: 'Tools & MCP', slug: 'docs/concepts/tools-and-mcp' },
             { label: 'Streaming', slug: 'docs/concepts/streaming' },
             { label: 'Middleware', slug: 'docs/concepts/middleware' },
@@ -162,25 +161,6 @@ export default defineConfig({
           items: [
             { label: 'Tracing', slug: 'docs/observability/tracing' },
             { label: 'Graph Assertions (runEval)', slug: 'docs/observability/evals' },
-          ],
-        },
-        {
-          label: 'Eval Harness',
-          items: [
-            { label: 'Overview', slug: 'docs/concepts/eval-harness' },
-            { label: 'Assertions', slug: 'docs/concepts/eval-assertions' },
-            { label: 'Drift & Baselines', slug: 'docs/concepts/drift-and-baselines' },
-            { label: 'Running Evals', slug: 'docs/guides/running-eval-harness' },
-            { label: 'Recording Goldens', slug: 'docs/guides/recording-goldens' },
-            { label: 'Adding an Eval Suite', slug: 'docs/guides/adding-eval-suite' },
-            { label: 'Adding a SUT Handler', slug: 'docs/guides/adding-sut-handler' },
-          ],
-        },
-        {
-          label: 'Operations',
-          items: [
-            { label: 'Deployment Guide', slug: 'docs/operations/deployment' },
-            { label: 'Configuration Reference', slug: 'docs/operations/configuration' },
           ],
         },
         { label: 'Security', slug: 'docs/security' },

@@ -3,7 +3,7 @@ title: Tracing
 description: Opt-in OpenTelemetry distributed tracing for workflow execution.
 ---
 
-cycgraph includes **opt-in OpenTelemetry tracing** that gives you full visibility into workflow execution — node timings, LLM calls, supervisor decisions, and tool invocations. When tracing is disabled (the default), all tracing code is a no-op with zero overhead.
+cycgraph includes **opt-in OpenTelemetry tracing** that gives you full visibility into workflow execution: node timings, LLM calls, supervisor decisions, and tool invocations. When tracing is disabled (the default), all tracing code is a no-op with zero overhead.
 
 ## Quick start
 
@@ -25,7 +25,7 @@ Tracing activates when the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable is
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 node app.js
 ```
 
-When the variable is unset, `initTracing()` returns immediately — OpenTelemetry modules are never imported (dynamic imports), so there is zero bundle or runtime cost.
+When the variable is unset, `initTracing()` returns immediately. Because OpenTelemetry modules load through dynamic imports, they are never imported at all, so there is zero bundle or runtime cost.
 
 ### 3. View traces
 
@@ -55,7 +55,7 @@ workflow.run
 
 Each `node.execute.*` span captures the node ID, type, and run ID. Child spans add execution-specific detail. The `workflow.run` root span wraps the entire run, and `node.execute.*` spans fire on **both** the streaming and non-streaming paths.
 
-Every log line emitted during a run also carries `run_id` and `graph_id` automatically (via async-local-storage correlation), so you can grep one run's logs across the agent executor, MCP, and persistence layers without threading IDs through your own code. Under `runner.stream()`, the root `workflow.run` span is established by `run()`; if you drive `stream()` directly and want a root span, wrap your consumption loop in your own span — node-level spans and `run_id` log correlation are present either way.
+Every log line emitted during a run also carries `run_id` and `graph_id` automatically (via async-local-storage correlation), so you can grep one run's logs across the agent executor, MCP, and persistence layers without threading IDs through your own code. Under `runner.stream()`, the root `workflow.run` span is established by `run()`; if you drive `stream()` directly and want a root span, wrap your consumption loop in your own span. Node-level spans and `run_id` log correlation are present either way.
 
 ## Span attributes
 
@@ -151,5 +151,5 @@ All metric functions accept optional labels and are zero-cost no-ops when metric
 
 ## Next steps
 
-- [Evaluations](/docs/observability/evals/) — verify agent behavior with automated eval suites
-- [Streaming](/docs/concepts/streaming/) — real-time event observability (alternative to spans)
+- [Evaluations](/docs/observability/evals/): verify agent behavior with automated eval suites
+- [Streaming](/docs/concepts/streaming/): real-time event observability (alternative to spans)

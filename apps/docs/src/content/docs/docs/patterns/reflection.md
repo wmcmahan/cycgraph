@@ -1,11 +1,11 @@
 ---
 title: Reflection
-description: Distill a run's output into atomic lessons that future runs retrieve — agents that get smarter over time.
+description: Distill a run's output into atomic lessons that future runs retrieve, so agents get smarter over time.
 ---
 
 The **Reflection** pattern closes the compound-learning loop. After productive work in a graph, a `reflection` node distills source memory keys (notes, drafts, observations) into atomic `SemanticFacts` and persists them to your memory store via an injected `MemoryWriter`. Future runs retrieve those facts (filtered by tags) through `memoryRetriever` and feed them into agent prompts as a `## Relevant Memory` section.
 
-The infrastructure under reflection — `@cycgraph/memory`'s temporal knowledge graph and the orchestrator's `memoryWriter` / `memoryRetriever` adapters — is the same. What reflection adds is the **node** that ties the workflow's runtime output to that store at the right point in the graph.
+The infrastructure under reflection is the same: `@cycgraph/memory`'s temporal knowledge graph and the orchestrator's `memoryWriter` / `memoryRetriever` adapters. What reflection adds is the **node** that ties the workflow's runtime output to that store at the right point in the graph.
 
 ## How it works
 
@@ -40,9 +40,9 @@ Each run follows the same loop:
 - **Long-running research agents** that should improve as they accumulate domain knowledge.
 - **Support / triage workflows** where lessons from past tickets should inform new ones.
 - **Compounding pipelines** where every run adds vetted facts to a shared knowledge graph.
-- **Domain bootstrapping** — extract a corpus of starter facts from a seed conversation, then have agents query that corpus.
+- **Domain bootstrapping**: extract a corpus of starter facts from a seed conversation, then have agents query that corpus.
 
-*(If you only need ephemeral per-run memory, just use `WorkflowState.memory` — no reflection node required. If you want cross-run learning specifically, this is the pattern.)*
+*(If you only need ephemeral per-run memory, just use `WorkflowState.memory`, with no reflection node required. If you want cross-run learning specifically, this is the pattern.)*
 
 ## Implementation example
 
@@ -163,7 +163,7 @@ The `extractor` discriminator on `reflectionConfig` picks the strategy:
 
 ### `rule_based`
 
-Deterministic sentence-level extraction. Splits the concatenated source memory values into sentences, filters by `minSentenceLength`, dedupes (case-insensitive), emits one fact per unique sentence. **No LLM call** — free and predictable.
+Deterministic sentence-level extraction. Splits the concatenated source memory values into sentences, filters by `minSentenceLength`, dedupes (case-insensitive), emits one fact per unique sentence. **No LLM call**, so it's free and predictable.
 
 ```typescript
 extractor: { type: 'rule_based', minSentenceLength: 25 }
@@ -200,7 +200,7 @@ The `tags` field on `reflectionConfig` is applied to every fact written by the n
 
 Reflection writes whatever the extractor produces. If your agents handle PII, customer data, or anything sensitive, those values can land in the long-lived memory store. The `factSanitizer` hook on `GraphRunnerOptions` runs once per fact between extraction and the writer call. Returning `null` drops the fact; returning a modified fact substitutes it.
 
-Fact content is also injection-sanitized automatically before persistence (the same denylist applied to memory before prompt embedding), closing a cross-run stored-injection channel — tainted external text distilled into a "lesson" can't carry instruction-override payloads into a future run's prompt.
+Fact content is also injection-sanitized automatically before persistence, using the same denylist applied to memory before prompt embedding. That closes a cross-run stored-injection channel: tainted external text distilled into a "lesson" can't carry instruction-override payloads into a future run's prompt.
 
 ```typescript
 import type { FactSanitizer } from '@cycgraph/orchestrator';
@@ -222,7 +222,7 @@ const runner = new GraphRunner(graph, state, {
 });
 ```
 
-The sanitizer **fails closed** by default: if it throws (a downed PII service, a buggy regex), the fact is dropped rather than persisted unredacted — a transient outage must not silently leak PII into durable, cross-run memory. Set `factSanitizerFailMode: 'pass'` on `GraphRunnerOptions` to restore fail-open behavior (write the original fact on error) when reflection availability matters more than redaction guarantees.
+The sanitizer **fails closed** by default: if it throws (a downed PII service, a buggy regex), the fact is dropped rather than persisted unredacted, because a transient outage must not silently leak PII into durable, cross-run memory. Set `factSanitizerFailMode: 'pass'` on `GraphRunnerOptions` to restore fail-open behavior (write the original fact on error) when reflection availability matters more than redaction guarantees.
 
 ### Capping reflection cost with `budget`
 
@@ -246,7 +246,7 @@ LLM-based reflection (`extractor: { type: 'llm' }`) can run away on long source 
 }
 ```
 
-Breaching either cap throws `NodeBudgetExceededError` — the reflection fails fast and downstream code can decide whether to skip persistence or retry with cheaper settings.
+Breaching either cap throws `NodeBudgetExceededError`. The reflection fails fast, and downstream code can decide whether to skip persistence or retry with cheaper settings.
 
 ### Cost considerations
 
@@ -283,7 +283,7 @@ candidate ──(runs with it beat the baseline)──▶ verified
 
 Three pieces wire it together:
 
-**1. Tag new lessons as candidates** — purely a config change:
+**1. Tag new lessons as candidates**, purely a config change:
 
 ```typescript
 reflectionConfig: {
@@ -293,7 +293,7 @@ reflectionConfig: {
 }
 ```
 
-**2. Pass fact IDs through your retriever and attribute outcomes** — the runner records which facts were injected into each run's prompts in the `state.lesson_provenance` field. After scoring the run however you like (evals harness, business KPI, LLM judge), feed the ledger:
+**2. Pass fact IDs through your retriever and attribute outcomes.** The runner records which facts were injected into each run's prompts in the `state.lesson_provenance` field. After scoring the run however you like (evals harness, business KPI, LLM judge), feed the ledger:
 
 ```typescript
 import { getInjectedFactIds } from '@cycgraph/orchestrator';
@@ -342,11 +342,11 @@ const report = await evaluateRetention(store, ledger, {
 // report.promoted / report.evicted / report.held — each with `evidence`
 ```
 
-Eviction is a soft delete (`invalidated_by`), recoverable via `findFacts({ include_invalidated: true })`. The lift heuristic is correlational — facts are co-injected and run difficulty varies — so `min_trials` and the margins are the guardrails, not a causal proof.
+Eviction is a soft delete (`invalidated_by`), recoverable via `findFacts({ include_invalidated: true })`. The lift heuristic is correlational, because facts are co-injected and run difficulty varies, so `min_trials` and the margins are the guardrails, not a causal proof.
 
 ### How much evidence does the gate need?
 
-By default the gate uses real statistical inference (`decision_rule: 'inference'`), not a raw mean comparison: a Welch-style test on the lift against the leave-one-out baseline, with Benjamini–Hochberg control across the candidates tested in a pass and **alpha-spending across doubling baseline brackets** so that gating after every run doesn't inflate false positives (the peeking problem — our simulator measured a 25% false-decision rate without this control, 0–2% with it).
+By default the gate uses real statistical inference (`decision_rule: 'inference'`), not a raw mean comparison: a Welch-style test on the lift against the leave-one-out baseline, with Benjamini–Hochberg control across the candidates tested in a pass and **alpha-spending across doubling baseline brackets** so that gating after every run doesn't inflate false positives. This is the peeking problem: our simulator measured a 25% false-decision rate without this control, and 0–2% with it.
 
 The trade-off is resolution. Measured operating characteristics with 5-trial cohorts at judge-noise SD 0.1:
 
@@ -358,17 +358,17 @@ The trade-off is resolution. Measured operating characteristics with 5-trial coh
 | ±0.2 | decided ~54–70%; the rest retired as `no_lift` |
 | ±0.1 and below | mostly **retired, not falsely decided** (false decisions: 0–4%) |
 
-The detectable-effect floor scales roughly with `promote_margin + 2.6 · noise_sd / √trials_per_cohort`. To resolve smaller effects: raise `rest_after_trials` (more evidence per cohort), reduce judge noise (more judge samples — `requiredTrials()` does the arithmetic), or accept that small effects get retired. **Measure your own policy before trusting it** — `gateOperatingCharacteristics()` runs the real pipeline against lessons of known effect in under a second; see `packages/evals/examples/gate-operating-characteristics/`.
+The detectable-effect floor scales roughly with `promote_margin + 2.6 · noise_sd / √trials_per_cohort`. To resolve smaller effects: raise `rest_after_trials` (more evidence per cohort), reduce judge noise (more judge samples, and `requiredTrials()` does the arithmetic), or accept that small effects get retired. **Measure your own policy before trusting it.** `gateOperatingCharacteristics()` runs the real pipeline against lessons of known effect in under a second; see `packages/evals/examples/gate-operating-characteristics/`.
 
-Tuning fields on `RetentionPolicySchema`: `decision_rule` (`'inference'` | `'margin'`), `promote_confidence` / `evict_confidence` (default 0.9), `noise_floor_sd` (set to your judge's per-run SD), `multiple_comparison` (`'bh'` | `'none'`), `sequential_control` (`'doubling'` | `'none'`), and `max_baseline_runs` (closes the decision window for candidates the bracket penalty has made undecidable — pair it with `rest_after_trials`, since frozen trials mean `max_trials` alone can never fire). Every decision in the report carries an `evidence` object (`lift`, `se`, `df`, `p_promote`, `p_evict`, `alpha_bracket`) so "why was this held?" is inspectable.
+Tuning fields on `RetentionPolicySchema`: `decision_rule` (`'inference'` | `'margin'`), `promote_confidence` / `evict_confidence` (default 0.9), `noise_floor_sd` (set to your judge's per-run SD), `multiple_comparison` (`'bh'` | `'none'`), `sequential_control` (`'doubling'` | `'none'`), and `max_baseline_runs` (closes the decision window for candidates the bracket penalty has made undecidable; pair it with `rest_after_trials`, since frozen trials mean `max_trials` alone can never fire). Every decision in the report carries an `evidence` object (`lift`, `se`, `df`, `p_promote`, `p_evict`, `alpha_bracket`) so "why was this held?" is inspectable.
 
 **Foot-guns:**
 
-- A retriever adapter that strips `id` from facts records no provenance — gating silently degrades to today's keep-everything behaviour.
+- A retriever adapter that strips `id` from facts records no provenance, so gating silently degrades to today's keep-everything behaviour.
 - `candidate_slots: 0` means candidates are never retrieved, never accrue trials, and are held forever.
 - Supervisor-node retrieval **is** provenance-tracked: the supervisor carries a provenance entry on its `handoff`/`set_status` action and the matching reducer merges it append-only into `state.lesson_provenance`, so facts injected into a routing prompt are attributable to the run's outcome just like agent nodes.
 
 ## Runnable examples
 
-- `packages/orchestrator/examples/learning-research-agent/` — the basic loop: a research workflow that runs twice on related goals and prints a side-by-side comparison of lessons injected / extracted / tokens / cost / duration.
-- `packages/evals/examples/eval-gated-learning/` — the full gated loop, adversarially tested: three poisoned lessons are seeded into the store mid-experiment and the retention gate evicts them on outcome evidence alone, with a fitness chart showing the dip and recovery.
+- `packages/orchestrator/examples/learning-research-agent/`: the basic loop: a research workflow that runs twice on related goals and prints a side-by-side comparison of lessons injected / extracted / tokens / cost / duration.
+- `packages/evals/examples/eval-gated-learning/`: the full gated loop, adversarially tested: three poisoned lessons are seeded into the store mid-experiment and the retention gate evicts them on outcome evidence alone, with a fitness chart showing the dip and recovery.

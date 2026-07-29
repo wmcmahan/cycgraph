@@ -142,7 +142,7 @@ providers.addModel('openai', 'gpt-5');
 ```
 
 :::note
-The model list is **advisory, not a strict allowlist**. If you use a model ID that isn't in the known list, the engine logs a warning but still forwards the request to the provider. This means newly released models work immediately — you just won't get provider inference for them until they're added.
+The model list is **advisory, not a strict allowlist**. If you use a model ID that isn't in the known list, the engine logs a warning but still forwards the request to the provider. This means newly released models work immediately. You just won't get provider inference for them until they're added.
 :::
 
 ## Built-in models
@@ -157,6 +157,6 @@ These models are pre-registered and available out of the box:
 
 ## Next steps
 
-- [Agents](/docs/concepts/agents/) — how agents reference providers and models
-- [Tools & MCP](/docs/concepts/tools-and-mcp/) — give agents external capabilities
-- [Cost & Budget Tracking](/docs/concepts/cost-tracking/) — per-model pricing and budget enforcement
+- [Agents](/docs/concepts/agents/): how agents reference providers and models
+- [Tools & MCP](/docs/concepts/tools-and-mcp/): give agents external capabilities
+- [Cost & Budget Tracking](/docs/concepts/cost-tracking/): per-model pricing and budget enforcement
