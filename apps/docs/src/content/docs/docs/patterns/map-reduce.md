@@ -31,10 +31,10 @@ flowchart TB
 
 ## When to use this pattern
 
-- **Document processing at scale** — summarize, classify, or extract from hundreds of documents that won't fit in a single context window.
-- **Research fan-out** — break a broad topic into sub-topics and assign one researcher per sub-topic in parallel.
-- **Bulk transformation** — translate, reformat, or annotate a list of items where each item is independent of the others.
-- **Anything embarrassingly parallel** — if the work is naturally per-item and the items don't depend on each other, Map-Reduce is faster and cheaper than processing them sequentially in a loop.
+- **Document processing at scale**: summarize, classify, or extract from hundreds of documents that won't fit in a single context window.
+- **Research fan-out**: break a broad topic into sub-topics and assign one researcher per sub-topic in parallel.
+- **Bulk transformation**: translate, reformat, or annotate a list of items where each item is independent of the others.
+- **Anything embarrassingly parallel**: if the work is naturally per-item and the items don't depend on each other, Map-Reduce is faster and cheaper than processing them sequentially in a loop.
 
 ## Implementation example
 
@@ -134,7 +134,7 @@ const graph = createGraph({
 ## Core concepts
 
 ### Understanding map variables
-When the map node launches your parallel workers, it hands each one a `## Task Context` section in its prompt with three fields. They arrive automatically — no `readKeys` entry is needed, because task context is a separate channel from the memory blackboard:
+When the map node launches your parallel workers, it hands each one a `## Task Context` section in its prompt with three fields. They arrive automatically. No `readKeys` entry is needed, because task context is a separate channel from the memory blackboard:
 - `map_item`: The specific string, object, or number being processed by this worker.
 - `map_index`: Which position in the array this item occupies (e.g. `0`, `1`, `2`).
 - `map_total`: The total size of the input array.
@@ -143,5 +143,5 @@ When the map node launches your parallel workers, it hands each one a `## Task C
 
 Pair the right LLM tier with the right node.
 
-- **The worker (Map)** fans out potentially hundreds of tasks simultaneously, so it should use the fastest, cheapest model available (e.g. `claude-haiku-4-5-20251001` or `gpt-4o-mini`). Workers do focused, narrow work — complex reasoning is rarely required.
+- **The worker (Map)** fans out potentially hundreds of tasks simultaneously, so it should use the fastest, cheapest model available (e.g. `claude-haiku-4-5-20251001` or `gpt-4o-mini`). Workers do focused, narrow work, so complex reasoning is rarely required.
 - **The synthesizer (Reduce)** receives the full array of outputs and *does* need heavy reasoning to deduplicate and find patterns across fragments. Use a frontier model (e.g. `claude-sonnet-4-6` or `gpt-4o`).

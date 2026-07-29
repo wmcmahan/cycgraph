@@ -1,11 +1,11 @@
 ---
 title: Configuration Reference
-description: Every operational tuning knob exposed by cycgraph — env vars, defaults, bounds, and when to change them.
+description: "Every operational tuning knob exposed by cycgraph: env vars, defaults, bounds, and when to change them."
 ---
 
 cycgraph exposes operational tuning through environment variables (read once at module load, Zod-validated) and constructor options (passed when wiring components). This page is the single reference for both.
 
-> **Where to override.** Env vars are easiest for ops; constructor options are easiest for tests and embedded deployments. They never conflict — env vars set the defaults, constructor options override per-instance.
+> **Where to override.** Env vars are easiest for ops; constructor options are easiest for tests and embedded deployments. They never conflict: env vars set the defaults, and constructor options override per-instance.
 
 ## Runtime config (env vars)
 
@@ -18,7 +18,7 @@ All values are validated against `RuntimeConfigSchema` (`src/runtime-config.ts`)
 | `FALLBACK_CONFIG_CACHE_TTL_MS` | `30000` (30s) | 1s – 1h | Shorter TTL for fallback configs so DB recovery is detected sooner |
 | `AGENT_TIMEOUT_MS` | `120000` (2 min) | 1s – 1h | Timeout for a single agent LLM invocation |
 | `MAX_MEMORY_PROMPT_BYTES` | `51200` (50 KB) | 1 KB – 10 MB | Max serialized memory injected into the system prompt |
-| `MAX_MEMORY_VALUE_BYTES` | `1048576` (1 MB) | 1 KB – 100 MB | Max bytes for a single memory value — reducer drops oversized values into `state.memory_drops` |
+| `MAX_MEMORY_VALUE_BYTES` | `1048576` (1 MB) | 1 KB – 100 MB | Max bytes for a single memory value; the reducer drops oversized values into `state.memory_drops` |
 | `MAX_VISITED_NODES` | `1000` | 10 – 1,000,000 | Ring-buffer cap on `state.visited_nodes` |
 | `MAX_SUPERVISOR_HISTORY` | `100` | 10 – 100,000 | Ring-buffer cap on `state.supervisor_history` |
 | `MAX_MEMORY_DROPS` | `50` | 1 – 10,000 | Ring-buffer cap on `state.memory_drops` |
@@ -49,15 +49,15 @@ Passed to `new GraphRunner(graph, state, options)`. Source: `runner/graph-runner
 | `memoryWriter` | `MemoryWriter` | none | Persist facts produced by `reflection` nodes. Required for reflection nodes to function. |
 | `factSanitizer` | `FactSanitizer` | none | Pre-write hook applied to every reflection fact. Return `null` to drop, or a modified fact to substitute. **Fails closed**: a thrown sanitizer drops the fact (see `factSanitizerFailMode`). |
 | `factSanitizerFailMode` | `'drop' \| 'pass'` | `'drop'` | What to do when `factSanitizer` throws. `'drop'` (default) discards the fact so unredacted PII is never persisted; `'pass'` writes the original fact (fail open). |
-| `rateLimiter` | `RateLimiter` | none | Awaited before every LLM call (agent / supervisor / evaluator) to pace a run inside a provider's budget. The implementation may delay (throttle) or throw (hard ceiling — surfaces as the node's error, follows its `failure_policy`). Abortable; propagated into subgraphs. |
+| `rateLimiter` | `RateLimiter` | none | Awaited before every LLM call (agent / supervisor / evaluator) to pace a run inside a provider's budget. The implementation may delay (throttle) or throw (a hard ceiling that surfaces as the node's error and follows its `failure_policy`). Abortable; propagated into subgraphs. |
 | `compactionInterval` | `number` | `1000` | Events between automatic event-log compactions (checkpoint + delete-behind, recovery-safe) when an `eventLog` is wired. **Defaults on** so a long run can't grow the log unbounded; set `0` to retain full history and compact manually via `compactEvents()`. |
-| `persistDeltaFn` | `(patch: StatePatch) => Promise<void>` | none | Differential persistence — when set with `persistStateFn`, the runner sends patches here and full snapshots to `persistStateFn`. A failed write rolls back the delta baseline so no patch is lost. |
+| `persistDeltaFn` | `(patch: StatePatch) => Promise<void>` | none | Differential persistence. When set with `persistStateFn`, the runner sends patches here and full snapshots to `persistStateFn`. A failed write rolls back the delta baseline so no patch is lost. |
 | `middleware` | `GraphRunnerMiddleware[]` | `[]` | `beforeNodeExecute` / `afterReduce` hooks |
 | `allowImplicitCompletion` | `boolean` | `false` | When a non-end node has no outgoing edge whose condition matches, the runner fails the run with `NoMatchingEdgeError` (a dead-end is almost always a routing bug). Set `true` to restore the legacy behavior of silently completing the workflow at that node. |
 
 A pre-flight wiring check runs at the start of every `run()`: a graph containing a `reflection` node with no `memoryWriter`, or a node declaring MCP tool sources with no `toolResolver`, fails immediately (before any node executes) instead of mid-run. A `memory_query` directive with no `memoryRetriever` logs a warning.
 
-The agent factory **fails closed** on an unknown `agent_id` (throws `AgentNotFoundError`). Opt into the legacy default-agent fallback with `configureAgentFactory(registry, { allowDefaultFallback: true })` — see [Agents](/docs/concepts/agents/#runtime-execution).
+The agent factory **fails closed** on an unknown `agent_id` (throws `AgentNotFoundError`). Opt into the legacy default-agent fallback with `configureAgentFactory(registry, { allowDefaultFallback: true })`. See [Agents](/docs/concepts/agents/#runtime-execution).
 
 ## `MCPConnectionManager` options
 
@@ -78,7 +78,7 @@ Source: `mcp/connection-manager.ts`.
 | `success_threshold` | `2` | Consecutive successes in `half_open` to close |
 | `cooldown_ms` | `30000` (30s) | Window the breaker stays `open` before transitioning to `half_open` |
 
-Snapshot metrics via `manager.getToolCircuitMetrics()` — wire to a `/metrics` endpoint or middleware.
+Snapshot metrics via `manager.getToolCircuitMetrics()`, then wire to a `/metrics` endpoint or middleware.
 
 ## `DrizzleEventLogWriter` options
 
@@ -94,7 +94,7 @@ Source: `@cycgraph/memory`.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `expectedDimensions` | unset | Strict dimension check — every embedding indexed or queried must match. Mismatch throws `EmbeddingDimensionMismatchError`. Wire from `EmbeddingProvider.dimensions`. |
+| `expectedDimensions` | unset | Strict dimension check: every embedding indexed or queried must match. Mismatch throws `EmbeddingDimensionMismatchError`. Wire from `EmbeddingProvider.dimensions`. |
 | `silenceScaleWarning` | `false` | Suppress the one-shot console warning when the brute-force index crosses 10K entries. Set `true` only for stress tests. |
 
 ## Validation behavior
@@ -105,4 +105,4 @@ Misconfiguration **fails loud, not silent**:
 - Setting `retain_checkpoints=0` would orphan the run from any usable replay anchor. `DrizzleEventLogWriter` throws in its constructor.
 - A 512-dim `EmbeddingProvider` talking to a 1536-dim `pgvector` schema produced silently wrong cosine scores. With `expectedDimensions` set, the first query throws.
 
-Every default above is also the recommended starting point — change one knob at a time, watch for the symptom listed in [When to tune](#when-to-tune).
+Every default above is also the recommended starting point. Change one knob at a time, and watch for the symptom listed in [When to tune](#when-to-tune).

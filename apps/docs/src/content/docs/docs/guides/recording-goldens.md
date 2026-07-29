@@ -16,7 +16,7 @@ npx tsx packages/evals/scripts/record-goldens.ts --suite <suite> [flags]
 | `--suite` | `orchestrator` | Which suite to record |
 | `--model` | `claude-sonnet-4-6` | Recording model (orchestrator only) |
 | `--samples` | `3` | Samples per trajectory for stability checking |
-| `--commit` | (off — dry run) | Actually overwrite the SQLite dataset |
+| `--commit` | (off, dry run) | Actually overwrite the SQLite dataset |
 | `--plan-only` | off | Print the routing table and exit; no SUT invocations |
 | `--output` | `golden/recording-diff-<suite>.json` | Where to write the diff report |
 
@@ -41,7 +41,7 @@ Any unsupported trajectories show up as `SKIP` with a reason (e.g., "No referenc
 
 ## Dry run (default)
 
-Without `--commit`, the script samples each trajectory, builds the diff report, and writes it to disk — but does **not** overwrite the SQLite dataset.
+Without `--commit`, the script samples each trajectory, builds the diff report, and writes it to disk, but does **not** overwrite the SQLite dataset.
 
 ```bash
 $ npx tsx scripts/record-goldens.ts --suite memory
@@ -62,8 +62,8 @@ The diff report contains, for each trajectory:
 - All raw sample data (for unstable cases, you can see exactly which sample diverged)
 
 Inspect this before committing. Look for:
-- Tests that switched from passing-against-intent to failing-against-reality (good — finds wrong goldens)
-- Tests that flipped meaning entirely (suspicious — investigate)
+- Tests that switched from passing-against-intent to failing-against-reality (good: finds wrong goldens)
+- Tests that flipped meaning entirely (suspicious: investigate)
 - Unstable tests where samples disagreed (judge or library is non-deterministic; investigate before committing)
 
 ## Commit
@@ -72,7 +72,7 @@ Inspect this before committing. Look for:
 npx tsx scripts/record-goldens.ts --suite memory --commit
 ```
 
-Refuses to commit if any trajectory errored or was unstable across samples — the script's job is to lock in stable behavior, not paper over fragility.
+Refuses to commit if any trajectory errored or was unstable across samples. The script's job is to lock in stable behavior, not paper over fragility.
 
 On commit, the script:
 1. Writes `golden/data/<suite>-v1.sqlite.gz` with the new trajectories
@@ -121,7 +121,7 @@ Every recording invocation samples each trajectory N times (default 3) and verif
 This catches:
 - Non-determinism in the LLM (which is expected sometimes)
 - Race conditions in the graph runner
-- Tool fixtures with state leaking across samples (this should be impossible — fixtures are constructed per-sample — but if it happens the stability check catches it)
+- Tool fixtures with state leaking across samples. This should be impossible because fixtures are constructed per-sample, but if it happens the stability check catches it.
 
 ## After recording
 
@@ -141,6 +141,6 @@ Commit the `.sqlite.gz` files + the updated manifest together; reviewers can spo
 
 ## Related
 
-- [Eval Harness](/docs/concepts/eval-harness/) — why goldens are recorded rather than authored
-- [Adding a SUT Handler](/docs/guides/adding-sut-handler/) — extend the recorder to cover a new tag family
-- [Adding an Eval Suite](/docs/guides/adding-eval-suite/) — add an entirely new suite
+- [Eval Harness](/docs/concepts/eval-harness/): why goldens are recorded rather than authored
+- [Adding a SUT Handler](/docs/guides/adding-sut-handler/): extend the recorder to cover a new tag family
+- [Adding an Eval Suite](/docs/guides/adding-eval-suite/): add an entirely new suite

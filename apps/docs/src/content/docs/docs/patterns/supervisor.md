@@ -1,11 +1,11 @@
 ---
 title: Supervisor
-description: LLM-powered dynamic routing — a supervisor delegates tasks to managed nodes iteratively.
+description: LLM-powered dynamic routing where a supervisor delegates tasks to managed nodes iteratively.
 ---
 
 The **Supervisor** pattern introduces an LLM as the "brain" of your workflow, capable of making dynamic routing decisions on the fly. 
 
-Unlike traditional static workflows where every step is hardcoded, the Supervisor pattern allows the orchestrator to act iteratively—delegating subtasks, reviewing the results, and deciding what needs to happen next until the overarching goal is fully achieved.
+Unlike traditional static workflows where every step is hardcoded, the Supervisor pattern lets the orchestrator act iteratively. It delegates subtasks, reviews the results, and decides what needs to happen next until the overarching goal is fully achieved.
 
 ## How it works
 
@@ -107,4 +107,4 @@ const graph = createGraph({
 
 ## Nested delegation
 
-Because Supervisors are just nodes in a graph, they can be configured to manage *other* Supervisors. This allows for hierarchical delegation—for instance, a "Product Director" supervisor that delegates high-level milestones to "Engineering Manager" and "Marketing Manager" supervisors, who each manage their own team of specialist worker agents.
+Because Supervisors are just nodes in a graph, they can be configured to manage *other* Supervisors. This allows for hierarchical delegation. A "Product Director" supervisor, for instance, delegates high-level milestones to "Engineering Manager" and "Marketing Manager" supervisors, who each manage their own team of specialist worker agents.

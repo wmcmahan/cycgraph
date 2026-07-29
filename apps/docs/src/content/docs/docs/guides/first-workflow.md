@@ -156,6 +156,6 @@ for await (const event of runner.stream()) {
 
 ## Next steps
 
-- [Supervisor](/docs/patterns/supervisor/) — add dynamic LLM-powered routing
-- [Custom LLM Providers](/docs/guides/custom-providers/) — use Groq, Ollama, or other providers
-- [Tools & MCP](/docs/concepts/tools-and-mcp/) — give agents external capabilities
+- [Supervisor](/docs/patterns/supervisor/): add dynamic LLM-powered routing
+- [Custom LLM Providers](/docs/guides/custom-providers/): use Groq, Ollama, or other providers
+- [Tools & MCP](/docs/concepts/tools-and-mcp/): give agents external capabilities

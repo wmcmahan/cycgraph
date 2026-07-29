@@ -30,7 +30,7 @@ try {
 }
 ```
 
-This registers two servers: `web-search` (Brave Search via `npx`, requires `BRAVE_API_KEY`) and `fetch` (URL content extraction via `uvx`). See [Tools & MCP — Default MCP Servers](/docs/concepts/tools-and-mcp/#default-mcp-servers) for configuration options.
+This registers two servers: `web-search` (Brave Search via `npx`, requires `BRAVE_API_KEY`) and `fetch` (URL content extraction via `uvx`). See [Tools & MCP: Default MCP Servers](/docs/concepts/tools-and-mcp/#default-mcp-servers) for configuration options.
 
 ## Wiring into the execution pipeline
 
@@ -86,6 +86,6 @@ Once built, [register your server's transport configuration](/docs/concepts/tool
 
 ## Next steps
 
-- [Tools & MCP](/docs/concepts/tools-and-mcp/) — tool sources, MCP registry, transport types, taint tracking
-- [Agents](/docs/concepts/agents/) — how agents use tools
-- [Using the Architect](/docs/guides/architect/) — generate workflows with tool declarations
+- [Tools & MCP](/docs/concepts/tools-and-mcp/): tool sources, MCP registry, transport types, taint tracking
+- [Agents](/docs/concepts/agents/): how agents use tools
+- [Using the Architect](/docs/guides/architect/): generate workflows with tool declarations

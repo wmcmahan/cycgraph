@@ -9,7 +9,7 @@ cycgraph is a **workflow engine** built around four primary concepts: Graphs, No
 
 ### 1. Graphs
 
-A Graph is the declarative definition of a workflow — a set of nodes connected by conditional routing edges. Unlike linear pipelines, cycgraph graphs can be **cyclic**: nodes can loop back to previous nodes. This enables powerful autonomous patterns like self-correction, iterative refinement, and dynamic routing.
+A Graph is the declarative definition of a workflow: a set of nodes connected by conditional routing edges. Unlike linear pipelines, cycgraph graphs can be **cyclic**: nodes can loop back to previous nodes. This enables powerful autonomous patterns like self-correction, iterative refinement, and dynamic routing.
 
 Graphs are defined in TypeScript (or generated organically by the [Architect](/docs/guides/architect/)) and can be versioned, composed into nested subgraphs, and updated without redeploying your core infrastructure.
 
@@ -29,7 +29,7 @@ Agents are decoupled from Nodes. You register your Agents in an `AgentRegistry`,
 
 ### 4. Workflow State
 
-Instead of passing output directly between nodes in a fragile chain, all nodes in cycgraph read from and write to a **shared state object** — the `WorkflowState`.
+Instead of passing output directly between nodes in a fragile chain, all nodes in cycgraph read from and write to a **shared state object**, the `WorkflowState`.
 
 ```typescript
 {
@@ -44,7 +44,7 @@ Instead of passing output directly between nodes in a fragile chain, all nodes i
 }
 ```
 
-Nodes only read the keys they are explicitly permitted to access (`read_keys`) and write only to the keys they are allowed to modify (`write_keys`). This enforces **state slicing** — ensuring agents only see the context they genuinely need, reducing hallucination risks and token costs.
+Nodes only read the keys they are explicitly permitted to access (`read_keys`) and write only to the keys they are allowed to modify (`write_keys`). This enforces **state slicing**, so agents only see the context they genuinely need, reducing hallucination risks and token costs.
 
 ## Execution Flow
 
@@ -62,13 +62,13 @@ When you execute a workflow, the `GraphRunner` orchestrates the process safely:
 
 Because State is cleanly separated from the execution logic, it can be persisted (in-memory by default, or durably to Postgres via `@cycgraph/orchestrator-postgres`) after every single node execution. This enables:
 
-- **Time-travel debugging** — inspect state at any point in the workflow's history.
-- **Resumability** — restart from the exact last checkpoint if an API crashes.
-- **Human-in-the-Loop** — pause mid-workflow, wait days for human approval, and resume identically.
+- **Time-travel debugging.** Inspect state at any point in the workflow's history.
+- **Resumability.** Restart from the exact last checkpoint if an API crashes.
+- **Human-in-the-Loop.** Pause mid-workflow, wait days for human approval, and resume identically.
 
 ## Distributed execution
 
-For production deployments with concurrent workflows, the `WorkflowWorker` distributes execution across multiple processes. Each workflow runs on one worker for its entire lifetime — the `GraphRunner` is used as-is inside each worker.
+For production deployments with concurrent workflows, the `WorkflowWorker` distributes execution across multiple processes. Each workflow runs on one worker for its entire lifetime. The `GraphRunner` is used as-is inside each worker.
 
 Workers poll a `WorkflowQueue` for jobs, execute them, and report results. Crashed workers are detected via visibility timeouts; their jobs are reclaimed and recovered on another worker by reconciling event-log replay against the latest state snapshot. **Run fencing** (a per-claim epoch, with the `DrizzleWorkflowQueue`) ensures a reclaimed-but-still-alive worker can't clobber the new owner.
 
@@ -78,10 +78,10 @@ See [Distributed Execution](/docs/concepts/distributed-execution/) for details.
 
 Explore the core concepts in detail:
 
-- [Graphs](/docs/concepts/graphs/) — structure and edge routing
-- [Nodes](/docs/concepts/nodes/) — the active components of a workflow
-- [Agents](/docs/concepts/agents/) — injecting intelligence
-- [Workflow State](/docs/concepts/workflow-state/) — how memory is managed
-- [Tools & MCP](/docs/concepts/tools-and-mcp/) — how agents safely interact with the world
-- [Distributed Execution](/docs/concepts/distributed-execution/) — scaling across multiple processes
-- [Error Handling](/docs/concepts/error-handling/) — building resilient graphs
+- [Graphs](/docs/concepts/graphs/): structure and edge routing
+- [Nodes](/docs/concepts/nodes/): the active components of a workflow
+- [Agents](/docs/concepts/agents/): injecting intelligence
+- [Workflow State](/docs/concepts/workflow-state/): how memory is managed
+- [Tools & MCP](/docs/concepts/tools-and-mcp/): how agents safely interact with the world
+- [Distributed Execution](/docs/concepts/distributed-execution/): scaling across multiple processes
+- [Error Handling](/docs/concepts/error-handling/): building resilient graphs

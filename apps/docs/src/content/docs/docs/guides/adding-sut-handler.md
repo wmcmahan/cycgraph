@@ -3,16 +3,16 @@ title: Adding a SUT Handler
 description: Extend the System-Under-Test layer to cover a new trajectory tag family.
 ---
 
-The SUT (System-Under-Test) layer in `@cycgraph/evals` is what makes recording possible — it wraps the real library APIs and returns observable output for each trajectory. When you add a new trajectory tag family that the existing handlers don't cover, you extend the SUT to handle it.
+The SUT (System-Under-Test) layer in `@cycgraph/evals` is what makes recording possible. It wraps the real library APIs and returns observable output for each trajectory. When you add a new trajectory tag family that the existing handlers don't cover, you extend the SUT to handle it.
 
 This guide walks through both kinds of extension:
 
-- **Deterministic suites** (memory, context-engine) — add a tag-routed handler function
-- **Orchestrator suite** — add a new reference graph builder + planner case
+- **Deterministic suites** (memory, context-engine): add a tag-routed handler function
+- **Orchestrator suite**: add a new reference graph builder + planner case
 
 ## Pattern 1: Deterministic SUT handler
 
-The memory and context-engine SUTs follow the same shape — a tag-matching dispatcher that resolves the trajectory's input through one of several library entry points.
+The memory and context-engine SUTs follow the same shape: a tag-matching dispatcher that resolves the trajectory's input through one of several library entry points.
 
 ### Anatomy of a handler
 
@@ -82,13 +82,13 @@ const subgraphHandler: MemoryHandler = {
 
 Things to keep in mind:
 
-- **Output shape matters.** This object becomes the new `expectedOutput` for every trajectory the handler runs. Keep it stable across versions — adding fields is safer than removing them.
+- **Output shape matters.** This object becomes the new `expectedOutput` for every trajectory the handler runs. Keep it stable across versions, because adding fields is safer than removing them.
 - **Parsers should tolerate input shape variants.** Trajectory inputs are JSON strings authored at different times; be permissive about what you accept (`input.max_hops ?? 1`).
 - **Side effects belong inside the handler, not at module scope.** Build a fresh store per call so concurrent recordings don't interfere.
 
 ### Step 3: Register the handler
 
-Add the handler to the `HANDLERS` array. Order matters when one trajectory's tags could match multiple handlers — earlier entries win:
+Add the handler to the `HANDLERS` array. Order matters when one trajectory's tags could match multiple handlers, because earlier entries win:
 
 ```typescript
 const HANDLERS: MemoryHandler[] = [
@@ -149,11 +149,11 @@ The previously-skipped trajectories should now show as supported.
 
 ## Pattern 2: Orchestrator reference graph
 
-The orchestrator suite uses **reference graphs** instead of handlers — a trajectory's tags map to a graph builder (single-agent, supervisor, branching, retry), and the SUT runs that graph against a real LLM.
+The orchestrator suite uses **reference graphs** instead of handlers. A trajectory's tags map to a graph builder (single-agent, supervisor, branching, retry), and the SUT runs that graph against a real LLM.
 
 ### Step 1: Pick a graph shape
 
-If your new tag family fits an existing graph (most do), skip to the planner change. Add a new graph only when the topology genuinely differs — e.g., a swarm graph, an evaluator-optimizer loop, a HITL graph.
+If your new tag family fits an existing graph (most do), skip to the planner change. Add a new graph only when the topology genuinely differs, such as a swarm graph, an evaluator-optimizer loop, or a HITL graph.
 
 Most variations belong inside the agent's prompt or tool fixtures rather than the graph topology. For example, `branching` reuses a single-agent graph with a structured-output prompt; `retry` reuses single-agent with a stateful flaky tool.
 
@@ -191,7 +191,7 @@ Every builder returns the same `{graph, initialState, agentRegistry, outputKey}`
 
 ### Step 3: Add a tool-fixture profile if needed
 
-If your graph uses MCP-typed tools, add a `OrchestratorToolKind` and a `resolveToolFixtures` case in `scripts/record-goldens.ts`. Stateful fixtures (closures over counters) MUST be re-created per sample — that's why fixture resolution happens inside the per-sample dispatcher rather than in the planner.
+If your graph uses MCP-typed tools, add a `OrchestratorToolKind` and a `resolveToolFixtures` case in `scripts/record-goldens.ts`. Stateful fixtures (closures over counters) MUST be re-created per sample, which is why fixture resolution happens inside the per-sample dispatcher rather than in the planner.
 
 ```typescript
 case 'your_tool_kind':
@@ -281,6 +281,6 @@ If everything's wired correctly, the previously-skipped trajectory now shows `RE
 
 ## Related
 
-- [Eval Harness](/docs/concepts/eval-harness/) — overall architecture
-- [Recording Goldens](/docs/guides/recording-goldens/) — how the SUT layer plugs into recording
-- [Adding an Eval Suite](/docs/guides/adding-eval-suite/) — when you need a whole new suite, not just a new handler
+- [Eval Harness](/docs/concepts/eval-harness/): overall architecture
+- [Recording Goldens](/docs/guides/recording-goldens/): how the SUT layer plugs into recording
+- [Adding an Eval Suite](/docs/guides/adding-eval-suite/): when you need a whole new suite, not just a new handler

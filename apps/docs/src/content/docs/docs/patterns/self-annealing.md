@@ -1,11 +1,11 @@
 ---
 title: Self-Annealing
-description: Iterative refinement — a single output improves through a generate → evaluate → refine loop.
+description: Iterative refinement. A single output improves through a generate → evaluate → refine loop.
 ---
 
 The **Self-Annealing (Evaluator-Optimizer)** pattern runs a single agent through a continuous loop of generation and evaluation until the output meets a strict quality threshold. 
 
-Unlike [Evolution](/docs/patterns/evolution/), there is no "population" of candidates — just one piece of work that gets refined, iteration by iteration, steadily improving its score.
+Unlike [Evolution](/docs/patterns/evolution/), there is no "population" of candidates, just one piece of work that gets refined, iteration by iteration, steadily improving its score.
 
 ## How it works
 
@@ -33,7 +33,7 @@ flowchart TB
 
 ## Built-in temperature annealing (`annealingConfig`)
 
-For the common case — refining a **single agent's** output by dropping its temperature each pass — the engine ships a built-in primitive. Attach an `annealingConfig` block to an `agent` node and the runner runs the generate → score → refine loop internally, with no extra nodes or edges to wire.
+For the common case, refining a **single agent's** output by dropping its temperature each pass, the engine ships a built-in primitive. Attach an `annealingConfig` block to an `agent` node and the runner runs the generate → score → refine loop internally, with no extra nodes or edges to wire.
 
 ```typescript
 {
@@ -59,14 +59,14 @@ For the common case — refining a **single agent's** output by dropping its tem
 }
 ```
 
-Each iteration runs the agent at a temperature interpolated linearly from `initialTemperature` down to `finalTemperature`, scores the result, and keeps the best-scoring attempt. With `evaluatorAgentId` set, an evaluator agent scores the pass's memory updates against the workflow goal; without it, the `scorePath` JSONPath is evaluated against the pass's action payload — agent memory writes land under `updates`, so a self-scoring agent that calls `save_to_memory('score', …)` pairs with `scorePath: '$.updates.score'` (the schema default `'$.score'` reads the payload root, above where memory writes land, so set `scorePath` explicitly when self-scoring).
+Each iteration runs the agent at a temperature interpolated linearly from `initialTemperature` down to `finalTemperature`, scores the result, and keeps the best-scoring attempt. With `evaluatorAgentId` set, an evaluator agent scores the pass's memory updates against the workflow goal. Without it, the `scorePath` JSONPath is evaluated against the pass's action payload. Agent memory writes land under `updates`, so a self-scoring agent that calls `save_to_memory('score', …)` pairs with `scorePath: '$.updates.score'` (the schema default `'$.score'` reads the payload root, above where memory writes land, so set `scorePath` explicitly when self-scoring).
 
 The loop stops as soon as any one of these is met: the best score reaches `threshold`, an improving pass raises the best score by less than `diminishingReturnsDelta`, `maxIterations` passes complete, or accumulated spend crosses a node/workflow budget cap between iterations. On every pass the node injects `annealing_iteration` and `annealing_temperature` into the agent's `## Task Context` prompt section, and from the second pass on a `feedback` field carrying the previous best score, so the prompt can react to where it sits in the schedule.
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `evaluatorAgentId` | — | Agent that scores each pass's memory updates against the goal. If unset, the score is extracted via `scorePath`. |
-| `scorePath` | `'$.score'` | JSONPath evaluated against the pass's action payload when no evaluator is set. Memory writes land under `updates` — use `'$.updates.score'` to read a `save_to_memory('score', …)` write. |
+| `scorePath` | `'$.score'` | JSONPath evaluated against the pass's action payload when no evaluator is set. Memory writes land under `updates`, so use `'$.updates.score'` to read a `save_to_memory('score', …)` write. |
 | `threshold` | `0.8` | Quality score (0–1) that ends the loop. |
 | `maxIterations` | `5` | Hard cap on refinement passes. |
 | `initialTemperature` | `1.0` | Temperature for the first pass. |
@@ -77,9 +77,9 @@ Reach for `annealingConfig` when a single agent should refine its own output on 
 
 ## Manual alternative: conditional-edge loop
 
-When you want separate producer and evaluator nodes — or a Publisher step after the gate — wire the loop yourself with `conditional` edges. Here a Writer drafts content, an Evaluator scores it, and the loop repeats until the score hits `0.8` or higher, before passing the approved draft to a Publisher.
+When you want separate producer and evaluator nodes, or a Publisher step after the gate, wire the loop yourself with `conditional` edges. Here a Writer drafts content, an Evaluator scores it, and the loop repeats until the score hits `0.8` or higher, before passing the approved draft to a Publisher.
 
-Two runnable examples demonstrate this explicit-edge shape: [`eval-loop`](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/eval-loop/eval-loop.ts) — the minimal three-node conditional cycle shown below — and [`prompt-builder`](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/prompt-builder/prompt-builder.ts), a fuller self-annealing workflow that refines a vague goal into a structured prompt before handing off to a supervisor.
+Two runnable examples demonstrate this explicit-edge shape. [`eval-loop`](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/eval-loop/eval-loop.ts) is the minimal three-node conditional cycle shown below, and [`prompt-builder`](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/prompt-builder/prompt-builder.ts) is a fuller self-annealing workflow that refines a vague goal into a structured prompt before handing off to a supervisor.
 
 ### 1. The Agents
 

@@ -105,7 +105,7 @@ const runner = new GraphRunner(graph, state, { memoryRetriever });
 ```
 
 :::tip[Tag-filtered retrieval is index-backed]
-Passing `tags` pushes the filter into the store rather than scanning facts client-side — this is the reflection loop's hot path. The Postgres store (`@cycgraph/orchestrator-postgres`) resolves it via a GIN index on `memory_facts.tags` (migration `0015`) and returns results in a deterministic `valid_from DESC, id` order for stable pagination. Run the migration before relying on tag retrieval at scale.
+Passing `tags` pushes the filter into the store rather than scanning facts client-side, which is the reflection loop's hot path. The Postgres store (`@cycgraph/orchestrator-postgres`) resolves it via a GIN index on `memory_facts.tags` (migration `0015`) and returns results in a deterministic `valid_from DESC, id` order for stable pagination. Run the migration before relying on tag retrieval at scale.
 :::
 
 :::caution[memoryRetriever is opt-in per node]
@@ -127,10 +127,10 @@ The runner only calls `memoryRetriever` when an agent or supervisor node declare
 
 Query shapes:
 
-- `memoryQuery: {}` — defaults `text` to `stateView.goal` (zero-config RAG).
-- `memoryQuery: { tags: [...] }` — tag-only filter; no goal fallback.
-- `memoryQuery: { entityIds: [...] }` — knowledge-graph subgraph extraction.
-- `memoryQuery: { text: '...' }` — explicit semantic query.
+- `memoryQuery: {}`: defaults `text` to `stateView.goal` (zero-config RAG).
+- `memoryQuery: { tags: [...] }`: tag-only filter, no goal fallback.
+- `memoryQuery: { entityIds: [...] }`: knowledge-graph subgraph extraction.
+- `memoryQuery: { text: '...' }`: explicit semantic query.
 
 Voting and evolution nodes propagate their `memory_query` automatically to every voter / candidate sub-node.
 :::
@@ -214,7 +214,7 @@ See the [Reflection pattern](/docs/patterns/reflection/) for full details and th
 
 ### Combined with context compression
 
-For the full pipeline — retrieve memory, then compress before injection:
+For the full pipeline, retrieve memory and then compress before injection:
 
 ```typescript
 import { GraphRunner } from '@cycgraph/orchestrator';
@@ -365,7 +365,7 @@ await index.rebuild(store);
 
 ## Next steps
 
-- [Memory System](/docs/concepts/memory/) — architectural deep dive
-- [Context Engine](/docs/concepts/context-engine/) — compress memory before prompt injection
-- [Context Engine Guide](/docs/guides/context-engine/) — worked examples, including the memory-stack wiring
-- [Persistence](/docs/concepts/persistence/) — how workflow state persistence relates to memory
+- [Memory System](/docs/concepts/memory/): architectural deep dive
+- [Context Engine](/docs/concepts/context-engine/): compress memory before prompt injection
+- [Context Engine Guide](/docs/guides/context-engine/): worked examples, including the memory-stack wiring
+- [Persistence](/docs/concepts/persistence/): how workflow state persistence relates to memory
