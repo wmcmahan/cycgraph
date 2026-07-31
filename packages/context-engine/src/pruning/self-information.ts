@@ -14,7 +14,7 @@
  */
 
 import type { CompressionProvider } from '../providers/types.js';
-import type { CompressionStage, PromptSegment, StageContext } from '../pipeline/types.js';
+import type { CompressionStage, PromptSegment } from '../pipeline/types.js';
 import type { ScoredToken, TokenScorer, ScorerContext } from './types.js';
 import { createPruningStage } from './pruner.js';
 import { createNGramScorer } from './ngram-scorer.js';

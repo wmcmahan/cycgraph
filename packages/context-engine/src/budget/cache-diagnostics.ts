@@ -59,7 +59,6 @@ export function diagnoseCacheStability(
         );
       }
     }
-    // New segments (not in previous) don't count
   }
 
   const hitRate = comparableCount === 0 ? 1.0 : stableCount / comparableCount;

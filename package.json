@@ -15,6 +15,8 @@
     "build": "npm run build --workspace=packages/orchestrator && npm run build --workspace=packages/memory && npm run build --workspace=packages/context-engine && npm run build --workspace=packages/orchestrator-postgres && npm run build --workspace=packages/evals",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
+    "lint:eslint": "eslint packages",
+    "lint:eslint:fix": "eslint packages --fix",
     "smoke": "tsx scripts/integration-smoke.ts",
     "bench": "npm run bench --workspace=packages/benchmarks",
     "changeset": "changeset",
@@ -31,6 +33,10 @@
     "@types/node": "^25.3.5"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.31.0"
+    "@changesets/cli": "^2.31.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "globals": "^17.8.0",
+    "typescript-eslint": "^8.65.0"
   }
 }

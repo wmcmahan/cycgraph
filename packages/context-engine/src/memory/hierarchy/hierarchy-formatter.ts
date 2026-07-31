@@ -9,12 +9,7 @@
  */
 
 import type { CompressionStage, PromptSegment, StageContext } from '../../pipeline/types.js';
-import type {
-  MemoryPayload,
-  HierarchyTheme,
-  HierarchyFact,
-  HierarchyEpisode,
-} from './types.js';
+import type { MemoryPayload, HierarchyFact } from './types.js';
 
 export interface HierarchyFormatOptions {
   /** Include full message content for episodes (default: false, show summary). */

@@ -118,7 +118,7 @@ function formatPrimitive(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'string') {
     // Quote strings that contain special characters
-    if (value === '' || /^[\s#\-\[\]{},:|>!&*?'"@$`]/.test(value) || value.includes(': ') || value.includes('\n')) {
+    if (value === '' || /^[\s#\-[\]{},:|>!&*?'"@$`]/.test(value) || value.includes(': ') || value.includes('\n')) {
       return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
     }
     return value;

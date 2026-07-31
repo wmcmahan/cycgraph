@@ -59,7 +59,6 @@ const MemoryStructureSchema = z.object({
   { message: 'memory payload must contain either themes[] or facts[]' },
 );
 
-type ParsedTheme = z.infer<typeof ParsedThemeSchema>;
 type ParsedFact = z.infer<typeof ParsedFactSchema>;
 type MemoryStructure = z.infer<typeof MemoryStructureSchema>;
 
