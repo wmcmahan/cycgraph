@@ -269,7 +269,6 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
 
   return {
     compress(input: PipelineInput, previousState?: PipelineState): IncrementalResult {
-      // Compute hashes for all current segments
       const currentHashes = new Map<string, number>();
       for (const seg of input.segments) {
         currentHashes.set(seg.id, hashSegment(seg));
@@ -323,7 +322,6 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
           compressedSegments.set(seg.id, seg);
         }
 
-        // Combine metrics from both phases
         const allStageMetrics = [
           ...(perSegMetrics?.stages ?? []),
           ...(crossMetrics?.stages ?? []),

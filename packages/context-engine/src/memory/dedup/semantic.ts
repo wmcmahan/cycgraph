@@ -284,13 +284,11 @@ export function simHashBuckets(
       for (let k = 0; k < bitsPerBand; k++) {
         const bitIdx = startBit + k;
         const plane = hyperplanes[bitIdx];
-        // Compute dot product
         let dot = 0;
         for (let d = 0; d < dim; d++) {
           dot += vec[d] * plane[d];
         }
         const bit = dot >= 0 ? 1 : 0;
-        // Mix bit into band hash
         bandHash ^= bit;
         bandHash = (bandHash * 0x01000193) | 0;
       }

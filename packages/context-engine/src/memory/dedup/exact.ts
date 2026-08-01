@@ -60,7 +60,6 @@ export function createExactDedupStage(): CompressionStage {
     // segment survives — batch and incremental would diverge for identical input.
     scope: 'cross-segment' as const,
     execute(segments: PromptSegment[], _context: StageContext) {
-      // Collect all paragraphs across segments with their origin
       const seen = new Set<number>();
       const output: PromptSegment[] = [];
 

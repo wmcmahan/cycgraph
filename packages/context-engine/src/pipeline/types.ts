@@ -22,9 +22,13 @@ export const SegmentRoleSchema = z.enum([
 ]);
 
 export const PromptSegmentSchema = z.object({
-  /** Unique identifier for this segment. */
+  /**
+   * Stable identity for allocations, source maps, and per-segment budgets.
+   * The incremental pipeline keys its cross-turn cache by it, so reuse the
+   * same id for the same logical segment on every turn.
+   */
   id: z.string(),
-  /** The text content of this segment. */
+  /** The text to compress; token counts are measured on this field. */
   content: z.string(),
   /** Semantic role of this segment in the prompt. */
   role: SegmentRoleSchema,

@@ -59,7 +59,6 @@ export function createPipeline(config: PipelineConfig) {
         );
       }
 
-      // Separate locked vs mutable segments
       const lockedSegments: PromptSegment[] = [];
       let mutableSegments: PromptSegment[] = [];
       for (const seg of input.segments) {
@@ -83,7 +82,6 @@ export function createPipeline(config: PipelineConfig) {
         logger,
       };
 
-      // Track source map entries in debug mode
       const sourceMap: SourceMapEntry[] = [];
       if (debug) {
         for (const seg of mutableSegments) {
@@ -96,17 +94,17 @@ export function createPipeline(config: PipelineConfig) {
         }
       }
 
-      // Measure initial token count (all segments)
       const allInitial = [...lockedSegments, ...mutableSegments];
       const initialTokens = countTotalTokens(allInitial, tokenCounter, input.model);
 
       const stageMetrics: StageMetrics[] = [];
       const pipelineStart = performance.now();
+      const timedOut = () =>
+        timeoutMs !== undefined && performance.now() - pipelineStart > timeoutMs;
 
       // Execute each stage on mutable segments only
       for (const stage of config.stages) {
-        // Pipeline-level timeout: skip remaining stages if budget exceeded
-        if (timeoutMs !== undefined && (performance.now() - pipelineStart) > timeoutMs) {
+        if (timedOut()) {
           logger.warn?.(`pipeline timeout (${timeoutMs}ms) exceeded, skipping stage "${stage.name}" and remaining stages`);
           break;
         }
@@ -141,7 +139,6 @@ export function createPipeline(config: PipelineConfig) {
       const finalTokens = countTotalTokens(outputSegments, tokenCounter, input.model);
       const adjustedMetrics = adjustMetricsForLocked(stageMetrics, initialTokens, finalTokens);
 
-      // Update source map with final compressed content
       if (debug) {
         const finalById = new Map(mutableSegments.map(s => [s.id, s]));
         for (const entry of sourceMap) {

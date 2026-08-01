@@ -1,157 +1,155 @@
+/**
+ * Tests for the model-aware format selector: selectFormat() and the
+ * createFormatSelectorStage pipeline stage.
+ */
+
 import { describe, it, expect } from 'vitest';
 import { selectFormat, createFormatSelectorStage } from '../src/routing/format-selector.js';
-import type { PromptSegment, BudgetConfig } from '../src/pipeline/types.js';
+import type { ModelProfile } from '../src/routing/model-profiles.js';
 import { DefaultTokenCounter } from '../src/providers/defaults.js';
+import { seg, makeContext } from './helpers.js';
 
 const counter = new DefaultTokenCounter();
 
+const NON_TABULAR_PROFILE: ModelProfile = {
+  family: 'my-local',
+  supportsTabular: false,
+  prefersJson: false,
+  maxContextTokens: 8192,
+  supportsCaching: false,
+};
+
 describe('selectFormat', () => {
-  it('returns compact JSON for gemma (prefersJson)', () => {
+  it('returns compact JSON for a JSON-preferring model', () => {
     const result = selectFormat('gemma-2-9b');
-    expect(result.useCompactJson).toBe(true);
+
     expect(result.dataShape).toBe('json');
+    expect(result.useCompactJson).toBe(true);
   });
 
-  it('returns nested for models without tabular support', () => {
-    const result = selectFormat('phi-3-mini');
-    expect(result.useCompactJson).toBe(true); // phi also prefersJson
+  it('returns compact JSON for phi because it prefers JSON', () => {
+    expect(selectFormat('phi-3-mini').useCompactJson).toBe(true);
   });
 
-  it('returns auto-detect for capable models', () => {
+  it('returns auto-detect for a capable model', () => {
     const result = selectFormat('claude-sonnet-4-6');
+
+    expect(result.dataShape).toBe('auto');
     expect(result.useCompactJson).toBe(false);
   });
 
-  it('returns auto-detect for unknown models', () => {
+  it('returns auto-detect for an unknown model', () => {
     const result = selectFormat('unknown-model');
+
+    expect(result.dataShape).toBe('auto');
     expect(result.useCompactJson).toBe(false);
   });
 
-  it('respects forceJson override', () => {
+  it('respects the forceJson override', () => {
     const result = selectFormat('claude-sonnet-4-6', { forceJson: true });
-    expect(result.useCompactJson).toBe(true);
+
     expect(result.dataShape).toBe('json');
+    expect(result.useCompactJson).toBe(true);
   });
 
-  it('distinguishes auto from nested-only in dataShape', () => {
-    expect(selectFormat('claude-sonnet-4-6').dataShape).toBe('auto');
-    expect(selectFormat('unknown-model').dataShape).toBe('auto');
-  });
-
-  it('resolves customProfiles before built-ins', () => {
+  it('forces nested output for a custom non-tabular profile matched by prefix', () => {
     const result = selectFormat('my-local-model', {
-      customProfiles: {
-        'my-local': {
-          family: 'my-local',
-          supportsTabular: false,
-          prefersJson: false,
-          maxContextTokens: 8192,
-          supportsCaching: false,
-        },
-      },
+      customProfiles: { 'my-local': NON_TABULAR_PROFILE },
     });
+
     expect(result.dataShape).toBe('nested');
+    expect(result.useCompactJson).toBe(false);
+  });
+
+  it('falls back to a built-in profile when no custom prefix matches', () => {
+    const result = selectFormat('gpt-4o-mini', {
+      customProfiles: { 'my-local': NON_TABULAR_PROFILE },
+    });
+
+    expect(result.dataShape).toBe('auto');
     expect(result.useCompactJson).toBe(false);
   });
 });
 
 describe('createFormatSelectorStage', () => {
-  function makeSegment(id: string, content: string): PromptSegment {
-    return { id, content, role: 'memory', priority: 1, locked: false };
-  }
+  it('is named format-selector', () => {
+    expect(createFormatSelectorStage().name).toBe('format-selector');
+  });
 
-  it('produces compact JSON for small models', () => {
+  it('emits compact JSON for a JSON-preferring model', () => {
     const stage = createFormatSelectorStage();
     const json = JSON.stringify({ name: 'Alice', score: 92 }, null, 2);
-    const segments = [makeSegment('a', json)];
-    const context = {
-      tokenCounter: counter,
-      budget: { maxTokens: 4096, outputReserve: 0 } as BudgetConfig,
-      model: 'gemma-2-9b',
-    };
 
-    const result = stage.execute(segments, context);
-    // Should be compact JSON (no indentation)
+    const result = stage.execute(
+      [seg('a', json)],
+      makeContext({ tokenCounter: counter, model: 'gemma-2-9b' }),
+    );
+
     expect(result.segments[0].content).toBe('{"name":"Alice","score":92}');
   });
 
-  it('produces token-efficient format for capable models', () => {
+  it('emits a token-efficient format for a capable model', () => {
     const stage = createFormatSelectorStage();
     const json = JSON.stringify({ name: 'Alice', score: 92 }, null, 2);
-    const segments = [makeSegment('a', json)];
-    const context = {
-      tokenCounter: counter,
-      budget: { maxTokens: 4096, outputReserve: 0 } as BudgetConfig,
-      model: 'claude-sonnet-4-6',
-    };
 
-    const result = stage.execute(segments, context);
-    // Should be serialized format (not compact JSON)
-    expect(result.segments[0].content).toContain('name:');
-    expect(result.segments[0].content).not.toContain('"name"');
+    const result = stage.execute(
+      [seg('a', json)],
+      makeContext({ tokenCounter: counter, model: 'claude-sonnet-4-6' }),
+    );
+
+    expect(result.segments[0].content).toBe('name: Alice\nscore: 92');
   });
 
   it('passes through non-JSON content', () => {
     const stage = createFormatSelectorStage();
-    const segments = [makeSegment('a', 'plain text content')];
-    const context = {
-      tokenCounter: counter,
-      budget: { maxTokens: 4096, outputReserve: 0 } as BudgetConfig,
-      model: 'gemma-2-9b',
-    };
 
-    const result = stage.execute(segments, context);
+    const result = stage.execute(
+      [seg('a', 'plain text content')],
+      makeContext({ tokenCounter: counter, model: 'gemma-2-9b' }),
+    );
+
     expect(result.segments[0].content).toBe('plain text content');
   });
 
-  it('skips segments with contentType metadata (for specialized formatters)', () => {
+  it('passes through malformed JSON', () => {
+    const stage = createFormatSelectorStage();
+    const malformed = '{ not valid json';
+
+    const result = stage.execute(
+      [seg('a', malformed)],
+      makeContext({ tokenCounter: counter, model: 'gemma-2-9b' }),
+    );
+
+    expect(result.segments[0].content).toBe(malformed);
+  });
+
+  it('skips segments tagged with a contentType for specialized formatters', () => {
     const stage = createFormatSelectorStage();
     const json = JSON.stringify({ name: 'Alice' }, null, 2);
-    const segments: PromptSegment[] = [{
-      id: 'h', content: json, role: 'memory', priority: 1, locked: false,
-      metadata: { contentType: 'hierarchy' },
-    }];
-    const context = {
-      tokenCounter: counter,
-      budget: { maxTokens: 4096, outputReserve: 0 } as BudgetConfig,
-      model: 'gemma-2-9b', // would normally compact to JSON
-    };
 
-    const result = stage.execute(segments, context);
-    // Should pass through unchanged — contentType tag signals specialized formatter
+    const result = stage.execute(
+      [seg('h', json, 'memory', { metadata: { contentType: 'hierarchy' } })],
+      makeContext({ tokenCounter: counter, model: 'gemma-2-9b' }),
+    );
+
     expect(result.segments[0].content).toBe(json);
   });
 
   it('forces nested format when a custom profile disallows tabular', () => {
     const stage = createFormatSelectorStage({
-      customProfiles: {
-        'my-local': {
-          family: 'my-local',
-          supportsTabular: false,
-          prefersJson: false,
-          maxContextTokens: 8192,
-          supportsCaching: false,
-        },
-      },
+      customProfiles: { 'my-local': NON_TABULAR_PROFILE },
     });
-    // Tabular-shaped data — auto-detect would emit an @-header table
     const json = JSON.stringify([
       { name: 'Alice', score: 92 },
       { name: 'Bob', score: 87 },
     ]);
-    const segments = [makeSegment('a', json)];
-    const context = {
-      tokenCounter: counter,
-      budget: { maxTokens: 4096, outputReserve: 0 } as BudgetConfig,
-      model: 'my-local-model',
-    };
 
-    const result = stage.execute(segments, context);
+    const result = stage.execute(
+      [seg('a', json)],
+      makeContext({ tokenCounter: counter, model: 'my-local-model' }),
+    );
+
     expect(result.segments[0].content).not.toContain('@name');
     expect(result.segments[0].content).toContain('- name: Alice');
-  });
-
-  it('has name format-selector', () => {
-    expect(createFormatSelectorStage().name).toBe('format-selector');
   });
 });

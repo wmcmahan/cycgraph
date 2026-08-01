@@ -12,6 +12,7 @@
 import type { CompressionStage, PromptSegment, StageContext } from '../pipeline/types.js';
 import type { LatencyTracker } from './latency-tracker.js';
 
+/** Tuning knobs for {@link createCircuitBreaker}. */
 export interface CircuitBreakerOptions {
   /** Minimum tokens saved per millisecond to keep the stage active (default 1.0). */
   minEfficiency?: number;

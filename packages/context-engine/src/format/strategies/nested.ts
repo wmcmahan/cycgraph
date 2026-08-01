@@ -20,7 +20,7 @@
 export function serializeNested(data: unknown, indent: number = 0): string {
   if (data === null || data === undefined) return '_';
 
-  if (typeof data !== 'object') {
+  if (typeof data !== 'object' || data instanceof Date) {
     return formatPrimitive(data);
   }
 
@@ -41,7 +41,7 @@ function serializeObject(obj: Record<string, unknown>, indent: number): string {
   for (const [key, value] of entries) {
     if (value === null || value === undefined) {
       lines.push(`${prefix}${key}: _`);
-    } else if (typeof value !== 'object') {
+    } else if (typeof value !== 'object' || value instanceof Date) {
       lines.push(`${prefix}${key}: ${formatPrimitive(value)}`);
     } else if (Array.isArray(value)) {
       if (value.length === 0) {
@@ -71,7 +71,7 @@ function serializeArray(arr: unknown[], indent: number): string {
   const lines: string[] = [];
 
   for (const item of arr) {
-    if (item === null || item === undefined || typeof item !== 'object') {
+    if (item === null || item === undefined || typeof item !== 'object' || item instanceof Date) {
       lines.push(`${prefix}- ${formatPrimitive(item)}`);
     } else if (Array.isArray(item)) {
       lines.push(`${prefix}-`);
@@ -99,7 +99,7 @@ function serializeArray(arr: unknown[], indent: number): string {
 }
 
 function formatInlineValue(key: string, value: unknown, indent: number): string {
-  if (value === null || value === undefined || typeof value !== 'object') {
+  if (value === null || value === undefined || typeof value !== 'object' || value instanceof Date) {
     return `${key}: ${formatPrimitive(value)}`;
   }
 
@@ -118,7 +118,7 @@ function formatPrimitive(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'string') {
     // Quote strings that contain special characters
-    if (value === '' || /^[\s#\-\[\]{},:|>!&*?'"@$`]/.test(value) || value.includes(': ') || value.includes('\n')) {
+    if (value === '' || /^[\s#\-[\]{},:|>!&*?'"@$`]/.test(value) || value.includes(': ') || value.includes('\n')) {
       return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
     }
     return value;

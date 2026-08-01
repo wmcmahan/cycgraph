@@ -14,7 +14,7 @@
  */
 
 import type { CompressionProvider } from '../providers/types.js';
-import type { CompressionStage, PromptSegment, StageContext } from '../pipeline/types.js';
+import type { CompressionStage, PromptSegment } from '../pipeline/types.js';
 import type { ScoredToken, TokenScorer, ScorerContext } from './types.js';
 import { createPruningStage } from './pruner.js';
 import { createNGramScorer } from './ngram-scorer.js';
@@ -38,10 +38,9 @@ export interface SelfInformationOptions {
  * Pre-compute importance scores for all segments using a CompressionProvider.
  * Call this async function before pipeline.compress().
  *
- * @param segments - Segments to score.
  * @param provider - The compression provider (e.g., local GPT-2).
- * @param options - Granularity and query options.
- * @returns Map from segment content to scored tokens.
+ * @returns Map keyed by segment content (not id), so identical segments share
+ *   one scoring pass.
  */
 export async function precomputeImportanceScores(
   segments: PromptSegment[],
@@ -82,7 +81,6 @@ export function createSelfInformationScorer(options: SelfInformationOptions): To
 
   return {
     score(content: string, context?: ScorerContext): ScoredToken[] {
-      // Use pre-computed scores if available
       if (precomputed?.has(content)) {
         return precomputed.get(content)!;
       }
@@ -134,7 +132,7 @@ function splitPhrases(content: string): TextUnit[] {
 
 /** Split into sentences. */
 function splitSentences(content: string): TextUnit[] {
-  // Split on sentence boundaries: period/exclamation/question followed by space or end
+  // Split on sentence boundaries: period/exclamation/question followed by whitespace
   const parts = content.split(/(?<=[.!?])\s+/);
   const units: TextUnit[] = [];
   let offset = 0;

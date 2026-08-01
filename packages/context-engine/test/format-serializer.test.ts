@@ -1,62 +1,61 @@
+/**
+ * Tests for the format serializer: shape-detecting serialize() and the
+ * createFormatStage pipeline wrapper.
+ */
+
 import { describe, it, expect } from 'vitest';
 import { serialize, createFormatStage } from '../src/format/serializer.js';
-import type { PromptSegment, BudgetConfig } from '../src/pipeline/types.js';
 import { DefaultTokenCounter } from '../src/providers/defaults.js';
+import { seg, makeContext } from './helpers.js';
+
+const counter = new DefaultTokenCounter();
+const context = makeContext({ tokenCounter: counter });
 
 describe('serialize', () => {
   it('auto-detects tabular data', () => {
-    const data = [
+    const result = serialize([
       { name: 'Alice', score: 92 },
       { name: 'Bob', score: 87 },
-    ];
-    const result = serialize(data);
-    expect(result).toContain('@name');
-    expect(result).toContain('Alice');
+    ]);
+
+    expect(result).toBe('@name @score\nAlice 92\nBob 87');
   });
 
-  it('auto-detects flat object', () => {
-    const result = serialize({ name: 'Alice', age: 30 });
-    expect(result).toBe('name: Alice\nage: 30');
+  it('auto-detects a flat object', () => {
+    expect(serialize({ name: 'Alice', age: 30 })).toBe('name: Alice\nage: 30');
   });
 
-  it('auto-detects nested object', () => {
-    const result = serialize({ user: { name: 'Alice' } });
-    expect(result).toContain('user:');
-    expect(result).toContain('  name: Alice');
+  it('auto-detects a nested object', () => {
+    expect(serialize({ user: { name: 'Alice' } })).toBe('user:\n  name: Alice');
   });
 
-  it('handles primitives', () => {
+  it('serializes mixed-shape data through the nested strategy', () => {
+    expect(serialize([1, 2, 3])).toBe('- 1\n- 2\n- 3');
+  });
+
+  it('coerces primitives', () => {
     expect(serialize('hello')).toBe('hello');
     expect(serialize(42)).toBe('42');
     expect(serialize(null)).toBe('_');
   });
 
-  it('respects forceShape override', () => {
-    // Force nested on a flat object
-    const result = serialize({ name: 'Alice', age: 30 }, { forceShape: 'nested' });
-    expect(result).toBe('name: Alice\nage: 30');
+  it('respects the forceShape override', () => {
+    expect(serialize({ name: 'Alice', age: 30 }, { forceShape: 'nested' })).toBe(
+      'name: Alice\nage: 30',
+    );
   });
 });
 
 describe('createFormatStage', () => {
-  const counter = new DefaultTokenCounter();
-  const context = {
-    tokenCounter: counter,
-    budget: { maxTokens: 4096, outputReserve: 0 } as BudgetConfig,
-  };
-
-  function makeSegment(id: string, content: string): PromptSegment {
-    return { id, content, role: 'memory', priority: 1, locked: false };
-  }
-
-  it('compresses JSON content in segments', () => {
+  it('compresses JSON content in a segment', () => {
     const stage = createFormatStage();
     const json = JSON.stringify([
       { name: 'Alice', role: 'researcher', score: 92 },
       { name: 'Bob', role: 'writer', score: 87 },
     ], null, 2);
 
-    const result = stage.execute([makeSegment('mem', json)], context);
+    const result = stage.execute([seg('mem', json)], context);
+
     expect(result.segments[0].content).toContain('@name');
     expect(result.segments[0].content.length).toBeLessThan(json.length);
   });
@@ -64,21 +63,34 @@ describe('createFormatStage', () => {
   it('passes through non-JSON content unchanged', () => {
     const stage = createFormatStage();
     const text = 'This is a plain text system prompt.';
-    const result = stage.execute([makeSegment('sys', text)], context);
+
+    const result = stage.execute([seg('sys', text)], context);
+
     expect(result.segments[0].content).toBe(text);
+  });
+
+  it('passes through malformed JSON unchanged', () => {
+    const stage = createFormatStage();
+    const malformed = '{ not valid json';
+
+    const result = stage.execute([seg('bad', malformed)], context);
+
+    expect(result.segments[0].content).toBe(malformed);
   });
 
   it('handles multiple segments independently', () => {
     const stage = createFormatStage();
-    const jsonSeg = makeSegment('json', JSON.stringify({ a: 1, b: 2 }));
-    const textSeg = makeSegment('text', 'plain text');
 
-    const result = stage.execute([jsonSeg, textSeg], context);
-    expect(result.segments[0].content).toContain('a: 1');
+    const result = stage.execute(
+      [seg('json', JSON.stringify({ a: 1, b: 2 })), seg('text', 'plain text')],
+      context,
+    );
+
+    expect(result.segments[0].content).toBe('a: 1\nb: 2');
     expect(result.segments[1].content).toBe('plain text');
   });
 
-  it('achieves measurable token reduction on JSON', () => {
+  it('achieves at least 20% token reduction on structured JSON', () => {
     const stage = createFormatStage();
     const data = {
       supervisor_history: [
@@ -88,14 +100,13 @@ describe('createFormatStage', () => {
       research_results: { topic: 'AI Safety', findings: 'Key findings about alignment' },
       agent_config: { model: 'claude-sonnet', temperature: 0.7, maxSteps: 10 },
     };
-
     const json = JSON.stringify(data, null, 2);
-    const result = stage.execute([makeSegment('mem', json)], context);
+
+    const result = stage.execute([seg('mem', json)], context);
 
     const tokensBefore = counter.countTokens(json);
     const tokensAfter = counter.countTokens(result.segments[0].content);
     const reduction = ((tokensBefore - tokensAfter) / tokensBefore) * 100;
-
-    expect(reduction).toBeGreaterThan(20); // Expect at least 20% reduction
+    expect(reduction).toBeGreaterThan(20);
   });
 });

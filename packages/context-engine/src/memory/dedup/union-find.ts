@@ -8,6 +8,11 @@
  * @module memory/dedup/union-find
  */
 
+/**
+ * Create a disjoint-set structure over elements `0..n-1`, each initially its
+ * own singleton cluster. Returns `find` (cluster root, with path compression)
+ * and `union` (merge two clusters by rank).
+ */
 export function makeUnionFind(n: number) {
   const parent = Array.from({ length: n }, (_, i) => i);
   const rank = new Array<number>(n).fill(0);

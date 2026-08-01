@@ -7,7 +7,6 @@
  * @module test/fixtures/orchestrator-memory
  */
 
-/** Supervisor routing history (repetitive structure, high dedup opportunity). */
 export const supervisorHistory = [
   {
     supervisor_id: 'sup-abc123',
@@ -46,7 +45,6 @@ export const supervisorHistory = [
   },
 ];
 
-/** Agent memory with mixed nested/flat data. */
 export const agentMemoryDump = {
   research_results: {
     topic: 'Agentic AI Cost Optimization',
@@ -74,7 +72,6 @@ export const agentMemoryDump = {
   },
 };
 
-/** Full orchestrator memory object (combines multiple node outputs). */
 export const fullWorkflowMemory = {
   supervisor_history: supervisorHistory,
   research_agent: agentMemoryDump.research_results,
@@ -88,10 +85,6 @@ export const fullWorkflowMemory = {
   },
 };
 
-/**
- * Fixture with deliberate duplicates across keys
- * (simulates what happens when multiple agents write similar findings).
- */
 export const memoryWithDuplicates = {
   agent_a_findings: 'Multi-agent systems cost 5-10x more than single-agent setups.\n\nTask decomposition with smaller LLMs yields 70-90% cost reduction.\n\nSmart context management has outsized impact on small model performance.',
   agent_b_findings: 'Multi-agent systems cost 5-10x more than single-agent setups.\n\nLocal deployment reduces latency and improves data sovereignty.\n\nSmart context management has outsized impact on small model performance.',

@@ -11,6 +11,7 @@
 import type { PromptSegment } from '../pipeline/types.js';
 import { fnv1a } from '../memory/dedup/exact.js';
 
+/** Result of {@link diagnoseCacheStability}: the hit rate plus the unstable segments and how to fix them. */
 export interface CacheDiagnostics {
   /** Fraction of comparable segments with stable hashes (0-1). */
   hitRate: number;
@@ -59,7 +60,6 @@ export function diagnoseCacheStability(
         );
       }
     }
-    // New segments (not in previous) don't count
   }
 
   const hitRate = comparableCount === 0 ? 1.0 : stableCount / comparableCount;
