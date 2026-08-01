@@ -104,7 +104,7 @@ export class InMemoryMemoryStore implements MemoryStore {
     const relIds = this.entityRelationships.get(entityId);
     if (!relIds) return [];
 
-    let results: Relationship[] = [];
+    const results: Relationship[] = [];
     for (const relId of relIds) {
       const rel = this.relationships.get(relId);
       if (!rel) continue;

@@ -54,24 +54,20 @@ function dispatch(
   index: MemoryIndex,
   query: MemoryQuery,
 ): Promise<MemoryResult> {
-  // Entity-based path: subgraph extraction
   if (query.entityIds && query.entityIds.length > 0) {
     return retrieveByEntities(store, index, query);
   }
 
-  // Embedding-based path: top-down hierarchical
   if (query.embedding) {
     return retrieveByEmbedding(store, index, query);
   }
 
-  // Tag-only path: list facts by tag. Used by reflection consumers that
-  // just want lessons from a specific graph/category, without requiring
-  // an embedding provider or pre-known entity ids.
+  // Tag-only path, used by reflection consumers that just want lessons from a
+  // specific graph/category, without an embedding provider or known entity ids.
   if (query.tags && query.tags.length > 0) {
     return retrieveByTags(store, query);
   }
 
-  // No embedding, no entityIds, no tags: empty result.
   return Promise.resolve({ themes: [], facts: [], episodes: [], entities: [], relationships: [] });
 }
 
@@ -83,11 +79,9 @@ async function retrieveByEmbedding(
   const embedding = query.embedding!;
   const { limit, minSimilarity, includeInvalidated } = query;
 
-  // Step 1: Search themes by similarity
   const scoredThemes = await index.searchThemes(embedding, { limit, minSimilarity });
   const themes: Theme[] = scoredThemes.map((s) => s.item);
 
-  // Step 2: Expand themes to facts via fact_ids
   const factIds = new Set<string>();
   for (const theme of themes) {
     for (const factId of theme.fact_ids) {
@@ -95,7 +89,8 @@ async function retrieveByEmbedding(
     }
   }
 
-  // Also search facts directly by embedding for coverage
+  // Search facts directly too: a relevant fact may sit in a theme that itself
+  // scored below threshold, so theme expansion alone under-recalls.
   const scoredFacts = await index.searchFacts(embedding, { limit, minSimilarity });
   for (const sf of scoredFacts) {
     factIds.add(sf.item.id);
@@ -107,14 +102,12 @@ async function retrieveByEmbedding(
     query.tags,
   );
 
-  // Apply temporal filters
   const filteredFacts = filterValid(allFacts, {
     validAt: query.validAt,
     changedSince: query.changedSince,
     includeInvalidated,
   }).slice(0, limit);
 
-  // Step 3: Expand facts to episodes
   const episodeIds = new Set<string>();
   for (const fact of filteredFacts) {
     for (const epId of fact.source_episode_ids) {
@@ -125,7 +118,6 @@ async function retrieveByEmbedding(
   const episodesMap = await store.getEpisodes([...episodeIds]);
   const episodes: Episode[] = [...episodesMap.values()];
 
-  // Step 4: Collect entities from facts
   const entityIds = new Set<string>();
   for (const fact of filteredFacts) {
     for (const eId of fact.entity_ids) {
@@ -136,7 +128,6 @@ async function retrieveByEmbedding(
   const entitiesMap = await store.getEntities([...entityIds]);
   const entities: Entity[] = [...entitiesMap.values()];
 
-  // Step 5: Get relationships between collected entities
   const relationships = await getRelationshipsBetween(store, entityIds, {
     validAt: query.validAt,
     includeInvalidated,
@@ -158,14 +149,12 @@ async function retrieveByEntities(
 ): Promise<MemoryResult> {
   const { entityIds, maxHops, validAt, includeInvalidated, limit } = query;
 
-  // Subgraph extraction via BFS
   const subgraph = await extractSubgraph(store, entityIds!, {
     maxHops,
     validAt,
     includeInvalidated,
   });
 
-  // Find facts referencing these entities
   const entityIdSet = new Set(subgraph.entities.map((e) => e.id));
   const allFacts: SemanticFact[] = [];
   const seenFactIds = new Set<string>();
@@ -190,7 +179,6 @@ async function retrieveByEntities(
     includeInvalidated,
   }).slice(0, limit);
 
-  // Collect themes from facts
   const themeIds = new Set<string>();
   for (const fact of filteredFacts) {
     if (fact.theme_id) themeIds.add(fact.theme_id);
@@ -199,7 +187,6 @@ async function retrieveByEntities(
   const themesMap = await store.getThemes([...themeIds]);
   const themes: Theme[] = [...themesMap.values()];
 
-  // Collect episodes from facts
   const episodeIds = new Set<string>();
   for (const fact of filteredFacts) {
     for (const epId of fact.source_episode_ids) {
@@ -239,8 +226,7 @@ async function retrieveByTags(
 
   const matching: SemanticFact[] = [];
   let offset = 0;
-  // Page through facts until we have `limit` matches or run out.
-  // findFacts returning fewer than PAGE_SIZE rows signals end-of-data.
+  // A page shorter than PAGE_SIZE signals end-of-data and breaks the loop.
   while (matching.length < limit) {
     const page = await store.findFacts({
       includeInvalidated,
@@ -270,7 +256,6 @@ async function retrieveByTags(
 
   const facts = matching.slice(0, limit);
 
-  // Expand to themes and episodes
   const themeIds = new Set<string>();
   const episodeIds = new Set<string>();
   for (const fact of facts) {
@@ -329,7 +314,7 @@ async function getRelationshipsBetween(
     });
     for (const rel of rels) {
       if (seen.has(rel.id)) continue;
-      // Only include relationships where both endpoints are in our set
+      // Closure: keep only edges whose both endpoints are in the entity set.
       if (!entityIds.has(rel.source_id) || !entityIds.has(rel.target_id)) continue;
       seen.add(rel.id);
       result.push(rel);

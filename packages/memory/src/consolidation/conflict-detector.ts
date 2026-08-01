@@ -12,6 +12,17 @@ import { QUARANTINE_TAG, type MemoryStore } from '../interfaces/memory-store.js'
 import type { MemoryIndex } from '../interfaces/memory-index.js';
 import type { SemanticFact } from '../schemas/semantic.js';
 
+/**
+ * Semantic-contradiction confidence, bucketed by the shorter fact's word
+ * count: short low-overlap facts are likelier genuine contradictions, while
+ * longer low-overlap facts are often complementary.
+ */
+const SHORT_FACT_MAX_WORDS = 4;
+const MEDIUM_FACT_MAX_WORDS = 8;
+const SHORT_FACT_CONFIDENCE = 0.7;
+const MEDIUM_FACT_CONFIDENCE = 0.5;
+const LONG_FACT_CONFIDENCE = 0.3;
+
 export interface Conflict {
   factA: SemanticFact;
   factB: SemanticFact;
@@ -86,6 +97,11 @@ export class ConflictDetector {
     private readonly options: ConflictDetectorOptions = {},
   ) {}
 
+  /**
+   * Detect negation, supersession, and semantic-contradiction conflicts among
+   * active facts. Read-only unless `autoResolveSupersession` is set. When
+   * `facts` is omitted, loads every active, non-quarantined fact.
+   */
   async detectConflicts(facts?: SemanticFact[]): Promise<Conflict[]> {
     const allFacts = facts ?? await this.loadActiveFacts();
     const activeFacts = allFacts.filter((f) => !f.invalidated_by);
@@ -185,13 +201,15 @@ export class ConflictDetector {
         const overlapThreshold = this.options.semanticOverlapThreshold ?? 0.3;
         const overlap = this.wordOverlap(fact.content, candidate.content);
         if (overlap < overlapThreshold) {
-          // Scale confidence by content length: short facts are more likely
-          // genuine contradictions; longer facts with low overlap are often
-          // complementary rather than contradictory.
           const wordsA = this.tokenize(fact.content);
           const wordsB = this.tokenize(candidate.content);
           const minWords = Math.min(wordsA.length, wordsB.length);
-          const confidence = minWords <= 4 ? 0.7 : minWords <= 8 ? 0.5 : 0.3;
+          const confidence =
+            minWords <= SHORT_FACT_MAX_WORDS
+              ? SHORT_FACT_CONFIDENCE
+              : minWords <= MEDIUM_FACT_MAX_WORDS
+                ? MEDIUM_FACT_CONFIDENCE
+                : LONG_FACT_CONFIDENCE;
 
           pairKeys.add(pk);
           conflicts.push({
@@ -230,6 +248,10 @@ export class ConflictDetector {
     return facts;
   }
 
+  /**
+   * Apply a manual resolution to one conflict: invalidate the non-kept fact.
+   * `'keep_both'` is a no-op.
+   */
   async resolveConflict(
     conflict: Conflict,
     resolution: 'keep_a' | 'keep_b' | 'keep_both',
@@ -248,6 +270,10 @@ export class ConflictDetector {
     // 'keep_both' — no action
   }
 
+  /**
+   * Resolve conflicts in bulk under a policy resolved as argument →
+   * `options.policy` → `'manual-review'`. `'manual-review'` skips every conflict.
+   */
   async autoResolveAll(
     conflicts: Conflict[],
     policy?: ConflictResolutionPolicy,

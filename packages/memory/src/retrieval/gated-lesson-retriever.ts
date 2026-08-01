@@ -1,33 +1,21 @@
 /**
  * Gated Lesson Retriever
  *
- * Retrieval policy for eval-gated lessons: fill most of the prompt
- * budget with `verified` lessons, but reserve a small number of
- * exploration slots for `candidate` lessons so they can accrue the
- * trials the retention gate needs. A candidate that is never retrieved
- * can never be promoted or evicted — `candidateSlots: 0` starves the
- * gate (documented foot-gun; default is 2).
+ * Retrieval policy for eval-gated lessons: fill most of the prompt budget
+ * with `verified` lessons, but reserve a few exploration slots for
+ * `candidate` lessons so they accrue the trials the retention gate needs.
  *
- * Candidate selection: pass the outcome `ledger` to get
- * **in-progress-first** ordering — candidates that already have trials
- * keep their slots until the gate can rule on them (a trial cohort),
- * and only then do fresh candidates enter. This converges even when
- * reflection adds new candidates every run. Without a ledger, selection
- * falls back to newest-first, which is only suitable when the candidate
- * pool is small and stable: a growing pool rotates candidates through
- * the slots faster than any of them can accrue trials, and the gate
- * holds them all forever.
+ * With a `ledger`, candidate selection is in-progress-first: candidates that
+ * already have trials keep their slots until the gate rules on them, so a
+ * trial cohort graduates before the next starts and selection converges even
+ * when reflection adds candidates every run. Without one it falls back to
+ * newest-first, safe only for a small, stable candidate pool.
  *
- * Pair in-progress-first with a `maxTrials` retention policy: a
- * candidate the gate can never rule on (lift inside both margins)
- * otherwise keeps its slot indefinitely and starves the queue behind it.
+ * Facts carrying neither status tag count as verified, so stores written
+ * before eval-gating existed keep working unchanged.
  *
- * Facts carrying neither status tag are treated as verified, so lesson
- * stores written before eval-gating existed keep working unchanged.
- *
- * Ordering is fully deterministic (trial counts from the ledger,
- * `valid_from`, `id` tiebreak) — no sampling — so retrieval is
- * reproducible given the same store and ledger state.
+ * Ordering is fully deterministic (trial counts, `valid_from`, `id` tiebreak) —
+ * no sampling — so retrieval is reproducible given the same store and ledger.
  *
  * @module retrieval/gated-lesson-retriever
  */
@@ -117,12 +105,9 @@ export async function retrieveGatedLessons(
   // Always a copy: the sorts below must not reorder the partition array.
   let eligible = [...candidates];
   if (options.ledger) {
-    // In-progress-first: candidates that already have trials keep their
-    // slots until they finish their trial phase (most trials first),
-    // then fresh candidates enter oldest-first. A trial cohort
-    // graduates before the next one starts — this converges even when
-    // new candidates arrive every run, which fewest-trials-first does
-    // not (perpetual 0-trial newcomers would monopolise the slots).
+    // In-progress-first ordering (most trials first, then oldest). Sorting
+    // fewest-trials-first instead would let perpetual 0-trial newcomers
+    // monopolise the slots and no cohort would ever graduate.
     const trials = new Map<string, number>();
     if (options.ledger.getFactStatsBatch) {
       const stats = await options.ledger.getFactStatsBatch(candidates.map((f) => f.id));

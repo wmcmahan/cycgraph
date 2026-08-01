@@ -18,6 +18,9 @@ import type { SemanticFact } from '../schemas/semantic.js';
 import type { Theme } from '../schemas/theme.js';
 import type { Episode } from '../schemas/episode.js';
 
+/** `invalidated_by` sentinel marking facts soft-deleted by decay pruning. */
+const DECAY_INVALIDATED_BY = 'consolidation:decay';
+
 /** Optional logger for consolidation diagnostic output. */
 export interface ConsolidationLogger {
   debug?(message: string): void;
@@ -128,6 +131,10 @@ export class MemoryConsolidator {
     return this.consolidate();
   }
 
+  /**
+   * Run every consolidation phase (dedup → decay → episode prune → theme
+   * cascade) and apply the collected mutations in a single final pass.
+   */
   async consolidate(): Promise<ConsolidationReport> {
     const report: ConsolidationReport = {
       factsDeduped: 0,
@@ -339,7 +346,7 @@ export class MemoryConsolidator {
     for (let i = 0; i < toPrune; i++) {
       const { fact } = scored[i];
       if (deleteMode === 'soft') {
-        mutations.push({ type: 'putFact', fact: { ...fact, invalidated_by: 'consolidation:decay' } });
+        mutations.push({ type: 'putFact', fact: { ...fact, invalidated_by: DECAY_INVALIDATED_BY } });
       } else {
         mutations.push({ type: 'deleteFact', id: fact.id });
       }

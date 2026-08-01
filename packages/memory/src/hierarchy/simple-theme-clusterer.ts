@@ -47,7 +47,6 @@ export class SimpleThemeClusterer implements ThemeClusterer {
   async cluster(facts: SemanticFact[], existingThemes: Theme[] = []): Promise<Theme[]> {
     const themes = existingThemes.map((t) => ({ ...t, fact_ids: [...t.fact_ids] }));
 
-    // Check if any facts have embeddings
     const factsWithEmbeddings = facts.filter((f) => f.embedding);
     if (factsWithEmbeddings.length === 0) {
       const result = this.fallbackSingleTheme(facts, themes);
@@ -57,12 +56,10 @@ export class SimpleThemeClusterer implements ThemeClusterer {
 
     for (const fact of facts) {
       if (!fact.embedding) {
-        // No embedding — assign to fallback theme
         this.assignToFallbackTheme(fact, themes);
         continue;
       }
 
-      // Find the most similar theme with an embedding
       let bestTheme: Theme | null = null;
       let bestScore = -1;
 
@@ -78,7 +75,6 @@ export class SimpleThemeClusterer implements ThemeClusterer {
       if (bestTheme && bestScore >= this.similarityThreshold) {
         bestTheme.fact_ids.push(fact.id);
       } else {
-        // Create new theme from this fact
         themes.push({
           id: crypto.randomUUID(),
           label: fact.content.slice(0, 80),
@@ -98,7 +94,6 @@ export class SimpleThemeClusterer implements ThemeClusterer {
   }
 
   private fallbackSingleTheme(facts: SemanticFact[], themes: Theme[]): Theme[] {
-    // Find or create a "General" theme
     let general = themes.find((t) => t.label === 'General');
     if (!general) {
       general = {

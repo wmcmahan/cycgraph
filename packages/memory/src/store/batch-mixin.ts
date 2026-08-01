@@ -15,7 +15,6 @@
  * Generic batch-get fallback: resolves N single-get calls in parallel,
  * returning a Map of found records.
  *
- * @param ids - IDs to retrieve.
  * @param getSingle - The single-get function (e.g., `store.getEntity`).
  * @returns Map from ID to record (missing IDs are absent).
  */

@@ -126,7 +126,6 @@ export class ConsolidatingThemeClusterer implements ThemeClusterer {
               smaller.embedding!, smallerCount,
             );
 
-            // Remove the smaller theme
             themes.splice(themes.indexOf(smaller), 1);
             changed = true;
             break; // Restart inner loop since indices shifted

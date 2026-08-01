@@ -1,321 +1,384 @@
+/**
+ * Tests for hierarchy/consolidating-theme-clusterer: two-pass clustering
+ * (greedy assignment then a merge pass) with a maxThemes cap, an embeddingless
+ * General fallback, and fact-count-weighted centroid merging.
+ */
+
 import { describe, it, expect } from 'vitest';
 import { ConsolidatingThemeClusterer } from '../src/hierarchy/consolidating-theme-clusterer.js';
+import { cosineSimilarity } from '../src/utils/similarity.js';
+import { makeFact, makeTheme } from './helpers.js';
 import type { SemanticFact } from '../src/schemas/semantic.js';
 import type { Theme } from '../src/schemas/theme.js';
-import { cosineSimilarity } from '../src/utils/similarity.js';
 
-const now = new Date('2024-01-01T10:00:00Z');
-
-function makeFact(content: string, embedding?: number[]): SemanticFact {
-  return {
-    id: crypto.randomUUID(),
-    content,
-    source_episode_ids: [],
-    entity_ids: [],
-    provenance: { source: 'derived', created_at: now },
-    valid_from: now,
-    embedding,
-  };
+function fact(content: string, embedding?: number[]): SemanticFact {
+  return makeFact({ content, embedding });
 }
 
-function makeTheme(label: string, factIds: string[], embedding?: number[]): Theme {
-  return {
-    id: crypto.randomUUID(),
-    label,
-    description: '',
-    fact_ids: factIds,
-    embedding,
-    provenance: { source: 'system', created_at: now },
-  };
+function theme(label: string, fact_ids: string[], embedding?: number[]): Theme {
+  return makeTheme({ label, fact_ids, embedding });
 }
 
-/** Create a unit vector in the given direction (for predictable cosine similarity). */
 function unitVec(values: number[]): number[] {
   const mag = Math.sqrt(values.reduce((s, v) => s + v * v, 0));
   return values.map((v) => v / mag);
 }
 
 describe('ConsolidatingThemeClusterer', () => {
-  it('assigns facts to existing themes when above threshold (same as SimpleThemeClusterer)', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ assignmentThreshold: 0.7 });
-    const theme = makeTheme('Architecture', [], [1, 0, 0]);
-    const fact = makeFact('About architecture', [0.95, 0.1, 0.1]);
-    const result = await clusterer.cluster([fact], [theme]);
+  describe('greedy assignment', () => {
+    it('assigns a fact to an existing theme above the assignment threshold', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ assignmentThreshold: 0.7 });
+      const existing = theme('Architecture', [], [1, 0, 0]);
+      const f = fact('About architecture', [0.95, 0.1, 0.1]);
 
-    const arch = result.find((t) => t.label === 'Architecture');
-    expect(arch).toBeDefined();
-    expect(arch!.fact_ids).toContain(fact.id);
-  });
+      const result = await clusterer.cluster([f], [existing]);
 
-  it('creates new theme when fact does not match any existing theme', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ assignmentThreshold: 0.7 });
-    const theme = makeTheme('Architecture', [], [1, 0, 0]);
-    const fact = makeFact('About cooking', [0, 0, 1]);
-    const result = await clusterer.cluster([fact], [theme]);
-
-    expect(result.length).toBe(2);
-    const newTheme = result.find((t) => t.label !== 'Architecture');
-    expect(newTheme).toBeDefined();
-    expect(newTheme!.fact_ids).toContain(fact.id);
-  });
-
-  it('merges two themes above merge threshold', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
-    // Two very similar embeddings (cosine > 0.85)
-    const emb1 = [1, 0, 0];
-    const emb2 = [0.99, 0.1, 0];
-    expect(cosineSimilarity(emb1, emb2)).toBeGreaterThan(0.85);
-
-    const fact1 = makeFact('Fact A', emb1);
-    const fact2 = makeFact('Fact B', emb2);
-    const result = await clusterer.cluster([fact1, fact2]);
-
-    // Should merge into one theme
-    expect(result).toHaveLength(1);
-    expect(result[0].fact_ids).toContain(fact1.id);
-    expect(result[0].fact_ids).toContain(fact2.id);
-  });
-
-  it('keeps label of the larger theme after merge', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
-    const f1 = makeFact('F1', [1, 0, 0]);
-    const f2 = makeFact('F2', [1, 0, 0]);
-    const f3 = makeFact('F3', [0.99, 0.1, 0]);
-
-    // Create themes: one with 2 facts, one with 1
-    const bigTheme = makeTheme('Big Theme', [f1.id, f2.id], [1, 0, 0]);
-    const smallTheme = makeTheme('Small Theme', [f3.id], [0.99, 0.1, 0]);
-
-    const result = await clusterer.cluster([], [bigTheme, smallTheme]);
-    expect(result).toHaveLength(1);
-    expect(result[0].label).toBe('Big Theme');
-  });
-
-  it('merged theme has combined fact_ids', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
-    const f1 = makeFact('F1', [1, 0, 0]);
-    const f2 = makeFact('F2', [0.99, 0.1, 0]);
-
-    const t1 = makeTheme('T1', [f1.id], [1, 0, 0]);
-    const t2 = makeTheme('T2', [f2.id], [0.99, 0.1, 0]);
-
-    const result = await clusterer.cluster([], [t1, t2]);
-    expect(result).toHaveLength(1);
-    expect(result[0].fact_ids).toContain(f1.id);
-    expect(result[0].fact_ids).toContain(f2.id);
-  });
-
-  it('merged theme embedding is average of originals', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
-    const emb1 = [1, 0, 0];
-    const emb2 = [0.99, 0.1, 0];
-
-    const t1 = makeTheme('T1', ['a'], emb1);
-    const t2 = makeTheme('T2', ['b'], emb2);
-
-    const result = await clusterer.cluster([], [t1, t2]);
-    expect(result).toHaveLength(1);
-    const avg = result[0].embedding!;
-    expect(avg[0]).toBeCloseTo((1 + 0.99) / 2);
-    expect(avg[1]).toBeCloseTo((0 + 0.1) / 2);
-    expect(avg[2]).toBeCloseTo(0);
-  });
-
-  it('merged centroid is weighted by fact count (large theme is not dragged toward a singleton)', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
-    const big = makeTheme('Big', ['a', 'b', 'c'], [1, 0, 0]);
-    const small = makeTheme('Small', ['d'], [0.99, 0.1, 0]);
-
-    const result = await clusterer.cluster([], [big, small]);
-    expect(result).toHaveLength(1);
-    const centroid = result[0].embedding!;
-    // (3·[1,0,0] + 1·[0.99,0.1,0]) / 4 — not the unweighted midpoint.
-    expect(centroid[0]).toBeCloseTo((3 * 1 + 0.99) / 4);
-    expect(centroid[1]).toBeCloseTo((3 * 0 + 0.1) / 4);
-    expect(centroid[2]).toBeCloseTo(0);
-  });
-
-  it('does not merge when below threshold', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
-    // Orthogonal embeddings
-    const t1 = makeTheme('T1', ['a'], [1, 0, 0]);
-    const t2 = makeTheme('T2', ['b'], [0, 1, 0]);
-
-    const result = await clusterer.cluster([], [t1, t2]);
-    expect(result).toHaveLength(2);
-  });
-
-  it('converges: iterates until no more merges needed', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
-    // Three similar themes that should all merge together
-    const t1 = makeTheme('T1', ['a', 'b'], [1, 0, 0]);
-    const t2 = makeTheme('T2', ['c'], [0.99, 0.05, 0]);
-    const t3 = makeTheme('T3', ['d'], [0.98, 0.1, 0]);
-
-    const result = await clusterer.cluster([], [t1, t2, t3]);
-    expect(result).toHaveLength(1);
-    expect(result[0].fact_ids).toHaveLength(4);
-  });
-
-  it('enforces maxThemes cap', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({
-      mergeThreshold: 0.99, // High threshold so auto-merge doesn't happen
-      maxThemes: 2,
+      const arch = result.find((t) => t.label === 'Architecture');
+      expect(arch!.fact_ids).toContain(f.id);
     });
-    const f1 = makeFact('F1', [1, 0, 0]);
-    const f2 = makeFact('F2', [0.5, 0.5, 0]);
-    const f3 = makeFact('F3', [0, 0, 1]);
 
-    const result = await clusterer.cluster([f1, f2, f3]);
-    expect(result.length).toBeLessThanOrEqual(2);
-  });
+    it('skips existing themes that lack an embedding during assignment', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ assignmentThreshold: 0.7 });
+      const legacy = theme('Legacy', ['x']);
+      const embedded = theme('Architecture', [], [1, 0, 0]);
+      const f = fact('About architecture', [0.95, 0.1, 0.1]);
 
-  it('assigns facts without embeddings to General theme', async () => {
-    const clusterer = new ConsolidatingThemeClusterer();
-    const factWithEmb = makeFact('With embedding', [1, 0, 0]);
-    const factWithout = makeFact('No embedding');
+      const result = await clusterer.cluster([f], [legacy, embedded]);
 
-    const result = await clusterer.cluster([factWithEmb, factWithout]);
-    const general = result.find((t) => t.label === 'General');
-    expect(general).toBeDefined();
-    expect(general!.fact_ids).toContain(factWithout.id);
-  });
-
-  it('returns empty themes for empty input', async () => {
-    const clusterer = new ConsolidatingThemeClusterer();
-    const result = await clusterer.cluster([]);
-    expect(result).toHaveLength(0);
-  });
-
-  it('sets theme_id back-pointer on clustered facts', async () => {
-    const clusterer = new ConsolidatingThemeClusterer();
-    const fact = makeFact('Only fact', [1, 0, 0]);
-    const result = await clusterer.cluster([fact]);
-    expect(fact.theme_id).toBe(result[0].id);
-  });
-
-  it('facts point at the surviving theme after a merge', async () => {
-    // Two near-identical directions so each fact seeds its own theme
-    // (assignment threshold high) and the merge pass then combines them.
-    const clusterer = new ConsolidatingThemeClusterer({
-      assignmentThreshold: 0.999,
-      mergeThreshold: 0.9,
+      const arch = result.find((t) => t.label === 'Architecture');
+      expect(arch!.fact_ids).toContain(f.id);
     });
-    const factA = makeFact('A', unitVec([1, 0.10, 0]));
-    const factB = makeFact('B', unitVec([1, 0.12, 0]));
 
-    const result = await clusterer.cluster([factA, factB]);
-    expect(result).toHaveLength(1);
-    expect(factA.theme_id).toBe(result[0].id);
-    expect(factB.theme_id).toBe(result[0].id);
-  });
+    it('creates a new theme when a fact matches no existing theme', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ assignmentThreshold: 0.7 });
+      const existing = theme('Architecture', [], [1, 0, 0]);
+      const f = fact('About cooking', [0, 0, 1]);
 
-  it('facts without embeddings get the General theme id', async () => {
-    const clusterer = new ConsolidatingThemeClusterer();
-    const factWithout = makeFact('No embedding here at all');
-    const result = await clusterer.cluster([factWithout]);
-    const general = result.find((t) => t.label === 'General');
-    expect(factWithout.theme_id).toBe(general!.id);
-  });
+      const result = await clusterer.cluster([f], [existing]);
 
-  it('single fact creates single theme', async () => {
-    const clusterer = new ConsolidatingThemeClusterer();
-    const fact = makeFact('Only fact', [1, 0, 0]);
-    const result = await clusterer.cluster([fact]);
-    expect(result).toHaveLength(1);
-    expect(result[0].fact_ids).toEqual([fact.id]);
-  });
-
-  it('existing themes are reused when facts match', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ assignmentThreshold: 0.7 });
-    const existing = makeTheme('Existing', [], [1, 0, 0]);
-    const fact = makeFact('New fact', [0.9, 0.1, 0]);
-
-    const result = await clusterer.cluster([fact], [existing]);
-    const found = result.find((t) => t.label === 'Existing');
-    expect(found).toBeDefined();
-    expect(found!.fact_ids).toContain(fact.id);
-  });
-
-  it('three similar themes all merge into one', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
-    const t1 = makeTheme('T1', ['a'], [1, 0, 0]);
-    const t2 = makeTheme('T2', ['b'], [0.99, 0.05, 0]);
-    const t3 = makeTheme('T3', ['c'], [0.98, 0.1, 0]);
-
-    const result = await clusterer.cluster([], [t1, t2, t3]);
-    expect(result).toHaveLength(1);
-    expect(result[0].fact_ids.sort()).toEqual(['a', 'b', 'c'].sort());
-  });
-
-  it('dissimilar themes are preserved separately', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
-    const t1 = makeTheme('Architecture', ['a'], [1, 0, 0]);
-    const t2 = makeTheme('Cooking', ['b'], [0, 1, 0]);
-    const t3 = makeTheme('Music', ['c'], [0, 0, 1]);
-
-    const result = await clusterer.cluster([], [t1, t2, t3]);
-    expect(result).toHaveLength(3);
-  });
-
-  it('merge cascade: A merges with B, then AB merges with C', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.80 });
-    // A and B are very similar; C is somewhat similar to the A+B average
-    const emA = [1, 0, 0];
-    const emB = [0.95, 0.15, 0]; // cos(A,B) ~ 0.988
-    // After merge, avg = [0.975, 0.075, 0]
-    const emC = [0.9, 0.2, 0]; // cos(avg, C) ~ 0.99
-
-    const t1 = makeTheme('A', ['a1', 'a2'], emA);
-    const t2 = makeTheme('B', ['b1'], emB);
-    const t3 = makeTheme('C', ['c1'], emC);
-
-    const result = await clusterer.cluster([], [t1, t2, t3]);
-    expect(result).toHaveLength(1);
-    expect(result[0].fact_ids).toHaveLength(4);
-  });
-
-  it('all facts without embeddings produces single General theme', async () => {
-    const clusterer = new ConsolidatingThemeClusterer();
-    const f1 = makeFact('Fact one');
-    const f2 = makeFact('Fact two');
-
-    const result = await clusterer.cluster([f1, f2]);
-    expect(result).toHaveLength(1);
-    expect(result[0].label).toBe('General');
-    expect(result[0].fact_ids).toHaveLength(2);
-  });
-
-  it('does not merge themes without embeddings', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.5 });
-    const t1 = makeTheme('T1', ['a']);
-    const t2 = makeTheme('T2', ['b']);
-
-    const result = await clusterer.cluster([], [t1, t2]);
-    expect(result).toHaveLength(2);
-  });
-
-  it('maxThemes with no embeddable themes does not crash', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({ maxThemes: 1 });
-    const f1 = makeFact('Fact one');
-    const f2 = makeFact('Fact two');
-
-    // Should not throw even though it can't merge
-    const result = await clusterer.cluster([f1, f2]);
-    expect(result.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('maxThemes = 1 merges everything into one theme', async () => {
-    const clusterer = new ConsolidatingThemeClusterer({
-      mergeThreshold: 0.99,
-      maxThemes: 1,
+      expect(result).toHaveLength(2);
+      const created = result.find((t) => t.label !== 'Architecture');
+      expect(created!.fact_ids).toContain(f.id);
     });
-    const f1 = makeFact('F1', [1, 0, 0]);
-    const f2 = makeFact('F2', [0, 1, 0]);
-    const f3 = makeFact('F3', [0, 0, 1]);
 
-    const result = await clusterer.cluster([f1, f2, f3]);
-    expect(result).toHaveLength(1);
-    expect(result[0].fact_ids).toHaveLength(3);
+    it('seeds a single theme from a single embedded fact', async () => {
+      const clusterer = new ConsolidatingThemeClusterer();
+      const f = fact('Only fact', [1, 0, 0]);
+
+      const result = await clusterer.cluster([f]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].fact_ids).toEqual([f.id]);
+    });
+
+    it('returns no themes for empty input', async () => {
+      const clusterer = new ConsolidatingThemeClusterer();
+
+      const result = await clusterer.cluster([]);
+
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('merge pass', () => {
+    it('merges two themes whose similarity is above the merge threshold', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
+      const embA = [1, 0, 0];
+      const embB = [0.99, 0.1, 0];
+      expect(cosineSimilarity(embA, embB)).toBeGreaterThan(0.85);
+      const f1 = fact('Fact A', embA);
+      const f2 = fact('Fact B', embB);
+
+      const result = await clusterer.cluster([f1, f2]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].fact_ids).toContain(f1.id);
+      expect(result[0].fact_ids).toContain(f2.id);
+    });
+
+    it('keeps the label and combined fact_ids of the larger theme after a merge', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
+      const big = theme('Big Theme', ['a', 'b'], [1, 0, 0]);
+      const small = theme('Small Theme', ['c'], [0.99, 0.1, 0]);
+
+      const result = await clusterer.cluster([], [big, small]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('Big Theme');
+      expect(result[0].fact_ids.sort()).toEqual(['a', 'b', 'c']);
+    });
+
+    it('keeps the larger theme when it is the second of the merged pair', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
+      const small = theme('Small Theme', ['a'], [1, 0, 0]);
+      const big = theme('Big Theme', ['b', 'c'], [0.99, 0.1, 0]);
+
+      const result = await clusterer.cluster([], [small, big]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('Big Theme');
+      expect(result[0].fact_ids.sort()).toEqual(['a', 'b', 'c']);
+    });
+
+    it('does not merge themes below the merge threshold', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
+      const t1 = theme('T1', ['a'], [1, 0, 0]);
+      const t2 = theme('T2', ['b'], [0, 1, 0]);
+
+      const result = await clusterer.cluster([], [t1, t2]);
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('does not merge themes that lack embeddings', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.5 });
+      const t1 = theme('T1', ['a']);
+      const t2 = theme('T2', ['b']);
+
+      const result = await clusterer.cluster([], [t1, t2]);
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('converges when a chain of similar themes all collapse into one', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
+      const t1 = theme('T1', ['a', 'b'], [1, 0, 0]);
+      const t2 = theme('T2', ['c'], [0.99, 0.05, 0]);
+      const t3 = theme('T3', ['d'], [0.98, 0.1, 0]);
+
+      const result = await clusterer.cluster([], [t1, t2, t3]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].fact_ids).toHaveLength(4);
+    });
+
+    it('cascades a merge: A joins B, then AB absorbs C via the updated centroid', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.8 });
+      const t1 = theme('A', ['a1', 'a2'], [1, 0, 0]);
+      const t2 = theme('B', ['b1'], [0.95, 0.15, 0]);
+      const t3 = theme('C', ['c1'], [0.9, 0.2, 0]);
+
+      const result = await clusterer.cluster([], [t1, t2, t3]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].fact_ids).toHaveLength(4);
+    });
+
+    it('preserves dissimilar themes as separate clusters', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
+      const t1 = theme('Architecture', ['a'], [1, 0, 0]);
+      const t2 = theme('Cooking', ['b'], [0, 1, 0]);
+      const t3 = theme('Music', ['c'], [0, 0, 1]);
+
+      const result = await clusterer.cluster([], [t1, t2, t3]);
+
+      expect(result).toHaveLength(3);
+    });
+  });
+
+  describe('maxThemes cap', () => {
+    it('reduces the theme count to the cap by merging the most similar pairs', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.99, maxThemes: 2 });
+      const f1 = fact('F1', [1, 0, 0]);
+      const f2 = fact('F2', [0.5, 0.5, 0]);
+      const f3 = fact('F3', [0, 0, 1]);
+
+      const result = await clusterer.cluster([f1, f2, f3]);
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('merges everything into one theme when the cap is one', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.99, maxThemes: 1 });
+      const f1 = fact('F1', [1, 0, 0]);
+      const f2 = fact('F2', [0, 1, 0]);
+      const f3 = fact('F3', [0, 0, 1]);
+
+      const result = await clusterer.cluster([f1, f2, f3]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].fact_ids).toHaveLength(3);
+    });
+
+    it('stops cap enforcement when no embeddable pair remains to merge', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ maxThemes: 1 });
+      const t1 = theme('T1', ['a']);
+      const t2 = theme('T2', ['b']);
+
+      const result = await clusterer.cluster([], [t1, t2]);
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('keeps the larger theme when the cap merges a small-then-big pair', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.99, maxThemes: 1 });
+      const small = theme('Small', ['a'], [1, 0, 0]);
+      const big = theme('Big', ['b', 'c'], [0, 1, 0]);
+
+      const result = await clusterer.cluster([], [small, big]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('Big');
+      expect(result[0].fact_ids.sort()).toEqual(['a', 'b', 'c']);
+    });
+  });
+
+  describe('embeddingless fallback', () => {
+    it('collapses a fully embeddingless batch into one General theme', async () => {
+      const clusterer = new ConsolidatingThemeClusterer();
+      const f1 = fact('Fact one');
+      const f2 = fact('Fact two');
+
+      const result = await clusterer.cluster([f1, f2]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('General');
+      expect(result[0].fact_ids).toHaveLength(2);
+    });
+
+    it('creates a General theme for an embeddingless batch alongside existing themes', async () => {
+      const clusterer = new ConsolidatingThemeClusterer();
+      const existing = theme('Existing', ['x']);
+      const f = fact('No embedding');
+
+      const result = await clusterer.cluster([f], [existing]);
+
+      const general = result.find((t) => t.label === 'General');
+      expect(general!.fact_ids).toContain(f.id);
+    });
+
+    it('reuses an existing General theme for an embeddingless batch', async () => {
+      const clusterer = new ConsolidatingThemeClusterer();
+      const existingGeneral = theme('General', ['x']);
+      const f = fact('No embedding');
+
+      const result = await clusterer.cluster([f], [existingGeneral]);
+
+      const generals = result.filter((t) => t.label === 'General');
+      expect(generals).toHaveLength(1);
+      expect(generals[0].fact_ids).toContain(f.id);
+    });
+
+    it('shares one General theme among multiple embeddingless facts in a mixed batch', async () => {
+      const clusterer = new ConsolidatingThemeClusterer();
+      const embedded = fact('With embedding', [1, 0, 0]);
+      const plainA = fact('Plain one');
+      const plainB = fact('Plain two');
+
+      const result = await clusterer.cluster([embedded, plainA, plainB]);
+
+      const general = result.find((t) => t.label === 'General');
+      expect(general!.fact_ids).toEqual([plainA.id, plainB.id]);
+    });
+
+    it('routes a lone embeddingless fact in a mixed batch to a General theme', async () => {
+      const clusterer = new ConsolidatingThemeClusterer();
+      const embedded = fact('With embedding', [1, 0, 0]);
+      const plain = fact('No embedding');
+
+      const result = await clusterer.cluster([embedded, plain]);
+
+      const general = result.find((t) => t.label === 'General');
+      expect(general!.fact_ids).toContain(plain.id);
+    });
+  });
+
+  describe('theme_id back-pointers', () => {
+    it('sets theme_id on a clustered fact', async () => {
+      const clusterer = new ConsolidatingThemeClusterer();
+      const f = fact('Only fact', [1, 0, 0]);
+
+      const result = await clusterer.cluster([f]);
+
+      expect(f.theme_id).toBe(result[0].id);
+    });
+
+    it('points merged-away facts at the surviving theme', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({
+        assignmentThreshold: 0.999,
+        mergeThreshold: 0.9,
+      });
+      const a = fact('A', unitVec([1, 0.1, 0]));
+      const b = fact('B', unitVec([1, 0.12, 0]));
+
+      const result = await clusterer.cluster([a, b]);
+
+      expect(result).toHaveLength(1);
+      expect(a.theme_id).toBe(result[0].id);
+      expect(b.theme_id).toBe(result[0].id);
+    });
+
+    it('gives an embeddingless fact the General theme id', async () => {
+      const clusterer = new ConsolidatingThemeClusterer();
+      const f = fact('No embedding here at all');
+
+      const result = await clusterer.cluster([f]);
+
+      const general = result.find((t) => t.label === 'General');
+      expect(f.theme_id).toBe(general!.id);
+    });
+  });
+
+  describe('centroid merging', () => {
+    it('averages two equal-sized centroids', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
+      const t1 = theme('T1', ['a'], [1, 0, 0]);
+      const t2 = theme('T2', ['b'], [0.99, 0.1, 0]);
+
+      const result = await clusterer.cluster([], [t1, t2]);
+
+      const centroid = result[0].embedding!;
+      expect(centroid[0]).toBeCloseTo((1 + 0.99) / 2);
+      expect(centroid[1]).toBeCloseTo((0 + 0.1) / 2);
+      expect(centroid[2]).toBeCloseTo(0);
+    });
+
+    it('weights the merged centroid by fact count so a big theme resists a singleton', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
+      const big = theme('Big', ['a', 'b', 'c'], [1, 0, 0]);
+      const small = theme('Small', ['d'], [0.99, 0.1, 0]);
+
+      const result = await clusterer.cluster([], [big, small]);
+
+      const centroid = result[0].embedding!;
+      expect(centroid[0]).toBeCloseTo((3 * 1 + 0.99) / 4);
+      expect(centroid[1]).toBeCloseTo((3 * 0 + 0.1) / 4);
+      expect(centroid[2]).toBeCloseTo(0);
+    });
+
+    it('averages centroids when both merged themes have zero facts', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.85 });
+      const t1 = theme('T1', [], [1, 0, 0]);
+      const t2 = theme('T2', [], [1, 0, 0]);
+
+      const result = await clusterer.cluster([], [t1, t2]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].embedding).toEqual([1, 0, 0]);
+    });
+
+    it('keeps the wider embedding when a forced merge hits mismatched dimensions', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.99, maxThemes: 1 });
+      const wide = theme('Wide', ['a', 'b'], [1, 0, 0]);
+      const narrow = theme('Narrow', ['c'], [1, 0]);
+
+      const result = await clusterer.cluster([], [wide, narrow]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('Wide');
+      expect(result[0].embedding).toEqual([1, 0, 0]);
+    });
+
+    it('adopts the smaller theme embedding when the survivor is narrower on a mismatched merge', async () => {
+      const clusterer = new ConsolidatingThemeClusterer({ mergeThreshold: 0.99, maxThemes: 1 });
+      const bigNarrow = theme('BigNarrow', ['a', 'b'], [1, 0]);
+      const smallWide = theme('SmallWide', ['c'], [1, 0, 0]);
+
+      const result = await clusterer.cluster([], [bigNarrow, smallWide]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('BigNarrow');
+      expect(result[0].embedding).toEqual([1, 0, 0]);
+    });
   });
 });

@@ -223,8 +223,8 @@ export async function evaluateRetention(
     }
 
     if (cfg.decisionRule === 'margin') {
-      // Original point-estimate rule, behavior-identical to the
-      // pre-inference gate (including the empty-baseline escape hatch).
+      // Point-estimate rule (the pinned-behavior baseline in tests),
+      // including the intentional empty-baseline escape hatch below.
       if (baseline.runs === 0) {
         assessments.push({
           ...base,
