@@ -16,6 +16,7 @@
 // ─── Log-gamma (Lanczos approximation) ──────────────────────────────
 
 const LANCZOS_G = [
+  // eslint-disable-next-line no-loss-of-precision -- canonical Lanczos coefficients; the nearest-double values are intended
   76.18009172947146, -86.50532032941677, 24.01409824083091,
   -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5,
 ];
@@ -30,6 +31,7 @@ export function logGamma(x: number): number {
     y += 1;
     ser += coeff / y;
   }
+  // eslint-disable-next-line no-loss-of-precision -- √(2π) constant; the nearest-double value is intended
   return -tmp + Math.log((2.5066282746310005 * ser) / x);
 }
 

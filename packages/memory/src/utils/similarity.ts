@@ -5,10 +5,12 @@
  */
 
 /**
- * Compute cosine similarity between two vectors.
+ * Cosine similarity between two vectors, in the range [-1, 1].
  *
- * Returns 0 if either vector has zero magnitude.
- * Assumes both vectors have the same dimensionality.
+ * Returns 0 when the vectors differ in length, are empty, or either has
+ * zero magnitude. A 0 result is therefore ambiguous between "orthogonal"
+ * and "invalid input", so validate dimensionality upstream when that
+ * distinction matters (see `EmbeddingDimensionMismatchError`).
  */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;

@@ -59,7 +59,6 @@ function verbForms(verb: string): string[] {
 
   const forms: string[] = [];
 
-  // Add the base form and common inflections
   forms.push(base);
   if (base.endsWith('e')) {
     forms.push(base + 's');
@@ -75,7 +74,6 @@ function verbForms(verb: string): string[] {
     forms.push(base + 'ing');
   }
 
-  // Build full forms with the rest of the verb phrase
   if (rest) {
     return forms.map((f) => f + ' ' + rest);
   }
@@ -195,7 +193,6 @@ export class RuleBasedExtractor implements SemanticExtractor {
           tags: [],
         });
 
-        // Extract relationships between detected entities in this sentence
         const sentenceRels = this.extractRelationships(
           trimmed, detectedEntities, entityNameToId, episode.started_at, now,
         );
@@ -203,7 +200,6 @@ export class RuleBasedExtractor implements SemanticExtractor {
       }
     }
 
-    // Build Entity records from the name→id map
     const entities: Entity[] = [...entityNameToId.entries()].map(([name, id]) => ({
       id,
       name,
@@ -369,7 +365,8 @@ export class RuleBasedExtractor implements SemanticExtractor {
  * Split text into sentences, preserving common abbreviations.
  */
 function splitSentences(text: string): string[] {
-  // Replace common abbreviations to avoid false splits
+  // Mask the period after common abbreviations with a NUL sentinel so it does
+  // not trigger a false sentence split; restored to '.' after splitting.
   const preserved = text
     .replace(/\b(Dr|Mr|Mrs|Ms|Jr|Sr|Prof|e\.g|i\.e|etc|vs|approx)\./gi, '$1\u0000');
 
@@ -377,6 +374,6 @@ function splitSentences(text: string): string[] {
   const raw = preserved.split(/(?<=[.!?])\s+|(?<=[.!?])$/);
 
   return raw
-    .map((s) => s.replace(/\u0000/g, '.').trim())
+    .map((s) => s.replaceAll('\u0000', '.').trim())
     .filter((s) => s.length > 0);
 }

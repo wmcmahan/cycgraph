@@ -184,7 +184,7 @@ export class InMemoryMemoryIndex implements MemoryIndex {
     if (truncated && !this.truncationWarningEmitted) {
       this.truncationWarningEmitted = true;
       this.scaleWarningEmitted = true;
-      // eslint-disable-next-line no-console
+       
       console.warn(
         `[@cycgraph/memory] InMemoryMemoryIndex rebuild hit its cap: records ` +
         `beyond the first ${IN_MEMORY_INDEX_WARN_THRESHOLD} per type are NOT ` +
@@ -204,7 +204,7 @@ export class InMemoryMemoryIndex implements MemoryIndex {
     if (total < IN_MEMORY_INDEX_WARN_THRESHOLD) return;
 
     this.scaleWarningEmitted = true;
-    // eslint-disable-next-line no-console
+     
     console.warn(
       `[@cycgraph/memory] InMemoryMemoryIndex now holds ${total} embeddings ` +
       `(threshold: ${IN_MEMORY_INDEX_WARN_THRESHOLD}). Brute-force cosine ` +

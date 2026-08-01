@@ -1,100 +1,57 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  InMemoryMemoryStore,
-  InMemoryMemoryIndex,
-  retrieveMemory,
-} from '../src/index.js';
-import type {
-  Entity,
-  Relationship,
-  SemanticFact,
-  Theme,
-  Episode,
-  MemoryQuery,
-  Provenance,
-} from '../src/index.js';
+/**
+ * Tests for retrieval/hierarchical-retriever: the embedding, entity, and
+ * tag-only retrieval paths of retrieveMemory, plus quarantine exclusion.
+ */
 
-const now = new Date();
-const prov: Provenance = { source: 'system', created_at: now };
+import { describe, it, expect, beforeEach } from 'vitest';
+import { InMemoryMemoryStore, InMemoryMemoryIndex, retrieveMemory } from '../src/index.js';
+import type { SemanticFact } from '../src/index.js';
+import { FIXED_DATE, makeEntity, makeFact, makeTheme, makeEpisode, makeRelationship } from './helpers.js';
+
+const NOW = FIXED_DATE;
+const DEFAULTS = { maxHops: 2, limit: 20, minSimilarity: 0.5, includeInvalidated: false };
 
 describe('retrieveMemory', () => {
   let store: InMemoryMemoryStore;
   let index: InMemoryMemoryIndex;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     store = new InMemoryMemoryStore();
     index = new InMemoryMemoryIndex();
   });
 
-  it('returns empty result when no embedding or entity_ids', async () => {
-    const result = await retrieveMemory(store, index, { maxHops: 2, limit: 20, minSimilarity: 0.5, includeInvalidated: false });
+  it('returns an empty result when the query has no embedding, entities, or tags', async () => {
+    const result = await retrieveMemory(store, index, { ...DEFAULTS });
+
     expect(result.themes).toEqual([]);
     expect(result.facts).toEqual([]);
+    expect(result.episodes).toEqual([]);
+    expect(result.entities).toEqual([]);
+    expect(result.relationships).toEqual([]);
   });
 
   describe('embedding-based retrieval', () => {
-    let theme: Theme;
-    let fact: SemanticFact;
-    let episode: Episode;
-    let entity: Entity;
-
     beforeEach(async () => {
-      entity = {
-        id: crypto.randomUUID(),
-        name: 'Alice',
-        entity_type: 'person',
-        attributes: {},
-        provenance: prov,
-        created_at: now,
-        updated_at: now,
-      };
-      await store.putEntity(entity);
-
-      episode = {
-        id: crypto.randomUUID(),
-        topic: 'Meeting',
-        messages: [],
-        started_at: now,
-        ended_at: now,
-        fact_ids: [],
-        provenance: prov,
-      };
-      await store.putEpisode(episode);
-
-      fact = {
-        id: crypto.randomUUID(),
+      const entity = makeEntity({ name: 'Alice' });
+      const episode = makeEpisode({ topic: 'Meeting' });
+      const fact = makeFact({
         content: 'Alice is a person',
         source_episode_ids: [episode.id],
         entity_ids: [entity.id],
         embedding: [1, 0, 0],
-        provenance: prov,
-        valid_from: now,
-      };
+      });
+      const theme = makeTheme({ label: 'People', fact_ids: [fact.id], embedding: [1, 0, 0] });
+
+      await store.putEntity(entity);
+      await store.putEpisode(episode);
       await store.putFact(fact);
-
-      theme = {
-        id: crypto.randomUUID(),
-        label: 'People',
-        description: '',
-        fact_ids: [fact.id],
-        embedding: [1, 0, 0],
-        provenance: prov,
-      };
       await store.putTheme(theme);
-
       await index.rebuild(store);
     });
 
-    it('retrieves themes, facts, episodes, and entities via embedding', async () => {
-      const query: MemoryQuery = {
-        embedding: [1, 0, 0],
-        maxHops: 2,
-        limit: 20,
-        minSimilarity: 0.5,
-        includeInvalidated: false,
-      };
+    it('retrieves themes, facts, episodes, and entities by embedding', async () => {
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, embedding: [1, 0, 0] });
 
-      const result = await retrieveMemory(store, index, query);
       expect(result.themes).toHaveLength(1);
       expect(result.themes[0].label).toBe('People');
       expect(result.facts).toHaveLength(1);
@@ -103,338 +60,251 @@ describe('retrieveMemory', () => {
       expect(result.entities[0].name).toBe('Alice');
     });
 
-    it('respects minSimilarity', async () => {
-      const query: MemoryQuery = {
-        embedding: [0, 1, 0], // orthogonal to stored embeddings
-        maxHops: 2,
-        limit: 20,
+    it('returns nothing when no stored embedding clears minSimilarity', async () => {
+      const result = await retrieveMemory(store, index, {
+        ...DEFAULTS,
+        embedding: [0, 1, 0],
         minSimilarity: 0.9,
-        includeInvalidated: false,
-      };
+      });
 
-      const result = await retrieveMemory(store, index, query);
       expect(result.themes).toHaveLength(0);
       expect(result.facts).toHaveLength(0);
     });
   });
 
-  describe('entity-based retrieval', () => {
-    it('retrieves subgraph and related facts', async () => {
-      const a: Entity = {
-        id: crypto.randomUUID(),
-        name: 'A',
-        entity_type: 'concept',
-        attributes: {},
-        provenance: prov,
-        created_at: now,
-        updated_at: now,
-      };
-      const b: Entity = {
-        id: crypto.randomUUID(),
-        name: 'B',
-        entity_type: 'concept',
-        attributes: {},
-        provenance: prov,
-        created_at: now,
-        updated_at: now,
-      };
-      await store.putEntity(a);
-      await store.putEntity(b);
+  describe('embedding-based relationship closure', () => {
+    it('returns only relationships whose endpoints are both in the fact entity set', async () => {
+      const alice = makeEntity({ name: 'Alice' });
+      const bob = makeEntity({ name: 'Bob' });
+      const carol = makeEntity({ name: 'Carol' });
+      const insideEdge = makeRelationship({ source_id: alice.id, target_id: bob.id, relation_type: 'knows' });
+      const danglingEdge = makeRelationship({ source_id: alice.id, target_id: carol.id, relation_type: 'knows' });
+      const fact = makeFact({ content: 'Alice knows Bob', entity_ids: [alice.id, bob.id], embedding: [1, 0, 0] });
+      const theme = makeTheme({ label: 'People', fact_ids: [fact.id], embedding: [1, 0, 0] });
 
-      const rel: Relationship = {
-        id: crypto.randomUUID(),
-        source_id: a.id,
-        target_id: b.id,
-        relation_type: 'knows',
-        weight: 1,
-        attributes: {},
-        valid_from: now,
-        provenance: prov,
-      };
-      await store.putRelationship(rel);
-
-      const fact: SemanticFact = {
-        id: crypto.randomUUID(),
-        content: 'A knows B',
-        source_episode_ids: [],
-        entity_ids: [a.id, b.id],
-        provenance: prov,
-        valid_from: now,
-      };
+      await store.putEntity(alice);
+      await store.putEntity(bob);
+      await store.putEntity(carol);
+      await store.putRelationship(insideEdge);
+      await store.putRelationship(danglingEdge);
       await store.putFact(fact);
-
+      await store.putTheme(theme);
       await index.rebuild(store);
 
-      const query: MemoryQuery = {
-        entityIds: [a.id],
-        maxHops: 1,
-        limit: 20,
-        minSimilarity: 0.5,
-        includeInvalidated: false,
-      };
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, embedding: [1, 0, 0] });
 
-      const result = await retrieveMemory(store, index, query);
+      expect(result.entities.map((e) => e.name).sort()).toEqual(['Alice', 'Bob']);
+      expect(result.relationships.map((r) => r.id)).toEqual([insideEdge.id]);
+    });
+  });
+
+  describe('entity-based retrieval', () => {
+    it('retrieves the subgraph plus facts referencing the seed entities', async () => {
+      const a = makeEntity({ name: 'A', entity_type: 'concept' });
+      const b = makeEntity({ name: 'B', entity_type: 'concept' });
+      const rel = makeRelationship({ source_id: a.id, target_id: b.id, relation_type: 'knows' });
+      const fact = makeFact({ content: 'A knows B', entity_ids: [a.id, b.id] });
+
+      await store.putEntity(a);
+      await store.putEntity(b);
+      await store.putRelationship(rel);
+      await store.putFact(fact);
+
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, entityIds: [a.id], maxHops: 1 });
+
       expect(result.entities).toHaveLength(2);
       expect(result.relationships).toHaveLength(1);
       expect(result.facts).toHaveLength(1);
     });
 
-    it('deduplicates facts shared across multiple entities', async () => {
-      const e1: Entity = {
-        id: crypto.randomUUID(),
-        name: 'X',
-        entity_type: 'concept',
-        attributes: {},
-        provenance: prov,
-        created_at: now,
-        updated_at: now,
-      };
-      const e2: Entity = {
-        id: crypto.randomUUID(),
-        name: 'Y',
-        entity_type: 'concept',
-        attributes: {},
-        provenance: prov,
-        created_at: now,
-        updated_at: now,
-      };
-      await store.putEntity(e1);
-      await store.putEntity(e2);
+    it('deduplicates a fact shared across multiple entities', async () => {
+      const x = makeEntity({ name: 'X', entity_type: 'concept' });
+      const y = makeEntity({ name: 'Y', entity_type: 'concept' });
+      const rel = makeRelationship({ source_id: x.id, target_id: y.id, relation_type: 'related' });
+      const shared = makeFact({ content: 'X and Y are related', entity_ids: [x.id, y.id] });
 
-      const rel: Relationship = {
-        id: crypto.randomUUID(),
-        source_id: e1.id,
-        target_id: e2.id,
-        relation_type: 'related',
-        weight: 1,
-        attributes: {},
-        valid_from: now,
-        provenance: prov,
-      };
+      await store.putEntity(x);
+      await store.putEntity(y);
       await store.putRelationship(rel);
+      await store.putFact(shared);
 
-      // Single fact referencing both entities — should appear only once
-      const sharedFact: SemanticFact = {
-        id: crypto.randomUUID(),
-        content: 'X and Y are related',
-        source_episode_ids: [],
-        entity_ids: [e1.id, e2.id],
-        provenance: prov,
-        valid_from: now,
-      };
-      await store.putFact(sharedFact);
-      await index.rebuild(store);
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, entityIds: [x.id], maxHops: 1, limit: 50 });
 
-      const result = await retrieveMemory(store, index, {
-        entityIds: [e1.id],
-        maxHops: 1,
-        limit: 50,
-        minSimilarity: 0.5,
-        includeInvalidated: false,
+      expect(result.facts).toHaveLength(1);
+      expect(result.facts[0].id).toBe(shared.id);
+    });
+
+    it('attaches themes and episodes referenced by entity-path facts', async () => {
+      const entity = makeEntity({ name: 'A', entity_type: 'concept' });
+      const theme = makeTheme({ label: 'Concepts' });
+      const episode = makeEpisode({ topic: 'Source' });
+      const fact = makeFact({
+        content: 'A is documented',
+        entity_ids: [entity.id],
+        theme_id: theme.id,
+        source_episode_ids: [episode.id],
       });
 
-      // Fact is found via both e1 and e2, but must appear exactly once
-      expect(result.facts).toHaveLength(1);
-      expect(result.facts[0].id).toBe(sharedFact.id);
+      await store.putEntity(entity);
+      await store.putTheme(theme);
+      await store.putEpisode(episode);
+      await store.putFact(fact);
+
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, entityIds: [entity.id], maxHops: 1 });
+
+      expect(result.themes.map((t) => t.id)).toEqual([theme.id]);
+      expect(result.episodes.map((e) => e.id)).toEqual([episode.id]);
     });
   });
 
   describe('tag-only retrieval', () => {
-    const seedFact = async (
-      target: InMemoryMemoryStore,
-      overrides: Partial<SemanticFact> = {},
-    ): Promise<SemanticFact> => {
-      const fact: SemanticFact = {
-        id: crypto.randomUUID(),
-        content: 'Some lesson worth keeping.',
-        source_episode_ids: [],
-        entity_ids: [],
-        provenance: prov,
-        valid_from: now,
-        tags: [],
-        ...overrides,
-      };
-      await target.putFact(fact);
-      return fact;
-    };
+    const seedFact = (overrides: Partial<SemanticFact> = {}): Promise<void> =>
+      store.putFact(makeFact({ content: 'Some lesson worth keeping.', valid_from: NOW, ...overrides }));
 
-    it('returns facts whose tags intersect query.tags', async () => {
-      const lessonA = await seedFact(store, { content: 'A', tags: ['lesson', 'graph:research-v1'] });
-      const lessonB = await seedFact(store, { content: 'B', tags: ['lesson', 'graph:research-v1'] });
-      await seedFact(store, { content: 'untagged' });
-      await seedFact(store, { content: 'wrong tag', tags: ['warning'] });
+    it('returns only facts whose tags intersect the query tags', async () => {
+      const lessonA = makeFact({ content: 'A', tags: ['lesson', 'graph:research-v1'] });
+      const lessonB = makeFact({ content: 'B', tags: ['lesson', 'graph:research-v1'] });
+      await store.putFact(lessonA);
+      await store.putFact(lessonB);
+      await seedFact({ content: 'untagged' });
+      await seedFact({ content: 'wrong tag', tags: ['warning'] });
 
-      const result = await retrieveMemory(store, index, {
-        tags: ['lesson'],
-        maxHops: 2,
-        limit: 20,
-        minSimilarity: 0.5,
-        includeInvalidated: false,
-      });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['lesson'] });
 
-      const ids = new Set(result.facts.map((f) => f.id));
-      expect(ids).toEqual(new Set([lessonA.id, lessonB.id]));
+      expect(new Set(result.facts.map((f) => f.id))).toEqual(new Set([lessonA.id, lessonB.id]));
       expect(result.entities).toEqual([]);
       expect(result.relationships).toEqual([]);
     });
 
-    it('matches on any tag, not all tags', async () => {
-      const lessonA = await seedFact(store, { content: 'A', tags: ['lesson'] });
-      const lessonB = await seedFact(store, { content: 'B', tags: ['warning'] });
+    it('matches on any query tag rather than requiring all of them', async () => {
+      const lessonA = makeFact({ content: 'A', tags: ['lesson'] });
+      const lessonB = makeFact({ content: 'B', tags: ['warning'] });
+      await store.putFact(lessonA);
+      await store.putFact(lessonB);
 
-      const result = await retrieveMemory(store, index, {
-        tags: ['lesson', 'warning'],
-        maxHops: 2,
-        limit: 20,
-        minSimilarity: 0.5,
-        includeInvalidated: false,
-      });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['lesson', 'warning'] });
 
-      const ids = new Set(result.facts.map((f) => f.id));
-      expect(ids).toEqual(new Set([lessonA.id, lessonB.id]));
+      expect(new Set(result.facts.map((f) => f.id))).toEqual(new Set([lessonA.id, lessonB.id]));
     });
 
-    it('respects limit', async () => {
+    it('respects the limit', async () => {
       for (let i = 0; i < 5; i++) {
-        await seedFact(store, { content: `lesson ${i}`, tags: ['lesson'] });
+        await seedFact({ content: `lesson ${i}`, tags: ['lesson'] });
       }
 
-      const result = await retrieveMemory(store, index, {
-        tags: ['lesson'],
-        maxHops: 2,
-        limit: 3,
-        minSimilarity: 0.5,
-        includeInvalidated: false,
-      });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['lesson'], limit: 3 });
 
       expect(result.facts).toHaveLength(3);
     });
 
-    it('applies temporal validity — excludes invalidated facts', async () => {
-      await seedFact(store, {
-        content: 'still valid',
-        tags: ['lesson'],
-      });
-      await seedFact(store, {
-        content: 'invalidated',
-        tags: ['lesson'],
-        valid_until: new Date(now.getTime() - 1000),
-      });
+    it('pages through the store until the limit is met', async () => {
+      for (let i = 0; i < 100; i++) {
+        await seedFact({ content: `lesson ${i}`, tags: ['lesson'] });
+      }
 
-      const result = await retrieveMemory(store, index, {
-        tags: ['lesson'],
-        validAt: now,
-        maxHops: 2,
-        limit: 20,
-        minSimilarity: 0.5,
-        includeInvalidated: false,
-      });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['lesson'], limit: 20 });
+
+      expect(result.facts).toHaveLength(20);
+    });
+
+    it('excludes invalidated facts by validity window', async () => {
+      await seedFact({ content: 'still valid', tags: ['lesson'] });
+      await seedFact({ content: 'invalidated', tags: ['lesson'], valid_until: new Date(NOW.getTime() - 1000) });
+
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['lesson'], validAt: NOW });
 
       expect(result.facts).toHaveLength(1);
       expect(result.facts[0].content).toBe('still valid');
     });
 
-    it('attaches themes when present on matching facts', async () => {
-      const theme: Theme = {
-        id: crypto.randomUUID(),
-        label: 'Research Lessons',
-        description: 'distilled methodology guidance',
-        fact_ids: [],
-        provenance: prov,
-      };
+    it('attaches themes present on matching facts', async () => {
+      const theme = makeTheme({ label: 'Research Lessons', description: 'distilled methodology guidance' });
       await store.putTheme(theme);
+      await seedFact({ content: 'Cite primary sources.', tags: ['lesson'], theme_id: theme.id });
 
-      await seedFact(store, {
-        content: 'Cite primary sources.',
-        tags: ['lesson'],
-        theme_id: theme.id,
-      });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['lesson'] });
 
-      const result = await retrieveMemory(store, index, {
-        tags: ['lesson'],
-        maxHops: 2,
-        limit: 20,
-        minSimilarity: 0.5,
-        includeInvalidated: false,
-      });
-
-      expect(result.themes).toHaveLength(1);
-      expect(result.themes[0].id).toBe(theme.id);
+      expect(result.themes.map((t) => t.id)).toEqual([theme.id]);
     });
 
-    it('returns empty result for tags with no matches', async () => {
-      await seedFact(store, { content: 'A', tags: ['lesson'] });
+    it('attaches episodes referenced by matching facts', async () => {
+      const episode = makeEpisode({ topic: 'Source' });
+      await store.putEpisode(episode);
+      await seedFact({ content: 'Learned from a source.', tags: ['lesson'], source_episode_ids: [episode.id] });
 
-      const result = await retrieveMemory(store, index, {
-        tags: ['nonexistent'],
-        maxHops: 2,
-        limit: 20,
-        minSimilarity: 0.5,
-        includeInvalidated: false,
-      });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['lesson'] });
+
+      expect(result.episodes.map((e) => e.id)).toEqual([episode.id]);
+    });
+
+    it('returns an empty result when no fact carries a query tag', async () => {
+      await seedFact({ content: 'A', tags: ['lesson'] });
+
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['nonexistent'] });
 
       expect(result.facts).toEqual([]);
     });
   });
 
   describe('quarantine exclusion', () => {
-    const defaults = { maxHops: 2, limit: 20, minSimilarity: 0.5, includeInvalidated: false };
-
-    const putFact = async (overrides: Partial<SemanticFact>): Promise<SemanticFact> => {
-      const fact: SemanticFact = {
-        id: crypto.randomUUID(),
-        content: 'fact',
-        source_episode_ids: [],
-        entity_ids: [],
-        provenance: prov,
-        valid_from: now,
-        tags: [],
-        ...overrides,
-      };
-      await store.putFact(fact);
-      return fact;
-    };
+    const putFact = (overrides: Partial<SemanticFact>): Promise<void> =>
+      store.putFact(makeFact({ content: 'fact', valid_from: NOW, ...overrides }));
 
     it('excludes quarantined facts from tag-only retrieval', async () => {
-      const clean = await putFact({ content: 'clean', tags: ['lesson'] });
+      const clean = makeFact({ content: 'clean', tags: ['lesson'] });
+      await store.putFact(clean);
       await putFact({ content: 'poisoned', tags: ['lesson', 'quarantined'] });
 
-      const result = await retrieveMemory(store, index, { ...defaults, tags: ['lesson'] });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['lesson'] });
+
       expect(result.facts.map((f) => f.id)).toEqual([clean.id]);
     });
 
     it('excludes quarantined facts from embedding-based retrieval', async () => {
-      const clean = await putFact({ content: 'clean', embedding: [1, 0, 0], tags: [] });
+      const clean = makeFact({ content: 'clean', embedding: [1, 0, 0] });
+      await store.putFact(clean);
       await putFact({ content: 'poisoned', embedding: [1, 0, 0], tags: ['quarantined'] });
       await index.rebuild(store);
 
-      const result = await retrieveMemory(store, index, { ...defaults, embedding: [1, 0, 0], tags: [] });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, embedding: [1, 0, 0], tags: [] });
+
       expect(result.facts.map((f) => f.id)).toEqual([clean.id]);
     });
 
     it('excludes quarantined facts from entity-based retrieval', async () => {
-      const entity: Entity = {
-        id: crypto.randomUUID(),
-        name: 'Alice',
-        entity_type: 'person',
-        attributes: {},
-        provenance: prov,
-        created_at: now,
-        updated_at: now,
-      };
+      const entity = makeEntity({ name: 'Alice' });
       await store.putEntity(entity);
-      const clean = await putFact({ content: 'clean', entity_ids: [entity.id], tags: [] });
+      const clean = makeFact({ content: 'clean', entity_ids: [entity.id] });
+      await store.putFact(clean);
       await putFact({ content: 'poisoned', entity_ids: [entity.id], tags: ['quarantined'] });
 
-      const result = await retrieveMemory(store, index, { ...defaults, entityIds: [entity.id], tags: [] });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, entityIds: [entity.id], tags: [] });
+
       expect(result.facts.map((f) => f.id)).toEqual([clean.id]);
     });
 
-    it('returns quarantined facts when the query explicitly asks for the tag (audit)', async () => {
+    it('returns quarantined facts when a tag-only query explicitly audits the tag', async () => {
       await putFact({ content: 'clean', tags: ['lesson'] });
-      const poisoned = await putFact({ content: 'poisoned', tags: ['lesson', 'quarantined'] });
+      const poisoned = makeFact({ content: 'poisoned', tags: ['lesson', 'quarantined'] });
+      await store.putFact(poisoned);
 
-      const result = await retrieveMemory(store, index, { ...defaults, tags: ['quarantined'] });
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['quarantined'] });
+
+      expect(result.facts.map((f) => f.id)).toEqual([poisoned.id]);
+    });
+
+    it('returns quarantined facts from entity-based retrieval when auditing the tag', async () => {
+      const entity = makeEntity({ name: 'Alice' });
+      await store.putEntity(entity);
+      const poisoned = makeFact({ content: 'poisoned', entity_ids: [entity.id], tags: ['quarantined'] });
+      await store.putFact(poisoned);
+
+      const result = await retrieveMemory(store, index, {
+        ...DEFAULTS,
+        entityIds: [entity.id],
+        tags: ['quarantined'],
+      });
+
       expect(result.facts.map((f) => f.id)).toEqual([poisoned.id]);
     });
   });

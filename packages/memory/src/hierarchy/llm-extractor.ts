@@ -68,7 +68,7 @@ export class LLMExtractor implements SemanticExtractor {
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? 3;
     this.breakerCooldownMs = options.breakerCooldownMs ?? 60_000;
-    // eslint-disable-next-line no-console
+     
     this.warn = options.logger?.warn?.bind(options.logger) ?? ((m) => console.warn(m));
     this.debug = options.logger?.debug?.bind(options.logger) ?? (() => {});
   }
@@ -183,7 +183,6 @@ ${messagesText}`;
       return null;
     }
 
-    // Must be an array
     if (!Array.isArray(parsed)) {
       this.warn('LLMExtractor: response is not an array, falling back');
       return null;
@@ -259,7 +258,6 @@ ${messagesText}`;
       });
     }
 
-    // Build Entity records from the name→id map
     const entities: Entity[] = [...entityNameToId.entries()].map(([name, id]) => ({
       id,
       name,

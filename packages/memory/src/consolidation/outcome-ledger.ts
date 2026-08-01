@@ -33,7 +33,7 @@ export const RunOutcomeSchema = z.object({
   score: z.number().min(0).max(1),
   /** IDs of facts injected into the run's prompts. */
   fact_ids: z.array(z.string()).default([]),
-  /** When the outcome was recorded (defaults to now). */
+  /** When the outcome was recorded; `recordOutcome` fills in now when omitted. */
   recorded_at: z.coerce.date().optional(),
 });
 
