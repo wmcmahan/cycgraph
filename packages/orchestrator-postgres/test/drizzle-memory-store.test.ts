@@ -5,10 +5,12 @@
  * Skipped automatically when DATABASE_URL is not set.
  */
 
-import { describe, test, expect } from 'vitest';
-import { setupDatabaseTests, isDatabaseAvailable } from './setup.js';
-import { DrizzleMemoryStore } from '../src/drizzle-memory-store.js';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
+import { setupDatabaseTests, isDatabaseAvailable, getDb } from './setup.js';
+import { DrizzleMemoryStore } from '../src/drizzle-memory-store.js';
+import { tenants } from '../src/schema.js';
 import type { Entity, Relationship, Episode, SemanticFact, Theme, Provenance } from '@cycgraph/memory';
 
 function makeProv(overrides: Partial<Provenance> = {}): Provenance {
@@ -99,267 +101,547 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMemoryStore', () => {
 
   const store = new DrizzleMemoryStore();
 
-  // ── Entity Operations ──
+  describe('entity operations', () => {
+    it('round-trips an entity through putEntity and getEntity', async () => {
+      const entity = makeEntity({ name: 'Alice', entity_type: 'person' });
 
-  test('putEntity and getEntity round-trip', async () => {
-    const entity = makeEntity({ name: 'Alice', entity_type: 'person' });
-    await store.putEntity(entity);
+      await store.putEntity(entity);
 
-    const loaded = await store.getEntity(entity.id);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.name).toBe('Alice');
-    expect(loaded!.entity_type).toBe('person');
-    expect(loaded!.provenance.source).toBe('system');
+      const loaded = await store.getEntity(entity.id);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.name).toBe('Alice');
+      expect(loaded!.entity_type).toBe('person');
+      expect(loaded!.provenance.source).toBe('system');
+    });
+
+    it('returns null from getEntity for a missing id', async () => {
+      expect(await store.getEntity(randomUUID())).toBeNull();
+    });
+
+    it('upserts an entity on a duplicate id', async () => {
+      const entity = makeEntity({ name: 'Original' });
+      await store.putEntity(entity);
+
+      await store.putEntity({ ...entity, name: 'Updated', updated_at: new Date() });
+
+      const loaded = await store.getEntity(entity.id);
+      expect(loaded!.name).toBe('Updated');
+    });
+
+    it('findEntities filters by entity type', async () => {
+      await store.putEntity(makeEntity({ entity_type: 'person' }));
+      await store.putEntity(makeEntity({ entity_type: 'organization' }));
+      await store.putEntity(makeEntity({ entity_type: 'person' }));
+
+      const people = await store.findEntities({ entityType: 'person' });
+
+      expect(people).toHaveLength(2);
+      expect(people.every((e) => e.entity_type === 'person')).toBe(true);
+    });
+
+    it('findEntities excludes invalidated entities by default', async () => {
+      await store.putEntity(makeEntity({ entity_type: 'concept' }));
+      await store.putEntity(makeEntity({ entity_type: 'concept', invalidated_at: new Date() }));
+
+      const results = await store.findEntities({ entityType: 'concept' });
+
+      expect(results).toHaveLength(1);
+    });
+
+    it('findEntities includes invalidated entities when asked', async () => {
+      await store.putEntity(makeEntity({ entity_type: 'concept' }));
+      await store.putEntity(makeEntity({ entity_type: 'concept', invalidated_at: new Date() }));
+
+      const results = await store.findEntities({ entityType: 'concept', includeInvalidated: true });
+
+      expect(results).toHaveLength(2);
+    });
+
+    it('findEntities paginates with limit and offset', async () => {
+      for (let i = 0; i < 5; i++) {
+        await store.putEntity(makeEntity({ entity_type: 'paged' }));
+      }
+
+      const page1 = await store.findEntities({ entityType: 'paged', limit: 3, offset: 0 });
+      const page2 = await store.findEntities({ entityType: 'paged', limit: 3, offset: 3 });
+
+      expect(page1).toHaveLength(3);
+      expect(page2).toHaveLength(2);
+    });
+
+    it('deleteEntity removes an existing entity and reports true', async () => {
+      const entity = makeEntity();
+      await store.putEntity(entity);
+
+      const deleted = await store.deleteEntity(entity.id);
+
+      expect(deleted).toBe(true);
+      expect(await store.getEntity(entity.id)).toBeNull();
+    });
+
+    it('deleteEntity reports false for a missing id', async () => {
+      expect(await store.deleteEntity(randomUUID())).toBe(false);
+    });
   });
 
-  test('getEntity returns null for missing ID', async () => {
-    const loaded = await store.getEntity(randomUUID());
-    expect(loaded).toBeNull();
+  describe('relationship operations', () => {
+    it('round-trips a relationship through putRelationship and getRelationship', async () => {
+      const e1 = makeEntity();
+      const e2 = makeEntity();
+      await store.putEntity(e1);
+      await store.putEntity(e2);
+
+      const rel = makeRelationship(e1.id, e2.id, { relation_type: 'works_at' });
+      await store.putRelationship(rel);
+
+      const loaded = await store.getRelationship(rel.id);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.relation_type).toBe('works_at');
+      expect(loaded!.source_id).toBe(e1.id);
+      expect(loaded!.target_id).toBe(e2.id);
+    });
+
+    it('returns null from getRelationship for a missing id', async () => {
+      expect(await store.getRelationship(randomUUID())).toBeNull();
+    });
+
+    it('upserts a relationship on a duplicate id', async () => {
+      const e1 = makeEntity();
+      const e2 = makeEntity();
+      await store.putEntity(e1);
+      await store.putEntity(e2);
+      const rel = makeRelationship(e1.id, e2.id, { weight: 1 });
+      await store.putRelationship(rel);
+
+      await store.putRelationship({ ...rel, weight: 0.25 });
+
+      const loaded = await store.getRelationship(rel.id);
+      expect(loaded!.weight).toBe(0.25);
+    });
+
+    it('getRelationshipsForEntity filters by direction', async () => {
+      const e1 = makeEntity();
+      const e2 = makeEntity();
+      const e3 = makeEntity();
+      await store.putEntity(e1);
+      await store.putEntity(e2);
+      await store.putEntity(e3);
+      await store.putRelationship(makeRelationship(e1.id, e2.id));
+      await store.putRelationship(makeRelationship(e3.id, e1.id));
+
+      const outgoing = await store.getRelationshipsForEntity(e1.id, { direction: 'outgoing' });
+      const incoming = await store.getRelationshipsForEntity(e1.id, { direction: 'incoming' });
+      const both = await store.getRelationshipsForEntity(e1.id, { direction: 'both' });
+
+      expect(outgoing).toHaveLength(1);
+      expect(outgoing[0].target_id).toBe(e2.id);
+      expect(incoming).toHaveLength(1);
+      expect(incoming[0].source_id).toBe(e3.id);
+      expect(both).toHaveLength(2);
+    });
+
+    it('getRelationshipsForEntity filters by relation type', async () => {
+      const e1 = makeEntity();
+      const e2 = makeEntity();
+      await store.putEntity(e1);
+      await store.putEntity(e2);
+      await store.putRelationship(makeRelationship(e1.id, e2.id, { relation_type: 'works_at' }));
+      await store.putRelationship(makeRelationship(e1.id, e2.id, { relation_type: 'knows' }));
+
+      const results = await store.getRelationshipsForEntity(e1.id, { relationType: 'works_at' });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].relation_type).toBe('works_at');
+    });
+
+    it('getRelationshipsForEntity excludes invalidated by default and includes them when asked', async () => {
+      const e1 = makeEntity();
+      const e2 = makeEntity();
+      await store.putEntity(e1);
+      await store.putEntity(e2);
+      await store.putRelationship(makeRelationship(e1.id, e2.id));
+      await store.putRelationship(makeRelationship(e1.id, e2.id, { invalidated_by: 'superseded' }));
+
+      const active = await store.getRelationshipsForEntity(e1.id, { direction: 'outgoing' });
+      const all = await store.getRelationshipsForEntity(e1.id, { direction: 'outgoing', includeInvalidated: true });
+
+      expect(active).toHaveLength(1);
+      expect(all).toHaveLength(2);
+    });
+
+    it('deleteRelationship removes an existing edge and reports true', async () => {
+      const e1 = makeEntity();
+      const e2 = makeEntity();
+      await store.putEntity(e1);
+      await store.putEntity(e2);
+      const rel = makeRelationship(e1.id, e2.id);
+      await store.putRelationship(rel);
+
+      const deleted = await store.deleteRelationship(rel.id);
+
+      expect(deleted).toBe(true);
+      expect(await store.getRelationship(rel.id)).toBeNull();
+    });
+
+    it('deleteRelationship reports false for a missing id', async () => {
+      expect(await store.deleteRelationship(randomUUID())).toBe(false);
+    });
   });
 
-  test('putEntity upserts on duplicate ID', async () => {
-    const entity = makeEntity({ name: 'Original' });
-    await store.putEntity(entity);
+  describe('episode operations', () => {
+    it('round-trips an episode through putEpisode and getEpisode', async () => {
+      const ep = makeEpisode({ topic: 'Architecture Discussion' });
 
-    const updated = { ...entity, name: 'Updated', updated_at: new Date() };
-    await store.putEntity(updated);
+      await store.putEpisode(ep);
 
-    const loaded = await store.getEntity(entity.id);
-    expect(loaded!.name).toBe('Updated');
+      const loaded = await store.getEpisode(ep.id);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.topic).toBe('Architecture Discussion');
+      expect(loaded!.messages).toHaveLength(1);
+    });
+
+    it('returns null from getEpisode for a missing id', async () => {
+      expect(await store.getEpisode(randomUUID())).toBeNull();
+    });
+
+    it('upserts an episode on a duplicate id', async () => {
+      const ep = makeEpisode({ topic: 'Original' });
+      await store.putEpisode(ep);
+
+      await store.putEpisode({ ...ep, topic: 'Revised' });
+
+      const loaded = await store.getEpisode(ep.id);
+      expect(loaded!.topic).toBe('Revised');
+    });
+
+    it('listEpisodes paginates newest-started first', async () => {
+      for (let i = 0; i < 5; i++) {
+        await store.putEpisode(makeEpisode({
+          started_at: new Date(Date.now() - i * 1000),
+          ended_at: new Date(Date.now() - i * 1000),
+        }));
+      }
+
+      const page1 = await store.listEpisodes({ limit: 3, offset: 0 });
+      const page2 = await store.listEpisodes({ limit: 3, offset: 3 });
+
+      expect(page1).toHaveLength(3);
+      expect(page2).toHaveLength(2);
+    });
+
+    it('deleteEpisode removes an existing episode and reports true', async () => {
+      const ep = makeEpisode();
+      await store.putEpisode(ep);
+
+      const deleted = await store.deleteEpisode(ep.id);
+
+      expect(deleted).toBe(true);
+      expect(await store.getEpisode(ep.id)).toBeNull();
+    });
+
+    it('deleteEpisode reports false for a missing id', async () => {
+      expect(await store.deleteEpisode(randomUUID())).toBe(false);
+    });
   });
 
-  test('findEntities with type filter', async () => {
-    await store.putEntity(makeEntity({ entity_type: 'person' }));
-    await store.putEntity(makeEntity({ entity_type: 'organization' }));
-    await store.putEntity(makeEntity({ entity_type: 'person' }));
+  describe('semantic fact operations', () => {
+    it('round-trips a fact through putFact and getFact', async () => {
+      const fact = makeFact({ content: 'Bob leads engineering' });
 
-    const people = await store.findEntities({ entityType: 'person' });
-    expect(people).toHaveLength(2);
-    expect(people.every(e => e.entity_type === 'person')).toBe(true);
+      await store.putFact(fact);
+
+      const loaded = await store.getFact(fact.id);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.content).toBe('Bob leads engineering');
+    });
+
+    it('returns null from getFact for a missing id', async () => {
+      expect(await store.getFact(randomUUID())).toBeNull();
+    });
+
+    it('touchFacts increments access_count, sets last_accessed_at, and ignores missing ids', async () => {
+      const fact = makeFact({ access_count: 0 });
+      await store.putFact(fact);
+      const at = new Date('2026-01-01T00:00:00Z');
+
+      await store.touchFacts([fact.id, randomUUID()], at);
+      await store.touchFacts([fact.id], at);
+
+      const touched = await store.getFact(fact.id);
+      expect(touched!.access_count).toBe(2);
+      expect(touched!.last_accessed_at).toEqual(at);
+    });
+
+    it('touchFacts is a no-op for an empty id list', async () => {
+      const fact = makeFact({ access_count: 0 });
+      await store.putFact(fact);
+
+      await store.touchFacts([]);
+
+      expect((await store.getFact(fact.id))!.access_count).toBe(0);
+    });
+
+    it('findFacts filters by theme id', async () => {
+      const theme = makeTheme();
+      await store.putTheme(theme);
+      await store.putFact(makeFact({ theme_id: theme.id }));
+      await store.putFact(makeFact({ theme_id: theme.id }));
+      await store.putFact(makeFact());
+
+      const results = await store.findFacts({ themeId: theme.id });
+
+      expect(results).toHaveLength(2);
+    });
+
+    it('findFacts filters by entity id through the join table', async () => {
+      const entity = makeEntity();
+      await store.putEntity(entity);
+      await store.putFact(makeFact({ entity_ids: [entity.id] }));
+      await store.putFact(makeFact({ entity_ids: [entity.id] }));
+      await store.putFact(makeFact({ entity_ids: [] }));
+
+      const results = await store.findFacts({ entityId: entity.id });
+
+      expect(results).toHaveLength(2);
+    });
+
+    it('findFacts filters to facts sharing any requested tag', async () => {
+      await store.putFact(makeFact({ tags: ['lesson', 'graph:x'] }));
+      await store.putFact(makeFact({ tags: ['other'] }));
+
+      const results = await store.findFacts({ tags: ['lesson'] });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].tags).toContain('lesson');
+    });
+
+    it('findFacts excludes facts sharing any excluded tag', async () => {
+      const clean = makeFact({ tags: ['clean'] });
+      await store.putFact(clean);
+      await store.putFact(makeFact({ tags: ['poison'] }));
+
+      const results = await store.findFacts({ excludeTags: ['poison'] });
+
+      expect(results.map((f) => f.id)).toEqual([clean.id]);
+    });
+
+    it('findFacts excludes invalidated facts by default and includes them when asked', async () => {
+      await store.putFact(makeFact());
+      await store.putFact(makeFact({ invalidated_by: 'superseded' }));
+
+      const active = await store.findFacts();
+      const all = await store.findFacts({ includeInvalidated: true });
+
+      expect(active).toHaveLength(1);
+      expect(all).toHaveLength(2);
+    });
+
+    it('putFact resyncs the entity join table on upsert', async () => {
+      const e1 = makeEntity();
+      const e2 = makeEntity();
+      await store.putEntity(e1);
+      await store.putEntity(e2);
+      const fact = makeFact({ entity_ids: [e1.id] });
+      await store.putFact(fact);
+      expect(await store.findFacts({ entityId: e1.id })).toHaveLength(1);
+
+      await store.putFact({ ...fact, entity_ids: [e2.id] });
+
+      expect(await store.findFacts({ entityId: e1.id })).toHaveLength(0);
+      expect(await store.findFacts({ entityId: e2.id })).toHaveLength(1);
+    });
+
+    it('deleteFact removes an existing fact and reports true', async () => {
+      const fact = makeFact();
+      await store.putFact(fact);
+
+      const deleted = await store.deleteFact(fact.id);
+
+      expect(deleted).toBe(true);
+      expect(await store.getFact(fact.id)).toBeNull();
+    });
+
+    it('deleteFact reports false for a missing id', async () => {
+      expect(await store.deleteFact(randomUUID())).toBe(false);
+    });
   });
 
-  test('findEntities excludes invalidated by default', async () => {
-    await store.putEntity(makeEntity({ entity_type: 'concept' }));
-    await store.putEntity(makeEntity({ entity_type: 'concept', invalidated_at: new Date() }));
+  describe('theme operations', () => {
+    it('round-trips a theme through putTheme and getTheme', async () => {
+      const theme = makeTheme({ label: 'Architecture' });
 
-    const results = await store.findEntities({ entityType: 'concept' });
-    expect(results).toHaveLength(1);
+      await store.putTheme(theme);
+
+      const loaded = await store.getTheme(theme.id);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.label).toBe('Architecture');
+    });
+
+    it('returns null from getTheme for a missing id', async () => {
+      expect(await store.getTheme(randomUUID())).toBeNull();
+    });
+
+    it('upserts a theme on a duplicate id', async () => {
+      const theme = makeTheme({ label: 'Original' });
+      await store.putTheme(theme);
+
+      await store.putTheme({ ...theme, label: 'Renamed' });
+
+      const loaded = await store.getTheme(theme.id);
+      expect(loaded!.label).toBe('Renamed');
+    });
+
+    it('listThemes returns every stored theme', async () => {
+      await store.putTheme(makeTheme({ label: 'Theme A' }));
+      await store.putTheme(makeTheme({ label: 'Theme B' }));
+
+      const themes = await store.listThemes();
+
+      expect(themes).toHaveLength(2);
+    });
+
+    it('deleteTheme removes an existing theme and reports true', async () => {
+      const theme = makeTheme();
+      await store.putTheme(theme);
+
+      const deleted = await store.deleteTheme(theme.id);
+
+      expect(deleted).toBe(true);
+      expect(await store.getTheme(theme.id)).toBeNull();
+    });
+
+    it('deleteTheme reports false for a missing id', async () => {
+      expect(await store.deleteTheme(randomUUID())).toBe(false);
+    });
   });
 
-  test('findEntities with include_invalidated', async () => {
-    await store.putEntity(makeEntity({ entity_type: 'concept' }));
-    await store.putEntity(makeEntity({ entity_type: 'concept', invalidated_at: new Date() }));
+  describe('batch operations', () => {
+    it('getEntities returns a map keyed by id', async () => {
+      const e1 = makeEntity({ name: 'E1' });
+      const e2 = makeEntity({ name: 'E2' });
+      await store.putEntity(e1);
+      await store.putEntity(e2);
 
-    const results = await store.findEntities({ entityType: 'concept', includeInvalidated: true });
-    expect(results).toHaveLength(2);
+      const result = await store.getEntities([e1.id, e2.id]);
+
+      expect(result.size).toBe(2);
+      expect(result.get(e1.id)!.name).toBe('E1');
+      expect(result.get(e2.id)!.name).toBe('E2');
+    });
+
+    it('getEntities returns an empty map for an empty id list', async () => {
+      expect(await store.getEntities([])).toEqual(new Map());
+    });
+
+    it('getFacts omits missing ids from the result map', async () => {
+      const fact = makeFact();
+      await store.putFact(fact);
+
+      const result = await store.getFacts([fact.id, randomUUID()]);
+
+      expect(result.size).toBe(1);
+      expect(result.has(fact.id)).toBe(true);
+    });
+
+    it('getFacts returns an empty map for an empty id list', async () => {
+      expect(await store.getFacts([])).toEqual(new Map());
+    });
+
+    it('getEpisodes returns a map keyed by id', async () => {
+      const ep = makeEpisode();
+      await store.putEpisode(ep);
+
+      const result = await store.getEpisodes([ep.id, randomUUID()]);
+
+      expect(result.size).toBe(1);
+      expect(result.get(ep.id)!.id).toBe(ep.id);
+    });
+
+    it('getEpisodes returns an empty map for an empty id list', async () => {
+      expect(await store.getEpisodes([])).toEqual(new Map());
+    });
+
+    it('getThemes returns a map keyed by id', async () => {
+      const theme = makeTheme();
+      await store.putTheme(theme);
+
+      const result = await store.getThemes([theme.id, randomUUID()]);
+
+      expect(result.size).toBe(1);
+      expect(result.get(theme.id)!.id).toBe(theme.id);
+    });
+
+    it('getThemes returns an empty map for an empty id list', async () => {
+      expect(await store.getThemes([])).toEqual(new Map());
+    });
   });
 
-  test('deleteEntity removes entity', async () => {
-    const entity = makeEntity();
-    await store.putEntity(entity);
-    expect(await store.getEntity(entity.id)).not.toBeNull();
+  describe('lifecycle', () => {
+    it('clear removes all data', async () => {
+      await store.putEntity(makeEntity());
+      await store.putTheme(makeTheme());
+      await store.putEpisode(makeEpisode());
+      await store.putFact(makeFact());
 
-    const deleted = await store.deleteEntity(entity.id);
-    expect(deleted).toBe(true);
-    expect(await store.getEntity(entity.id)).toBeNull();
+      await store.clear();
+
+      expect(await store.findEntities()).toHaveLength(0);
+      expect(await store.listThemes()).toHaveLength(0);
+      expect(await store.listEpisodes()).toHaveLength(0);
+      expect(await store.findFacts()).toHaveLength(0);
+    });
   });
 
-  // ── Relationship Operations ──
+  describe('tenant scoping', () => {
+    const TENANT_A = randomUUID();
 
-  test('putRelationship and getRelationship', async () => {
-    const e1 = makeEntity();
-    const e2 = makeEntity();
-    await store.putEntity(e1);
-    await store.putEntity(e2);
+    beforeAll(async () => {
+      const db = await getDb();
+      await db
+        .insert(tenants)
+        .values({ id: TENANT_A, slug: `a-${TENANT_A}`, name: 'Tenant A' })
+        .onConflictDoNothing();
+    });
 
-    const rel = makeRelationship(e1.id, e2.id, { relation_type: 'works_at' });
-    await store.putRelationship(rel);
+    afterAll(async () => {
+      const db = await getDb();
+      await db.delete(tenants).where(eq(tenants.id, TENANT_A));
+    });
 
-    const loaded = await store.getRelationship(rel.id);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.relation_type).toBe('works_at');
-    expect(loaded!.source_id).toBe(e1.id);
-    expect(loaded!.target_id).toBe(e2.id);
-  });
+    const scoped = new DrizzleMemoryStore({ tenant: { tenant_id: TENANT_A } });
 
-  test('getRelationshipsForEntity with direction filter', async () => {
-    const e1 = makeEntity();
-    const e2 = makeEntity();
-    const e3 = makeEntity();
-    await store.putEntity(e1);
-    await store.putEntity(e2);
-    await store.putEntity(e3);
+    it('round-trips entities, facts, and relationships under a tenant', async () => {
+      const e1 = makeEntity({ name: 'Scoped', entity_type: 'person' });
+      const e2 = makeEntity();
+      await scoped.putEntity(e1);
+      await scoped.putEntity(e2);
+      const fact = makeFact({ entity_ids: [e1.id], tags: ['lesson'] });
+      await scoped.putFact(fact);
+      const rel = makeRelationship(e1.id, e2.id);
+      await scoped.putRelationship(rel);
 
-    await store.putRelationship(makeRelationship(e1.id, e2.id));
-    await store.putRelationship(makeRelationship(e3.id, e1.id));
+      expect((await scoped.getEntity(e1.id))!.name).toBe('Scoped');
+      expect(await scoped.findEntities({ entityType: 'person' })).toHaveLength(1);
+      expect(await scoped.findFacts({ tags: ['lesson'] })).toHaveLength(1);
+      expect(await scoped.getRelationshipsForEntity(e1.id, { direction: 'both' })).toHaveLength(1);
+    });
 
-    const outgoing = await store.getRelationshipsForEntity(e1.id, { direction: 'outgoing' });
-    expect(outgoing).toHaveLength(1);
-    expect(outgoing[0].target_id).toBe(e2.id);
+    it('lists tenant-scoped episodes and themes', async () => {
+      await scoped.putEpisode(makeEpisode());
+      await scoped.putTheme(makeTheme());
 
-    const incoming = await store.getRelationshipsForEntity(e1.id, { direction: 'incoming' });
-    expect(incoming).toHaveLength(1);
-    expect(incoming[0].source_id).toBe(e3.id);
+      expect(await scoped.listEpisodes()).toHaveLength(1);
+      expect(await scoped.listThemes()).toHaveLength(1);
+    });
 
-    const both = await store.getRelationshipsForEntity(e1.id, { direction: 'both' });
-    expect(both).toHaveLength(2);
-  });
+    it('clear scoped to a tenant empties that tenant graph', async () => {
+      await scoped.putEntity(makeEntity());
+      await scoped.putFact(makeFact());
 
-  // ── Episode Operations ──
+      await scoped.clear();
 
-  test('putEpisode and getEpisode', async () => {
-    const ep = makeEpisode({ topic: 'Architecture Discussion' });
-    await store.putEpisode(ep);
-
-    const loaded = await store.getEpisode(ep.id);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.topic).toBe('Architecture Discussion');
-    expect(loaded!.messages).toHaveLength(1);
-  });
-
-  test('listEpisodes with pagination', async () => {
-    for (let i = 0; i < 5; i++) {
-      await store.putEpisode(makeEpisode({
-        started_at: new Date(Date.now() - i * 1000),
-        ended_at: new Date(Date.now() - i * 1000),
-      }));
-    }
-
-    const page1 = await store.listEpisodes({ limit: 3, offset: 0 });
-    expect(page1).toHaveLength(3);
-
-    const page2 = await store.listEpisodes({ limit: 3, offset: 3 });
-    expect(page2).toHaveLength(2);
-  });
-
-  // ── Semantic Fact Operations ──
-
-  test('putFact and getFact', async () => {
-    const fact = makeFact({ content: 'Bob leads engineering' });
-    await store.putFact(fact);
-
-    const loaded = await store.getFact(fact.id);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.content).toBe('Bob leads engineering');
-  });
-
-  test('touchFacts increments access_count and sets last_accessed_at; missing ids ignored', async () => {
-    const fact = makeFact({ access_count: 0 });
-    await store.putFact(fact);
-    const at = new Date('2026-01-01T00:00:00Z');
-
-    await store.touchFacts([fact.id, randomUUID()], at);
-    await store.touchFacts([fact.id], at);
-
-    const touched = await store.getFact(fact.id);
-    expect(touched!.access_count).toBe(2);
-    expect(touched!.last_accessed_at).toEqual(at);
-  });
-
-  test('findFacts with theme_id filter', async () => {
-    const theme = makeTheme();
-    await store.putTheme(theme);
-
-    await store.putFact(makeFact({ theme_id: theme.id }));
-    await store.putFact(makeFact({ theme_id: theme.id }));
-    await store.putFact(makeFact());
-
-    const results = await store.findFacts({ themeId: theme.id });
-    expect(results).toHaveLength(2);
-  });
-
-  test('findFacts with entity_id filter (uses join table)', async () => {
-    const entity = makeEntity();
-    await store.putEntity(entity);
-
-    const fact1 = makeFact({ entity_ids: [entity.id] });
-    const fact2 = makeFact({ entity_ids: [entity.id] });
-    const fact3 = makeFact({ entity_ids: [] });
-    await store.putFact(fact1);
-    await store.putFact(fact2);
-    await store.putFact(fact3);
-
-    const results = await store.findFacts({ entityId: entity.id });
-    expect(results).toHaveLength(2);
-  });
-
-  test('putFact updates join table on upsert', async () => {
-    const e1 = makeEntity();
-    const e2 = makeEntity();
-    await store.putEntity(e1);
-    await store.putEntity(e2);
-
-    const fact = makeFact({ entity_ids: [e1.id] });
-    await store.putFact(fact);
-
-    let byE1 = await store.findFacts({ entityId: e1.id });
-    expect(byE1).toHaveLength(1);
-
-    // Update entity_ids to point to e2 instead
-    await store.putFact({ ...fact, entity_ids: [e2.id] });
-
-    byE1 = await store.findFacts({ entityId: e1.id });
-    expect(byE1).toHaveLength(0);
-
-    const byE2 = await store.findFacts({ entityId: e2.id });
-    expect(byE2).toHaveLength(1);
-  });
-
-  // ── Theme Operations ──
-
-  test('putTheme and getTheme', async () => {
-    const theme = makeTheme({ label: 'Architecture' });
-    await store.putTheme(theme);
-
-    const loaded = await store.getTheme(theme.id);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.label).toBe('Architecture');
-  });
-
-  test('listThemes', async () => {
-    await store.putTheme(makeTheme({ label: 'Theme A' }));
-    await store.putTheme(makeTheme({ label: 'Theme B' }));
-
-    const themes = await store.listThemes();
-    expect(themes).toHaveLength(2);
-  });
-
-  // ── Batch Operations ──
-
-  test('batch getEntities with multiple IDs', async () => {
-    const e1 = makeEntity({ name: 'E1' });
-    const e2 = makeEntity({ name: 'E2' });
-    await store.putEntity(e1);
-    await store.putEntity(e2);
-
-    const result = await store.getEntities([e1.id, e2.id]);
-    expect(result.size).toBe(2);
-    expect(result.get(e1.id)!.name).toBe('E1');
-    expect(result.get(e2.id)!.name).toBe('E2');
-  });
-
-  test('batch getFacts with missing IDs silently absent', async () => {
-    const fact = makeFact();
-    await store.putFact(fact);
-
-    const result = await store.getFacts([fact.id, randomUUID()]);
-    expect(result.size).toBe(1);
-    expect(result.has(fact.id)).toBe(true);
-  });
-
-  // ── Lifecycle ──
-
-  test('clear() removes all data', async () => {
-    await store.putEntity(makeEntity());
-    await store.putTheme(makeTheme());
-    await store.putEpisode(makeEpisode());
-    await store.putFact(makeFact());
-
-    await store.clear();
-
-    expect(await store.findEntities()).toHaveLength(0);
-    expect(await store.listThemes()).toHaveLength(0);
-    expect(await store.listEpisodes()).toHaveLength(0);
-    expect(await store.findFacts()).toHaveLength(0);
+      expect(await scoped.findEntities()).toHaveLength(0);
+      expect(await scoped.findFacts()).toHaveLength(0);
+    });
   });
 });

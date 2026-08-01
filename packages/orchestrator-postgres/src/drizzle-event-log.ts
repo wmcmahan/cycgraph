@@ -1,7 +1,9 @@
 /**
  * Drizzle Event Log Writer
  *
- * Production event log writer backed by PostgreSQL.
+ * Durable event log for event-sourced replay: append-only writes with
+ * duplicate-append rejection (split-brain detection), checkpoints with
+ * retention pruning, and optional fenced writers.
  * Implements EventLogWriter from @cycgraph/orchestrator.
  */
 
@@ -136,9 +138,8 @@ export class DrizzleEventLogWriter implements EventLogWriter {
       }
     } catch (error) {
       // A (run_id, sequence_id) unique violation means another writer is
-      // appending to this run — surface it as a sequence conflict instead of
-      // silently dropping the event (the old onConflictDoNothing behavior
-      // masked split-brain executions).
+      // appending to this run — surface it as a sequence conflict rather than
+      // silently dropping the event, which would mask split-brain executions.
       if (isUniqueViolation(error)) {
         throw new EventSequenceConflictError(event.run_id, event.sequence_id);
       }
@@ -212,8 +213,9 @@ export class DrizzleEventLogWriter implements EventLogWriter {
         .limit(this.retainCheckpoints);
 
       if (keepIds.length === this.retainCheckpoints) {
-        // Only prune when we actually have more than the retention count —
-        // skips the DELETE entirely on the first N writes for a run.
+        // keepIds is capped at retainCheckpoints, so fewer means the run has
+        // not reached the retention count yet and nothing older can exist. At
+        // exactly N the DELETE matches no rows; beyond N it prunes the excess.
         await tx
           .delete(workflow_checkpoints)
           .where(

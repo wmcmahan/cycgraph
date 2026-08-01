@@ -1,15 +1,41 @@
 /**
- * DrizzlePersistenceProvider Tests
- *
- * Integration tests against a real Postgres instance.
- * Validates Week 1 fix 1.1 (sort by version) and general CRUD.
+ * Tests for `drizzle-persistence.ts` — the Postgres-backed PersistenceProvider
+ * and the `toWorkflowStateJson` serialization helper.
  */
 
-import { describe, test, expect } from 'vitest';
-import { setupDatabaseTests, isDatabaseAvailable } from './setup.js';
-import { DrizzlePersistenceProvider } from '../src/drizzle-persistence.js';
+import { describe, it, expect } from 'vitest';
+import { setupDatabaseTests, isDatabaseAvailable, seedRun } from './setup.js';
+import { DrizzlePersistenceProvider, toWorkflowStateJson } from '../src/drizzle-persistence.js';
+import { DrizzleEventLogWriter } from '../src/drizzle-event-log.js';
 import { createWorkflowState, createGraph } from '@cycgraph/orchestrator';
 import type { WorkflowState } from '@cycgraph/orchestrator';
+
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+
+describe('toWorkflowStateJson', () => {
+  it('copies the identity and goal fields through unchanged', () => {
+    const workflowId = crypto.randomUUID();
+    const state = createWorkflowState({ workflow_id: workflowId, goal: 'do the thing' });
+
+    const json = toWorkflowStateJson(state);
+
+    expect(json.workflow_id).toBe(workflowId);
+    expect(json.run_id).toBe(state.run_id);
+    expect(json.goal).toBe('do the thing');
+    expect(json.status).toBe(state.status);
+  });
+
+  it('carries the security-critical registries so they survive a round-trip', () => {
+    const state = createWorkflowState({ workflow_id: crypto.randomUUID(), goal: 'g', budget_usd: 5 });
+
+    const json = toWorkflowStateJson(state);
+
+    expect(json.budget_usd).toBe(5);
+    expect('taint_registry' in json).toBe(true);
+    expect('lesson_provenance' in json).toBe(true);
+    expect('state_schema_version' in json).toBe(true);
+  });
+});
 
 describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
   setupDatabaseTests();
@@ -44,30 +70,29 @@ describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
     });
   }
 
-  // ── Graph Operations ──
-
   describe('saveGraph / loadGraph', () => {
-    test('should save and load a graph', async () => {
+    it('saves and loads a graph', async () => {
       const graph = makeGraph();
       await provider.saveGraph(graph);
 
       const loaded = await provider.loadGraph(graph.id);
+
       expect(loaded).not.toBeNull();
       expect(loaded!.name).toBe('Test Graph');
       expect(loaded!.start_node).toBe('start');
     });
 
-    test('should return null for non-existent graph', async () => {
-      const loaded = await provider.loadGraph('00000000-0000-0000-0000-000000000000');
+    it('returns null for a non-existent graph', async () => {
+      const loaded = await provider.loadGraph(NIL_UUID);
+
       expect(loaded).toBeNull();
     });
 
-    test('should upsert on duplicate graph ID', async () => {
+    it('upserts on a duplicate graph id', async () => {
       const graph = makeGraph();
       await provider.saveGraph(graph);
 
-      const updated = { ...graph, name: 'Updated Graph' };
-      await provider.saveGraph(updated);
+      await provider.saveGraph({ ...graph, name: 'Updated Graph' });
 
       const loaded = await provider.loadGraph(graph.id);
       expect(loaded!.name).toBe('Updated Graph');
@@ -75,24 +100,40 @@ describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
   });
 
   describe('listGraphs', () => {
-    test('should list graphs ordered by updated_at descending', async () => {
+    it('lists graphs ordered by updated_at descending', async () => {
       const g1 = makeGraph();
       const g2 = makeGraph();
       await provider.saveGraph(g1);
-      // Small delay to ensure different timestamps
       await new Promise(r => setTimeout(r, 10));
       await provider.saveGraph(g2);
 
       const list = await provider.listGraphs({ limit: 10 });
+
       expect(list.length).toBeGreaterThanOrEqual(2);
-      expect(list[0].id).toBe(g2.id); // Most recent first
+      expect(list[0].id).toBe(g2.id);
     });
   });
 
-  // ── Workflow Run Operations ──
+  describe('deleteGraph', () => {
+    it('deletes an existing graph and returns true', async () => {
+      const graph = makeGraph();
+      await provider.saveGraph(graph);
+
+      const deleted = await provider.deleteGraph(graph.id);
+
+      expect(deleted).toBe(true);
+      expect(await provider.loadGraph(graph.id)).toBeNull();
+    });
+
+    it('returns false when no graph matched', async () => {
+      const deleted = await provider.deleteGraph(NIL_UUID);
+
+      expect(deleted).toBe(false);
+    });
+  });
 
   describe('saveWorkflowRun / loadWorkflowRun', () => {
-    test('should save and load a workflow run', async () => {
+    it('saves and loads a workflow run', async () => {
       const graph = makeGraph();
       await provider.saveGraph(graph);
       const state = makeState(graph.id);
@@ -105,16 +146,77 @@ describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
       expect(loaded!.graph_id).toBe(graph.id);
     });
 
-    test('should return null for non-existent run', async () => {
-      const loaded = await provider.loadWorkflowRun('00000000-0000-0000-0000-000000000000');
+    it('returns null for a non-existent run', async () => {
+      const loaded = await provider.loadWorkflowRun(NIL_UUID);
+
       expect(loaded).toBeNull();
+    });
+
+    it('stamps completed_at when saving a terminal run', async () => {
+      const graph = makeGraph();
+      await provider.saveGraph(graph);
+      const state = makeState(graph.id, { status: 'completed' });
+
+      await provider.saveWorkflowRun(state);
+      const loaded = await provider.loadWorkflowRun(state.run_id);
+
+      expect(loaded!.status).toBe('completed');
+      expect(loaded!.completed_at).toBeInstanceOf(Date);
     });
   });
 
-  // ── Workflow State Operations ──
+  describe('listWorkflowRuns', () => {
+    it('lists runs ordered by created_at descending', async () => {
+      const graph = makeGraph();
+      await provider.saveGraph(graph);
+      const first = makeState(graph.id);
+      await provider.saveWorkflowRun(first);
+      await new Promise(r => setTimeout(r, 10));
+      const second = makeState(graph.id);
+      await provider.saveWorkflowRun(second);
+
+      const runs = await provider.listWorkflowRuns({ limit: 10 });
+
+      expect(runs.length).toBeGreaterThanOrEqual(2);
+      expect(runs[0].id).toBe(second.run_id);
+    });
+  });
+
+  describe('updateRunStatus', () => {
+    it('updates the status and returns the affected row count', async () => {
+      const graph = makeGraph();
+      await provider.saveGraph(graph);
+      const state = makeState(graph.id);
+      await provider.saveWorkflowRun(state);
+
+      const updated = await provider.updateRunStatus(state.run_id, 'running');
+
+      expect(updated).toBe(1);
+      expect((await provider.loadWorkflowRun(state.run_id))!.status).toBe('running');
+    });
+
+    it('stamps completed_at when transitioning to a terminal status', async () => {
+      const graph = makeGraph();
+      await provider.saveGraph(graph);
+      const state = makeState(graph.id);
+      await provider.saveWorkflowRun(state);
+
+      await provider.updateRunStatus(state.run_id, 'completed');
+
+      const loaded = await provider.loadWorkflowRun(state.run_id);
+      expect(loaded!.status).toBe('completed');
+      expect(loaded!.completed_at).toBeInstanceOf(Date);
+    });
+
+    it('returns 0 when no run matched', async () => {
+      const updated = await provider.updateRunStatus(NIL_UUID, 'running');
+
+      expect(updated).toBe(0);
+    });
+  });
 
   describe('saveWorkflowState / loadLatestWorkflowState', () => {
-    test('should save and load latest state', async () => {
+    it('saves and loads the latest state', async () => {
       const graph = makeGraph();
       await provider.saveGraph(graph);
       const state = makeState(graph.id);
@@ -128,37 +230,42 @@ describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
       expect(loaded!.goal).toBe('Test goal');
     });
 
-    test('should return null for non-existent run', async () => {
-      const loaded = await provider.loadLatestWorkflowState('00000000-0000-0000-0000-000000000000');
+    it('returns null for a non-existent run', async () => {
+      const loaded = await provider.loadLatestWorkflowState(NIL_UUID);
+
       expect(loaded).toBeNull();
     });
 
-    /**
-     * Validates fix 1.1: loadLatestWorkflowState sorts by version, not created_at.
-     * Two states saved in the same millisecond should return the higher version.
-     */
-    test('should return highest version regardless of created_at ordering', async () => {
+    it('returns the highest version regardless of created_at ordering', async () => {
       const graph = makeGraph();
       await provider.saveGraph(graph);
       const state1 = makeState(graph.id);
       await provider.saveWorkflowRun(state1);
 
-      // Save first state (version 1)
       await provider.saveWorkflowState(state1);
-
-      // Save second state (version 2) with different memory
-      const state2 = { ...state1, memory: { step: 'second' } };
-      await provider.saveWorkflowState(state2);
+      await provider.saveWorkflowState({ ...state1, memory: { step: 'second' } });
 
       const loaded = await provider.loadLatestWorkflowState(state1.run_id);
-      expect(loaded).not.toBeNull();
-      // The latest version should have step: 'second'
       expect(loaded!.memory?.step).toBe('second');
     });
   });
 
+  describe('saveWorkflowSnapshot', () => {
+    it('creates the run and the first state version atomically', async () => {
+      const graph = makeGraph();
+      await provider.saveGraph(graph);
+      const state = makeState(graph.id);
+
+      await provider.saveWorkflowSnapshot(state);
+
+      expect(await provider.loadWorkflowRun(state.run_id)).not.toBeNull();
+      const loaded = await provider.loadLatestWorkflowState(state.run_id);
+      expect(loaded!.goal).toBe('Test goal');
+    });
+  });
+
   describe('loadWorkflowStateHistory', () => {
-    test('should return state versions in order', async () => {
+    it('returns state versions in ascending order', async () => {
       const graph = makeGraph();
       await provider.saveGraph(graph);
       const state = makeState(graph.id);
@@ -169,6 +276,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
       await provider.saveWorkflowState({ ...state, status: 'completed' as const });
 
       const history = await provider.loadWorkflowStateHistory(state.run_id);
+
       expect(history).toHaveLength(3);
       expect(history[0].version).toBe(1);
       expect(history[2].version).toBe(3);
@@ -176,7 +284,7 @@ describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
   });
 
   describe('loadWorkflowStateAtVersion', () => {
-    test('should return the specific version', async () => {
+    it('returns the specific requested version', async () => {
       const graph = makeGraph();
       await provider.saveGraph(graph);
       const state = makeState(graph.id);
@@ -186,16 +294,38 @@ describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
       await provider.saveWorkflowState({ ...state, memory: { version: 'two' } });
 
       const v1 = await provider.loadWorkflowStateAtVersion(state.run_id, 1);
-      expect(v1).not.toBeNull();
-
       const v2 = await provider.loadWorkflowStateAtVersion(state.run_id, 2);
+
+      expect(v1).not.toBeNull();
       expect(v2).not.toBeNull();
       expect(v2!.memory?.version).toBe('two');
     });
 
-    test('should return null for non-existent version', async () => {
-      const result = await provider.loadWorkflowStateAtVersion('00000000-0000-0000-0000-000000000000', 999);
+    it('returns null for a non-existent version', async () => {
+      const result = await provider.loadWorkflowStateAtVersion(NIL_UUID, 999);
+
       expect(result).toBeNull();
+    });
+  });
+
+  describe('loadEvents', () => {
+    it('loads a run\'s events ordered by sequence id', async () => {
+      const runId = await seedRun(crypto.randomUUID());
+      const writer = new DrizzleEventLogWriter();
+      await writer.append({ run_id: runId, sequence_id: 0, event_type: 'workflow_started' });
+      await writer.append({ run_id: runId, sequence_id: 1, event_type: 'node_started', node_id: 'start' });
+
+      const events = await provider.loadEvents(runId);
+
+      expect(events).toHaveLength(2);
+      expect(events[0].sequence_id).toBe(0);
+      expect(events[1].sequence_id).toBe(1);
+    });
+
+    it('returns an empty array for a run with no events', async () => {
+      const events = await provider.loadEvents(crypto.randomUUID());
+
+      expect(events).toEqual([]);
     });
   });
 });

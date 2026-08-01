@@ -26,11 +26,12 @@
  *     { fencing: { run_id: job.run_id, epoch: job.claim_epoch! } },
  *   );
  *   const runner = new GraphRunner(graph, state, {
- *     persistenceProvider: scope.persistence,
- *     eventLogWriter: scope.eventLog,
- *     usageRecorder: scope.usage,
+ *     persistStateFn: (s) => scope.persistence.saveWorkflowSnapshot(s),
+ *     eventLog: scope.eventLog,
  *     // …memoryRetriever/memoryWriter built over scope.memoryStore/Index/outcomeLedger
  *   });
+ *   // scope.usage / scope.agents / scope.mcpServers wire in through the
+ *   // worker's agent-execution path, not GraphRunnerOptions.
  * }
  * ```
  *

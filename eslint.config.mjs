@@ -14,7 +14,11 @@ export default defineConfig(
     ],
   },
   {
-    files: ['packages/context-engine/**/*.ts'],
+    files: [
+      'packages/context-engine/**/*.ts',
+      'packages/memory/**/*.ts',
+      'packages/orchestrator-postgres/**/*.ts',
+    ],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       parser: tseslint.parser,
@@ -36,7 +40,11 @@ export default defineConfig(
     },
   },
   {
-    files: ['packages/context-engine/**/test/**/*.ts'],
+    files: [
+      'packages/context-engine/**/test/**/*.ts',
+      'packages/memory/**/test/**/*.ts',
+      'packages/orchestrator-postgres/**/test/**/*.ts',
+    ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
     },

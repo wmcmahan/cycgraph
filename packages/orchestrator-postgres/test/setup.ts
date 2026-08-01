@@ -8,7 +8,6 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { sql } from 'drizzle-orm';
 import { getDb, closeDb } from '../src/connection.js';
 import {
   graphs,
@@ -17,7 +16,9 @@ import {
   workflow_events,
   workflow_checkpoints,
   workflow_jobs,
+  usage_records,
   agents,
+  mcp_servers,
   memory_entity_facts,
   memory_facts,
   memory_relationships,
@@ -44,11 +45,13 @@ const TRUNCATABLE_TABLES = [
   run_outcome_facts,
   run_outcomes,
   // Engine tables
+  usage_records,
   workflow_jobs,
   workflow_checkpoints,
   workflow_events,
   workflow_states,
   workflow_runs,
+  mcp_servers,
   graphs,
   agents,
 ] as const;

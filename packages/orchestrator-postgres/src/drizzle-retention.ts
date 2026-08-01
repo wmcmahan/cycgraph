@@ -67,9 +67,9 @@ export class DrizzleRetentionService implements RetentionService {
 
       // Delete COLD runs (archived more than the retention window ago). The FK
       // cascade reclaims their workflow_states, workflow_events (the highest-
-      // volume table), workflow_checkpoints and usage_records in one shot —
-      // previously only workflow_states rows were deleted, so events/usage grew
-      // forever. Batched to bound the delete transaction.
+      // volume table), workflow_checkpoints and usage_records in one shot;
+      // deleting only workflow_states would let events and usage grow forever.
+      // Batched to bound the delete transaction.
       for (;;) {
         const coldRuns = await db
           .select({ id: workflow_runs.id })
@@ -115,8 +115,8 @@ export class DrizzleRetentionService implements RetentionService {
         isNull(workflow_runs.archived_at)
       ));
 
-    // Cold = archived (awaiting deletion by deleteWarmData). Previously
-    // hardcoded to 0, which hid the archived backlog from operators.
+    // Cold = archived (awaiting deletion by deleteWarmData). Counting them
+    // surfaces the archived backlog to operators.
     const coldRuns = await db
       .select({ count: count() })
       .from(workflow_runs)

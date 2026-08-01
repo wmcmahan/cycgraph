@@ -5,7 +5,7 @@
  * instance. No connections are opened at import time — call {@link getDb}
  * once during application startup to warm the pool.
  *
- * @module @cycgraph/orchestrator-postgres
+ * @module @cycgraph/orchestrator-postgres/connection
  */
 
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -82,11 +82,13 @@ function requireDatabaseUrl(): string {
   return connectionString;
 }
 
+/** Returns the lazily-initialised owner connection pool, warming it on first call. */
 export async function getPool(): Promise<pg.Pool> {
   if (!_pool) _pool = await createPoolWithRetry(requireDatabaseUrl());
   return _pool;
 }
 
+/** Returns the owner-role Drizzle instance, opening the pool on first call. */
 export async function getDb(): Promise<ReturnType<typeof drizzle>> {
   if (!_db) _db = drizzle(await getPool(), { schema });
   return _db;
@@ -134,6 +136,7 @@ export async function getPlatformDb(): Promise<ReturnType<typeof drizzle>> {
   return _platformDb;
 }
 
+/** Closes every open pool (platform, app, and owner) and resets the cached instances. */
 export async function closeDb(): Promise<void> {
   if (_platformPool) {
     await _platformPool.end();
@@ -153,6 +156,10 @@ export async function closeDb(): Promise<void> {
   }
 }
 
+/**
+ * Eagerly-typed Drizzle handle for call sites that don't await {@link getDb}.
+ * Throws if accessed before {@link getDb} has initialised the pool.
+ */
 export const db = new Proxy({} as ReturnType<typeof drizzle>, {
   get(_target, prop, receiver) {
     if (!_db) {
@@ -165,12 +172,14 @@ export const db = new Proxy({} as ReturnType<typeof drizzle>, {
   },
 });
 
+/** Snapshot of the owner pool's connection counts. */
 export interface PoolMetrics {
   totalCount: number;
   idleCount: number;
   waitingCount: number;
 }
 
+/** Returns live connection counts for the owner pool. Throws if the pool is not initialised. */
 export function getPoolMetrics(): PoolMetrics {
   if (!_pool) {
     throw new Error(`${TAG} Pool not initialised. Call 'await getDb()' first.`);
