@@ -6,6 +6,7 @@
  *
  * Usage:
  * ```ts
+ * import { WorkflowWorker } from '@cycgraph/orchestrator';
  * import { DrizzleWorkflowQueue, DrizzlePersistenceProvider, DrizzleEventLogWriter, createFencedRunnerOptions } from '@cycgraph/orchestrator-postgres';
  *
  * const worker = new WorkflowWorker({

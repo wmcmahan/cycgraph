@@ -2,7 +2,6 @@
  * Drizzle Persistence Provider
  *
  * Implements PersistenceProvider using Drizzle ORM + PostgreSQL.
- * Moved from libs/orchestrator/src/db/persistence.ts.
  */
 
 import { db } from './connection.js';
@@ -403,7 +402,6 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
       this.tx(async (tx) => {
         await this.assertClaim(tx, state.run_id);
 
-        // Save workflow run
         const isTerminal = TERMINAL_STATUSES.includes(state.status);
         const status = state.status as WorkflowStatus;
 
@@ -424,7 +422,6 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
           },
         });
 
-        // Save workflow state
         const stateJson = toWorkflowStateJson(state);
         const maxVersionResult = await tx
           .select({ maxVersion: sql<number>`COALESCE(MAX(${workflow_states.version}), 0)` })

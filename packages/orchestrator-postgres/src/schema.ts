@@ -283,7 +283,7 @@ export const agents = pgTable('agents', {
   updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   // Agent names are unique *per tenant*, not globally — two tenants may both
-  // have a "Research Agent". (Replaces the old global UNIQUE on name.)
+  // have a "Research Agent". A global UNIQUE on `name` would break that.
   uniqueIndex('uq_agents_tenant_name').on(table.tenant_id, table.name),
 ]);
 

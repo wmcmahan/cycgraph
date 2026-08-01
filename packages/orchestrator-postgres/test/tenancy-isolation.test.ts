@@ -4,15 +4,19 @@
  * The regression guard for the multi-tenancy model: a provider scoped to
  * tenant B must never see, load, or list tenant A's data.
  *
- * NOTE: in the expand phase RLS is NOT yet enabled, so what these tests
- * exercise is the **app-level `tenant_id` filter** — which is exactly the
- * isolation mechanism in force during the expand→enforce window. Once
- * `0018_tenancy_enforce` lands, RLS becomes a second, database-enforced floor
- * underneath these same assertions, so the tests stay valid (and get stronger).
+ * In the expand phase RLS is NOT yet enabled, so what most of these tests
+ * exercise is the app-level `tenant_id` filter — the isolation mechanism in
+ * force during the expand→enforce window. The two `RLS ...` tests switch to the
+ * non-owner `cycgraph_app` role explicitly to validate the database-enforced
+ * floor that `0018_tenancy_enforce` adds underneath the same assertions.
+ *
+ * NAMED CI GATE: run by explicit file path with ISOLATION_GATE=1. The first
+ * test fails loud if that gate ever runs without a live database, so a broken
+ * isolation guarantee cannot pass by silently skipping.
  */
 
 import { randomUUID } from 'node:crypto';
-import { describe, test, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { setupDatabaseTests, isDatabaseAvailable, getDb } from './setup.js';
 import { DrizzlePersistenceProvider } from '../src/drizzle-persistence.js';
 import { DrizzleAgentRegistry } from '../src/drizzle-agent-registry.js';
@@ -25,11 +29,7 @@ import { createWorkflowState, createGraph } from '@cycgraph/orchestrator';
 import type { WorkflowState } from '@cycgraph/orchestrator';
 import type { SemanticFact } from '@cycgraph/memory';
 
-// Release-gate guard (CI `tenant-isolation-gate` sets ISOLATION_GATE=1): the
-// DB-backed isolation suite below MUST actually execute against a real Postgres
-// with RLS applied — fail loudly here rather than let the suite silently skip
-// (which would let a broken isolation guarantee pass the gate). A no-op locally.
-test('isolation gate runs against a live database', () => {
+it('fails loud under ISOLATION_GATE when no live database is configured', () => {
   if (process.env.ISOLATION_GATE === '1') {
     expect(isDatabaseAvailable()).toBe(true);
   }
@@ -56,8 +56,6 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
   });
 
   afterAll(async () => {
-    // Cascade-deletes any rows these tenants still own. Runs before setup's
-    // own afterAll (closeDb) — hooks fire in registration order.
     const db = await getDb();
     await db.delete(tenants).where(inArray(tenants.id, [TENANT_A, TENANT_B]));
   });
@@ -80,34 +78,40 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
     return createWorkflowState({ workflow_id: graphId, goal: 'isolation', ...overrides });
   }
 
-  test('tenant B cannot load tenant A\'s graph', async () => {
+  function makeFact(content: string, tags: string[]): SemanticFact {
+    return {
+      id: randomUUID(),
+      content,
+      source_episode_ids: [],
+      entity_ids: [],
+      provenance: { source: 'system', confidence: 1, created_at: new Date() },
+      valid_from: new Date(),
+      access_count: 0,
+      tags,
+    };
+  }
+
+  it('hides tenant A\'s graph from a provider scoped to tenant B', async () => {
     const graph = makeGraph();
     await providerA.saveGraph(graph);
 
     expect(await providerA.loadGraph(graph.id)).not.toBeNull();
-    // Same id, different tenant — must be invisible.
     expect(await providerB.loadGraph(graph.id)).toBeNull();
   });
 
-  test('tenant B cannot OVERWRITE tenant A\'s graph via a colliding id (upsert clobber guard)', async () => {
-    // `graphs.id` is a caller-supplied global PK and `definition` drives
-    // execution. Tenant B saving with A's id must not clobber A's row.
+  it('does not let tenant B overwrite tenant A\'s graph via a colliding id', async () => {
     const graph = makeGraph();
     await providerA.saveGraph(graph);
-    const original = await providerA.loadGraph(graph.id);
-    expect(original?.name).toBe('Tenant Graph');
+    expect((await providerA.loadGraph(graph.id))?.name).toBe('Tenant Graph');
 
-    // B attempts to hijack the id with a different definition/name.
     const hijack = { ...makeGraph(graph.id), name: 'Hijacked by B' };
     await providerB.saveGraph(hijack);
 
-    // A's graph is unchanged, and B still can't see it.
-    const afterA = await providerA.loadGraph(graph.id);
-    expect(afterA?.name).toBe('Tenant Graph');
+    expect((await providerA.loadGraph(graph.id))?.name).toBe('Tenant Graph');
     expect(await providerB.loadGraph(graph.id)).toBeNull();
   });
 
-  test('tenant B cannot load tenant A\'s run or state', async () => {
+  it('hides tenant A\'s run and state from tenant B', async () => {
     const graph = makeGraph();
     await providerA.saveGraph(graph);
     const state = makeState(graph.id);
@@ -120,7 +124,7 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
     expect(await providerB.loadLatestWorkflowState(state.run_id)).toBeNull();
   });
 
-  test('listWorkflowRuns is scoped to the calling tenant', async () => {
+  it('scopes listWorkflowRuns to the calling tenant', async () => {
     const graphA = makeGraph();
     await providerA.saveGraph(graphA);
     await providerA.saveWorkflowSnapshot(makeState(graphA.id));
@@ -135,11 +139,10 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
     expect(runsA).toHaveLength(1);
     expect(runsB).toHaveLength(1);
     expect(runsA[0].id).not.toBe(runsB[0].id);
-    // Neither list contains the other tenant's run.
     expect(runsA.every((r) => r.id !== runsB[0].id)).toBe(true);
   });
 
-  test('agent registry is tenant-isolated (config must not leak)', async () => {
+  it('isolates agent config so it cannot leak across tenants', async () => {
     const registryA = new DrizzleAgentRegistry({ tenant: { tenant_id: TENANT_A } });
     const registryB = new DrizzleAgentRegistry({ tenant: { tenant_id: TENANT_B } });
 
@@ -155,34 +158,26 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
     expect(await registryA.loadAgent(agentId)).not.toBeNull();
     expect(await registryB.loadAgent(agentId)).toBeNull();
     expect(await registryB.listAgents()).toHaveLength(0);
+  });
 
-    // Same agent name is allowed in a different tenant (per-tenant uniqueness).
+  it('allows the same agent name in a different tenant', async () => {
+    const registryA = new DrizzleAgentRegistry({ tenant: { tenant_id: TENANT_A } });
+    const registryB = new DrizzleAgentRegistry({ tenant: { tenant_id: TENANT_B } });
+
+    const config = {
+      model: 'claude-sonnet-4-20250514',
+      provider: 'anthropic' as const,
+      tools: [],
+      permissions: { sandbox: false, read_keys: [], write_keys: [] },
+    };
+    await registryA.register({ ...config, name: 'Research Agent', system_prompt: 'You research.' });
+
     await expect(
-      registryB.register({
-        name: 'Research Agent',
-        model: 'claude-sonnet-4-20250514',
-        provider: 'anthropic',
-        system_prompt: 'You also research.',
-        tools: [],
-        permissions: { sandbox: false, read_keys: [], write_keys: [] },
-      }),
+      registryB.register({ ...config, name: 'Research Agent', system_prompt: 'You also research.' }),
     ).resolves.toBeTruthy();
   });
 
-  function makeFact(content: string, tags: string[]): SemanticFact {
-    return {
-      id: randomUUID(),
-      content,
-      source_episode_ids: [],
-      entity_ids: [],
-      provenance: { source: 'system', confidence: 1, created_at: new Date() },
-      valid_from: new Date(),
-      access_count: 0,
-      tags,
-    };
-  }
-
-  test('memory facts (lessons) are tenant-isolated, including tag retrieval', async () => {
+  it('isolates memory facts, including tag-filtered retrieval', async () => {
     const storeA = new DrizzleMemoryStore({ tenant: { tenant_id: TENANT_A } });
     const storeB = new DrizzleMemoryStore({ tenant: { tenant_id: TENANT_B } });
 
@@ -192,57 +187,44 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
     expect(await storeA.getFact(fact.id)).not.toBeNull();
     expect(await storeB.getFact(fact.id)).toBeNull();
 
-    // The tag-filtered retrieval path is exactly how lessons get injected into
-    // prompts — it must never surface another tenant's facts.
     expect(await storeA.findFacts({ tags: ['lesson'] })).toHaveLength(1);
     expect(await storeB.findFacts({ tags: ['lesson'] })).toHaveLength(0);
   });
 
-  test('outcome-ledger stats/baseline are tenant-isolated (gate cannot be cross-moved)', async () => {
+  it('isolates outcome-ledger stats and baseline across tenants', async () => {
     const ledgerA = new DrizzleOutcomeLedger({ tenant: { tenant_id: TENANT_A } });
     const ledgerB = new DrizzleOutcomeLedger({ tenant: { tenant_id: TENANT_B } });
     const factId = randomUUID();
 
     await ledgerA.recordOutcome({ run_id: randomUUID(), score: 0.9, fact_ids: [factId] });
 
-    // Tenant A's run evidence must be invisible to tenant B's gate.
     expect((await ledgerA.getFactStats(factId))?.trials).toBe(1);
     expect(await ledgerB.getFactStats(factId)).toBeNull();
     expect((await ledgerA.getBaseline()).runs).toBe(1);
     expect((await ledgerB.getBaseline()).runs).toBe(0);
   });
 
-  test('RLS hides cross-tenant rows when querying as the app role (0018)', async () => {
-    // Seed a graph for tenant A. In CI (no APP_DATABASE_URL) this writes as the
-    // owner, which bypasses non-forced RLS — that's the point: the *enforcement*
-    // is validated below by switching to the RLS-subject role explicitly.
+  it('hides cross-tenant rows via RLS when querying as the app role (0018)', async () => {
     const providerA = new DrizzlePersistenceProvider({ tenant: { tenant_id: TENANT_A } });
     const graph = makeGraph();
     await providerA.saveGraph(graph);
 
     const db = await getDb();
     await db.transaction(async (tx) => {
-      // Become the non-owner, RLS-subject role for this transaction only.
-      // (The DB superuser can SET ROLE to any role; resets at commit.)
       await tx.execute(sql`set local role cycgraph_app`);
 
-      // Raw query, NO app-level tenant filter — so this isolates *only* if the
-      // RLS policy is doing the work. Under tenant B's GUC, A's row is hidden.
       await tx.execute(sql`select set_config('app.tenant_id', ${TENANT_B}, true)`);
       const asB = await tx.execute(sql`select id from graphs where id = ${graph.id}`);
       expect(asB.rows).toHaveLength(0);
 
-      // Under tenant A's GUC, the same row is visible.
       await tx.execute(sql`select set_config('app.tenant_id', ${TENANT_A}, true)`);
       const asA = await tx.execute(sql`select id from graphs where id = ${graph.id}`);
       expect(asA.rows).toHaveLength(1);
     });
   });
 
-  test('RLS WITH CHECK rejects an insert that lacks a tenant context (0018)', async () => {
+  it('rejects via RLS WITH CHECK an insert that lacks a tenant context (0018)', async () => {
     const db = await getDb();
-    // As the app role with NO app.tenant_id set, current_setting is NULL, so the
-    // WITH CHECK fails — an unscoped write cannot silently land anywhere.
     await expect(
       db.transaction(async (tx) => {
         await tx.execute(sql`set local role cycgraph_app`);
@@ -254,7 +236,7 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
     ).rejects.toThrow();
   });
 
-  test('createTenantScope wires a fully tenant-isolated adapter set', async () => {
+  it('wires a fully tenant-isolated adapter set via createTenantScope', async () => {
     const scopeA = createTenantScope({ tenant_id: TENANT_A });
     const scopeB = createTenantScope({ tenant_id: TENANT_B });
 
@@ -264,7 +246,6 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
     await scopeA.persistence.saveWorkflowSnapshot(state);
     await scopeA.memoryStore.putFact(makeFact('scope lesson', ['lesson']));
 
-    // Adapters built by the factory isolate exactly like hand-constructed ones.
     expect(await scopeA.persistence.loadWorkflowRun(state.run_id)).not.toBeNull();
     expect(await scopeB.persistence.loadGraph(graph.id)).toBeNull();
     expect(await scopeB.persistence.loadWorkflowRun(state.run_id)).toBeNull();
@@ -272,13 +253,12 @@ describe.skipIf(!isDatabaseAvailable())('Cross-tenant isolation', () => {
     expect(await scopeA.memoryStore.findFacts({ tags: ['lesson'] })).toHaveLength(1);
   });
 
-  test('a single-tenant (unscoped) provider still works and sees the seed tenant', async () => {
-    // Backward-compat: no tenant option → seed-tenant default, no filter.
+  it('keeps the seed tenant visible to an unscoped provider and hidden from scoped ones', async () => {
     const legacy = new DrizzlePersistenceProvider();
     const graph = makeGraph();
     await legacy.saveGraph(graph);
+
     expect(await legacy.loadGraph(graph.id)).not.toBeNull();
-    // The tenant-scoped providers must not see the seed tenant's row.
     expect(await providerA.loadGraph(graph.id)).toBeNull();
   });
 });
