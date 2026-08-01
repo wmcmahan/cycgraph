@@ -16,6 +16,7 @@ import type { PromptSegment } from '../pipeline/types.js';
 import { fnv1a } from '../memory/dedup/exact.js';
 import { resolveModelProfile } from '../routing/model-profiles.js';
 
+/** Options controlling which segments {@link applyCachePolicy} marks as locked. */
 export interface CachePolicyOptions {
   /** Lock segments with role 'system' (default true). */
   lockSystem?: boolean;

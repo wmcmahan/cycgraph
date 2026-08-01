@@ -1,55 +1,38 @@
+/**
+ * Tests for createPipeline (pipeline/pipeline.ts) and the metric utilities
+ * it reports through: computeStageMetrics, aggregateMetrics, formatMetricsSummary.
+ */
+
 import { describe, it, expect } from 'vitest';
 import { createPipeline } from '../src/pipeline/pipeline.js';
-import type { CompressionStage, PromptSegment, StageContext, BudgetConfig } from '../src/pipeline/types.js';
+import type { CompressionStage, PromptSegment, BudgetConfig } from '../src/pipeline/types.js';
 import { computeStageMetrics, aggregateMetrics, formatMetricsSummary } from '../src/pipeline/metrics.js';
-
-// --- Test helpers ---
-
-function makeSegment(overrides: Partial<PromptSegment> & { id: string; content: string }): PromptSegment {
-  return {
-    role: 'memory',
-    priority: 1,
-    locked: false,
-    ...overrides,
-  };
-}
+import { seg } from './helpers.js';
 
 function makeBudget(overrides?: Partial<BudgetConfig>): BudgetConfig {
-  return {
-    maxTokens: 4096,
-    outputReserve: 0,
-    ...overrides,
-  };
+  return { maxTokens: 4096, outputReserve: 0, ...overrides };
 }
 
-/** Stage that removes all whitespace from content (simple compressor). */
 function createWhitespaceRemover(): CompressionStage {
   return {
     name: 'whitespace-remover',
     execute(segments: PromptSegment[]) {
       return {
-        segments: segments.map(s => ({
-          ...s,
-          content: s.content.replace(/\s+/g, ' ').trim(),
-        })),
+        segments: segments.map(s => ({ ...s, content: s.content.replace(/\s+/g, ' ').trim() })),
       };
     },
   };
 }
 
-/** Stage that uppercases content (for ordering verification). */
 function createUppercaser(): CompressionStage {
   return {
     name: 'uppercaser',
     execute(segments: PromptSegment[]) {
-      return {
-        segments: segments.map(s => ({ ...s, content: s.content.toUpperCase() })),
-      };
+      return { segments: segments.map(s => ({ ...s, content: s.content.toUpperCase() })) };
     },
   };
 }
 
-/** Stage that always throws. */
 function createFailingStage(): CompressionStage {
   return {
     name: 'failing-stage',
@@ -59,7 +42,6 @@ function createFailingStage(): CompressionStage {
   };
 }
 
-/** Stage that drops segments by id. */
 function createDroppingStage(idsToDrop: string[]): CompressionStage {
   return {
     name: 'dropping-stage',
@@ -69,7 +51,6 @@ function createDroppingStage(idsToDrop: string[]): CompressionStage {
   };
 }
 
-/** Stage that appends a new segment. */
 function createAddingStage(segment: PromptSegment): CompressionStage {
   return {
     name: 'adding-stage',
@@ -79,13 +60,11 @@ function createAddingStage(segment: PromptSegment): CompressionStage {
   };
 }
 
-// --- Tests ---
-
 describe('createPipeline', () => {
   it('passes segments through unchanged with no stages', () => {
     const pipeline = createPipeline({ stages: [] });
-    const segments = [makeSegment({ id: 'a', content: 'hello world' })];
-    const result = pipeline.compress({ segments, budget: makeBudget() });
+
+    const result = pipeline.compress({ segments: [seg('a', 'hello world')], budget: makeBudget() });
 
     expect(result.segments).toHaveLength(1);
     expect(result.segments[0].content).toBe('hello world');
@@ -94,88 +73,117 @@ describe('createPipeline', () => {
 
   it('applies a single stage', () => {
     const pipeline = createPipeline({ stages: [createWhitespaceRemover()] });
-    const segments = [makeSegment({ id: 'a', content: 'hello    world    foo' })];
-    const result = pipeline.compress({ segments, budget: makeBudget() });
+
+    const result = pipeline.compress({ segments: [seg('a', 'hello    world    foo')], budget: makeBudget() });
 
     expect(result.segments[0].content).toBe('hello world foo');
   });
 
-  it('applies multiple stages in order', () => {
-    const pipeline = createPipeline({
-      stages: [createWhitespaceRemover(), createUppercaser()],
-    });
-    const segments = [makeSegment({ id: 'a', content: 'hello    world' })];
-    const result = pipeline.compress({ segments, budget: makeBudget() });
+  it('applies multiple stages in configured order', () => {
+    const pipeline = createPipeline({ stages: [createWhitespaceRemover(), createUppercaser()] });
 
-    // Whitespace removed first, then uppercased
+    const result = pipeline.compress({ segments: [seg('a', 'hello    world')], budget: makeBudget() });
+
     expect(result.segments[0].content).toBe('HELLO WORLD');
-    expect(result.metrics.stages).toHaveLength(2);
-    expect(result.metrics.stages[0].name).toBe('whitespace-remover');
-    expect(result.metrics.stages[1].name).toBe('uppercaser');
+    expect(result.metrics.stages.map(s => s.name)).toEqual(['whitespace-remover', 'uppercaser']);
   });
 
   it('skips locked segments during compression', () => {
     const pipeline = createPipeline({ stages: [createUppercaser()] });
-    const segments = [
-      makeSegment({ id: 'sys', content: 'system prompt', locked: true }),
-      makeSegment({ id: 'mem', content: 'memory data' }),
-    ];
+    const segments = [seg('sys', 'system prompt', 'system', { locked: true }), seg('mem', 'memory data')];
+
     const result = pipeline.compress({ segments, budget: makeBudget() });
 
-    expect(result.segments[0].content).toBe('system prompt'); // unchanged
-    expect(result.segments[1].content).toBe('MEMORY DATA'); // compressed
+    expect(result.segments[0].content).toBe('system prompt');
+    expect(result.segments[1].content).toBe('MEMORY DATA');
   });
 
   it('preserves original segment order after recombination', () => {
     const pipeline = createPipeline({ stages: [createUppercaser()] });
     const segments = [
-      makeSegment({ id: 'a', content: 'first', locked: true }),
-      makeSegment({ id: 'b', content: 'second' }),
-      makeSegment({ id: 'c', content: 'third', locked: true }),
-      makeSegment({ id: 'd', content: 'fourth' }),
+      seg('a', 'first', 'memory', { locked: true }),
+      seg('b', 'second'),
+      seg('c', 'third', 'memory', { locked: true }),
+      seg('d', 'fourth'),
     ];
+
     const result = pipeline.compress({ segments, budget: makeBudget() });
 
     expect(result.segments.map(s => s.id)).toEqual(['a', 'b', 'c', 'd']);
-    expect(result.segments[0].content).toBe('first');   // locked
-    expect(result.segments[1].content).toBe('SECOND');  // compressed
-    expect(result.segments[2].content).toBe('third');   // locked
-    expect(result.segments[3].content).toBe('FOURTH');  // compressed
+    expect(result.segments.map(s => s.content)).toEqual(['first', 'SECOND', 'third', 'FOURTH']);
   });
 
-  it('handles graceful degradation when a stage throws', () => {
-    const pipeline = createPipeline({
-      stages: [createFailingStage(), createUppercaser()],
-    });
-    const segments = [makeSegment({ id: 'a', content: 'hello' })];
-    const result = pipeline.compress({ segments, budget: makeBudget() });
+  it('passes a stage through and continues when it throws', () => {
+    const pipeline = createPipeline({ stages: [createFailingStage(), createUppercaser()] });
 
-    // Failing stage passed through, uppercaser still ran
+    const result = pipeline.compress({ segments: [seg('a', 'hello')], budget: makeBudget() });
+
     expect(result.segments[0].content).toBe('HELLO');
     expect(result.metrics.stages[0].error).toBe(true);
     expect(result.metrics.stages[0].tokensIn).toBe(result.metrics.stages[0].tokensOut);
     expect(result.metrics.stages[1].error).toBeUndefined();
   });
 
-  it('builds source map in debug mode', () => {
+  it('warns with the error message when a stage throws an Error', () => {
+    const warnings: string[] = [];
     const pipeline = createPipeline({
-      stages: [createUppercaser()],
-      debug: true,
+      stages: [createFailingStage()],
+      logger: { warn: m => warnings.push(m) },
     });
-    const segments = [makeSegment({ id: 'a', content: 'hello' })];
-    const result = pipeline.compress({ segments, budget: makeBudget() });
 
-    expect(result.sourceMap).toBeDefined();
-    expect(result.sourceMap).toHaveLength(1);
-    expect(result.sourceMap![0].segmentId).toBe('a');
-    expect(result.sourceMap![0].original).toBe('hello');
-    expect(result.sourceMap![0].compressed).toBe('HELLO');
+    pipeline.compress({ segments: [seg('a', 'hi')], budget: makeBudget() });
+
+    expect(warnings.some(w => w.includes('Stage failed'))).toBe(true);
   });
 
-  it('does not build source map when debug is off', () => {
+  it('warns with the stringified reason when a stage throws a non-Error value', () => {
+    const warnings: string[] = [];
+    const stringThrower: CompressionStage = {
+      name: 'string-thrower',
+      execute() {
+        throw 'boom';
+      },
+    };
+    const pipeline = createPipeline({ stages: [stringThrower], logger: { warn: m => warnings.push(m) } });
+
+    const result = pipeline.compress({ segments: [seg('a', 'hi')], budget: makeBudget() });
+
+    expect(result.segments[0].content).toBe('hi');
+    expect(result.metrics.stages[0].error).toBe(true);
+    expect(warnings.some(w => w.includes('boom'))).toBe(true);
+  });
+
+  it('skips remaining stages and warns when the pipeline timeout is already exceeded', () => {
+    const ALREADY_EXPIRED_MS = -1;
+    const warnings: string[] = [];
+    const pipeline = createPipeline({
+      stages: [createUppercaser()],
+      timeoutMs: ALREADY_EXPIRED_MS,
+      logger: { warn: m => warnings.push(m) },
+    });
+
+    const result = pipeline.compress({ segments: [seg('a', 'hello')], budget: makeBudget() });
+
+    expect(result.segments[0].content).toBe('hello');
+    expect(result.metrics.stages.some(s => s.name === 'uppercaser')).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('timeout');
+    expect(warnings[0]).toContain('uppercaser');
+  });
+
+  it('builds a source map entry per mutable segment in debug mode', () => {
+    const pipeline = createPipeline({ stages: [createUppercaser()], debug: true });
+
+    const result = pipeline.compress({ segments: [seg('a', 'hello')], budget: makeBudget() });
+
+    expect(result.sourceMap).toHaveLength(1);
+    expect(result.sourceMap![0]).toMatchObject({ segmentId: 'a', original: 'hello', compressed: 'HELLO' });
+  });
+
+  it('omits the source map when debug is off', () => {
     const pipeline = createPipeline({ stages: [createUppercaser()] });
-    const segments = [makeSegment({ id: 'a', content: 'hello' })];
-    const result = pipeline.compress({ segments, budget: makeBudget() });
+
+    const result = pipeline.compress({ segments: [seg('a', 'hello')], budget: makeBudget() });
 
     expect(result.sourceMap).toBeUndefined();
   });
@@ -185,10 +193,8 @@ describe('createPipeline', () => {
       stages: [createWhitespaceRemover(), createUppercaser()],
       debug: true,
     });
-    const segments = [
-      makeSegment({ id: 'a', content: 'hello    world' }), // changed by both
-      makeSegment({ id: 'b', content: 'CLEAN' }),          // changed by neither
-    ];
+    const segments = [seg('a', 'hello    world'), seg('b', 'CLEAN')];
+
     const result = pipeline.compress({ segments, budget: makeBudget() });
 
     const a = result.sourceMap!.find(e => e.segmentId === 'a')!;
@@ -202,51 +208,38 @@ describe('createPipeline', () => {
       stages: [createDroppingStage(['b']), createUppercaser()],
       debug: true,
     });
-    const segments = [
-      makeSegment({ id: 'a', content: 'keep' }),
-      makeSegment({ id: 'b', content: 'drop me' }),
-    ];
+    const segments = [seg('a', 'keep'), seg('b', 'drop me')];
+
     const result = pipeline.compress({ segments, budget: makeBudget() });
 
-    // The dropped segment is NOT resurrected in the output
     expect(result.segments.map(s => s.id)).toEqual(['a']);
     expect(result.segments[0].content).toBe('KEEP');
 
     const b = result.sourceMap!.find(e => e.segmentId === 'b')!;
-    expect(b.removed).toBe(true);
-    expect(b.removedBy).toBe('dropping-stage');
-    expect(b.original).toBe('drop me');
-    expect(b.compressed).toBe('');
+    expect(b).toMatchObject({ removed: true, removedBy: 'dropping-stage', original: 'drop me', compressed: '' });
   });
 
-  it('marks stage-added segments in the source map and includes them in output', () => {
-    const added = makeSegment({ id: 'summary', content: 'a summary' });
+  it('marks stage-added segments in the source map and appends them to output', () => {
+    const added = seg('summary', 'a summary');
     const pipeline = createPipeline({
       stages: [createAddingStage(added), createUppercaser()],
       debug: true,
     });
-    const segments = [makeSegment({ id: 'a', content: 'original' })];
-    const result = pipeline.compress({ segments, budget: makeBudget() });
+
+    const result = pipeline.compress({ segments: [seg('a', 'original')], budget: makeBudget() });
 
     expect(result.segments.map(s => s.id)).toEqual(['a', 'summary']);
     expect(result.segments[1].content).toBe('A SUMMARY');
 
     const entry = result.sourceMap!.find(e => e.segmentId === 'summary')!;
-    expect(entry.addedBy).toBe('adding-stage');
-    expect(entry.original).toBe('');
-    expect(entry.compressed).toBe('A SUMMARY');
+    expect(entry).toMatchObject({ addedBy: 'adding-stage', original: '', compressed: 'A SUMMARY' });
     expect(entry.changedBy).toEqual(['uppercaser']);
   });
 
-  it('excludes locked segments from debug source map', () => {
-    const pipeline = createPipeline({
-      stages: [createUppercaser()],
-      debug: true,
-    });
-    const segments = [
-      makeSegment({ id: 'sys', content: 'locked', locked: true }),
-      makeSegment({ id: 'mem', content: 'mutable' }),
-    ];
+  it('excludes locked segments from the debug source map', () => {
+    const pipeline = createPipeline({ stages: [createUppercaser()], debug: true });
+    const segments = [seg('sys', 'locked', 'system', { locked: true }), seg('mem', 'mutable')];
+
     const result = pipeline.compress({ segments, budget: makeBudget() });
 
     expect(result.sourceMap).toHaveLength(1);
@@ -255,14 +248,10 @@ describe('createPipeline', () => {
 
   it('warns when the budget exceeds the model context window', () => {
     const warnings: string[] = [];
-    const pipeline = createPipeline({
-      stages: [],
-      logger: { warn: m => warnings.push(m) },
-    });
+    const pipeline = createPipeline({ stages: [], logger: { warn: m => warnings.push(m) } });
 
-    // gemma profile: 8192-token context window
     pipeline.compress({
-      segments: [makeSegment({ id: 'a', content: 'hello' })],
+      segments: [seg('a', 'hello')],
       budget: makeBudget({ maxTokens: 100_000 }),
       model: 'gemma-2-9b',
     });
@@ -281,10 +270,10 @@ describe('createPipeline', () => {
         return { segments };
       },
     };
-
     const pipeline = createPipeline({ stages: [querySpy] });
+
     pipeline.compress({
-      segments: [makeSegment({ id: 'a', content: 'hello' })],
+      segments: [seg('a', 'hello')],
       budget: makeBudget(),
       query: 'What is the launch date?',
     });
@@ -293,6 +282,8 @@ describe('createPipeline', () => {
   });
 
   it('subtracts locked segment tokens from the budget stages receive', () => {
+    const LOCKED_CHARS = 40;
+    const CHARS_PER_TOKEN = 4;
     let seenMaxTokens: number | undefined;
     const budgetSpy: CompressionStage = {
       name: 'budget-spy',
@@ -301,85 +292,109 @@ describe('createPipeline', () => {
         return { segments };
       },
     };
-
     const pipeline = createPipeline({ stages: [budgetSpy] });
-    // DefaultTokenCounter with no model: 4 chars/token → 40 chars = 10 tokens
-    const segments = [
-      makeSegment({ id: 'sys', content: 'x'.repeat(40), locked: true }),
-      makeSegment({ id: 'mem', content: 'mutable' }),
-    ];
+    const segments = [seg('sys', 'x'.repeat(LOCKED_CHARS), 'system', { locked: true }), seg('mem', 'mutable')];
+
     pipeline.compress({ segments, budget: makeBudget({ maxTokens: 100 }) });
 
-    expect(seenMaxTokens).toBe(90);
+    expect(seenMaxTokens).toBe(100 - LOCKED_CHARS / CHARS_PER_TOKEN);
   });
 
-  it('validates budget config with zod', () => {
+  it('rejects an invalid budget via zod', () => {
     const pipeline = createPipeline({ stages: [] });
-    const segments = [makeSegment({ id: 'a', content: 'hello' })];
 
     expect(() =>
       pipeline.compress({
-        segments,
+        segments: [seg('a', 'hello')],
         budget: { maxTokens: -1, outputReserve: 0 } as BudgetConfig,
       }),
     ).toThrow();
   });
 
-  it('reports correct overall metrics', () => {
+  it('reports a positive reduction when a stage shrinks content', () => {
     const pipeline = createPipeline({ stages: [createWhitespaceRemover()] });
-    const segments = [
-      makeSegment({ id: 'a', content: 'hello     world     foo     bar' }),
-    ];
-    const result = pipeline.compress({ segments, budget: makeBudget() });
+
+    const result = pipeline.compress({
+      segments: [seg('a', 'hello     world     foo     bar')],
+      budget: makeBudget(),
+    });
 
     expect(result.metrics.totalTokensIn).toBeGreaterThan(0);
-    expect(result.metrics.totalTokensOut).toBeLessThanOrEqual(result.metrics.totalTokensIn);
-    expect(result.metrics.reductionPercent).toBeGreaterThanOrEqual(0);
+    expect(result.metrics.totalTokensOut).toBeLessThan(result.metrics.totalTokensIn);
+    expect(result.metrics.reductionPercent).toBeGreaterThan(0);
     expect(result.metrics.totalDurationMs).toBeGreaterThanOrEqual(0);
   });
 });
 
 describe('computeStageMetrics', () => {
-  it('computes ratio correctly', () => {
+  it('computes the ratio from input and output tokens', () => {
     const m = computeStageMetrics('test', 100, 60, 5.0);
-    expect(m.ratio).toBe(0.6);
-    expect(m.name).toBe('test');
-    expect(m.durationMs).toBe(5.0);
+
+    expect(m).toMatchObject({ name: 'test', tokensIn: 100, tokensOut: 60, ratio: 0.6, durationMs: 5.0 });
   });
 
-  it('handles zero input tokens', () => {
+  it('reports a ratio of 1.0 when input tokens are zero', () => {
     const m = computeStageMetrics('test', 0, 0, 1.0);
+
     expect(m.ratio).toBe(1.0);
   });
 });
 
 describe('aggregateMetrics', () => {
-  it('aggregates multiple stages', () => {
-    const stages = [
+  it('carries first-stage input and last-stage output into the totals', () => {
+    const agg = aggregateMetrics([
       computeStageMetrics('a', 100, 80, 2.0),
       computeStageMetrics('b', 80, 50, 3.0),
-    ];
-    const agg = aggregateMetrics(stages);
+    ]);
 
-    expect(agg.totalTokensIn).toBe(100);
-    expect(agg.totalTokensOut).toBe(50);
-    expect(agg.reductionPercent).toBe(50);
-    expect(agg.totalDurationMs).toBe(5.0);
+    expect(agg).toMatchObject({
+      totalTokensIn: 100,
+      totalTokensOut: 50,
+      reductionPercent: 50,
+      totalDurationMs: 5.0,
+    });
     expect(agg.stages).toHaveLength(2);
+  });
+
+  it('returns zeroed totals with a passthrough ratio for an empty stage list', () => {
+    const agg = aggregateMetrics([]);
+
+    expect(agg).toMatchObject({
+      totalTokensIn: 0,
+      totalTokensOut: 0,
+      overallRatio: 1.0,
+      reductionPercent: 0,
+      totalDurationMs: 0,
+    });
+    expect(agg.stages).toEqual([]);
   });
 });
 
 describe('formatMetricsSummary', () => {
-  it('produces readable output', () => {
-    const agg = aggregateMetrics([
-      computeStageMetrics('format', 1000, 700, 2.5),
-      computeStageMetrics('dedup', 700, 600, 1.2),
-    ]);
-    const summary = formatMetricsSummary(agg);
+  it('renders the totals line and one line per stage', () => {
+    const summary = formatMetricsSummary(
+      aggregateMetrics([
+        computeStageMetrics('format', 1000, 700, 2.5),
+        computeStageMetrics('dedup', 700, 600, 1.2),
+      ]),
+    );
 
-    expect(summary).toContain('1000');
-    expect(summary).toContain('600');
-    expect(summary).toContain('format');
-    expect(summary).toContain('dedup');
+    const lines = summary.split('\n');
+    expect(lines[0]).toContain('1000 → 600 tokens');
+    expect(lines[1]).toContain('format: 1000 → 700');
+    expect(lines[2]).toContain('dedup: 700 → 600');
+  });
+
+  it('flags only the stages that errored and passed through', () => {
+    const summary = formatMetricsSummary(
+      aggregateMetrics([
+        computeStageMetrics('ok', 100, 80, 1.0),
+        computeStageMetrics('broken', 80, 80, 1.0, true),
+      ]),
+    );
+
+    const lines = summary.split('\n');
+    expect(lines[1]).not.toContain('[error');
+    expect(lines[2]).toContain('[error: passthrough]');
   });
 });

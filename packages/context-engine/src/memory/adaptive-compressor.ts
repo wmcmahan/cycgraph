@@ -2,8 +2,8 @@
  * Adaptive Memory Compressor
  *
  * A CompressionStage that intelligently prioritizes memory content
- * based on hierarchy signals: theme size, fact recency, and optional
- * query relevance. Operates only on segments with role 'memory'.
+ * based on hierarchy signals: theme size and fact recency. Operates
+ * only on segments with role 'memory'.
  *
  * @module memory/adaptive-compressor
  */
@@ -86,16 +86,12 @@ export function createAdaptiveMemoryStage(options?: AdaptiveCompressionOptions):
 
     execute(segments: PromptSegment[], _context: StageContext): StageResult {
       const processed = segments.map((segment) => {
-        // Only process memory segments
         if (segment.role !== 'memory') return segment;
 
-        // Skip locked segments
         if (segment.locked) return segment;
 
-        // Skip short content
         if (segment.content.length < minContentLength) return segment;
 
-        // Try to parse as JSON
         let rawData: unknown;
         try {
           rawData = JSON.parse(segment.content);
@@ -119,16 +115,13 @@ export function createAdaptiveMemoryStage(options?: AdaptiveCompressionOptions):
         const themes = data.themes ?? [];
         const facts = data.facts ?? [];
 
-        // If no facts, pass through
         if (facts.length === 0) return segment;
 
-        // Build theme-size map: themeId → number of fact_ids
         const themeSizeMap = new Map<string, number>();
         for (const theme of themes) {
           themeSizeMap.set(theme.id, theme.fact_ids?.length ?? 0);
         }
 
-        // Build fact → theme mapping
         const factThemeMap = new Map<string, string>();
         for (const theme of themes) {
           for (const factId of theme.fact_ids ?? []) {
@@ -139,7 +132,6 @@ export function createAdaptiveMemoryStage(options?: AdaptiveCompressionOptions):
         const now = Date.now();
         const recencyCutoff = now - recencyBoostDays * 24 * 60 * 60 * 1000;
 
-        // Score each fact
         const scoredFacts = facts.map((fact) => {
           const themeId = fact.theme_id as string | undefined ?? factThemeMap.get(fact.id);
           const themeSize = themeId ? (themeSizeMap.get(themeId) ?? 1) : 1;
@@ -147,7 +139,6 @@ export function createAdaptiveMemoryStage(options?: AdaptiveCompressionOptions):
           // Base priority: theme size (larger themes = more important facts)
           let priority = themeSize;
 
-          // Recency boost
           const validFrom = fact.valid_from instanceof Date
             ? fact.valid_from.getTime()
             : new Date(fact.valid_from).getTime();
@@ -159,7 +150,6 @@ export function createAdaptiveMemoryStage(options?: AdaptiveCompressionOptions):
           return { fact, priority, themeId };
         });
 
-        // Truncate per theme: keep only maxFactsPerTheme per theme
         const themeFactCounts = new Map<string, number>();
         // Sort by priority descending first so we keep the best ones
         scoredFacts.sort((a, b) => b.priority - a.priority);
@@ -177,7 +167,6 @@ export function createAdaptiveMemoryStage(options?: AdaptiveCompressionOptions):
         // Already sorted by priority descending from above
         const reorderedFacts = keptFacts.map((item) => item.fact);
 
-        // Rebuild the structure with reordered/truncated facts
         const output: MemoryStructure = { ...data };
         output.facts = reorderedFacts;
 

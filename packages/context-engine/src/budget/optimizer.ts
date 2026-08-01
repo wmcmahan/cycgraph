@@ -21,8 +21,10 @@ import { createHierarchyFormatterStage } from '../memory/hierarchy/hierarchy-for
 import { createGraphSerializerStage } from '../memory/graph/serializer.js';
 import { createFormatSelectorStage } from '../routing/format-selector.js';
 
+/** Named quality/latency tier for {@link createOptimizedPipeline}. */
 export type PipelinePreset = 'fast' | 'balanced' | 'maximum';
 
+/** Options for {@link createOptimizedPipeline}. */
 export interface OptimizerOptions {
   /** Pipeline preset (default: auto-select from maxLatencyMs or 'balanced'). */
   preset?: PipelinePreset;
@@ -81,7 +83,7 @@ export interface OptimizedPipeline {
  * Presets:
  * - `fast`: format + exact dedup + allocator (~2-5ms)
  * - `balanced`: fast + fuzzy dedup + heuristic pruning + CoT distillation (~10-20ms)
- * - `maximum`: balanced + hierarchy/graph formatters + format selector + allocator (~50-200ms)
+ * - `maximum`: balanced + hierarchy/graph formatters + format selector (~50-200ms)
  *
  * Note: Semantic dedup and self-information pruning require pre-computed
  * embeddings/scores and are not included in presets. Use `createPipeline`

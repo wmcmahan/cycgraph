@@ -60,7 +60,6 @@ export function selectFormat(model?: string, options?: FormatSelectorOptions): F
   const profile = resolveProfile(model, options?.customProfiles);
 
   if (!profile) {
-    // No profile — fall back to auto-detect
     return { dataShape: 'auto', useCompactJson: false };
   }
 
@@ -72,7 +71,6 @@ export function selectFormat(model?: string, options?: FormatSelectorOptions): F
     return { dataShape: 'nested', useCompactJson: false };
   }
 
-  // Full support — use auto-detect
   return { dataShape: 'auto', useCompactJson: false };
 }
 
@@ -113,7 +111,6 @@ export function createFormatSelectorStage(options?: FormatSelectorOptions): Comp
               return { ...seg, content: serialize(parsed, { forceShape: 'nested' }) };
             }
 
-            // Auto-detect shape
             const shape = detectShape(parsed);
             return { ...seg, content: serialize(parsed, { forceShape: shape }) };
           } catch {

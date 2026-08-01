@@ -1,7 +1,7 @@
 /**
  * Heuristic Token Scorer
  *
- * Rule-based importance scoring using six weighted heuristics.
+ * Rule-based importance scoring using seven weighted heuristics.
  * No ML required — pure TypeScript string analysis.
  *
  * Rules:
@@ -11,6 +11,11 @@
  * 4. Frequency penalty (cross-segment repetition penalized)
  * 5. Named entity boost (capitalized words, numbers, URLs score high)
  * 6. Structural marker boost (headers, list markers, key-value colons)
+ * 7. Query relevance boost (active only when a query is supplied; the base
+ *    weights scale down to make room for it)
+ *
+ * Negation/polarity words are additionally marked `protected` so the pruner
+ * never drops them regardless of score.
  *
  * @module pruning/heuristic
  */
@@ -132,6 +137,12 @@ const ENTITY_PATTERNS = [
   /^\$[\d.,]+/, // Dollar amounts
 ];
 
+/** Query-relevance context window: this many words on each side of the scored token. */
+const QUERY_CONTEXT_WINDOW_WORDS = 5;
+
+/** `content.split(/(\s+)/)` yields alternating word/whitespace parts, so one word spans two parts. */
+const PARTS_PER_WORD = 2;
+
 const STRUCTURAL_PATTERNS = [
   /^#{1,6}\s/, // Markdown headers
   /^[-*+]\s/, // List markers
@@ -163,17 +174,15 @@ export function createHeuristicScorer(options?: HeuristicScorerOptions): TokenSc
 
   return {
     score(content: string, context?: ScorerContext): ScoredToken[] {
-      // Mark filler phrase regions
       const fillerRanges = findFillerRanges(content, fillerPhrases);
 
-      // Build cross-segment frequency map
       const freqMap = buildFrequencyMap(content, context?.allContent);
 
-      // Split preserving whitespace
+      // The capture group keeps whitespace tokens so order/spacing can be
+      // reconstructed after pruning.
       const parts = content.split(/(\s+)/);
       const totalParts = parts.length;
 
-      // Determine if query is active
       const query = context?.query;
       const hasQuery = query != null && query.trim().length > 0;
       const queryTerms = hasQuery ? tokenizeQuery(query!, stopWords) : new Set<string>();
@@ -204,11 +213,9 @@ export function createHeuristicScorer(options?: HeuristicScorerOptions): TokenSc
           return { text, score: 1.0, offset, protected: true };
         }
 
-        // Check if inside a filler phrase range
         const charPos = parts.slice(0, offset).join('').length;
         const inFiller = fillerRanges.some(([start, end]) => charPos >= start && charPos < end);
 
-        // Compute sub-scores
         const stopScore = stopWords.has(trimmed.toLowerCase()) ? 0.1 : 0.7;
         const fillerScore = inFiller ? 0.0 : 0.7;
         const positionScore = computePositionScore(offset, totalParts);
@@ -216,7 +223,6 @@ export function createHeuristicScorer(options?: HeuristicScorerOptions): TokenSc
         const entityScore = isEntity(trimmed) ? 0.95 : 0.5;
         const structuralScore = isStructuralMarker(text) ? 0.95 : 0.5;
 
-        // Query relevance score
         const queryScore = hasQuery
           ? computeQueryRelevance(parts, offset, queryTerms, stopWords)
           : 0.5;
@@ -266,7 +272,7 @@ function buildFrequencyMap(
   content: string,
   allContent?: string[],
 ): Map<string, number> {
-  const sources = allContent ?? [content];
+  const sources = allContent && allContent.length > 0 ? allContent : [content];
   const wordSets = sources.map(c =>
     new Set(c.toLowerCase().split(/\s+/).filter(w => w.length > 0)),
   );
@@ -333,9 +339,8 @@ function computeQueryRelevance(
 ): number {
   if (queryTerms.size === 0) return 0.5;
 
-  // Gather context window tokens (5 before, current, 5 after)
-  const windowStart = Math.max(0, offset - 10); // *2 because parts include whitespace
-  const windowEnd = Math.min(parts.length, offset + 11);
+  const windowStart = Math.max(0, offset - QUERY_CONTEXT_WINDOW_WORDS * PARTS_PER_WORD);
+  const windowEnd = Math.min(parts.length, offset + QUERY_CONTEXT_WINDOW_WORDS * PARTS_PER_WORD + 1);
   const contextTerms = new Set<string>();
 
   for (let i = windowStart; i < windowEnd; i++) {

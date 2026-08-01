@@ -42,8 +42,9 @@ export function formatHierarchy(
   const dateFormat = options?.dateFormat ?? 'date';
   const skipEmptyThemes = options?.skipEmptyThemes ?? true;
 
-  // Defensive: ensure Date objects are actual Dates (handles both Date and string inputs)
-  // This avoids mutating the caller's payload by only converting when needed.
+  // Coerce valid_from/valid_until to Date, tolerating both Date and ISO-string
+  // inputs. The .map spreads into fresh objects, so the caller's payload is never
+  // mutated (unlike reviveDates below, which is only safe on JSON.parse output).
   const facts = (payload.facts ?? []).map(f => ({
     ...f,
     valid_from: f.valid_from instanceof Date ? f.valid_from : new Date(f.valid_from as unknown as string),
@@ -59,7 +60,6 @@ export function formatHierarchy(
 
   const lines: string[] = [];
 
-  // Build fact lookup
   const factMap = new Map<string, HierarchyFact>();
   for (const fact of facts) {
     factMap.set(fact.id, fact);

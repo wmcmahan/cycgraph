@@ -107,10 +107,7 @@ export interface CotDistillationResult {
 /**
  * Distill reasoning traces from content, preserving conclusions.
  *
- * @param content - The text to distill.
- * @param options - Configuration options.
- * @param model - Target model string for family-aware delimiter selection.
- * @returns Distilled content with metrics.
+ * @param model - Target model string; selects which delimiter families are active.
  */
 export function distillCoT(
   content: string,
@@ -120,7 +117,8 @@ export function distillCoT(
   const delimiters = options?.delimiters ?? [...DEFAULT_DELIMITERS];
   const preserveConclusion = options?.preserveConclusion ?? true;
 
-  // Filter delimiters by model family
+  // A known family narrows delimiters to that family plus generic ones;
+  // an unknown/absent family leaves all delimiters active.
   const family = resolveModelFamily(model);
   const activeDelimiters = family
     ? delimiters.filter(d => d.family === family || d.family === 'generic')

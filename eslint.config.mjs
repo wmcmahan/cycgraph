@@ -1,8 +1,11 @@
+// @ts-check
+
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
+import { defineConfig } from 'eslint/config';
 import globals from 'globals';
 
-export default tseslint.config(
+export default defineConfig(
   {
     ignores: [
       '**/dist/**',
@@ -11,10 +14,11 @@ export default tseslint.config(
     ],
   },
   {
-    files: ['packages/context-engine/*.ts'],
+    files: ['packages/context-engine/**/*.ts'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
-      ecmaVersion: 2023,
+      parser: tseslint.parser,
+      ecmaVersion: 2024,
       sourceType: 'module',
       globals: {
         ...globals.node,
@@ -32,7 +36,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/**/test/**/*.ts', 'packages/**/examples/**/*.ts'],
+    files: ['packages/context-engine/**/test/**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
     },

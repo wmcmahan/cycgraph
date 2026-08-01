@@ -17,8 +17,6 @@ import type {
   CommunitySummary,
 } from '../../src/memory/hierarchy/types.js';
 
-// ─── Themes ───────────────────────────────────────────────────────
-
 export const THEMES: HierarchyTheme[] = [
   {
     id: 'theme-arch',
@@ -39,8 +37,6 @@ export const THEMES: HierarchyTheme[] = [
     fact_ids: ['fact-6', 'fact-7', 'fact-8'],
   },
 ];
-
-// ─── Facts ────────────────────────────────────────────────────────
 
 export const FACTS: HierarchyFact[] = [
   {
@@ -107,7 +103,6 @@ export const FACTS: HierarchyFact[] = [
     theme_id: 'theme-cost',
     valid_from: new Date('2026-03-25'),
   },
-  // Orphan fact (no theme)
   {
     id: 'fact-9',
     content: 'The CI pipeline runs in under 3 minutes',
@@ -116,8 +111,6 @@ export const FACTS: HierarchyFact[] = [
     valid_from: new Date('2026-04-01'),
   },
 ];
-
-// ─── Episodes ─────────────────────────────────────────────────────
 
 export const EPISODES: HierarchyEpisode[] = [
   {
@@ -168,19 +161,14 @@ export const EPISODES: HierarchyEpisode[] = [
   },
 ];
 
-// ─── Entities ─────────────────────────────────────────────────────
-
 export const ENTITIES: GraphEntity[] = [
   { id: 'ent-alice', name: 'Alice', entity_type: 'person', attributes: { role: 'lead engineer', department: 'platform' } },
   { id: 'ent-bob', name: 'Bob', entity_type: 'person', attributes: { role: 'infrastructure engineer', department: 'platform' } },
   { id: 'ent-platform', name: 'cycgraph Platform', entity_type: 'project', attributes: { status: 'active', started: '2026-01' } },
   { id: 'ent-api', name: 'API Gateway', entity_type: 'component', attributes: { rate_limit: '1000 req/s', protocol: 'REST' } },
   { id: 'ent-acme', name: 'Acme Corp', entity_type: 'organization', attributes: { industry: 'technology' } },
-  // Invalidated entity
   { id: 'ent-old', name: 'Legacy Service', entity_type: 'component', attributes: { status: 'deprecated' }, invalidated_at: new Date('2026-03-01') },
 ];
-
-// ─── Relationships ────────────────────────────────────────────────
 
 export const RELATIONSHIPS: GraphRelationship[] = [
   { id: 'rel-1', source_id: 'ent-alice', target_id: 'ent-platform', relation_type: 'leads', weight: 1.0, attributes: {}, valid_from: new Date('2026-01-01') },
@@ -188,11 +176,8 @@ export const RELATIONSHIPS: GraphRelationship[] = [
   { id: 'rel-3', source_id: 'ent-alice', target_id: 'ent-acme', relation_type: 'works_at', weight: 1.0, attributes: {}, valid_from: new Date('2026-01-01') },
   { id: 'rel-4', source_id: 'ent-bob', target_id: 'ent-acme', relation_type: 'works_at', weight: 1.0, attributes: {}, valid_from: new Date('2026-03-01') },
   { id: 'rel-5', source_id: 'ent-platform', target_id: 'ent-api', relation_type: 'contains', weight: 1.0, attributes: {}, valid_from: new Date('2026-02-01') },
-  // Expired relationship
   { id: 'rel-6', source_id: 'ent-alice', target_id: 'ent-old', relation_type: 'maintained', weight: 0.5, attributes: {}, valid_from: new Date('2025-01-01'), valid_until: new Date('2026-03-01') },
 ];
-
-// ─── Communities ──────────────────────────────────────────────────
 
 export const COMMUNITIES: CommunitySummary[] = [
   {
@@ -212,8 +197,6 @@ export const COMMUNITIES: CommunitySummary[] = [
     weight: 0.75,
   },
 ];
-
-// ─── Full Payload ─────────────────────────────────────────────────
 
 export const FULL_MEMORY_PAYLOAD: MemoryPayload = {
   themes: THEMES,

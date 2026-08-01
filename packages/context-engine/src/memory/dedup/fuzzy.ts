@@ -94,7 +94,6 @@ export function lshCandidatePairs(
 
   for (let b = 0; b < bands; b++) {
     const offset = b * rowsPerBand;
-    // Map bucket hash -> list of item indices
     const buckets = new Map<number, number[]>();
 
     for (let i = 0; i < n; i++) {
@@ -102,7 +101,6 @@ export function lshCandidatePairs(
       let bandHash = 0x811c9dc5;
       for (let r = 0; r < rowsPerBand; r++) {
         const val = signatures[i][offset + r];
-        // Mix each row value into the band hash
         bandHash ^= val;
         bandHash = (bandHash * 0x01000193) | 0;
       }
@@ -158,7 +156,6 @@ function computeRemovedIndices(
     const bands = 20;
     const rowsPerBand = 5;
 
-    // Compute MinHash signatures for eligible items
     const signatures: (number[] | null)[] = trigramSets.map(entry =>
       entry ? minHashSignature(entry.trigrams, numHashes) : null,
     );
@@ -173,7 +170,6 @@ function computeRemovedIndices(
       }
     }
 
-    // Get candidate pairs from LSH
     const candidateKeys = lshCandidatePairs(eligibleSignatures, bands, rowsPerBand);
 
     // Only compare candidate pairs with full Jaccard

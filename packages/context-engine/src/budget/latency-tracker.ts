@@ -50,7 +50,6 @@ export function createLatencyTracker(windowSize: number = 100): LatencyTracker {
       const list = samples.get(stageName) ?? [];
       list.push({ durationMs, tokensSaved });
 
-      // Trim to window size
       if (list.length > windowSize) {
         list.splice(0, list.length - windowSize);
       }

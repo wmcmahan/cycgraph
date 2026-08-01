@@ -45,10 +45,8 @@ export function createNGramScorer(options?: NGramScorerOptions): TokenScorer {
           ? context.allContent
           : [content];
 
-      // Build n-gram frequency model from corpus
       const { freqMap, totalNgrams, vocabularySize } = buildNgramModel(corpusParts, n);
 
-      // Split content into units
       const units = splitByGranularity(content, granularity);
       if (units.length === 0) return [];
 

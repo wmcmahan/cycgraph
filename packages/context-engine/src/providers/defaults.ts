@@ -26,17 +26,11 @@ const MODEL_FAMILY_RATIOS: Record<string, number> = {
   'gpt-3.5': 3.5,
   'o1': 3.5,
   'o3': 3.5,
-  // Anthropic
   'claude': 3.8,
-  // Meta Llama
   'llama': 3.6,
-  // DeepSeek
   'deepseek': 3.6,
-  // Qwen
   'qwen': 3.6,
-  // Google Gemini
   'gemini': 3.7,
-  // Mistral
   'mistral': 3.6,
 };
 

@@ -38,7 +38,6 @@ export function serializeGraph(
   const maxPerType = options?.maxEntitiesPerType ?? 50;
   const maxRels = options?.maxRelationships ?? 100;
 
-  // Filter
   const activeEntities = includeInvalidated
     ? entities
     : entities.filter(e => !e.invalidated_at);
@@ -48,7 +47,6 @@ export function serializeGraph(
     ? relationships
     : relationships.filter(r => !r.valid_until || r.valid_until > now);
 
-  // Build ID→name map
   const nameMap = new Map<string, string>();
   for (const e of activeEntities) {
     nameMap.set(e.id, e.name);
@@ -96,7 +94,6 @@ export function createGraphSerializerStage(options?: GraphSerializerOptions): Co
 // ─── Mode Detection ───────────────────────────────────────────────
 
 function detectMode(entities: GraphEntity[]): 'tabular' | 'adjacency' {
-  // Group by type
   const byType = new Map<string, GraphEntity[]>();
   for (const e of entities) {
     const list = byType.get(e.entity_type) ?? [];
@@ -137,7 +134,6 @@ function serializeTabularGraph(
 ): string {
   const lines: string[] = [];
 
-  // Group entities by type
   const byType = new Map<string, GraphEntity[]>();
   for (const e of entities) {
     const list = byType.get(e.entity_type) ?? [];
@@ -159,7 +155,6 @@ function serializeTabularGraph(
     lines.push('');
   }
 
-  // Relationships
   if (relationships.length > 0) {
     const limited = relationships.slice(0, maxRels);
     lines.push('Relationships:');
@@ -183,7 +178,6 @@ function serializeAdjacencyGraph(
   maxPerType: number,
   maxRels: number,
 ): string {
-  // Build adjacency from relationships
   const outgoing = new Map<string, Array<{ target: string; relation: string; weight: number }>>();
   const limited = relationships.slice(0, maxRels);
 
@@ -197,11 +191,13 @@ function serializeAdjacencyGraph(
     outgoing.set(r.source_id, list);
   }
 
+  // Adjacency output has no per-type grouping, so cap the total at ten types' worth.
+  const maxTotalEntities = maxPerType * 10;
   const lines: string[] = [];
   let count = 0;
 
   for (const e of entities) {
-    if (count >= maxPerType * 10) break; // global cap
+    if (count >= maxTotalEntities) break;
     count++;
 
     const edges = outgoing.get(e.id) ?? [];

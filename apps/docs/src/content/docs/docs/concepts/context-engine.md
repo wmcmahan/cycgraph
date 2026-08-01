@@ -317,7 +317,7 @@ const pipeline = createPipeline({
 
 ### Token allocation
 
-The budget allocator distributes tokens across segments by priority weight. Locked segments get their exact token count; remaining budget is split proportionally among mutable segments.
+The budget allocator distributes tokens across segments by priority weight. Locked segments get their exact token count; remaining budget is split proportionally among mutable segments. A segment is never granted more than its actual size, and budget freed by those caps is redistributed to segments that still need more, so a small segment beside a large one keeps its full content while the large one absorbs the slack.
 
 Enforcement is **importance-aware for prose**: an over-budget segment keeps its most important tokens (entities, quantities, protected negations) in original order rather than its earliest ones — position-based tail truncation would delete trailing facts while keeping leading filler. Structured segments (memory/tools roles, JSON) always tail-truncate cleanly instead, since token pruning would corrupt them. Pass `truncation: 'tail'` to `createAllocatorStage` for the legacy prefix-keeping behavior, or `scorer` to swap the importance model.
 
@@ -878,7 +878,7 @@ allocateBudget(segments: PromptSegment[], budget: BudgetConfig, counter: TokenCo
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `allocations` | `Map<string, number>` | Allocated tokens per segment (segment id → token budget). |
-| `overflow` | `string[]` | Segment ids that exceed their allocation. |
+| `overflow` | `string[]` | Segment ids that exceed their allocation, including locked segments whose combined size exceeds the available budget. |
 
 ### `scoreSegmentRelevance`
 
