@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import {
   requestHumanInputReducer,
@@ -41,7 +41,7 @@ const makeAction = (type: string, payload: Record<string, unknown>): Action => (
 
 describe('Tier 2 Reducers', () => {
   describe('requestHumanInputReducer', () => {
-    test('should set status to waiting', () => {
+    it('sets status to waiting', () => {
       const state = createBaseState();
       const action = makeAction('request_human_input', {
         waiting_for: 'human_approval',
@@ -61,7 +61,7 @@ describe('Tier 2 Reducers', () => {
       });
     });
 
-    test('should use default timeout when not specified', () => {
+    it('uses default timeout when not specified', () => {
       const state = createBaseState();
       const action = makeAction('request_human_input', {
         waiting_for: 'human_approval',
@@ -70,12 +70,11 @@ describe('Tier 2 Reducers', () => {
 
       const newState = requestHumanInputReducer(state, action);
 
-      // Default is 24 hours
       const diff = newState.waiting_timeout_at!.getTime() - newState.waiting_since!.getTime();
       expect(diff).toBe(86_400_000);
     });
 
-    test('should not mutate original state', () => {
+    it('does not mutate original state', () => {
       const state = createBaseState();
       const action = makeAction('request_human_input', {
         waiting_for: 'human_approval',
@@ -87,7 +86,7 @@ describe('Tier 2 Reducers', () => {
       expect(state.status).toBe('running');
     });
 
-    test('should ignore non-matching action types', () => {
+    it('ignores non-matching action types', () => {
       const state = createBaseState();
       const action = makeAction('update_memory', { updates: {} });
       const newState = requestHumanInputReducer(state, action);
@@ -96,7 +95,7 @@ describe('Tier 2 Reducers', () => {
   });
 
   describe('resumeFromHumanReducer', () => {
-    test('should set status back to running and inject response', () => {
+    it('sets status back to running and inject response', () => {
       const state = createBaseState();
       state.status = 'waiting';
       state.waiting_for = 'human_approval';
@@ -120,7 +119,7 @@ describe('Tier 2 Reducers', () => {
       expect(newState.pending_approval).toBeUndefined();
     });
 
-    test('should merge additional memory_updates', () => {
+    it('merges additional memory_updates', () => {
       const state = createBaseState();
       state.status = 'waiting';
       state.pending_approval = {};
@@ -136,7 +135,7 @@ describe('Tier 2 Reducers', () => {
       expect(newState.memory.human_decision).toBe('edited');
     });
 
-    test('should ignore non-matching action types', () => {
+    it('ignores non-matching action types', () => {
       const state = createBaseState();
       const action = makeAction('update_memory', { updates: {} });
       const newState = resumeFromHumanReducer(state, action);
@@ -145,7 +144,7 @@ describe('Tier 2 Reducers', () => {
   });
 
   describe('mergeParallelResultsReducer', () => {
-    test('should merge updates but NOT add token count (runner _track_tokens is sole accountant)', () => {
+    it('merges updates but NOT add token count (runner _track_tokens is sole accountant)', () => {
       const state = createBaseState();
       state.total_tokens_used = 100;
 
@@ -158,12 +157,10 @@ describe('Tier 2 Reducers', () => {
 
       expect(newState.memory.map1_results).toEqual(['a', 'b']);
       expect(newState.memory.map1_count).toBe(2);
-      // The runner dispatches a separate _track_tokens for the same action, so
-      // adding total_tokens here too would double-count. Reducer leaves it.
       expect(newState.total_tokens_used).toBe(100);
     });
 
-    test('leaves token total untouched regardless of payload total_tokens', () => {
+    it('leaves token total untouched regardless of payload total_tokens', () => {
       const state = createBaseState();
       state.total_tokens_used = 50;
 
@@ -176,7 +173,7 @@ describe('Tier 2 Reducers', () => {
       expect(newState.total_tokens_used).toBe(50);
     });
 
-    test('should not mutate original state', () => {
+    it('does not mutate original state', () => {
       const state = createBaseState();
       const action = makeAction('merge_parallel_results', {
         updates: { key: 'val' },
@@ -190,7 +187,7 @@ describe('Tier 2 Reducers', () => {
   });
 
   describe('rootReducer with new types', () => {
-    test('should process request_human_input through rootReducer', () => {
+    it('processes request_human_input through rootReducer', () => {
       const state = createBaseState();
       const action = makeAction('request_human_input', {
         waiting_for: 'human_approval',
@@ -201,7 +198,7 @@ describe('Tier 2 Reducers', () => {
       expect(newState.status).toBe('waiting');
     });
 
-    test('should process merge_parallel_results through rootReducer', () => {
+    it('processes merge_parallel_results through rootReducer', () => {
       const state = createBaseState();
       const action = makeAction('merge_parallel_results', {
         updates: { data: [1, 2, 3] },
@@ -210,42 +207,41 @@ describe('Tier 2 Reducers', () => {
 
       const newState = rootReducer(state, action);
       expect(newState.memory.data).toEqual([1, 2, 3]);
-      // Token accounting is the runner's _track_tokens job, not the reducer's.
       expect(newState.total_tokens_used).toBe(0);
     });
   });
 
   describe('validateAction with new types', () => {
-    test('should allow request_human_input with control_flow permission', () => {
+    it('allows request_human_input with control_flow permission', () => {
       const action = makeAction('request_human_input', { waiting_for: 'human_approval' });
       expect(validateAction(action, ['control_flow'])).toBe(true);
     });
 
-    test('should block request_human_input without control_flow', () => {
+    it('blocks request_human_input without control_flow', () => {
       const action = makeAction('request_human_input', { waiting_for: 'human_approval' });
       expect(validateAction(action, ['result'])).toBe(false);
     });
 
-    test('should allow resume_from_human with control_flow permission', () => {
+    it('allows resume_from_human with control_flow permission', () => {
       const action = makeAction('resume_from_human', { decision: 'approved' });
       expect(validateAction(action, ['control_flow'])).toBe(true);
     });
 
-    test('should validate merge_parallel_results keys', () => {
+    it('validates merge_parallel_results keys', () => {
       const action = makeAction('merge_parallel_results', {
         updates: { allowed_key: 'val' },
       });
       expect(validateAction(action, ['allowed_key'])).toBe(true);
     });
 
-    test('should block merge_parallel_results with unauthorized keys', () => {
+    it('blocks merge_parallel_results with unauthorized keys', () => {
       const action = makeAction('merge_parallel_results', {
         updates: { forbidden: 'val' },
       });
       expect(validateAction(action, ['other_key'])).toBe(false);
     });
 
-    test('should allow all new types with wildcard', () => {
+    it('allows all new types with wildcard', () => {
       for (const type of ['request_human_input', 'resume_from_human', 'merge_parallel_results']) {
         const action = makeAction(type, { updates: { key: 'val' } });
         expect(validateAction(action, ['*'])).toBe(true);
@@ -254,9 +250,8 @@ describe('Tier 2 Reducers', () => {
   });
 
   describe('MAX_SUPERVISOR_HISTORY', () => {
-    test('should preserve history at exactly MAX_SUPERVISOR_HISTORY entries', () => {
+    it('preserves history at exactly MAX_SUPERVISOR_HISTORY entries', () => {
       const state = createBaseState();
-      // Pre-fill with MAX_SUPERVISOR_HISTORY - 1 entries so the next handoff hits exactly the limit
       state.supervisor_history = Array.from({ length: MAX_SUPERVISOR_HISTORY - 1 }, (_, i) => ({
         supervisor_id: 'sup',
         delegated_to: `node-${i}`,
@@ -274,15 +269,12 @@ describe('Tier 2 Reducers', () => {
       const newState = handoffReducer(state, action);
 
       expect(newState.supervisor_history).toHaveLength(MAX_SUPERVISOR_HISTORY);
-      // The last entry should be the one we just added
       expect(newState.supervisor_history[MAX_SUPERVISOR_HISTORY - 1].delegated_to).toBe('final-node');
-      // The first entry should still be the original first entry
       expect(newState.supervisor_history[0].delegated_to).toBe('node-0');
     });
 
-    test('should trim history beyond MAX_SUPERVISOR_HISTORY, keeping newest entries', () => {
+    it('trims history beyond MAX_SUPERVISOR_HISTORY, keeping newest entries', () => {
       const state = createBaseState();
-      // Pre-fill with exactly MAX_SUPERVISOR_HISTORY entries so the next handoff exceeds the limit
       state.supervisor_history = Array.from({ length: MAX_SUPERVISOR_HISTORY }, (_, i) => ({
         supervisor_id: 'sup',
         delegated_to: `node-${i}`,
@@ -300,13 +292,11 @@ describe('Tier 2 Reducers', () => {
       const newState = handoffReducer(state, action);
 
       expect(newState.supervisor_history).toHaveLength(MAX_SUPERVISOR_HISTORY);
-      // The oldest entry (node-0) should have been dropped
       expect(newState.supervisor_history[0].delegated_to).toBe('node-1');
-      // The newest entry should be at the end
       expect(newState.supervisor_history[MAX_SUPERVISOR_HISTORY - 1].delegated_to).toBe('overflow-node');
     });
 
-    test('should not affect history below the limit', () => {
+    it('does not affect history below the limit', () => {
       const state = createBaseState();
       state.supervisor_history = [
         {

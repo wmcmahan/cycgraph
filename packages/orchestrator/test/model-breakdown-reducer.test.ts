@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { internalReducer } from '../src/reducers/index.js';
 import type { WorkflowState, Action } from '../src/types/state.js';
@@ -41,7 +41,7 @@ function trackModel(model: string, input: number, output: number, cost: number):
 }
 
 describe('_track_model_usage reducer', () => {
-  test('creates a new model entry with a call count of 1', () => {
+  it('creates a new model entry with a call count of 1', () => {
     const next = internalReducer(baseState(), trackModel('claude-opus-4-8', 100, 50, 0.0015));
     expect(next.model_breakdown['claude-opus-4-8']).toEqual({
       input_tokens: 100,
@@ -51,7 +51,7 @@ describe('_track_model_usage reducer', () => {
     });
   });
 
-  test('accumulates repeated calls to the same model', () => {
+  it('accumulates repeated calls to the same model', () => {
     let state = baseState();
     state = internalReducer(state, trackModel('gpt-4o', 100, 40, 0.001));
     state = internalReducer(state, trackModel('gpt-4o', 200, 60, 0.002));
@@ -63,7 +63,7 @@ describe('_track_model_usage reducer', () => {
     });
   });
 
-  test('tracks multiple models independently', () => {
+  it('tracks multiple models independently', () => {
     let state = baseState();
     state = internalReducer(state, trackModel('claude-haiku-4-5-20251001', 10, 5, 0.00005));
     state = internalReducer(state, trackModel('gpt-4o', 20, 10, 0.0002));
@@ -72,7 +72,7 @@ describe('_track_model_usage reducer', () => {
     expect(state.model_breakdown['gpt-4o'].calls).toBe(1);
   });
 
-  test('tracks token usage even when estimated cost is zero (unknown/local model)', () => {
+  it('tracks token usage even when estimated cost is zero (unknown/local model)', () => {
     const next = internalReducer(baseState(), trackModel('llama3.1', 500, 200, 0));
     expect(next.model_breakdown['llama3.1']).toEqual({
       input_tokens: 500,

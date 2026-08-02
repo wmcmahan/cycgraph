@@ -9,7 +9,8 @@
  *
  * This helper lets those executors check accumulated spend BETWEEN iterations
  * and stop early. It composes three caps:
- *   - the node's own `budget.max_tokens` / `budget.max_cost_usd`,
+ *   - the node's own `budget.max_tokens`,
+ *   - the node's own `budget.max_cost_usd`,
  *   - the remaining workflow cost budget at node entry.
  *
  * @module runner/node-executors/budget-guard

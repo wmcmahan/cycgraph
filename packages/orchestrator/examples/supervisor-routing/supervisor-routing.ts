@@ -16,7 +16,6 @@ import {
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
   configureAgentFactory,
-  ProviderRegistry,
   createProviderRegistry,
   configureProviderRegistry,
   createLogger,

@@ -7,7 +7,7 @@
  * graphs, multi-node chains, and gracefully handles edge-case topologies
  * like no-matching-edge and dangling references.
  */
-import { describe, test, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ describe('GraphRunner — Conditional Edge Routing', () => {
    *
    * Expected: router routes to branch-a because decision=='A'
    */
-  test('should follow edge with JSONPath == string condition', async () => {
+  it('should follow edge with JSONPath == string condition', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Conditional String', description: '',
       nodes: [
@@ -170,7 +170,6 @@ describe('GraphRunner — Conditional Edge Routing', () => {
     expect(final.status).toBe('completed');
     expect(final.visited_nodes).toContain('branch-a');
     expect(final.visited_nodes).not.toContain('branch-b');
-    // Path: start → router → branch-a → end
     expect(final.visited_nodes).toEqual(['start', 'router', 'branch-a', 'end']);
   });
 
@@ -178,7 +177,7 @@ describe('GraphRunner — Conditional Edge Routing', () => {
    * Same graph but start writes decision='B' — verifies the OTHER branch is taken.
    * This catches off-by-one bugs where always the first edge matches.
    */
-  test('should take second conditional edge when first does not match', async () => {
+  it('should take second conditional edge when first does not match', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Conditional Branch B', description: '',
       nodes: [
@@ -211,7 +210,7 @@ describe('GraphRunner — Conditional Edge Routing', () => {
    * Numeric comparison: $.memory.score > 50
    * Agent 'writer-high' writes score=95, so the > 50 branch should be taken.
    */
-  test('should follow edge with JSONPath > numeric condition', async () => {
+  it('should follow edge with JSONPath > numeric condition', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Numeric Compare', description: '',
       nodes: [
@@ -239,7 +238,7 @@ describe('GraphRunner — Conditional Edge Routing', () => {
    * Same graph but with score=30 (writer-low) → takes the <= 50 branch.
    * This ensures both directions are exercised.
    */
-  test('should follow edge with JSONPath <= numeric condition', async () => {
+  it('should follow edge with JSONPath <= numeric condition', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Numeric Compare Low', description: '',
       nodes: [
@@ -267,7 +266,7 @@ describe('GraphRunner — Conditional Edge Routing', () => {
    * Boolean truthiness check: $.memory.approved (no comparison operator).
    * Agent 'flagger' writes approved=true, so the edge should be followed.
    */
-  test('should follow edge with JSONPath boolean truthiness check', async () => {
+  it('should follow edge with JSONPath boolean truthiness check', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Boolean Check', description: '',
       nodes: [
@@ -277,7 +276,6 @@ describe('GraphRunner — Conditional Edge Routing', () => {
       ],
       edges: [
         { id: 'e1', source: 'checker', target: 'approved-path', condition: { type: 'conditional', condition: '$.memory.approved' } },
-        // Fallback: always edge checked AFTER the conditional above
         { id: 'e2', source: 'checker', target: 'rejected-path', condition: { type: 'always' } },
       ],
       start_node: 'checker',
@@ -297,7 +295,7 @@ describe('GraphRunner — Conditional Edge Routing', () => {
    * Agent 'no-approve' writes approved=false, so the conditional edge
    * should NOT match — the fallback 'always' edge should be taken instead.
    */
-  test('should skip conditional edge when boolean value is false', async () => {
+  it('should skip conditional edge when boolean value is false', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Boolean False', description: '',
       nodes: [
@@ -326,7 +324,7 @@ describe('GraphRunner — Conditional Edge Routing', () => {
    * JSONPath should return an empty result set → condition evaluates to false.
    * The runner should not crash; it should fall through to the next edge or complete.
    */
-  test('should gracefully handle condition referencing missing memory key', async () => {
+  it('should gracefully handle condition referencing missing memory key', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Missing Key', description: '',
       nodes: [
@@ -335,7 +333,6 @@ describe('GraphRunner — Conditional Edge Routing', () => {
         makeNode({ id: 'fallback', type: 'agent', agent_id: 'fallback-handler' }),
       ],
       edges: [
-        // This condition references $.memory.nonexistent — not set by the agent
         { id: 'e1', source: 'start', target: 'guarded', condition: { type: 'conditional', condition: "$.memory.nonexistent == 'foo'" } },
         { id: 'e2', source: 'start', target: 'fallback', condition: { type: 'always' } },
       ],
@@ -360,7 +357,6 @@ describe('GraphRunner — No Matching Edge', () => {
       makeNode({ id: 'unreachable', type: 'agent', agent_id: 'handler' }),
     ],
     edges: [
-      // Condition never matches → 'start' (a non-end node) dead-ends.
       { id: 'e1', source: 'start', target: 'unreachable', condition: { type: 'conditional', condition: "$.memory.decision == 'Z'" } },
     ],
     start_node: 'start',
@@ -372,12 +368,12 @@ describe('GraphRunner — No Matching Edge', () => {
    * The runner must FAIL LOUD (not silently report "completed" having
    * executed only half the graph — the bug this guards against).
    */
-  test('fails loud when no edge matches at a non-end node', async () => {
+  it('fails loud when no edge matches at a non-end node', async () => {
     const runner = new GraphRunner(deadEndGraph(), createState());
     await expect(runner.run()).rejects.toThrow(/no outgoing edge/);
   });
 
-  test('allowImplicitCompletion restores legacy silent completion', async () => {
+  it('allowImplicitCompletion restores legacy silent completion', async () => {
     const runner = new GraphRunner(deadEndGraph(), createState(), { allowImplicitCompletion: true });
     const final = await runner.run();
 
@@ -390,7 +386,7 @@ describe('GraphRunner — No Matching Edge', () => {
    * Node has zero outgoing edges and is NOT in end_nodes.
    * The runner should still complete since getNextNode returns null.
    */
-  test('should complete when node has no outgoing edges at all', async () => {
+  it('should complete when node has no outgoing edges at all', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'No Outgoing', description: '',
       nodes: [
@@ -415,7 +411,7 @@ describe('GraphRunner — Graph Topology', () => {
    * Multi-node linear chain: A → B → C → D
    * Verifies that 3+ node chains work with correct ordering.
    */
-  test('should execute a 4-node linear chain in order', async () => {
+  it('should execute a 4-node linear chain in order', async () => {
     const graph: Graph = {
       id: uuidv4(), name: '4-Node Chain', description: '',
       nodes: [
@@ -453,11 +449,11 @@ describe('GraphRunner — Graph Topology', () => {
    * This tests that the graph correctly converges at the end node even
    * after a conditional fork. Only one branch should execute.
    */
-  test('should handle diamond graph with conditional fork', async () => {
+  it('should handle diamond graph with conditional fork', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Diamond', description: '',
       nodes: [
-        makeNode({ id: 'start', type: 'agent', agent_id: 'writer-high' }), // score=95
+        makeNode({ id: 'start', type: 'agent', agent_id: 'writer-high' }),
         makeNode({ id: 'left', type: 'agent', agent_id: 'left-handler' }),
         makeNode({ id: 'right', type: 'agent', agent_id: 'right-handler' }),
         makeNode({ id: 'end', type: 'agent', agent_id: 'finisher' }),
@@ -486,7 +482,7 @@ describe('GraphRunner — Graph Topology', () => {
    * Tests that router works correctly even as the first node (when memory is empty).
    * Since memory is empty, conditional edges won't match — the fallback should be taken.
    */
-  test('should handle router as start node with empty memory', async () => {
+  it('should handle router as start node with empty memory', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Router Start', description: '',
       nodes: [
@@ -506,7 +502,6 @@ describe('GraphRunner — Graph Topology', () => {
     const final = await runner.run();
 
     expect(final.status).toBe('completed');
-    // Empty memory → conditional edge fails → fallback 'always' edge taken
     expect(final.visited_nodes).toContain('default-branch');
     expect(final.visited_nodes).not.toContain('branch-a');
   });
@@ -515,7 +510,7 @@ describe('GraphRunner — Graph Topology', () => {
    * Pre-populated memory can influence routing from the very first edge.
    * If memory is seeded with { mode: 'advanced' }, the conditional edge should match.
    */
-  test('should route based on pre-populated initial memory', async () => {
+  it('should route based on pre-populated initial memory', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Seeded Memory', description: '',
       nodes: [
@@ -545,16 +540,15 @@ describe('GraphRunner — Graph Topology', () => {
    * takes the FIRST match. This test verifies that when two edges both
    * match, the first one wins.
    */
-  test('should take first matching edge when multiple conditions are true', async () => {
+  it('should take first matching edge when multiple conditions are true', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Edge Priority', description: '',
       nodes: [
-        makeNode({ id: 'start', type: 'agent', agent_id: 'flagger' }), // approved=true
+        makeNode({ id: 'start', type: 'agent', agent_id: 'flagger' }),
         makeNode({ id: 'first-match', type: 'agent', agent_id: 'handler-1' }),
         makeNode({ id: 'second-match', type: 'agent', agent_id: 'handler-2' }),
       ],
       edges: [
-        // Both edges will match: 'always' and a truthy condition
         { id: 'e1', source: 'start', target: 'first-match', condition: { type: 'always' } },
         { id: 'e2', source: 'start', target: 'second-match', condition: { type: 'always' } },
       ],
@@ -566,7 +560,6 @@ describe('GraphRunner — Graph Topology', () => {
     const final = await runner.run();
 
     expect(final.status).toBe('completed');
-    // First edge in array wins
     expect(final.visited_nodes).toContain('first-match');
     expect(final.visited_nodes).not.toContain('second-match');
   });
@@ -575,7 +568,7 @@ describe('GraphRunner — Graph Topology', () => {
    * Iteration count should accurately reflect total nodes executed,
    * not edges traversed or conditions evaluated.
    */
-  test('should accurately count iterations for multi-node execution', async () => {
+  it('should accurately count iterations for multi-node execution', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Count Test', description: '',
       nodes: [
@@ -594,7 +587,6 @@ describe('GraphRunner — Graph Topology', () => {
     const runner = new GraphRunner(graph, createState());
     const final = await runner.run();
 
-    // 3 nodes executed = 3 iterations
     expect(final.iteration_count).toBe(3);
     expect(final.visited_nodes).toHaveLength(3);
   });
@@ -605,7 +597,7 @@ describe('GraphRunner — Edge Condition Types', () => {
    * The 'conditional' type with no condition string should evaluate to false.
    * This is a malformed edge — the runner should not crash.
    */
-  test('should not follow conditional edge with missing condition string', async () => {
+  it('should not follow conditional edge with missing condition string', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Missing Condition', description: '',
       nodes: [
@@ -614,7 +606,6 @@ describe('GraphRunner — Edge Condition Types', () => {
         makeNode({ id: 'fallback', type: 'agent', agent_id: 'fallback-handler' }),
       ],
       edges: [
-        // type: 'conditional' but no condition string → should be false
         { id: 'e1', source: 'start', target: 'guarded', condition: { type: 'conditional' } },
         { id: 'e2', source: 'start', target: 'fallback', condition: { type: 'always' } },
       ],
@@ -633,11 +624,11 @@ describe('GraphRunner — Edge Condition Types', () => {
   /**
    * JSONPath != (not equal) comparison.
    */
-  test('should follow edge with JSONPath != condition', async () => {
+  it('should follow edge with JSONPath != condition', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Not Equal', description: '',
       nodes: [
-        makeNode({ id: 'start', type: 'agent', agent_id: 'decider-A' }), // decision='A'
+        makeNode({ id: 'start', type: 'agent', agent_id: 'decider-A' }),
         makeNode({ id: 'not-b', type: 'agent', agent_id: 'handler-not-b' }),
         makeNode({ id: 'is-b', type: 'agent', agent_id: 'handler-is-b' }),
       ],
@@ -653,7 +644,6 @@ describe('GraphRunner — Edge Condition Types', () => {
     const final = await runner.run();
 
     expect(final.status).toBe('completed');
-    // decision is 'A', not 'B' → != 'B' is true
     expect(final.visited_nodes).toContain('not-b');
   });
 
@@ -661,7 +651,7 @@ describe('GraphRunner — Edge Condition Types', () => {
    * Unknown condition type (not 'always', 'conditional', or 'map') should be treated
    * as false. The runner should not crash.
    */
-  test('should treat unknown condition type as false', async () => {
+  it('should treat unknown condition type as false', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Unknown Type', description: '',
       nodes: [

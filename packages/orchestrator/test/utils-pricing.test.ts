@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Track warned models across tests by resetting module state
 let calculateCost: typeof import('../src/utils/pricing.js').calculateCost;
@@ -6,6 +6,7 @@ let MODEL_PRICING: typeof import('../src/utils/pricing.js').MODEL_PRICING;
 let setModelPricing: typeof import('../src/utils/pricing.js').setModelPricing;
 let loadPricingTable: typeof import('../src/utils/pricing.js').loadPricingTable;
 let getModelPricing: typeof import('../src/utils/pricing.js').getModelPricing;
+let clearPricingOverrides: typeof import('../src/utils/pricing.js').clearPricingOverrides;
 
 // Mock logger to capture warnings
 const warnFn = vi.fn();
@@ -20,7 +21,6 @@ vi.mock('../src/utils/logger.js', () => ({
 
 beforeEach(async () => {
   warnFn.mockClear();
-  // Fresh import to reset warnedModels Set
   vi.resetModules();
   const mod = await import('../src/utils/pricing.js');
   calculateCost = mod.calculateCost;
@@ -28,17 +28,16 @@ beforeEach(async () => {
   setModelPricing = mod.setModelPricing;
   loadPricingTable = mod.loadPricingTable;
   getModelPricing = mod.getModelPricing;
+  clearPricingOverrides = mod.clearPricingOverrides;
 });
 
 describe('calculateCost', () => {
   it('returns correct cost for known OpenAI model', () => {
-    // gpt-4o: $2.50 input, $10.00 output per 1M tokens
     const cost = calculateCost('gpt-4o', 1_000_000, 1_000_000);
     expect(cost).toBeCloseTo(12.50);
   });
 
   it('returns correct cost for known Anthropic model', () => {
-    // claude-sonnet-4-20250514: $3.00 input, $15.00 output per 1M tokens
     const cost = calculateCost('claude-sonnet-4-20250514', 500_000, 100_000);
     expect(cost).toBeCloseTo(1.5 + 1.5);
   });
@@ -48,12 +47,9 @@ describe('calculateCost', () => {
   });
 
   it('never returns NaN for malformed (NaN) token counts', () => {
-    // A NaN cost would permanently disable the USD budget (NaN > budget is
-    // always false), so malformed usage must be coerced to a finite cost.
     const cost = calculateCost('gpt-4o', NaN, 100);
     expect(Number.isFinite(cost)).toBe(true);
     expect(cost).toBeGreaterThanOrEqual(0);
-    // The finite output-token portion still counts.
     expect(cost).toBe(calculateCost('gpt-4o', 0, 100));
   });
 
@@ -80,7 +76,6 @@ describe('calculateCost', () => {
   });
 
   it('handles very small token counts correctly', () => {
-    // gpt-4o-mini: $0.15 input, $0.60 output per 1M tokens
     const cost = calculateCost('gpt-4o-mini', 1, 1);
     const expected = (1 * 0.15) / 1_000_000 + (1 * 0.60) / 1_000_000;
     expect(cost).toBeCloseTo(expected);
@@ -129,8 +124,16 @@ describe('runtime pricing overrides', () => {
     setModelPricing('gpt-4o', { inputPerMToken: 1, outputPerMToken: 2 });
     expect(calculateCost('gpt-4o', 1_000_000, 1_000_000)).toBeCloseTo(3);
     expect(getModelPricing('gpt-4o')).toEqual({ inputPerMToken: 1, outputPerMToken: 2 });
-    // Static table itself is untouched.
     expect(MODEL_PRICING['gpt-4o']).toEqual({ inputPerMToken: 2.5, outputPerMToken: 10 });
+  });
+
+  it('clearPricingOverrides removes all runtime overrides', () => {
+    setModelPricing('gpt-4o', { inputPerMToken: 1, outputPerMToken: 2 });
+
+    clearPricingOverrides();
+
+    expect(getModelPricing('gpt-4o')).toEqual({ inputPerMToken: 2.5, outputPerMToken: 10 });
+    expect(getModelPricing('my-custom-model')).toBeUndefined();
   });
 
   it('loadPricingTable bulk-registers entries', () => {
@@ -155,8 +158,17 @@ describe('runtime pricing overrides', () => {
         'bad-model': { inputPerMToken: NaN, outputPerMToken: 1 },
       }),
     ).toThrow(/finite/);
-    // The valid entry must NOT have been applied.
     expect(getModelPricing('good-model')).toBeUndefined();
+  });
+
+  it('clears the warned-model set once it reaches the cap', () => {
+    for (let i = 0; i < 1000; i++) calculateCost(`unknown-model-${i}`, 1, 1);
+    calculateCost('cap-trigger-model', 1, 1);
+    warnFn.mockClear();
+
+    calculateCost('unknown-model-5', 1, 1);
+
+    expect(warnFn).toHaveBeenCalledTimes(1);
   });
 
   it('registering pricing clears the unknown-model warning state', () => {
@@ -164,6 +176,6 @@ describe('runtime pricing overrides', () => {
     expect(warnFn).toHaveBeenCalledTimes(1);
     setModelPricing('late-priced-model', { inputPerMToken: 1, outputPerMToken: 1 });
     calculateCost('late-priced-model', 100, 100);
-    expect(warnFn).toHaveBeenCalledTimes(1); // no new warning — it is priced now
+    expect(warnFn).toHaveBeenCalledTimes(1);
   });
 });

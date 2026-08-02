@@ -18,7 +18,6 @@ const mockTools: Record<string, { description: string; execute: (args: unknown) 
     description: 'Fetch a URL',
     execute: async (args: unknown) => ({ content: 'fetched', url: args }),
   },
-  // Simulates a compromised server returning an oversized payload (>10 MB).
   huge: {
     description: 'Returns a huge payload',
     execute: async () => ({ blob: 'x'.repeat(11 * 1024 * 1024) }),
@@ -30,7 +29,6 @@ const mockTools2: Record<string, { description: string; execute: (args: unknown)
     description: 'Calculate math',
     execute: async (args: unknown) => ({ answer: 42, input: args }),
   },
-  // Deliberately same name as server1 to test collision
   search: {
     description: 'Search documents',
     execute: async (args: unknown) => ({ docs: ['doc1'], query: args }),
@@ -77,7 +75,6 @@ let createdClients: Array<{ serverId: string; client: ReturnType<typeof createMo
 
 vi.mock('@ai-sdk/mcp', () => ({
   createMCPClient: vi.fn(async (config: { name?: string }) => {
-    // Determine which mock tools to use based on the client name
     const name = config.name ?? '';
     const tools = name.includes('throw')
       ? throwingTools
@@ -283,7 +280,6 @@ describe('MCPConnectionManager', () => {
       const searchTool = tools.search as { execute: (args: unknown) => Promise<unknown> };
       const result = await searchTool.execute({ query: 'test' }) as Record<string, unknown>;
 
-      // Result should be the raw tool output — no wrapper
       expect(result).not.toHaveProperty('taint');
       expect(result).toHaveProperty('results');
       expect(result).toHaveProperty('query');
@@ -296,7 +292,6 @@ describe('MCPConnectionManager', () => {
 
       const result = await hugeTool.execute({}) as Record<string, unknown>;
 
-      // The 11 MB payload is dropped and replaced with a small error marker.
       expect(result).not.toHaveProperty('blob');
       expect(String(result.error)).toMatch(/exceeded the .* limit/);
     });
@@ -309,11 +304,9 @@ describe('MCPConnectionManager', () => {
       const searchTool = tools.search as { execute: (args: unknown) => Promise<unknown> };
       const fetchTool = tools.fetch as { execute: (args: unknown) => Promise<unknown> };
 
-      // Execute both tools
       await searchTool.execute({ query: 'test' });
       await fetchTool.execute({ url: 'https://example.com' });
 
-      // Drain should return taint entries for both
       const entries = manager.drainTaintEntries();
       expect(entries.size).toBe(2);
 
@@ -338,11 +331,9 @@ describe('MCPConnectionManager', () => {
       const searchTool = tools.search as { execute: (args: unknown) => Promise<unknown> };
       await searchTool.execute({ query: 'test' });
 
-      // First drain returns entries
       const first = manager.drainTaintEntries();
       expect(first.size).toBe(1);
 
-      // Second drain is empty
       const second = manager.drainTaintEntries();
       expect(second.size).toBe(0);
     });
@@ -356,7 +347,6 @@ describe('MCPConnectionManager', () => {
       expect(result).not.toHaveProperty('taint');
       expect(result).toHaveProperty('saved', true);
 
-      // No taint entries for built-in tools
       const entries = manager.drainTaintEntries();
       expect(entries.size).toBe(0);
     });
@@ -375,12 +365,10 @@ describe('MCPConnectionManager', () => {
 
       const tools = await manager.resolveTools(sources);
 
-      // 'search' exists in both servers → namespaced
       expect(tools).toHaveProperty('server1__search');
       expect(tools).toHaveProperty('server2__search');
       expect(tools).not.toHaveProperty('search');
 
-      // Non-colliding tools remain un-namespaced
       expect(tools).toHaveProperty('fetch');
       expect(tools).toHaveProperty('calculate');
     });
@@ -408,7 +396,6 @@ describe('MCPConnectionManager', () => {
       await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
       await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
 
-      // Only one client should have been created
       expect(createdClients).toHaveLength(1);
     });
 
@@ -448,10 +435,8 @@ describe('MCPConnectionManager', () => {
       registry.register(httpServer);
       await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
 
-      // Make close throw
       createdClients[0].client.close.mockRejectedValueOnce(new Error('close failed'));
 
-      // Should not throw
       await expect(manager.closeAll()).resolves.not.toThrow();
     });
 
@@ -460,7 +445,6 @@ describe('MCPConnectionManager', () => {
       await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
       await manager.closeAll();
 
-      // Resolving again should create a new client
       await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
       expect(createdClients).toHaveLength(2);
     });
@@ -527,7 +511,6 @@ describe('MCPConnectionManager', () => {
         tool_names: ['nonexistent_tool'],
       }];
 
-      // Should not throw, just skip the missing tool
       const tools = await manager.resolveTools(sources);
       expect(tools).not.toHaveProperty('nonexistent_tool');
     });
@@ -556,8 +539,6 @@ describe('MCPConnectionManager', () => {
     });
 
     it('opens the breaker after failure_threshold consecutive failures', async () => {
-      // Swap the mock BEFORE the manager resolves tools so the wrapper closes
-      // over a failing execute reference.
       const original = mockTools.search.execute;
       mockTools.search.execute = async () => { throw new Error('upstream failure'); };
       try {
@@ -572,7 +553,6 @@ describe('MCPConnectionManager', () => {
         await expect(search.execute({})).rejects.toThrow('upstream failure');
         await expect(search.execute({})).rejects.toThrow('upstream failure');
 
-        // 4th call should be refused by the breaker, not by the upstream
         await expect(search.execute({})).rejects.toThrow(/Circuit breaker open/);
 
         const metrics = mgr.getToolCircuitMetrics();
@@ -605,7 +585,6 @@ describe('MCPConnectionManager', () => {
         { type: 'mcp', server_id: 'server2' },
       ]);
 
-      // server1 and server2 both have a 'search' tool → collision → namespaced
       const s1Search = tools['server1__search'] as { execute: (args: unknown) => Promise<unknown> };
       const s2Search = tools['server2__search'] as { execute: (args: unknown) => Promise<unknown> };
 
@@ -665,7 +644,6 @@ describe('MCPConnectionManager security hardening', () => {
     expect(cfg.env).not.toHaveProperty('LD_PRELOAD');
     expect(cfg.env).not.toHaveProperty('DYLD_INSERT_LIBRARIES');
     expect(cfg.env).not.toHaveProperty('PYTHONSTARTUP');
-    // Benign vars survive, and the npm loglevel override is still applied.
     expect(cfg.env.SAFE_VAR).toBe('keep-me');
     expect(cfg.env.npm_config_loglevel).toBe('silent');
   });
@@ -683,16 +661,13 @@ describe('MCPConnectionManager security hardening', () => {
 
     await expect(boom.execute({})).rejects.toThrow();
 
-    // The error path must still mint a taint entry — otherwise injection
-    // smuggled through a tool error reaches the LLM untainted.
     const taint = manager.drainTaintEntries(tools);
     expect([...taint.keys()]).toContain('throwserver:boom');
   });
 
   it('blocks an http server whose host resolves to a private IP at connect time', async () => {
-    // The literal hostname is public and passes the schema guard, but it
-    // resolves to the cloud metadata endpoint (DNS rebinding).
-    dnsLookupMock.mockResolvedValue([{ address: '169.254.169.254', family: 4 }]);
+    const CLOUD_METADATA_IP = '169.254.169.254';
+    dnsLookupMock.mockResolvedValue([{ address: CLOUD_METADATA_IP, family: 4 }]);
     await registry.saveServer({
       id: 'rebind',
       name: 'Rebinding Server',
@@ -730,5 +705,254 @@ describe('MCPConnectionManager security hardening', () => {
     await expect(
       manager.resolveTools([{ type: 'mcp', server_id: 'unresolvable' }]),
     ).rejects.toThrow(/could not be resolved/i);
+  });
+});
+
+// ─── Additional coverage ────────────────────────────────────────────
+// Client lifecycle, transports, timeout/size guards, and result handling.
+describe('MCPConnectionManager additional coverage', () => {
+  let registry: InMemoryMCPServerRegistry;
+  let manager: MCPConnectionManager;
+  let createMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    registry = new InMemoryMCPServerRegistry();
+    manager = new MCPConnectionManager(registry);
+    createdClients = [];
+    slowInFlight = 0;
+    slowPeak = 0;
+    vi.clearAllMocks();
+    dnsLookupMock.mockReset();
+    dnsLookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+    createMock = vi.mocked((await import('@ai-sdk/mcp')).createMCPClient);
+  });
+
+  describe('built-in tools', () => {
+    it('ignores an unknown built-in tool name', async () => {
+      const tools = await manager.resolveTools([{ type: 'builtin', name: 'not_a_real_tool' } as never]);
+      expect(Object.keys(tools)).toHaveLength(0);
+    });
+  });
+
+  describe('client lifecycle with caching disabled', () => {
+    it('reuses a connected client across resolveTools calls', async () => {
+      const mgr = new MCPConnectionManager(registry, { cache_ttl_ms: 0 });
+      registry.register(httpServer);
+
+      await mgr.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+      await mgr.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+
+      expect(createdClients).toHaveLength(1);
+    });
+
+    it('dedups concurrent connections to the same server', async () => {
+      const mgr = new MCPConnectionManager(registry, { cache_ttl_ms: 0 });
+      registry.register(httpServer);
+
+      await Promise.all([
+        mgr.resolveTools([{ type: 'mcp', server_id: 'server1' }]),
+        mgr.resolveTools([{ type: 'mcp', server_id: 'server1' }]),
+      ]);
+
+      expect(createdClients).toHaveLength(1);
+    });
+  });
+
+  describe('connect-time failures', () => {
+    it('throws MCPServerNotFoundError when the server disappears before connect', async () => {
+      let calls = 0;
+      const flaky = {
+        loadServer: vi.fn(async () => (calls++ === 0 ? httpServer : null)),
+      } as unknown as InMemoryMCPServerRegistry;
+      const mgr = new MCPConnectionManager(flaky);
+
+      await expect(mgr.resolveTools([{ type: 'mcp', server_id: 'server1' }]))
+        .rejects.toThrow(MCPServerNotFoundError);
+    });
+
+    it('wraps a non-Error connection failure in an Error', async () => {
+      await registry.saveServer({ ...httpServer, id: 'strfail', max_retries: 0 });
+      createMock.mockImplementationOnce(async () => { throw 'plain string failure'; });
+      const mgr = new MCPConnectionManager(registry, { cache_ttl_ms: 0 });
+
+      await expect(mgr.resolveTools([{ type: 'mcp', server_id: 'strfail' }]))
+        .rejects.toThrow('plain string failure');
+    });
+
+    it('retries with backoff and succeeds on a later attempt', async () => {
+      vi.useFakeTimers();
+      try {
+        await registry.saveServer({ ...httpServer, id: 'retryer', max_retries: 1 });
+        createMock.mockImplementationOnce(async () => { throw new Error('transient connect failure'); });
+
+        const mgr = new MCPConnectionManager(registry, { cache_ttl_ms: 0 });
+        const promise = mgr.resolveTools([{ type: 'mcp', server_id: 'retryer' }]);
+        await vi.advanceTimersByTimeAsync(1000);
+        const tools = await promise;
+
+        expect(tools).toHaveProperty('search');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('reconnect', () => {
+    it('closes the existing client and forces a fresh connection', async () => {
+      registry.register(httpServer);
+      await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+
+      await manager.reconnect('server1');
+      expect(createdClients[0].client.close).toHaveBeenCalledOnce();
+
+      await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+      expect(createdClients).toHaveLength(2);
+    });
+
+    it('is a no-op when the server was never connected', async () => {
+      await expect(manager.reconnect('never-connected')).resolves.toBeUndefined();
+    });
+
+    it('swallows errors thrown while closing the existing client', async () => {
+      registry.register(httpServer);
+      await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+      createdClients[0].client.close.mockRejectedValueOnce(new Error('close failed'));
+
+      await expect(manager.reconnect('server1')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('transports', () => {
+    it('invokes the onUncaughtError hook for async MCP errors', async () => {
+      registry.register(httpServer);
+      createMock.mockImplementationOnce(async (config: { onUncaughtError?: (e: unknown) => void }) => {
+        config.onUncaughtError?.(new Error('async mcp error'));
+        return createMockClient(mockTools);
+      });
+
+      const tools = await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+      expect(tools).toHaveProperty('search');
+    });
+
+    it('resolves tools from an SSE server', async () => {
+      registry.register(sseServer);
+      const tools = await manager.resolveTools([{ type: 'mcp', server_id: 'server3' }]);
+      expect(Object.keys(tools).length).toBeGreaterThan(0);
+    });
+
+    it('refuses to build a stdio transport when stdio MCP is disabled', async () => {
+      process.env.MCP_STDIO_DISABLED = 'true';
+      try {
+        const rawStdio = {
+          id: 'rawstdio',
+          name: 'Raw Stdio',
+          transport: { type: 'stdio' as const, command: 'npx', args: ['-y', 'x'] },
+          timeout_ms: 30_000,
+          max_retries: 0,
+        };
+        const bypass = { loadServer: async () => rawStdio } as unknown as InMemoryMCPServerRegistry;
+        const mgr = new MCPConnectionManager(bypass);
+
+        await expect(mgr.resolveTools([{ type: 'mcp', server_id: 'rawstdio' }]))
+          .rejects.toThrow(/stdio MCP transports are disabled/);
+      } finally {
+        delete process.env.MCP_STDIO_DISABLED;
+      }
+    });
+  });
+
+  describe('per-server semaphore reuse', () => {
+    it('reuses the same semaphore across resolveTools calls for one server', async () => {
+      const mgr = new MCPConnectionManager(registry, { default_max_concurrent_calls: 1, cache_ttl_ms: 0 });
+      await registry.saveServer(slowServer);
+
+      await mgr.resolveTools([{ type: 'mcp', server_id: 'slowserver' }]);
+      const tools = await mgr.resolveTools([{ type: 'mcp', server_id: 'slowserver' }]);
+
+      expect(tools).toHaveProperty('slow');
+    });
+  });
+
+  describe('tool wrapping', () => {
+    const resolveSingleTool = async (name: string, tool: Record<string, unknown>, opts?: ConstructorParameters<typeof MCPConnectionManager>[1]) => {
+      registry.register(httpServer);
+      createMock.mockImplementationOnce(async () => ({
+        tools: vi.fn().mockResolvedValue({ [name]: tool }),
+        close: vi.fn().mockResolvedValue(undefined),
+      }));
+      const mgr = new MCPConnectionManager(registry, opts);
+      const tools = await mgr.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+      return tools[name] as { execute?: (a: unknown) => Promise<unknown> };
+    };
+
+    it('passes through a tool that has no execute function', async () => {
+      const noexec = await resolveSingleTool('noexec', { description: 'no execute' });
+
+      expect(noexec.execute).toBeUndefined();
+      expect((noexec as Record<string, unknown>).description).toBe('no execute');
+    });
+
+    it('invokes a tool directly when the timeout is disabled', async () => {
+      const search = await resolveSingleTool(
+        'search',
+        { description: 's', execute: async (a: unknown) => ({ results: ['r'], q: a }) },
+        { default_tool_timeout_ms: 0 },
+      );
+
+      const result = await search.execute!({ q: 'x' }) as Record<string, unknown>;
+      expect(result).toHaveProperty('results');
+    });
+
+    it('rejects a tool call that exceeds the per-tool timeout', async () => {
+      await registry.saveServer({ ...httpServer, id: 'hangserver', tool_timeout_ms: 5 });
+      createMock.mockImplementationOnce(async () => ({
+        tools: vi.fn().mockResolvedValue({ hang: { description: 'hang', execute: () => new Promise(() => {}) } }),
+        close: vi.fn().mockResolvedValue(undefined),
+      }));
+      const mgr = new MCPConnectionManager(registry);
+      const tools = await mgr.resolveTools([{ type: 'mcp', server_id: 'hangserver' }]);
+      const hang = tools.hang as { execute: (a: unknown) => Promise<unknown> };
+
+      await expect(hang.execute({})).rejects.toThrow(/timed out after 5ms/);
+    });
+  });
+
+  describe('result size enforcement', () => {
+    const executeResult = async (result: unknown) => {
+      registry.register(httpServer);
+      createMock.mockImplementationOnce(async () => ({
+        tools: vi.fn().mockResolvedValue({ t: { description: 't', execute: async () => result } }),
+        close: vi.fn().mockResolvedValue(undefined),
+      }));
+      const tools = await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+      return (tools.t as { execute: (a: unknown) => Promise<unknown> }).execute({});
+    };
+
+    it('passes through a small string result unchanged', async () => {
+      expect(await executeResult('hello world')).toBe('hello world');
+    });
+
+    it('passes through an undefined result as zero bytes', async () => {
+      expect(await executeResult(undefined)).toBeUndefined();
+    });
+
+    it('drops an unserializable result with an error marker', async () => {
+      const circular: Record<string, unknown> = {};
+      circular.self = circular;
+
+      const result = await executeResult(circular) as Record<string, unknown>;
+      expect(String(result.error)).toMatch(/unserializable/);
+    });
+  });
+
+  describe('drainTaintEntries', () => {
+    it('falls back to the process-wide accumulator for an unknown toolset', async () => {
+      registry.register(httpServer);
+      const tools = await manager.resolveTools([{ type: 'mcp', server_id: 'server1' }]);
+      await (tools.search as { execute: (a: unknown) => Promise<unknown> }).execute({});
+
+      const entries = manager.drainTaintEntries({} as Record<string, unknown>);
+      expect(entries.get('server1:search')).toBeDefined();
+    });
   });
 });

@@ -1,8 +1,7 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { createTestState, makeNode } from './helpers/factories';
 
-// ─── Mocks ────────────────────────────────────────────────────────
 
 vi.mock('@ai-sdk/openai', () => ({ openai: vi.fn((m: string) => ({ provider: 'openai', modelId: m })) }));
 vi.mock('@ai-sdk/anthropic', () => ({ anthropic: vi.fn((m: string) => ({ provider: 'anthropic', modelId: m })) }));
@@ -66,14 +65,13 @@ const createGraph = (nodes?: any[]): Graph => ({
   end_nodes: [nodes?.[nodes.length - 1]?.id ?? 'node-a'],
 });
 
-// ─── Tests ────────────────────────────────────────────────────────
 
 describe('GraphRunner Middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  test('no middleware — passthrough works', async () => {
+  it('no middleware — passthrough works', async () => {
     const graph = createGraph();
     const state = createTestState();
     const runner = new GraphRunner(graph, state, { middleware: [] });
@@ -81,7 +79,7 @@ describe('GraphRunner Middleware', () => {
     expect(result.status).toBe('completed');
   });
 
-  test('beforeNodeExecute receives correct context', async () => {
+  it('beforeNodeExecute receives correct context', async () => {
     const contexts: MiddlewareContext[] = [];
     const mw: GraphRunnerMiddleware = {
       beforeNodeExecute: async (ctx) => { contexts.push({ ...ctx }); },
@@ -98,7 +96,7 @@ describe('GraphRunner Middleware', () => {
     expect(typeof contexts[0].iteration).toBe('number');
   });
 
-  test('beforeNodeExecute short-circuit skips execution', async () => {
+  it('beforeNodeExecute short-circuit skips execution', async () => {
     const shortCircuitAction: Action = {
       id: uuidv4(),
       idempotency_key: uuidv4(),
@@ -119,12 +117,11 @@ describe('GraphRunner Middleware', () => {
     expect(result.status).toBe('completed');
     expect(result.memory.cached).toBe('from middleware');
 
-    // Agent executor should NOT have been called
     const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
     expect(executeAgent).not.toHaveBeenCalled();
   });
 
-  test('afterNodeExecute can transform action', async () => {
+  it('afterNodeExecute can transform action', async () => {
     const mw: GraphRunnerMiddleware = {
       afterNodeExecute: async (_ctx, action) => ({
         ...action,
@@ -140,7 +137,7 @@ describe('GraphRunner Middleware', () => {
     expect(result.memory.injected).toBe('by middleware');
   });
 
-  test('afterReduce is called with new state', async () => {
+  it('afterReduce is called with new state', async () => {
     const newStates: WorkflowState[] = [];
     const mw: GraphRunnerMiddleware = {
       afterReduce: async (_ctx, _action, newState) => {
@@ -157,7 +154,7 @@ describe('GraphRunner Middleware', () => {
     expect(newStates[0].memory).toHaveProperty('result');
   });
 
-  test('beforeAdvance can override routing', async () => {
+  it('beforeAdvance can override routing', async () => {
     const fp = { max_retries: 1, backoff_strategy: 'fixed' as const, initial_backoff_ms: 100, max_backoff_ms: 100 };
     const graph: Graph = {
       id: 'route-graph',
@@ -187,7 +184,7 @@ describe('GraphRunner Middleware', () => {
     expect(result.visited_nodes).not.toContain('default-next');
   });
 
-  test('multiple middleware execute in registration order', async () => {
+  it('multiple middleware execute in registration order', async () => {
     const order: string[] = [];
 
     const mw1: GraphRunnerMiddleware = {
@@ -207,7 +204,7 @@ describe('GraphRunner Middleware', () => {
     expect(order).toEqual(['mw1-before', 'mw2-before', 'mw1-after', 'mw2-after']);
   });
 
-  test('first middleware short-circuit prevents later middleware from running', async () => {
+  it('first middleware short-circuit prevents later middleware from running', async () => {
     const order: string[] = [];
 
     const mw1: GraphRunnerMiddleware = {
@@ -236,7 +233,7 @@ describe('GraphRunner Middleware', () => {
     expect(order).toEqual(['mw1']);
   });
 
-  test('middleware error propagates to runner error handling', async () => {
+  it('middleware error propagates to runner error handling', async () => {
     const mw: GraphRunnerMiddleware = {
       beforeNodeExecute: async () => { throw new Error('middleware boom'); },
     };
@@ -247,7 +244,7 @@ describe('GraphRunner Middleware', () => {
     await expect(runner.run()).rejects.toThrow('middleware boom');
   });
 
-  test('afterNodeExecute returning void keeps original action', async () => {
+  it('afterNodeExecute returning void keeps original action', async () => {
     const mw: GraphRunnerMiddleware = {
       afterNodeExecute: async () => { /* returns void */ },
     };
@@ -261,7 +258,7 @@ describe('GraphRunner Middleware', () => {
     expect(result.memory.result).toBe('agent output');
   });
 
-  test('beforeAdvance returning void keeps default routing', async () => {
+  it('beforeAdvance returning void keeps default routing', async () => {
     const fp = { max_retries: 1, backoff_strategy: 'fixed' as const, initial_backoff_ms: 100, max_backoff_ms: 100 };
     const graph: Graph = {
       id: 'route-graph',

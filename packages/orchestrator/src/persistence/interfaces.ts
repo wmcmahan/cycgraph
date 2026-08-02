@@ -224,7 +224,7 @@ export interface AgentRegistryEntry {
   description: string | null;
   /** LLM model identifier (e.g. `"claude-sonnet-4-6"`). */
   model: string;
-  /** LLM provider (`"openai"` | `"anthropic"` | `"groq"`). */
+  /** LLM provider name — `"openai"` / `"anthropic"` are built in; others (`"groq"`, `"ollama"`, …) work once registered on the `ProviderRegistry`. */
   provider: string;
   /** System prompt that defines the agent's behaviour. */
   system_prompt: string;

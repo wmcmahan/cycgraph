@@ -7,7 +7,7 @@
  * - Replay determinism: folding the same action log twice is byte-stable
  * - Security: the registry never appears in any node's StateView
  */
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { updateMemoryReducer, mergeParallelResultsReducer, handoffReducer, setStatusReducer, rootReducer } from '../src/reducers/index.js';
 import {
@@ -16,6 +16,7 @@ import {
   getLessonProvenance,
   getLessonProvenanceRegistry,
   getInjectedFactIds,
+  mintLessonProvenance,
   trimLessonProvenance,
 } from '../src/utils/lesson-provenance.js';
 import { createStateView } from '../src/runner/state-view.js';
@@ -58,7 +59,7 @@ const entry = (nodeId: string, factIds: string[], retrievedAt: string) => ({
 });
 
 describe('lesson provenance reducer merge', () => {
-  test('sequential update_memory actions union entries append-only', () => {
+  it('sequential update_memory actions union entries append-only', () => {
     const state = createBaseState();
     const keyA = uuidv4();
     const keyB = uuidv4();
@@ -78,7 +79,7 @@ describe('lesson provenance reducer merge', () => {
     expect(registry[keyB].fact_ids).toEqual(['f2']);
   });
 
-  test('a crafted empty-registry update cannot clear existing entries', () => {
+  it('a crafted empty-registry update cannot clear existing entries', () => {
     const state = createBaseState();
     const key = uuidv4();
 
@@ -92,7 +93,7 @@ describe('lesson provenance reducer merge', () => {
     expect(Object.keys(getLessonProvenanceRegistry(s2))).toEqual([key]);
   });
 
-  test('merge_parallel_results merges provenance identically', () => {
+  it('merge_parallel_results merges provenance identically', () => {
     const state = createBaseState();
     const keyA = uuidv4();
     const keyB = uuidv4();
@@ -120,7 +121,7 @@ describe('lesson provenance reducer merge', () => {
     expect(Object.keys(registry).sort()).toEqual([keyA, keyB].sort());
   });
 
-  test('trims to the newest MAX entries with deterministic ordering', () => {
+  it('trims to the newest MAX entries with deterministic ordering', () => {
     const registry: LessonProvenanceRegistry = {};
     for (let i = 0; i < MAX_LESSON_PROVENANCE_ENTRIES + 10; i++) {
       const ts = `2026-06-11T10:00:${String(i % 60).padStart(2, '0')}.${String(i).padStart(3, '0')}Z`;
@@ -129,12 +130,11 @@ describe('lesson provenance reducer merge', () => {
 
     const trimmed = trimLessonProvenance(registry);
     expect(Object.keys(trimmed)).toHaveLength(MAX_LESSON_PROVENANCE_ENTRIES);
-    // The oldest 10 (by retrieved_at, then key) are gone.
     expect(trimmed['key-0000']).toBeUndefined();
     expect(trimmed[`key-${String(MAX_LESSON_PROVENANCE_ENTRIES + 9).padStart(4, '0')}`]).toBeDefined();
   });
 
-  test('trim is a no-op (same reference) under the cap', () => {
+  it('trim is a no-op (same reference) under the cap', () => {
     const registry: LessonProvenanceRegistry = {
       [uuidv4()]: entry('n', ['f1'], '2026-06-11T10:00:00.000Z'),
     };
@@ -167,7 +167,7 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
     metadata: { node_id: 'sup', timestamp: new Date(), attempt: 1 },
   });
 
-  test('handoffReducer merges supervisor provenance append-only, and still routes', () => {
+  it('handoffReducer merges supervisor provenance append-only, and still routes', () => {
     const state = createBaseState();
     const keyA = uuidv4();
     const keyB = uuidv4();
@@ -180,12 +180,11 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
 
     expect(Object.keys(getLessonProvenanceRegistry(s2)).sort()).toEqual([keyA, keyB].sort());
     expect(getInjectedFactIds(s2)).toEqual(['f1', 'f2']);
-    // The routing side-effects still happen.
     expect(s2.current_node).toBe('worker-a');
     expect(s2.supervisor_history.at(-1)?.delegated_to).toBe('worker-a');
   });
 
-  test('setStatusReducer merges supervisor provenance and still completes', () => {
+  it('setStatusReducer merges supervisor provenance and still completes', () => {
     const state = createBaseState();
     const key = uuidv4();
     const s = setStatusReducer(state, makeComplete({
@@ -196,7 +195,7 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
     expect(getInjectedFactIds(s)).toEqual(['f9']);
   });
 
-  test('a handoff without provenance leaves the registry untouched', () => {
+  it('a handoff without provenance leaves the registry untouched', () => {
     const state = createBaseState();
     const key = uuidv4();
     const s1 = updateMemoryReducer(state, makeUpdateAction({
@@ -206,7 +205,7 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
     expect(Object.keys(getLessonProvenanceRegistry(s2))).toEqual([key]);
   });
 
-  test('a crafted empty registry on a supervisor action cannot clear existing entries', () => {
+  it('a crafted empty registry on a supervisor action cannot clear existing entries', () => {
     const state = createBaseState();
     const key = uuidv4();
     const s1 = updateMemoryReducer(state, makeUpdateAction({
@@ -217,7 +216,7 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
     expect(Object.keys(getLessonProvenanceRegistry(s3))).toEqual([key]);
   });
 
-  test('replay is deterministic across mixed agent + supervisor actions', () => {
+  it('replay is deterministic across mixed agent + supervisor actions', () => {
     const keyA = uuidv4();
     const keyB = uuidv4();
     const actions: Action[] = [
@@ -231,19 +230,18 @@ describe('supervisor-action provenance merge (handoff / set_status)', () => {
 });
 
 describe('lesson provenance helpers', () => {
-  test('getLessonProvenance returns entries oldest-first deterministically', () => {
+  it('getLessonProvenance returns entries oldest-first deterministically', () => {
     const state = createBaseState();
     state.lesson_provenance = {
       b: entry('second', ['f2'], '2026-06-11T10:01:00.000Z'),
       a: entry('first', ['f1'], '2026-06-11T10:00:00.000Z'),
-      // Same timestamp as `b` — key is the tiebreak.
       c: entry('third', ['f3'], '2026-06-11T10:01:00.000Z'),
     };
 
     expect(getLessonProvenance(state).map((e) => e.node_id)).toEqual(['first', 'second', 'third']);
   });
 
-  test('getInjectedFactIds dedupes across entries in stable order', () => {
+  it('getInjectedFactIds dedupes across entries in stable order', () => {
     const state = createBaseState();
     state.lesson_provenance = {
       a: entry('n1', ['f1', 'f2'], '2026-06-11T10:00:00.000Z'),
@@ -253,15 +251,45 @@ describe('lesson provenance helpers', () => {
     expect(getInjectedFactIds(state)).toEqual(['f1', 'f2', 'f3']);
   });
 
-  test('helpers tolerate a missing registry', () => {
+  it('helpers tolerate a missing registry', () => {
     const state = createBaseState();
     expect(getLessonProvenance(state)).toEqual([]);
     expect(getInjectedFactIds(state)).toEqual([]);
   });
 });
 
+describe('mintLessonProvenance', () => {
+  const ORIGIN = { nodeId: 'researcher', agentId: 'agent-1' };
+
+  it('mints a single entry carrying the attributable fact IDs', () => {
+    const registry = mintLessonProvenance({ facts: [{ id: 'f1' }, { id: 'f2' }] }, ORIGIN);
+
+    const entries = Object.values(registry ?? {});
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ node_id: 'researcher', agent_id: 'agent-1', fact_ids: ['f1', 'f2'] });
+  });
+
+  it('drops facts without an id', () => {
+    const registry = mintLessonProvenance({ facts: [{ id: 'f1' }, {}, { id: '' }] }, ORIGIN);
+
+    expect(Object.values(registry ?? {})[0].fact_ids).toEqual(['f1']);
+  });
+
+  it('returns undefined when no fact has an id', () => {
+    expect(mintLessonProvenance({ facts: [{}, { id: '' }] }, ORIGIN)).toBeUndefined();
+  });
+
+  it('returns undefined for a null retrieval', () => {
+    expect(mintLessonProvenance(null, ORIGIN)).toBeUndefined();
+  });
+
+  it('returns undefined for an undefined retrieval', () => {
+    expect(mintLessonProvenance(undefined, ORIGIN)).toBeUndefined();
+  });
+});
+
 describe('replay determinism', () => {
-  test('folding the same action log twice yields deep-equal state', () => {
+  it('folding the same action log twice yields deep-equal state', () => {
     const actions: Action[] = [
       makeUpdateAction({
         notes: 'a',
@@ -283,7 +311,7 @@ describe('replay determinism', () => {
 });
 
 describe('state-view isolation', () => {
-  test('_lesson_provenance is invisible to nodes, including read_keys: ["*"]', () => {
+  it('_lesson_provenance is invisible to nodes, including read_keys: ["*"]', () => {
     const state = createBaseState();
     state.memory = {
       visible: 'yes',

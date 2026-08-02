@@ -65,7 +65,8 @@ describe('StreamChannel — token channel', () => {
   bench('push 1000 tokens + drain (no notify waiter)', () => {
     const channel = new StreamChannel();
     for (let i = 0; i < 1000; i++) {
-      channel.pushToken(makeTokenEvent(`t${i}`));
+      channel.tokenBuffer.push(makeTokenEvent(`t${i}`));
+      channel.currentNotify?.();
     }
     let count = 0;
     for (const _event of channel.drainTokens()) {
@@ -77,7 +78,8 @@ describe('StreamChannel — token channel', () => {
   bench('push token + drain interleaved (1000 cycles)', () => {
     const channel = new StreamChannel();
     for (let i = 0; i < 1000; i++) {
-      channel.pushToken(makeTokenEvent(`t${i}`));
+      channel.tokenBuffer.push(makeTokenEvent(`t${i}`));
+      channel.currentNotify?.();
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for (const _e of channel.drainTokens()) { /* drain */ }
     }

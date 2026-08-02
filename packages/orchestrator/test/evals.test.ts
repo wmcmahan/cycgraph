@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks (must come before imports that depend on them) ──────────────
@@ -141,7 +141,7 @@ const createToolGraph = (nodeCount: number = 2): Graph => {
 
 describe('checkAssertion', () => {
   describe('status_equals', () => {
-    test('passes when status matches', async () => {
+    it('passes when status matches', async () => {
       const state = createBaseState();
       state.status = 'completed';
 
@@ -155,7 +155,7 @@ describe('checkAssertion', () => {
       expect(result.message).toBeUndefined();
     });
 
-    test('fails when status does not match', async () => {
+    it('fails when status does not match', async () => {
       const state = createBaseState();
       state.status = 'failed';
 
@@ -172,7 +172,7 @@ describe('checkAssertion', () => {
   });
 
   describe('memory_contains', () => {
-    test('passes when key exists in memory', async () => {
+    it('passes when key exists in memory', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -183,7 +183,7 @@ describe('checkAssertion', () => {
       expect(result.passed).toBe(true);
     });
 
-    test('fails when key does not exist in memory', async () => {
+    it('fails when key does not exist in memory', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -197,7 +197,7 @@ describe('checkAssertion', () => {
   });
 
   describe('memory_matches', () => {
-    test('passes with exact mode when values match', async () => {
+    it('passes with exact mode when values match', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -214,7 +214,7 @@ describe('checkAssertion', () => {
       expect(result.passed).toBe(true);
     });
 
-    test('fails with exact mode when values differ', async () => {
+    it('fails with exact mode when values differ', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -232,7 +232,7 @@ describe('checkAssertion', () => {
       expect(result.message).toContain('did not match (mode: exact)');
     });
 
-    test('passes with contains mode for substring match', async () => {
+    it('passes with contains mode for substring match', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -249,7 +249,7 @@ describe('checkAssertion', () => {
       expect(result.passed).toBe(true);
     });
 
-    test('fails with contains mode when substring not found', async () => {
+    it('fails with contains mode when substring not found', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -266,7 +266,7 @@ describe('checkAssertion', () => {
       expect(result.passed).toBe(false);
     });
 
-    test('passes with regex mode when pattern matches', async () => {
+    it('passes with regex mode when pattern matches', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -283,7 +283,7 @@ describe('checkAssertion', () => {
       expect(result.passed).toBe(true);
     });
 
-    test('fails with regex mode when pattern does not match', async () => {
+    it('fails with regex mode when pattern does not match', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -299,10 +299,76 @@ describe('checkAssertion', () => {
 
       expect(result.passed).toBe(false);
     });
+
+    it('compares non-string values by JSON in contains mode', async () => {
+      const state = createBaseState();
+
+      const result = await checkAssertion(
+        {
+          type: 'memory_matches',
+          key: 'nested',
+          pattern: '',
+          mode: 'contains',
+          expected: { key: 'value' },
+        },
+        state,
+      );
+
+      expect(result.passed).toBe(true);
+    });
+
+    it('fails regex mode when the memory value is not a string', async () => {
+      const state = createBaseState();
+
+      const result = await checkAssertion(
+        {
+          type: 'memory_matches',
+          key: 'count',
+          pattern: '^42$',
+          mode: 'regex',
+          expected: undefined,
+        },
+        state,
+      );
+
+      expect(result.passed).toBe(false);
+    });
+
+    it('reports an invalid regex pattern instead of throwing', async () => {
+      const state = createBaseState();
+
+      const result = await checkAssertion(
+        {
+          type: 'memory_matches',
+          key: 'result',
+          pattern: '(',
+          mode: 'regex',
+          expected: undefined,
+        },
+        state,
+      );
+
+      expect(result.passed).toBe(false);
+      expect(result.message).toContain('Invalid regex pattern: "("');
+    });
+  });
+
+  describe('unknown assertion type', () => {
+    it('fails closed for an unhandled assertion type', async () => {
+      const state = createBaseState();
+
+      const result = await checkAssertion(
+        { type: 'not_a_real_type' } as unknown as EvalAssertion,
+        state,
+      );
+
+      expect(result.passed).toBe(false);
+      expect(result.message).toBe('Unknown assertion type');
+    });
   });
 
   describe('node_visited', () => {
-    test('passes when node was visited', async () => {
+    it('passes when node was visited', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -313,7 +379,7 @@ describe('checkAssertion', () => {
       expect(result.passed).toBe(true);
     });
 
-    test('fails when node was not visited', async () => {
+    it('fails when node was not visited', async () => {
       const state = createBaseState();
 
       const result = await checkAssertion(
@@ -328,7 +394,7 @@ describe('checkAssertion', () => {
   });
 
   describe('token_budget_respected', () => {
-    test('passes when within budget', async () => {
+    it('passes when within budget', async () => {
       const state = createBaseState();
       state.total_tokens_used = 500;
       state.max_token_budget = 1000;
@@ -341,7 +407,7 @@ describe('checkAssertion', () => {
       expect(result.passed).toBe(true);
     });
 
-    test('fails when budget exceeded', async () => {
+    it('fails when budget exceeded', async () => {
       const state = createBaseState();
       state.total_tokens_used = 1500;
       state.max_token_budget = 1000;
@@ -356,7 +422,7 @@ describe('checkAssertion', () => {
       expect(result.message).toContain('1500/1000');
     });
 
-    test('passes when no budget set', async () => {
+    it('passes when no budget set', async () => {
       const state = createBaseState();
       state.total_tokens_used = 99999;
       state.max_token_budget = undefined;
@@ -371,7 +437,7 @@ describe('checkAssertion', () => {
   });
 
   describe('llm_judge', () => {
-    test('passes when LLM score meets threshold', async () => {
+    it('passes when LLM score meets threshold', async () => {
       const mockedEvaluateQuality = vi.mocked(evaluateQualityExecutor);
       mockedEvaluateQuality.mockResolvedValueOnce({
         score: 0.9,
@@ -395,7 +461,7 @@ describe('checkAssertion', () => {
       expect(result.actual).toBe(0.9);
     });
 
-    test('fails when LLM score below threshold', async () => {
+    it('fails when LLM score below threshold', async () => {
       const mockedEvaluateQuality = vi.mocked(evaluateQualityExecutor);
       mockedEvaluateQuality.mockResolvedValueOnce({
         score: 0.3,
@@ -419,7 +485,7 @@ describe('checkAssertion', () => {
       expect(result.message).toContain('LLM judge score 0.3 below threshold 0.7');
     });
 
-    test('handles evaluator errors gracefully', async () => {
+    it('handles evaluator errors gracefully', async () => {
       const mockedEvaluateQuality = vi.mocked(evaluateQualityExecutor);
       mockedEvaluateQuality.mockRejectedValueOnce(new Error('LLM unavailable'));
 
@@ -438,13 +504,33 @@ describe('checkAssertion', () => {
       expect(result.passed).toBe(false);
       expect(result.message).toContain('LLM judge error: LLM unavailable');
     });
+
+    it('stringifies a non-Error rejection from the evaluator', async () => {
+      const mockedEvaluateQuality = vi.mocked(evaluateQualityExecutor);
+      mockedEvaluateQuality.mockRejectedValueOnce('judge exploded');
+
+      const state = createBaseState();
+
+      const result = await checkAssertion(
+        {
+          type: 'llm_judge',
+          criteria: 'Is the output good?',
+          threshold: 0.7,
+          evaluator_agent_id: 'eval-agent',
+        },
+        state,
+      );
+
+      expect(result.passed).toBe(false);
+      expect(result.message).toContain('LLM judge error: judge exploded');
+    });
   });
 });
 
 // ─── Eval Runner Tests ────────────────────────────────────────────────
 
 describe('runEval', () => {
-  test('all-passing suite returns overall_score 1.0', async () => {
+  it('all-passing suite returns overall_score 1.0', async () => {
     const suite: EvalSuite = {
       name: 'All Pass Suite',
       cases: [
@@ -473,7 +559,7 @@ describe('runEval', () => {
     expect(report.cases[0].score).toBe(1.0);
   });
 
-  test('partial failures return correct fractional score', async () => {
+  it('partial failures return correct fractional score', async () => {
     const suite: EvalSuite = {
       name: 'Partial Fail Suite',
       cases: [
@@ -482,9 +568,9 @@ describe('runEval', () => {
           graph: createToolGraph(2),
           input: { goal: 'Test partial' },
           assertions: [
-            { type: 'status_equals', expected: 'completed' },       // pass
-            { type: 'node_visited', node_id: 'node_0' },            // pass
-            { type: 'node_visited', node_id: 'nonexistent_node' },  // fail
+            { type: 'status_equals', expected: 'completed' },
+            { type: 'node_visited', node_id: 'node_0' },
+            { type: 'node_visited', node_id: 'nonexistent_node' },
           ],
         },
       ],
@@ -499,7 +585,7 @@ describe('runEval', () => {
     expect(report.passed).toBe(0);
   });
 
-  test('multiple cases with mixed results', async () => {
+  it('multiple cases with mixed results', async () => {
     const suite: EvalSuite = {
       name: 'Mixed Suite',
       cases: [
@@ -516,7 +602,7 @@ describe('runEval', () => {
           graph: createToolGraph(1),
           input: { goal: 'Fail' },
           assertions: [
-            { type: 'status_equals', expected: 'failed' },  // will fail since graph completes
+            { type: 'status_equals', expected: 'failed' },
           ],
         },
       ],
@@ -530,8 +616,7 @@ describe('runEval', () => {
     expect(report.overall_score).toBe(0.5);
   });
 
-  test('workflow crash is caught and reported as error', async () => {
-    // Graph with a single node that references a nonexistent start node
+  it('workflow crash is caught and reported as error', async () => {
     const badGraph: Graph = {
       id: uuidv4(),
       name: 'Bad Graph',
@@ -548,7 +633,7 @@ describe('runEval', () => {
         },
       ],
       edges: [],
-      start_node: 'nonexistent_start',  // invalid: start node doesn't exist
+      start_node: 'nonexistent_start',
       end_nodes: ['only_node'],
     };
 
@@ -574,7 +659,7 @@ describe('runEval', () => {
     expect(report.cases[0].error).toContain('Graph validation failed');
   });
 
-  test('empty suite returns zero score', async () => {
+  it('empty suite returns zero score', async () => {
     const suite: EvalSuite = {
       name: 'Empty Suite',
       cases: [],
@@ -588,7 +673,7 @@ describe('runEval', () => {
     expect(report.overall_score).toBe(0);
   });
 
-  test('case with no assertions returns score 1.0', async () => {
+  it('case with no assertions returns score 1.0', async () => {
     const suite: EvalSuite = {
       name: 'No Assertions',
       cases: [
@@ -608,7 +693,7 @@ describe('runEval', () => {
     expect(report.overall_score).toBe(1.0);
   });
 
-  test('memory_contains assertion works through runner', async () => {
+  it('memory_contains assertion works through runner', async () => {
     const suite: EvalSuite = {
       name: 'Memory Check',
       cases: [
@@ -629,7 +714,7 @@ describe('runEval', () => {
     expect(report.cases[0].assertions[0].passed).toBe(true);
   });
 
-  test('token_budget_respected works through runner', async () => {
+  it('token_budget_respected works through runner', async () => {
     const suite: EvalSuite = {
       name: 'Budget Check',
       cases: [
@@ -649,7 +734,43 @@ describe('runEval', () => {
     expect(report.cases[0].passed).toBe(true);
   });
 
-  test('duration_ms is tracked', async () => {
+  it('seeds string constraints from input, dropping non-string entries', async () => {
+    const suite: EvalSuite = {
+      name: 'Constraints Suite',
+      cases: [
+        {
+          name: 'Case with constraints',
+          graph: createToolGraph(1),
+          input: { goal: 'Respect constraints', constraints: ['be fast', 42, 'be safe'] },
+          assertions: [{ type: 'status_equals', expected: 'completed' }],
+        },
+      ],
+    };
+
+    const report = await runEval(suite);
+
+    expect(report.cases[0].passed).toBe(true);
+  });
+
+  it('falls back to a default goal when input.goal is not a string', async () => {
+    const suite: EvalSuite = {
+      name: 'No Goal Suite',
+      cases: [
+        {
+          name: 'Case without a goal',
+          graph: createToolGraph(1),
+          input: {},
+          assertions: [{ type: 'status_equals', expected: 'completed' }],
+        },
+      ],
+    };
+
+    const report = await runEval(suite);
+
+    expect(report.cases[0].passed).toBe(true);
+  });
+
+  it('duration_ms is tracked', async () => {
     const suite: EvalSuite = {
       name: 'Duration Suite',
       cases: [

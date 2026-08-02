@@ -51,15 +51,6 @@ export class StreamChannel {
 
   // ─── Token channel ───────────────────────────────────────────────
 
-  /**
-   * Append a token to the channel and wake any waiter on {@link waitForNotify}.
-   * Used by the executor-context-builder's `onToken` / tool-call callbacks.
-   */
-  pushToken(event: StreamEvent): void {
-    this.tokens.push(event);
-    this.notify();
-  }
-
   /** Yield + clear every queued token in FIFO order. */
   *drainTokens(): Generator<StreamEvent> {
     while (this.tokens.length > 0) {
@@ -82,9 +73,9 @@ export class StreamChannel {
    * executor-context-builder adapter to maintain referential equality with
    * the runner's existing closures.
    *
-   * Prefer `pushToken` for normal use. The array is exposed (not cloned)
-   * because the callback path needs to mutate the same buffer that
-   * `drainTokens` reads — copy-on-push would break ordering.
+   * The array is exposed (not cloned) because the callback path needs to
+   * mutate the same buffer that `drainTokens` reads — copy-on-push would
+   * break ordering.
    */
   get tokenBuffer(): StreamEvent[] {
     return this.tokens;
@@ -106,8 +97,9 @@ export class StreamChannel {
 
   /**
    * Resolve the current notify-waiter, if any. No-op when nothing is waiting.
-   * Called automatically by {@link pushToken} and manually from the
-   * action-resolution promise so the loop wakes up even if no token arrived.
+   * The token-push path resolves the waiter directly via {@link currentNotify};
+   * the action-resolution promise calls this so the loop wakes up even if no
+   * token arrived.
    */
   notify(): void {
     const resolver = this.notifyResolver;
@@ -119,7 +111,7 @@ export class StreamChannel {
 
   /**
    * The current notify resolver, if any. Exposed for the executor-context
-   * adapter — `tokenNotify` was previously a public field on the runner.
+   * adapter, which reads it as `tokenNotify`.
    */
   get currentNotify(): (() => void) | undefined {
     return this.notifyResolver;

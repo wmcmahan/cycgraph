@@ -247,9 +247,9 @@ const MAX_TASK_CONTEXT_BYTES = 32_000;
  * evolution parent + feedback, annealing feedback, swarm peers, voter index)
  * deliver task-specific inputs to the LLM.
  *
- * Historically these rode as `_`-prefixed memory keys — which
- * `sanitizeForPrompt` STRIPPED, so the model never saw them at all. A
- * dedicated section makes the delivery explicit, sanitized, and byte-capped.
+ * A dedicated section is required because `_`-prefixed memory keys are
+ * STRIPPED by `sanitizeForPrompt` and would never reach the model. This
+ * makes the delivery explicit, sanitized, and byte-capped.
  *
  * Returns an empty string when no context is present (template collapses).
  */
@@ -286,8 +286,8 @@ function capBytes(text: string, maxBytes: number): string {
 /**
  * Default memory serialization: JSON.stringify with 2-space indent and byte-cap.
  *
- * This is the existing behavior, extracted for reuse as a fallback when no
- * context compressor is configured or the compressor returns null/throws.
+ * The fallback path when no context compressor is configured or the
+ * compressor returns null/throws.
  */
 export function defaultSerializeMemory(sanitizedMemory: Record<string, unknown>): string {
   return capToMemoryBudget(JSON.stringify(sanitizedMemory, null, 2));

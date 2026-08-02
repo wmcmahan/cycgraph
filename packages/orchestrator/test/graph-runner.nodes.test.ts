@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks (must come before importing GraphRunner) ─────────────────────
@@ -65,7 +65,7 @@ import type { Graph } from '../src/types/graph.js';
 import type { WorkflowState } from '../src/types/state.js';
 
 // ─── Deferred import to avoid top-level await crashing the worker ────────
-// eslint-disable-next-line prefer-const
+ 
 let GraphRunner: Awaited<typeof import('../src/runner/graph-runner.js')>['GraphRunner'];
 
 beforeAll(async () => {
@@ -120,7 +120,7 @@ const createLinearGraph = (): Graph => ({
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('GraphRunner — Memory Updates', () => {
-  test('should update memory through node execution', async () => {
+  it('should update memory through node execution', async () => {
     const initialState = createInitialState();
     initialState.memory = { initial: true };
 
@@ -132,13 +132,13 @@ describe('GraphRunner — Memory Updates', () => {
 });
 
 describe('GraphRunner — Node Types', () => {
-  test('should handle agent nodes', async () => {
+  it('should handle agent nodes', async () => {
     const runner = new GraphRunner(createLinearGraph(), createInitialState());
     const finalState = await runner.run();
     expect(finalState.status).toBe('completed');
   });
 
-  test('should handle tool nodes', async () => {
+  it('should handle tool nodes', async () => {
     const graph: Graph = {
       ...createLinearGraph(),
       nodes: [
@@ -165,7 +165,7 @@ describe('GraphRunner — Node Types', () => {
     expect(finalState.status).toBe('completed');
   });
 
-  test('should handle router nodes', async () => {
+  it('should handle router nodes', async () => {
     const graph: Graph = {
       ...createLinearGraph(),
       nodes: [
@@ -194,7 +194,7 @@ describe('GraphRunner — Node Types', () => {
 });
 
 describe('GraphRunner — Execution Flow', () => {
-  test('should transition through workflow statuses', async () => {
+  it('should transition through workflow statuses', async () => {
     const statusChanges: string[] = [];
     const persistFn = async (state: WorkflowState) => {
       statusChanges.push(state.status);

@@ -5,7 +5,7 @@
  * Verifies that GraphRunner can resume from a checkpoint state
  * instead of always starting from start_node.
  */
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ describe('GraphRunner — Resume from Checkpoint', () => {
    * visited_nodes and current_node, it should resume from that node
    * instead of starting from start_node.
    */
-  test('should resume from current_node when state has visited_nodes', async () => {
+  it('should resume from current_node when state has visited_nodes', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Resume Test', description: '',
       nodes: [
@@ -135,7 +135,6 @@ describe('GraphRunner — Resume from Checkpoint', () => {
 
     const runId = uuidv4();
 
-    // Simulate a checkpoint: step-1 already executed, currently at step-2
     const resumeState = createState({
       run_id: runId,
       current_node: 'step-2',
@@ -145,7 +144,6 @@ describe('GraphRunner — Resume from Checkpoint', () => {
       started_at: new Date(),
     });
 
-    // Provide an event log with the prior action_dispatched event
     const eventLog = new InMemoryEventLogWriter();
     await eventLog.append({
       run_id: runId, sequence_id: 0, event_type: 'workflow_started',
@@ -160,7 +158,6 @@ describe('GraphRunner — Resume from Checkpoint', () => {
     const final = await runner.run();
 
     expect(final.status).toBe('completed');
-    // step-2 and step-3 should have been visited (step-1 was already done)
     expect(final.visited_nodes).toContain('step-2');
     expect(final.visited_nodes).toContain('step-3');
   });
@@ -169,7 +166,7 @@ describe('GraphRunner — Resume from Checkpoint', () => {
    * Idempotency keys should be reconstructed from visited_nodes on resume,
    * preventing already-executed nodes from running again.
    */
-  test('should reconstruct idempotency keys and skip already-executed iterations', async () => {
+  it('should reconstruct idempotency keys and skip already-executed iterations', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Idempotency Resume', description: '',
       nodes: [
@@ -185,7 +182,6 @@ describe('GraphRunner — Resume from Checkpoint', () => {
 
     const runId = uuidv4();
 
-    // Checkpoint: node-a completed at iteration 0, now at node-b (iteration 1)
     const resumeState = createState({
       run_id: runId,
       current_node: 'node-b',
@@ -196,7 +192,6 @@ describe('GraphRunner — Resume from Checkpoint', () => {
       memory: { 'good-agent_result': 'already done' },
     });
 
-    // Provide an event log with the prior action_dispatched event
     const eventLog = new InMemoryEventLogWriter();
     await eventLog.append({
       run_id: runId, sequence_id: 0, event_type: 'workflow_started',
@@ -216,7 +211,7 @@ describe('GraphRunner — Resume from Checkpoint', () => {
   /**
    * A fresh state (empty visited_nodes) should start from start_node as before.
    */
-  test('should start from start_node when visited_nodes is empty', async () => {
+  it('should start from start_node when visited_nodes is empty', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Fresh Start', description: '',
       nodes: [

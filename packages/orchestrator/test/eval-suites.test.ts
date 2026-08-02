@@ -6,10 +6,9 @@
  * These validate graph mechanics — no LLM calls required.
  */
 
-import { describe, test, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
-// ─── Mocks (must come before imports that depend on them) ──────────────
 
 vi.mock('@ai-sdk/openai', () => ({
   openai: vi.fn((model: string) => ({ provider: 'openai', modelId: model })),
@@ -78,10 +77,9 @@ import { suite as linearSuite } from '../examples/evals/linear-completion.js';
 import { suite as supervisorSuite } from '../examples/evals/supervisor-routing.js';
 import { suite as hitlSuite } from '../examples/evals/hitl-approval.js';
 
-// ─── Suite Tests ─────────────────────────────────────────────────────────
 
 describe('eval suites', () => {
-  test('linear-completion: 2-node tool pipeline completes', async () => {
+  it('linear-completion: 2-node tool pipeline completes', async () => {
     const report = await runEval(linearSuite);
 
     expect(report.suite_name).toBe('Linear Completion');
@@ -91,7 +89,7 @@ describe('eval suites', () => {
     expect(report.cases[0].passed).toBe(true);
   });
 
-  test('supervisor-routing: router dispatches to worker', async () => {
+  it('supervisor-routing: router dispatches to worker', async () => {
     const report = await runEval(supervisorSuite);
 
     expect(report.suite_name).toBe('Supervisor Routing');
@@ -101,7 +99,7 @@ describe('eval suites', () => {
     expect(report.cases[0].passed).toBe(true);
   });
 
-  test('hitl-approval: approval gate pauses workflow', async () => {
+  it('hitl-approval: approval gate pauses workflow', async () => {
     const report = await runEval(hitlSuite);
 
     expect(report.suite_name).toBe('HITL Approval');

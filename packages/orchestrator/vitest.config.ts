@@ -25,18 +25,19 @@ export default defineConfig({
       // so a meaningful drop fails CI, but normal churn doesn't. Raise these as
       // coverage improves; never lower them to make a red build pass.
       thresholds: {
-        statements: 80,
-        functions: 80,
-        branches: 75,
+        statements: 97,
+        functions: 96,
+        branches: 95,
+        lines: 97,
         'src/runner/**': {
-          statements: 80,
-          functions: 75,
-          branches: 72,
+          statements: 96,
+          functions: 95,
+          branches: 93,
         },
         'src/agent/**': {
-          statements: 80,
-          functions: 80,
-          branches: 70,
+          statements: 99,
+          functions: 99,
+          branches: 98,
         },
       },
     },

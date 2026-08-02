@@ -12,7 +12,6 @@
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
 import { agentFactory } from '../agent-factory/index.js';
-import { AgentLoadError } from '../agent-factory/errors.js';
 import { AgentExecutionError } from '../agent-executor/errors.js';
 import { classifyRetryable } from '../agent-executor/error-classification.js';
 import { createEvaluatorPrompt, createEvaluatorSystemPrompt } from './prompts.js';
@@ -53,7 +52,7 @@ const EvaluationSchema = z.object({
  * @param criteria - Optional domain-specific evaluation criteria.
  * @returns The evaluation result with score, reasoning, and token usage.
  * @throws {AgentLoadError} If the evaluator agent cannot be loaded or the API key is missing.
- * @throws {Error} If the LLM call fails or returns unparseable structured output.
+ * @throws {AgentExecutionError} If the LLM call fails or returns unparseable structured output (carries retryable classification).
  */
 export async function evaluateQualityExecutor(
   evaluatorAgentId: string,

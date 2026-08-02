@@ -1,11 +1,10 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // Schema / Type tests
 import {
   NodeTypeSchema,
   GraphNodeSchema,
-  GraphSchema,
   SupervisorConfigSchema,
 } from '../src/types/graph.js';
 import { WorkflowStateSchema } from '../src/types/state.js';
@@ -75,7 +74,6 @@ const createSupervisorGraph = (): Graph => ({
         max_iterations: 10,
       },
       read_keys: ['*'],
-      // handoff / completion actions are permission-checked against these.
       write_keys: ['control_flow', 'status'],
       failure_policy: {
         max_retries: 1,
@@ -128,11 +126,11 @@ const createSupervisorGraph = (): Graph => ({
 
 describe('Supervisor Schema Tests', () => {
   describe('NodeTypeSchema', () => {
-    test('should accept "supervisor" as a valid node type', () => {
+    it('accept "supervisor" as a valid node type', () => {
       expect(() => NodeTypeSchema.parse('supervisor')).not.toThrow();
     });
 
-    test('should still accept existing node types', () => {
+    it('still accept existing node types', () => {
       const types = ['agent', 'tool', 'subgraph', 'synthesizer', 'router'];
       for (const type of types) {
         expect(() => NodeTypeSchema.parse(type)).not.toThrow();
@@ -141,7 +139,7 @@ describe('Supervisor Schema Tests', () => {
   });
 
   describe('SupervisorConfigSchema', () => {
-    test('should parse valid supervisor config', () => {
+    it('parse valid supervisor config', () => {
       const config = {
         agent_id: 'supervisor-agent',
         managed_nodes: ['research', 'writer'],
@@ -154,7 +152,7 @@ describe('Supervisor Schema Tests', () => {
       expect(parsed.max_iterations).toBe(5);
     });
 
-    test('should apply default max_iterations', () => {
+    it('apply default max_iterations', () => {
       const config = {
         agent_id: 'supervisor-agent',
         managed_nodes: ['research'],
@@ -164,14 +162,14 @@ describe('Supervisor Schema Tests', () => {
       expect(parsed.max_iterations).toBe(10);
     });
 
-    test('should accept missing agent_id (optional, falls back to node.agent_id)', () => {
+    it('accept missing agent_id (optional, falls back to node.agent_id)', () => {
       const parsed = SupervisorConfigSchema.parse({
         managed_nodes: ['research'],
       });
       expect(parsed.agent_id).toBeUndefined();
     });
 
-    test('should reject missing managed_nodes', () => {
+    it('reject missing managed_nodes', () => {
       expect(() => SupervisorConfigSchema.parse({
         agent_id: 'test',
       })).toThrow();
@@ -179,7 +177,7 @@ describe('Supervisor Schema Tests', () => {
   });
 
   describe('GraphNodeSchema with supervisor', () => {
-    test('should parse a supervisor node', () => {
+    it('parse a supervisor node', () => {
       const node = {
         id: 'supervisor-1',
         type: 'supervisor',
@@ -195,8 +193,7 @@ describe('Supervisor Schema Tests', () => {
       expect(parsed.supervisor_config?.managed_nodes).toEqual(['research', 'writer']);
     });
 
-    test('should allow supervisor without supervisor_config (schema level)', () => {
-      // Schema doesn't enforce config presence; that's the validator's job
+    it('allow supervisor without supervisor_config (schema level)', () => {
       const node = {
         id: 'supervisor-1',
         type: 'supervisor',
@@ -207,7 +204,7 @@ describe('Supervisor Schema Tests', () => {
   });
 
   describe('WorkflowStateSchema with supervisor_history', () => {
-    test('should default supervisor_history to empty array', () => {
+    it('default supervisor_history to empty array', () => {
       const state = {
         workflow_id: uuidv4(),
         run_id: uuidv4(),
@@ -221,7 +218,7 @@ describe('Supervisor Schema Tests', () => {
       expect(parsed.supervisor_history).toEqual([]);
     });
 
-    test('should parse state with supervisor_history', () => {
+    it('parse state with supervisor_history', () => {
       const state = {
         workflow_id: uuidv4(),
         run_id: uuidv4(),
@@ -250,7 +247,7 @@ describe('Supervisor Schema Tests', () => {
 // ─── Reducer Tests ──────────────────────────────────────────────────────
 
 describe('Handoff Reducer', () => {
-  test('should handle handoff action', () => {
+  it('handle handoff action', () => {
     const state = createInitialState();
     const action = createHandoffAction('supervisor', 'research', 'Need data');
 
@@ -265,7 +262,7 @@ describe('Handoff Reducer', () => {
     expect(newState.supervisor_history[0].reasoning).toBe('Need data');
   });
 
-  test('should ignore non-handoff actions', () => {
+  it('ignore non-handoff actions', () => {
     const state = createInitialState();
     const action: Action = {
       id: uuidv4(),
@@ -279,7 +276,7 @@ describe('Handoff Reducer', () => {
     expect(newState).toBe(state); // Same reference = no change
   });
 
-  test('should accumulate supervisor_history across multiple handoffs', () => {
+  it('accumulate supervisor_history across multiple handoffs', () => {
     let state = createInitialState();
 
     state = handoffReducer(state, createHandoffAction('supervisor', 'research', 'First'));
@@ -293,7 +290,7 @@ describe('Handoff Reducer', () => {
     expect(state.iteration_count).toBe(0); // handoff no longer increments; runner loop does
   });
 
-  test('rootReducer should process handoff actions', () => {
+  it('rootReducer processes handoff actions', () => {
     const state = createInitialState();
     const action = createHandoffAction('supervisor', 'research', 'Need data');
 
@@ -307,7 +304,7 @@ describe('Handoff Reducer', () => {
 // ─── Validation Tests ───────────────────────────────────────────────────
 
 describe('Supervisor Graph Validation', () => {
-  test('should validate a well-formed supervisor graph', () => {
+  it('validate a well-formed supervisor graph', () => {
     const graph = createSupervisorGraph();
     const result = validateGraph(graph);
 
@@ -315,9 +312,8 @@ describe('Supervisor Graph Validation', () => {
     expect(result.errors).toHaveLength(0);
   });
 
-  test('should fail if supervisor is missing supervisor_config', () => {
+  it('fail if supervisor is missing supervisor_config', () => {
     const graph = createSupervisorGraph();
-    // Remove supervisor_config
     const supervisorNode = graph.nodes.find(n => n.id === 'supervisor')!;
     (supervisorNode as any).supervisor_config = undefined;
 
@@ -327,7 +323,7 @@ describe('Supervisor Graph Validation', () => {
     expect(result.errors.some(e => e.includes('missing supervisor_config'))).toBe(true);
   });
 
-  test('should fail if managed_node does not exist in graph', () => {
+  it('fail if managed_node does not exist in graph', () => {
     const graph = createSupervisorGraph();
     const supervisorNode = graph.nodes.find(n => n.id === 'supervisor')!;
     supervisorNode.supervisor_config!.managed_nodes = ['research', 'nonexistent'];
@@ -338,18 +334,17 @@ describe('Supervisor Graph Validation', () => {
     expect(result.errors.some(e => e.includes("'nonexistent' not found"))).toBe(true);
   });
 
-  test('should warn if supervisor has no edge to a managed node', () => {
+  it('warn if supervisor has no edge to a managed node', () => {
     const graph = createSupervisorGraph();
-    // Remove edge from supervisor to writer
     graph.edges = graph.edges.filter(e => !(e.source === 'supervisor' && e.target === 'writer'));
 
     const result = validateGraph(graph);
 
-    expect(result.valid).toBe(true); // Warning, not error
+    expect(result.valid).toBe(true);
     expect(result.warnings.some(w => w.includes("no edge to managed node 'writer'"))).toBe(true);
   });
 
-  test('should warn if supervisor manages itself', () => {
+  it('warn if supervisor manages itself', () => {
     const graph = createSupervisorGraph();
     const supervisorNode = graph.nodes.find(n => n.id === 'supervisor')!;
     supervisorNode.supervisor_config!.managed_nodes.push('supervisor');
@@ -363,19 +358,11 @@ describe('Supervisor Graph Validation', () => {
 // ─── Supervisor Executor Tests ──────────────────────────────────────────
 
 describe('Supervisor Executor', () => {
-  // We test executeSupervisor by mocking the AI SDK and agent factory
-  // These are integration-style unit tests
-
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  test('SUPERVISOR_DONE sentinel value is "__done__"', () => {
+  it('SUPERVISOR_DONE sentinel value is "__done__"', () => {
     expect(SUPERVISOR_DONE).toBe('__done__');
   });
-
-  // Note: Full executeSupervisor tests require mocking the 'ai' module's
-  // generateObject and the agentFactory. These would be integration tests
-  // run with proper module mocking setup. The schema, reducer, and
-  // validation tests above cover the critical paths without LLM mocking.
 });

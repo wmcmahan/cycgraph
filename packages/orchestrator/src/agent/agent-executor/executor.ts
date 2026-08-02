@@ -553,8 +553,7 @@ function createAbortControllerWithTimeout(timeoutMs: number) {
  * Best-effort read of token usage from a streamText result after the call
  * failed or was aborted. Bounded by a short timeout so a never-settling
  * `totalUsage` promise can't hang the error path; any rejection or absence
- * yields `undefined` (no usage attributed — same as before this change, no
- * regression).
+ * yields `undefined` (no usage attributed).
  */
 async function capturePartialUsage(
   result: Awaited<ReturnType<typeof streamText>> | undefined,

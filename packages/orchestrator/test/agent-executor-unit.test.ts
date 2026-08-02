@@ -109,15 +109,15 @@ describe('sanitizeValue', () => {
   });
 
   it('returns depth limit string for deeply nested objects', () => {
-    // Build a 12-level deep object (exceeds MAX_SANITIZE_DEPTH of 10)
+    const MAX_SANITIZE_DEPTH = 10;
+    const DEPTH_BEYOND_LIMIT = 12;
     let deep: Record<string, unknown> = { value: 'should be limited' };
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < DEPTH_BEYOND_LIMIT; i++) {
       deep = { nested: deep };
     }
     const result = sanitizeValue(deep) as Record<string, unknown>;
-    // Walk down to the depth limit
     let current: unknown = result;
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < MAX_SANITIZE_DEPTH; i++) {
       current = (current as Record<string, unknown>).nested;
     }
     expect(current).toBe('[depth limit]');
@@ -134,6 +134,16 @@ describe('sanitizeForPrompt', () => {
       clean: 'safe text',
       dirty: 'override',
     });
+  });
+
+  it('drops internal underscore-prefixed keys', () => {
+    const result = sanitizeForPrompt({
+      output: 'visible',
+      _taint_registry: { secret: 'hidden' },
+    });
+
+    expect(result).toEqual({ output: 'visible' });
+    expect(result).not.toHaveProperty('_taint_registry');
   });
 });
 
@@ -214,6 +224,15 @@ describe('extractMemoryUpdates', () => {
     const result = extractMemoryUpdates(
       '',
       [{ toolCallId: 'call-1', toolName: 'web_search', args: { query: 'test' } }],
+      ['*'],
+    );
+    expect(Object.keys(result)).toHaveLength(0);
+  });
+
+  it('treats a save_to_memory call with no args or input as an empty payload', () => {
+    const result = extractMemoryUpdates(
+      '',
+      [{ toolCallId: 'call-1', toolName: 'save_to_memory' }],
       ['*'],
     );
     expect(Object.keys(result)).toHaveLength(0);
@@ -374,17 +393,14 @@ describe('validateMemoryUpdatePermissions', () => {
         attempt: 1,
       },
     };
-    // goto_node requires 'control_flow' or '*' — empty keys should throw
     expect(() => {
       validateMemoryUpdatePermissions(action, []);
     }).toThrow(PermissionDeniedError);
 
-    // With wildcard, it should pass
     expect(() => {
       validateMemoryUpdatePermissions(action, ['*']);
     }).not.toThrow();
 
-    // With control_flow, it should pass
     expect(() => {
       validateMemoryUpdatePermissions(action, ['control_flow']);
     }).not.toThrow();

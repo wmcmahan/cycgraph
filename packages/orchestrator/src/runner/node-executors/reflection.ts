@@ -257,8 +257,10 @@ function writeIdempotencyKey(
  *
  *  - Sanitizer returns a fact → keep it (possibly replaced).
  *  - Sanitizer returns `null` → drop the fact silently.
- *  - Sanitizer throws → log and keep the original fact. By contract a
- *    downed PII service must not block compound learning.
+ *  - Sanitizer throws → fails closed by default: the throw is logged and
+ *    the fact is DROPPED rather than persisted unredacted into durable
+ *    memory. Hosts prioritizing reflection availability over redaction can
+ *    set `factSanitizerFailMode: 'pass'` to keep the original fact instead.
  */
 async function applySanitizer(
   facts: MemoryWriterFact[],

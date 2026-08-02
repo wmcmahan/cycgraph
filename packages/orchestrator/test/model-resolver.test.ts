@@ -135,7 +135,6 @@ describe('defaultModelResolver', () => {
   // ── Budget with plenty of headroom ──
 
   it('returns preferred model when budget has plenty of headroom', () => {
-    // $100 remaining — way more than any single call estimate
     const result = resolver('high', 'anthropic', 100);
     expect(result).toEqual({
       reason: 'preferred',
@@ -147,7 +146,6 @@ describe('defaultModelResolver', () => {
   // ── Budget downgrade ──
 
   it('downgrades one tier when budget is tight', () => {
-    // Very small budget forces downgrade
     const result = resolver('high', 'anthropic', 0.001);
     expect(result).not.toBeNull();
     if (result!.reason === 'budget_downgrade') {
@@ -155,7 +153,6 @@ describe('defaultModelResolver', () => {
       expect(result!.resolved_tier).toBe('medium');
       expect(result!.model).toBe('claude-sonnet-4-6');
     } else {
-      // Could also be budget_critical depending on cost estimate
       expect(result!.reason).toBe('budget_critical');
     }
   });
@@ -176,8 +173,6 @@ describe('defaultModelResolver', () => {
   // ── Immutability ──
 
   it('does not allow mutation of the tier map after creation', () => {
-    // The resolver freezes the tier map, so mutations to the original
-    // should not affect resolution
     const mutableMap: ModelTierMap = {
       high:   { anthropic: 'model-a' },
       medium: { anthropic: 'model-b' },
@@ -185,7 +180,6 @@ describe('defaultModelResolver', () => {
     };
     const r = defaultModelResolver(mutableMap);
 
-    // Mutate original — should not affect resolver
     mutableMap.high.anthropic = 'mutated';
 
     const result = r('high', 'anthropic', undefined);
@@ -210,8 +204,22 @@ describe('defaultModelResolver', () => {
   it('handles zero remaining budget', () => {
     const result = resolver('high', 'anthropic', 0);
     expect(result).not.toBeNull();
-    // With zero budget, should downgrade or go critical
     expect(['budget_downgrade', 'budget_critical']).toContain(result!.reason);
+  });
+
+  // ── No lower tier available for the provider ──
+
+  it('falls back to the preferred model when no lower tier exists for the provider', () => {
+    const highOnlyResolver = defaultModelResolver({ high: { anthropic: 'claude-opus-4-8' } });
+
+    const result = highOnlyResolver('high', 'anthropic', 0.0000001);
+
+    expect(result).toEqual({
+      reason: 'budget_critical',
+      model: 'claude-opus-4-8',
+      original_tier: 'high',
+      resolved_tier: 'low',
+    });
   });
 });
 

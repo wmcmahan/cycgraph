@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { createStateView } from '../src/runner/state-view.js';
 import type { WorkflowState } from '../src/types/state.js';
 import type { GraphNode } from '../src/types/graph.js';
@@ -34,7 +34,7 @@ function makeNode(read_keys: string[]): GraphNode {
 
 describe('createStateView', () => {
   describe('wildcard access', () => {
-    test('should return full memory when read_keys includes *', () => {
+    it('returns full memory when read_keys includes *', () => {
       const state = makeState({
         public_data: 'visible',
         secret_data: 'also visible',
@@ -50,7 +50,7 @@ describe('createStateView', () => {
       });
     });
 
-    test('should include workflow metadata with wildcard', () => {
+    it('includes workflow metadata with wildcard', () => {
       const view = createStateView(makeState(), makeNode(['*']));
 
       expect(view.workflow_id).toBe('wf-1');
@@ -61,7 +61,7 @@ describe('createStateView', () => {
   });
 
   describe('filtered access', () => {
-    test('should only include specified keys', () => {
+    it('only includes specified keys', () => {
       const state = makeState({
         public_data: 'visible',
         secret_data: 'hidden',
@@ -75,7 +75,7 @@ describe('createStateView', () => {
       expect(view.memory).not.toHaveProperty('another_secret');
     });
 
-    test('should include multiple allowed keys', () => {
+    it('includes multiple allowed keys', () => {
       const state = makeState({
         key_a: 'a',
         key_b: 'b',
@@ -87,7 +87,7 @@ describe('createStateView', () => {
       expect(view.memory).toEqual({ key_a: 'a', key_c: 'c' });
     });
 
-    test('should silently omit keys not present in memory', () => {
+    it('silently omits keys not present in memory', () => {
       const state = makeState({ existing: 'value' });
 
       const view = createStateView(state, makeNode(['existing', 'nonexistent']));
@@ -98,7 +98,7 @@ describe('createStateView', () => {
   });
 
   describe('empty read_keys', () => {
-    test('should return empty memory when read_keys is empty', () => {
+    it('returns empty memory when read_keys is empty', () => {
       const state = makeState({
         data: 'should not be visible',
       });
@@ -108,7 +108,7 @@ describe('createStateView', () => {
       expect(view.memory).toEqual({});
     });
 
-    test('should still include workflow metadata', () => {
+    it('still includes workflow metadata', () => {
       const view = createStateView(makeState(), makeNode([]));
 
       expect(view.workflow_id).toBe('wf-1');
@@ -118,10 +118,7 @@ describe('createStateView', () => {
   });
 
   describe('internal key filtering', () => {
-    test('carries taint for readable tainted keys on the dedicated field (executor-only)', () => {
-      // The view retains taint info for the keys the node can read so the
-      // agent executor can propagate derived taint. It rides on `view.taint`
-      // (never inside memory), so it structurally cannot reach the prompt.
+    it('carries taint for readable tainted keys on the dedicated field (executor-only)', () => {
       const state = makeState(
         { findings: 'visible' },
         { findings: { source: 'web_search' } },
@@ -134,7 +131,7 @@ describe('createStateView', () => {
       expect(view.taint).toEqual({ findings: { source: 'web_search' } });
     });
 
-    test('only carries taint entries for keys the node can read', () => {
+    it('only carries taint entries for keys the node can read', () => {
       const state = makeState(
         { readable: 'x', secret: 'y' },
         { readable: { source: 'web_search' }, secret: { source: 'web_search' } },
@@ -144,11 +141,10 @@ describe('createStateView', () => {
 
       expect(view.memory).toHaveProperty('readable');
       expect(view.memory).not.toHaveProperty('secret');
-      // Taint for the unreadable `secret` key is not leaked into the view.
       expect(view.taint).toEqual({ readable: { source: 'web_search' } });
     });
 
-    test('should strip all _-prefixed keys from wildcard access', () => {
+    it('strips all _-prefixed keys from wildcard access', () => {
       const state = makeState({
         data: 'visible',
         _taint_registry: {},
@@ -161,7 +157,7 @@ describe('createStateView', () => {
       expect(view.memory).toEqual({ data: 'visible' });
     });
 
-    test('should block _-prefixed keys even when explicitly requested', () => {
+    it('blocks _-prefixed keys even when explicitly requested', () => {
       const state = makeState({
         data: 'visible',
         _taint_registry: { some: 'metadata' },
@@ -175,7 +171,7 @@ describe('createStateView', () => {
   });
 
   describe('internal key blocking (non-wildcard)', () => {
-    test('read_keys with only _taint_registry returns empty memory', () => {
+    it('read_keys with only _taint_registry returns empty memory', () => {
       const state = makeState({
         _taint_registry: { findings: { source: 'web_search' } },
         public_key: 'visible',
@@ -186,7 +182,7 @@ describe('createStateView', () => {
       expect(view.memory).toEqual({});
     });
 
-    test('read_keys with _taint_registry and public_key returns only public_key', () => {
+    it('read_keys with _taint_registry and public_key returns only public_key', () => {
       const state = makeState({
         _taint_registry: { findings: { source: 'web_search' } },
         public_key: 'visible',
@@ -198,7 +194,7 @@ describe('createStateView', () => {
       expect(view.memory).not.toHaveProperty('_taint_registry');
     });
 
-    test('read_keys with multiple _-prefixed keys are all blocked', () => {
+    it('read_keys with multiple _-prefixed keys are all blocked', () => {
       const state = makeState({
         _taint_registry: {},
         _internal_counter: 42,
@@ -212,7 +208,7 @@ describe('createStateView', () => {
   });
 
   describe('dot-notation nested key filtering', () => {
-    test('should pick a single nested path', () => {
+    it('picks a single nested path', () => {
       const state = makeState({
         user: { name: 'Alice', age: 30, api_key: 'secret' },
       });
@@ -222,7 +218,7 @@ describe('createStateView', () => {
       expect(view.memory).toEqual({ user: { name: 'Alice' } });
     });
 
-    test('should pick multiple nested paths from same parent', () => {
+    it('picks multiple nested paths from same parent', () => {
       const state = makeState({
         user: { name: 'Alice', email: 'alice@example.com', api_key: 'secret' },
       });
@@ -235,7 +231,7 @@ describe('createStateView', () => {
       expect((view.memory.user as Record<string, unknown>).api_key).toBeUndefined();
     });
 
-    test('should mix dot-notation and top-level keys', () => {
+    it('mixes dot-notation and top-level keys', () => {
       const state = makeState({
         user: { name: 'Alice', secret: 'hidden' },
         public_data: 'visible',
@@ -249,20 +245,19 @@ describe('createStateView', () => {
       });
     });
 
-    test('should return top-level key as before when no dot', () => {
+    it('returns top-level key as before when no dot', () => {
       const state = makeState({
         user: { name: 'Alice', api_key: 'secret' },
       });
 
       const view = createStateView(state, makeNode(['user']));
 
-      // Full object returned (backward compatible)
       expect(view.memory).toEqual({
         user: { name: 'Alice', api_key: 'secret' },
       });
     });
 
-    test('should silently omit non-existent nested paths', () => {
+    it('silently omits non-existent nested paths', () => {
       const state = makeState({
         user: { name: 'Alice' },
       });
@@ -272,7 +267,7 @@ describe('createStateView', () => {
       expect(view.memory).toEqual({});
     });
 
-    test('should handle deeply nested paths', () => {
+    it('handles deeply nested paths', () => {
       const state = makeState({
         config: { db: { host: 'localhost', password: 'secret' } },
       });
@@ -284,7 +279,7 @@ describe('createStateView', () => {
       });
     });
 
-    test('should block dot-notation paths with internal segments', () => {
+    it('blocks dot-notation paths with internal segments', () => {
       const state = makeState({
         _internal: { data: 'secret' },
         config: { _secret: 'hidden', public: 'visible' },
@@ -295,7 +290,7 @@ describe('createStateView', () => {
       expect(view.memory).toEqual({});
     });
 
-    test('should handle null/undefined in nested path gracefully', () => {
+    it('handles null/undefined in nested path gracefully', () => {
       const state = makeState({
         user: null,
       });
@@ -307,12 +302,12 @@ describe('createStateView', () => {
   });
 
   describe('edge cases', () => {
-    test('should handle empty memory', () => {
+    it('handles empty memory', () => {
       const view = createStateView(makeState({}), makeNode(['anything']));
       expect(view.memory).toEqual({});
     });
 
-    test('should pass through complex nested values', () => {
+    it('passes through complex nested values', () => {
       const state = makeState({
         nested: { deep: { array: [1, 2, 3], obj: { flag: true } } },
       });
@@ -323,11 +318,10 @@ describe('createStateView', () => {
       });
     });
 
-    test('should not mutate original state', () => {
+    it('does not mutate original state', () => {
       const state = makeState({ data: 'original' });
       const view = createStateView(state, makeNode(['data']));
 
-      // View returns same reference (not a deep clone — that's fine for read-only)
       expect(view.memory.data).toBe('original');
       expect(state.memory.data).toBe('original');
     });

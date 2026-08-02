@@ -58,9 +58,7 @@ describe('InMemoryAgentRegistry camelCase authoring', () => {
     expect(entry?.max_steps).toBe(7);
     expect(entry?.model_preference).toBe('high');
     expect(entry?.permissions).toMatchObject({ read_keys: ['goal'], write_keys: ['draft'] });
-    // tools remap to snake wire form
     expect(entry?.tools).toEqual([{ type: 'mcp', server_id: 'web', tool_names: ['search'] }]);
-    // providerOptions is freeform — inner keys preserved verbatim
     expect(entry?.provider_options).toEqual({ anthropic: { thinking: { budgetTokens: 1024 } } });
   });
 
@@ -96,7 +94,6 @@ describe('InMemoryMCPServerRegistry camelCase authoring', () => {
     expect(entry?.allowed_agents).toEqual(['agent-1']);
     expect(entry?.timeout_ms).toBe(5_000);
     expect(entry?.tool_timeout_ms).toBe(2_000);
-    // transport env keys are user-controlled — preserved verbatim
     if (entry?.transport.type === 'stdio') {
       expect(entry.transport.env).toEqual({ API_KEY: 'x' });
     }

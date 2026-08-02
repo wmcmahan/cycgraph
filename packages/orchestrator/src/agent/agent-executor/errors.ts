@@ -28,6 +28,14 @@ export class PermissionDeniedError extends CycgraphError {
   }
 }
 
+/** Token usage observed before an agent call failed (best-effort, may be partial). */
+export interface PartialUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  model?: string;
+}
+
 /**
  * Thrown when an agent's LLM call exceeds its configured timeout.
  *
@@ -40,14 +48,6 @@ export class PermissionDeniedError extends CycgraphError {
  * // → "Agent agent-123 timed out after 120000ms"
  * ```
  */
-/** Token usage observed before an agent call failed (best-effort, may be partial). */
-export interface PartialUsage {
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  model?: string;
-}
-
 export class AgentTimeoutError extends CycgraphError {
   /** Tokens spent before the timeout, if the provider surfaced them. */
   readonly partialUsage?: PartialUsage;

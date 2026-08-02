@@ -9,7 +9,7 @@
  *  - M5: a crafted update_memory cannot clear _taint_registry (reducer
  *        merges it append-only).
  */
-import { describe, test, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 vi.mock('../src/utils/logger.js', () => ({
@@ -68,24 +68,23 @@ describe('M5: _taint_registry cannot be cleared via update_memory', () => {
     page: { source: 'mcp_tool', tool_name: 'fetch', server_id: 'web', created_at: '2026-01-01T00:00:00Z' },
   };
 
-  test('a crafted empty _taint_registry preserves existing entries', () => {
+  it('a crafted empty _taint_registry preserves existing entries', () => {
     const state = baseState({ page: 'attacker text' }, existingTaint);
     const next = updateMemoryReducer(state, makeAction({ _taint_registry: {} }));
     expect(next.taint_registry).toEqual(existingTaint);
   });
 
-  test('overwriting a specific key to remove its taint is ignored (merge keeps it)', () => {
+  it('overwriting a specific key to remove its taint is ignored (merge keeps it)', () => {
     const state = baseState({ page: 'x' }, existingTaint);
-    // Attacker tries to drop the `page` taint by sending a registry without it.
     const next = updateMemoryReducer(state, makeAction({
       _taint_registry: { other: { source: 'derived', created_at: '2026-01-02T00:00:00Z' } },
     }));
     const reg = next.taint_registry as Record<string, unknown>;
-    expect(reg.page).toEqual(existingTaint.page); // still tainted
-    expect(reg.other).toBeDefined();              // new entry added
+    expect(reg.page).toEqual(existingTaint.page);
+    expect(reg.other).toBeDefined();
   });
 
-  test('legitimate additive taint writes still work', () => {
+  it('legitimate additive taint writes still work', () => {
     const state = baseState({}, existingTaint);
     const next = updateMemoryReducer(state, makeAction({
       _taint_registry: { ...existingTaint, doc: { source: 'mcp_tool', tool_name: 'search', server_id: 'web', created_at: '2026-01-03T00:00:00Z' } },
@@ -94,7 +93,7 @@ describe('M5: _taint_registry cannot be cleared via update_memory', () => {
     expect(Object.keys(reg).sort()).toEqual(['doc', 'page']);
   });
 
-  test('merge_parallel_results is also append-only for taint', () => {
+  it('merge_parallel_results is also append-only for taint', () => {
     const state = baseState({}, existingTaint);
     const next = mergeParallelResultsReducer(
       state,
@@ -107,10 +106,7 @@ describe('M5: _taint_registry cannot be cleared via update_memory', () => {
 // ─── H1 + race: tool-node taint via per-resolution collector ────────────
 
 describe('H1: standalone tool nodes taint MCP output', () => {
-  test('drains taint from the resolution collector and marks the result key', async () => {
-    // executeToolNode with a stub resolver that mimics MCPConnectionManager:
-    // resolveTools returns a tool and drainTaintEntries(tools) returns the
-    // accumulated entry for that exact toolset.
+  it('drains taint from the resolution collector and marks the result key', async () => {
     const accumulated = new Map([
       ['web:fetch', { source: 'mcp_tool' as const, tool_name: 'fetch', server_id: 'web', created_at: '2026-01-01T00:00:00Z' }],
     ]);
@@ -142,11 +138,10 @@ describe('H1: standalone tool nodes taint MCP output', () => {
     const reg = updates['_taint_registry'] as Record<string, unknown>;
     expect(reg).toBeDefined();
     expect((reg['tool-node_result'] as { source: string }).source).toBe('mcp_tool');
-    // Drain was called with the exact toolset (race-free path).
     expect(ctx.deps.drainTaintEntries).toHaveBeenCalledWith(resolvedTools);
   });
 
-  test('no taint entries → result written untainted (no false positives)', async () => {
+  it('no taint entries → result written untainted (no false positives)', async () => {
     const resolvedTools = { calc: { execute: async () => 42 } };
     const ctx = {
       state: baseState({}),
@@ -174,20 +169,12 @@ describe('H1: standalone tool nodes taint MCP output', () => {
 // ─── race: per-toolset collectors are isolated ──────────────────────────
 
 describe('race: drainTaintEntries(tools) isolates concurrent resolutions', () => {
-  test('two toolsets drain independently', async () => {
+  it('two toolsets drain independently', async () => {
     const registry = new InMemoryMCPServerRegistry();
     const manager = new MCPConnectionManager(registry);
-
-    // Simulate two independent resolutions by registering two distinct
-    // toolset objects with the manager's collector map via resolveTools.
-    // resolveTools with no sources returns an (empty) toolset that still
-    // gets a registered collector — exercising the WeakMap keying.
     const toolsetA = await manager.resolveTools([]);
     const toolsetB = await manager.resolveTools([]);
     expect(toolsetA).not.toBe(toolsetB);
-
-    // Draining one returns its own (empty) collector and does not throw,
-    // and the two are distinct map instances.
     const drainA = manager.drainTaintEntries(toolsetA);
     const drainB = manager.drainTaintEntries(toolsetB);
     expect(drainA).not.toBe(drainB);
@@ -199,7 +186,7 @@ describe('race: drainTaintEntries(tools) isolates concurrent resolutions', () =>
 // ─── Reserved-key guard: unknown `_` keys are dropped fail-closed ────────
 
 describe('reserved memory-key guard', () => {
-  test('unknown _ keys are dropped and recorded in memory_drops', () => {
+  it('unknown _ keys are dropped and recorded in memory_drops', () => {
     const state = baseState({});
     const next = updateMemoryReducer(state, makeAction({
       legit: 'kept',
@@ -212,7 +199,7 @@ describe('reserved memory-key guard', () => {
     expect(drop?.reason).toBe('reserved_key');
   });
 
-  test('the guard applies to handoff memory_updates too', () => {
+  it('the guard applies to handoff memory_updates too', () => {
     const state = baseState({});
     const action = {
       id: uuidv4(),

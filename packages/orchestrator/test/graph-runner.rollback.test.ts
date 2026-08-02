@@ -4,7 +4,7 @@
  * Tests for autoRollback option (task 1.5), approval gate timeout
  * enforcement (task 1.6), and graceful shutdown (task 4.4).
  */
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────
@@ -43,12 +43,10 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
     const count = (agentCallCounts.get(agentId) || 0) + 1;
     agentCallCounts.set(agentId, count);
 
-    // 'always-fail' agent always throws
     if (agentId === 'always-fail') {
       throw new Error(`Agent ${agentId} permanently failed (call ${count})`);
     }
 
-    // 'slow-agent' delays to allow shutdown to be requested mid-execution
     if (agentId === 'slow-agent') {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
@@ -59,7 +57,6 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
       type: 'update_memory',
       payload: { updates: { [`${agentId}_result`]: `done_call_${count}` } },
       metadata: { node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt },
-      // Include compensation for nodes that require it
       ...(agentId === 'compensatable-agent' ? {
         compensation: {
           id: uuidv4(),
@@ -97,7 +94,6 @@ vi.mock('../src/utils/tracing', () => ({
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-// Mock sleep to avoid slow tests
 vi.mock('../src/runner/helpers', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
@@ -153,7 +149,7 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
    * has pushed compensation actions, rollback() should execute in LIFO order
    * and the workflow should end in 'cancelled' status (not 'failed').
    */
-  test('should run LIFO compensation and set status to cancelled with autoRollback: true', async () => {
+  it('should run LIFO compensation and set status to cancelled with autoRollback: true', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Auto Rollback', description: '',
       nodes: [
@@ -182,25 +178,15 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
     const rollbackSpy = vi.fn();
     runner.on('workflow:rollback', rollbackSpy);
 
-    // autoRollback catches the error internally; run() should still throw
-    // because the workflow is not in a completed state
-    try {
-      await runner.run();
-    } catch {
-      // expected — the error propagates after rollback
-    }
+    await runner.run().catch(() => {});
 
-    // Rollback event should have been emitted
     expect(rollbackSpy).toHaveBeenCalledOnce();
 
-    // Last persisted state should be 'cancelled' (from rollback), not 'failed'
     const lastPersisted = persistSpy.mock.calls[persistSpy.mock.calls.length - 1][0] as WorkflowState;
     expect(lastPersisted.status).toBe('cancelled');
 
-    // Compensation should have been applied
     expect(lastPersisted.memory['compensatable-agent_result']).toBe('rolled_back');
 
-    // Compensation stack should be drained
     expect(lastPersisted.compensation_stack).toHaveLength(0);
   });
 
@@ -208,7 +194,7 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
    * Default behavior (autoRollback: false): compensation should NOT run
    * on failure. Status should be 'failed'.
    */
-  test('should NOT run compensation with autoRollback: false (default)', async () => {
+  it('should NOT run compensation with autoRollback: false (default)', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'No Auto Rollback', description: '',
       nodes: [
@@ -234,20 +220,13 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
     const rollbackSpy = vi.fn();
     runner.on('workflow:rollback', rollbackSpy);
 
-    try {
-      await runner.run();
-    } catch {
-      // expected
-    }
+    await runner.run().catch(() => {});
 
-    // Rollback should NOT have been called
     expect(rollbackSpy).not.toHaveBeenCalled();
 
-    // Status should be 'failed'
     const lastPersisted = persistSpy.mock.calls[persistSpy.mock.calls.length - 1][0] as WorkflowState;
     expect(lastPersisted.status).toBe('failed');
 
-    // Compensation stack should still have entries (not drained)
     expect(lastPersisted.compensation_stack.length).toBeGreaterThan(0);
   });
 
@@ -255,7 +234,7 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
    * autoRollback with no compensation entries should skip rollback
    * and proceed with normal failure handling.
    */
-  test('should skip rollback when compensation stack is empty', async () => {
+  it('should skip rollback when compensation stack is empty', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Empty Comp Stack', description: '',
       nodes: [
@@ -277,13 +256,8 @@ describe('GraphRunner — Auto-Rollback on Failure', () => {
     });
     runner.on('workflow:failed', failedSpy);
 
-    try {
-      await runner.run();
-    } catch {
-      // expected
-    }
+    await runner.run().catch(() => {});
 
-    // workflow:failed should have been emitted (normal failure path)
     expect(failedSpy).toHaveBeenCalledOnce();
     const lastPersisted = persistSpy.mock.calls[persistSpy.mock.calls.length - 1][0] as WorkflowState;
     expect(lastPersisted.status).toBe('failed');
@@ -297,7 +271,7 @@ describe('GraphRunner — Approval Gate Timeout', () => {
    * When request_human_input sets a waiting_timeout_at and no human response
    * is provided, the workflow should eventually time out.
    */
-  test('should timeout when approval gate expires', async () => {
+  it('should timeout when approval gate expires', async () => {
     const graph: Graph = {
       id: 'timeout-hitl',
       name: 'Timeout HITL',
@@ -311,7 +285,7 @@ describe('GraphRunner — Approval Gate Timeout', () => {
             approval_type: 'human_review',
             prompt_message: 'Review please.',
             review_keys: ['draft'],
-            timeout_ms: 60000, // Will be overridden by our expired state
+            timeout_ms: 60000,
           },
           read_keys: ['*'],
           write_keys: ['*', 'control_flow'],
@@ -328,24 +302,20 @@ describe('GraphRunner — Approval Gate Timeout', () => {
       end_nodes: ['publish'],
     };
 
-    // Step 1: Run workflow to get it into 'waiting' state at the approval node
     const state = createState({ memory: { draft: 'content' }, max_execution_time_ms: 30000 });
     const runner1 = new GraphRunner(graph, state);
     const pausedState = await runner1.run();
     expect(pausedState.status).toBe('waiting');
     expect(pausedState.waiting_timeout_at).toBeDefined();
 
-    // Step 2: Simulate timeout by setting waiting_timeout_at to the past
     const expiredState = {
       ...pausedState,
-      waiting_timeout_at: new Date(Date.now() - 1000), // 1 second ago
+      waiting_timeout_at: new Date(Date.now() - 1000),
     };
 
-    // Step 3: Resume with expired timeout — should transition to 'timeout'
     const runner2 = new GraphRunner(graph, expiredState);
     try {
       await runner2.run();
-      // Should have thrown
       expect(true).toBe(false);
     } catch (error) {
       expect((error as Error).message).toMatch(/timed out/i);
@@ -361,7 +331,7 @@ describe('GraphRunner — Graceful Shutdown', () => {
    * persist state, and emit workflow:paused. The workflow should still
    * be in 'running' status (resumable).
    */
-  test('should pause after current node completes on shutdown()', async () => {
+  it('should pause after current node completes on shutdown()', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Shutdown Test', description: '',
       nodes: [
@@ -381,12 +351,10 @@ describe('GraphRunner — Graceful Shutdown', () => {
     const runner = new GraphRunner(graph, createState(), { persistStateFn: persistSpy });
     runner.on('workflow:paused', pausedSpy);
 
-    // Request shutdown after a brief delay (node-a should already be executing)
     setTimeout(() => runner.shutdown(), 10);
 
     const finalState = await runner.run();
 
-    // workflow:paused should have been emitted
     expect(pausedSpy).toHaveBeenCalledOnce();
     expect(pausedSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -395,23 +363,19 @@ describe('GraphRunner — Graceful Shutdown', () => {
       })
     );
 
-    // State should be 'running' (paused, not cancelled or completed)
     expect(finalState.status).toBe('running');
 
-    // First node should have completed
     expect(finalState.visited_nodes).toContain('node-a');
 
-    // Second node should NOT have been reached
     expect(finalState.visited_nodes).not.toContain('node-b');
 
-    // State should have been persisted
     expect(persistSpy).toHaveBeenCalled();
   });
 
   /**
    * shutdown() before execution starts should stop after the first node.
    */
-  test('should stop after first node if shutdown() called immediately', async () => {
+  it('should stop after first node if shutdown() called immediately', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Immediate Shutdown', description: '',
       nodes: [
@@ -427,7 +391,6 @@ describe('GraphRunner — Graceful Shutdown', () => {
 
     const runner = new GraphRunner(graph, createState());
 
-    // Request shutdown immediately — the first node will still execute
     runner.shutdown();
     const finalState = await runner.run();
 
@@ -439,7 +402,7 @@ describe('GraphRunner — Graceful Shutdown', () => {
   /**
    * stream() should yield a workflow:paused event on shutdown.
    */
-  test('should yield workflow:paused event when streaming', async () => {
+  it('should yield workflow:paused event when streaming', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Stream Shutdown', description: '',
       nodes: [

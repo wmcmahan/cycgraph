@@ -54,7 +54,7 @@ export class CircuitBreakerManager {
   /**
    * Check whether the breaker allows execution.
    *
-   * @throws If the breaker is open and the timeout has not elapsed.
+   * @throws {@link CircuitBreakerOpenError} If the breaker is open and the timeout has not elapsed.
    */
   check(node: GraphNode): void {
     const breakerState = this.breakers.get(node.id);

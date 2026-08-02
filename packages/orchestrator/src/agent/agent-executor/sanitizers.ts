@@ -45,6 +45,7 @@ export function sanitizeString(input: string): string {
       .replace(/IGNORE\s+(ALL\s+)?PREVIOUS\s+(INSTRUCTIONS?|PROMPTS?)/gi, '[filtered]')
       .replace(/DISREGARD\s+(ALL\s+)?PREVIOUS/gi, '[filtered]')
       // Strip unicode null and zero-width characters (used to hide injected text)
+      // eslint-disable-next-line no-control-regex, no-misleading-character-class -- intentionally matches U+0000 and zero-width joiners to strip injection-hiding characters.
       .replace(/[\u0000\u200B\u200C\u200D\uFEFF]/g, '')
       // Detect base64-encoded injection attempts
       .replace(/[A-Za-z0-9+/=]{20,}/g, (match) => {

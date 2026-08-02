@@ -8,7 +8,7 @@
  * they exercise the failure modes that will occur in production when
  * LLM calls fail, tools time out, and nodes return garbage.
  */
-import { describe, test, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────
@@ -43,18 +43,13 @@ vi.mock('@opentelemetry/api', () => ({
  */
 const agentCallCounts = new Map<string, number>();
 
-// Captures the run-correlation context observed during node execution, to
-// verify run() establishes it for downstream work (log correlation).
 const observedRunContext: { run_id?: string; graph_id?: string } = {};
 
 vi.mock('../src/agent/agent-executor/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _tools: any, attempt: number) => {
-    // Track call counts so individual tests can control failure behavior
     const count = (agentCallCounts.get(agentId) || 0) + 1;
     agentCallCounts.set(agentId, count);
 
-    // Capture the run context active during node execution (real, unmocked
-    // context util) to verify run() correlation propagation.
     if (agentId === 'context-probe') {
       const { getCurrentContext } = await import('../src/utils/context.js');
       const ctx = getCurrentContext();
@@ -62,33 +57,26 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
       observedRunContext.graph_id = ctx.graph_id;
     }
 
-    // 'always-fail' agent always throws (simulates permanent LLM failure)
     if (agentId === 'always-fail') {
       throw new Error(`Agent ${agentId} permanently failed (call ${count})`);
     }
 
-    // 'fail-then-succeed' fails on first 2 calls, succeeds on 3rd
     if (agentId === 'fail-then-succeed' && count <= 2) {
       throw new Error(`Agent ${agentId} transient failure (call ${count})`);
     }
 
-    // 'fail-with-usage' fails on the first call with best-effort partial
-    // usage attached (as the real agent executor does), then succeeds.
     if (agentId === 'fail-with-usage' && count === 1) {
       const err = new Error('transient failure after partial spend') as Error & { partialUsage?: unknown };
       err.partialUsage = { inputTokens: 40, outputTokens: 10, totalTokens: 50, model: 'gpt-4o' };
       throw err;
     }
 
-    // 'non-retryable' always throws an error flagged non-retryable (e.g. a
-    // 400 / context-length-exceeded). The retry loop must NOT retry it.
     if (agentId === 'non-retryable') {
       const err = new Error('context length exceeded') as Error & { retryable?: boolean };
       err.retryable = false;
       throw err;
     }
 
-    // 'slow-agent' simulates a slow LLM call (for timeout testing)
     if (agentId === 'slow-agent') {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
@@ -127,7 +115,6 @@ vi.mock('../src/utils/tracing', () => ({
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-// Mock sleep to avoid slow tests — but still track that it was called
 vi.mock('../src/runner/helpers', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
@@ -136,11 +123,10 @@ vi.mock('../src/runner/helpers', async (importOriginal) => {
   };
 });
 
-import { GraphRunner, BudgetExceededError, WorkflowTimeoutError } from '../src/runner/graph-runner.js';
+import { GraphRunner } from '../src/runner/graph-runner.js';
 import type { Graph, GraphNode } from '../src/types/graph.js';
-import type { WorkflowState, Action } from '../src/types/state.js';
+import type { WorkflowState } from '../src/types/state.js';
 
-// Reset call counts between tests
 import { beforeEach } from 'vitest';
 beforeEach(() => {
   agentCallCounts.clear();
@@ -184,7 +170,7 @@ describe('GraphRunner — Retry Behavior', () => {
    * The agent fails on the first 2 calls but succeeds on the 3rd.
    * With max_retries=3, the node should succeed after retrying.
    */
-  test('should retry failed node and succeed on later attempt', async () => {
+  it('should retry failed node and succeed on later attempt', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Retry Success', description: '',
       nodes: [
@@ -202,11 +188,10 @@ describe('GraphRunner — Retry Behavior', () => {
     const final = await runner.run();
 
     expect(final.status).toBe('completed');
-    // Agent was called 3 times: 2 failures + 1 success
     expect(agentCallCounts.get('fail-then-succeed')).toBe(3);
   });
 
-  test('counts tokens spent on a failed attempt toward the budget', async () => {
+  it('counts tokens spent on a failed attempt toward the budget', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Failed-attempt usage', description: '',
       nodes: [
@@ -223,12 +208,10 @@ describe('GraphRunner — Retry Behavior', () => {
     const final = await new GraphRunner(graph, createState()).run();
 
     expect(final.status).toBe('completed');
-    // The first attempt failed after spending 50 tokens; those are counted
-    // even though only the second (successful) attempt produced an action.
     expect(final.total_tokens_used).toBeGreaterThanOrEqual(50);
   });
 
-  test('run() establishes run/graph correlation context for node execution', async () => {
+  it('run() establishes run/graph correlation context for node execution', async () => {
     observedRunContext.run_id = undefined;
     observedRunContext.graph_id = undefined;
 
@@ -243,13 +226,11 @@ describe('GraphRunner — Retry Behavior', () => {
 
     await new GraphRunner(graph, state).run();
 
-    // The agent executor (and thus every downstream log line) saw the run_id
-    // and graph_id without them being threaded through any parameter.
     expect(observedRunContext.run_id).toBe(state.run_id);
     expect(observedRunContext.graph_id).toBe(graph.id);
   });
 
-  test('does not retry a non-retryable error (short-circuits)', async () => {
+  it('does not retry a non-retryable error (short-circuits)', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Non-retryable', description: '',
       nodes: [
@@ -265,8 +246,6 @@ describe('GraphRunner — Retry Behavior', () => {
 
     await expect(new GraphRunner(graph, createState()).run()).rejects.toThrow(/context length/);
 
-    // Despite max_retries=3, the agent was called exactly once — a 400-class
-    // error fails the same way every time, so retrying is pure wasted spend.
     expect(agentCallCounts.get('non-retryable')).toBe(1);
   });
 
@@ -274,7 +253,7 @@ describe('GraphRunner — Retry Behavior', () => {
    * The agent always fails. With max_retries=2, it should exhaust retries
    * and the workflow should fail with a meaningful error.
    */
-  test('should fail workflow when node exhausts all retries', async () => {
+  it('should fail workflow when node exhausts all retries', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Retry Exhausted', description: '',
       nodes: [
@@ -291,14 +270,13 @@ describe('GraphRunner — Retry Behavior', () => {
     const runner = new GraphRunner(graph, createState());
     await expect(runner.run()).rejects.toThrow('always-fail');
 
-    // Should have been called exactly max_retries times
     expect(agentCallCounts.get('always-fail')).toBe(2);
   });
 
   /**
    * Retry emits node:retry events with attempt count and backoff.
    */
-  test('should emit node:retry events during retries', async () => {
+  it('should emit node:retry events during retries', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Retry Events', description: '',
       nodes: [
@@ -318,7 +296,6 @@ describe('GraphRunner — Retry Behavior', () => {
 
     await runner.run();
 
-    // 2 failures before success → 2 retry events
     expect(retrySpy).toHaveBeenCalledTimes(2);
     expect(retrySpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -338,7 +315,7 @@ describe('GraphRunner — Error Handling & Events', () => {
    * 3. Emit workflow:failed event
    * 4. Persist the failed state
    */
-  test('should set status to failed and emit workflow:failed on node error', async () => {
+  it('should set status to failed and emit workflow:failed on node error', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Fail Flow', description: '',
       nodes: [
@@ -357,13 +334,8 @@ describe('GraphRunner — Error Handling & Events', () => {
     const runner = new GraphRunner(graph, createState(), { persistStateFn: persistSpy });
     runner.on('workflow:failed', failedSpy);
 
-    try {
-      await runner.run();
-    } catch {
-      // expected
-    }
+    await runner.run().catch(() => {});
 
-    // workflow:failed event emitted
     expect(failedSpy).toHaveBeenCalledOnce();
     expect(failedSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -371,7 +343,6 @@ describe('GraphRunner — Error Handling & Events', () => {
       })
     );
 
-    // State was persisted with failed status
     const lastPersistedState = persistSpy.mock.calls[persistSpy.mock.calls.length - 1][0] as WorkflowState;
     expect(lastPersistedState.status).toBe('failed');
     expect(lastPersistedState.last_error).toBeDefined();
@@ -381,7 +352,7 @@ describe('GraphRunner — Error Handling & Events', () => {
   /**
    * node:failed event should be emitted when a node exhausts retries.
    */
-  test('should emit node:failed event when node exhausts retries', async () => {
+  it('should emit node:failed event when node exhausts retries', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Node Fail Event', description: '',
       nodes: [
@@ -399,11 +370,7 @@ describe('GraphRunner — Error Handling & Events', () => {
     const runner = new GraphRunner(graph, createState());
     runner.on('node:failed', nodeFailedSpy);
 
-    try {
-      await runner.run();
-    } catch {
-      // expected
-    }
+    await runner.run().catch(() => {});
 
     expect(nodeFailedSpy).toHaveBeenCalledOnce();
     expect(nodeFailedSpy).toHaveBeenCalledWith(
@@ -419,7 +386,7 @@ describe('GraphRunner — Error Handling & Events', () => {
    * Failure in a non-start node should still fail the workflow correctly.
    * start succeeds → middle fails → workflow fails
    */
-  test('should propagate failure from non-start node', async () => {
+  it('should propagate failure from non-start node', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Mid Fail', description: '',
       nodes: [
@@ -440,7 +407,6 @@ describe('GraphRunner — Error Handling & Events', () => {
 
     try {
       await runner.run();
-      // Should not get here
       expect(true).toBe(false);
     } catch (error) {
       expect((error as Error).message).toContain('always-fail');
@@ -455,7 +421,7 @@ describe('GraphRunner — Per-Node Timeout', () => {
    *
    * 'slow-agent' is mocked to take 500ms; timeout_ms is 50ms.
    */
-  test('should enforce per-node timeout_ms', async () => {
+  it('should enforce per-node timeout_ms', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Node Timeout', description: '',
       nodes: [
@@ -466,7 +432,7 @@ describe('GraphRunner — Per-Node Timeout', () => {
             backoff_strategy: 'fixed',
             initial_backoff_ms: 10,
             max_backoff_ms: 10,
-            timeout_ms: 50, // 50ms timeout, but agent takes 500ms
+            timeout_ms: 50,
           },
         }),
       ],
@@ -483,14 +449,13 @@ describe('GraphRunner — Per-Node Timeout', () => {
   /**
    * Node WITHOUT timeout_ms should execute normally even if it takes a while.
    */
-  test('should not timeout nodes without timeout_ms configured', async () => {
+  it('should not timeout nodes without timeout_ms configured', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'No Timeout', description: '',
       nodes: [
         makeNode({
           id: 'normal-node', type: 'agent', agent_id: 'good-agent',
           failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 10, max_backoff_ms: 10 },
-          // No timeout_ms set
         }),
       ],
       edges: [],
@@ -506,7 +471,7 @@ describe('GraphRunner — Per-Node Timeout', () => {
 });
 
 describe('GraphRunner — Subgraph Node Validation', () => {
-  test('should throw when subgraph node has no loadGraphFn', async () => {
+  it('should throw when subgraph node has no loadGraphFn', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Subgraph Test', description: '',
       nodes: [
@@ -522,7 +487,7 @@ describe('GraphRunner — Subgraph Node Validation', () => {
     await expect(runner.run()).rejects.toThrow(/loadGraphFn/);
   });
 
-  test('synthesizer node should execute without error (simple merge)', async () => {
+  it('synthesizer node should execute without error (simple merge)', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Synthesizer Test', description: '',
       nodes: [
@@ -536,7 +501,6 @@ describe('GraphRunner — Subgraph Node Validation', () => {
     const runner = new GraphRunner(graph, createState());
     const finalState = await runner.run();
 
-    // Synthesizer without agent_id does a simple merge
     expect(finalState.status).toBe('completed');
     expect(finalState.memory.synth_synthesis).toBeDefined();
   });
@@ -547,7 +511,7 @@ describe('GraphRunner — Saga Rollback', () => {
    * When rollback() is called, compensation actions should be applied
    * in LIFO order (most recent first). Status should be 'cancelled'.
    */
-  test('should apply compensation actions in reverse order during rollback', async () => {
+  it('should apply compensation actions in reverse order during rollback', async () => {
     const state = createState({
       status: 'failed',
       compensation_stack: [
@@ -587,19 +551,17 @@ describe('GraphRunner — Saga Rollback', () => {
 
     await runner.rollback();
 
-    // State should reflect both compensations applied
     const lastPersisted = persistSpy.mock.calls[persistSpy.mock.calls.length - 1][0] as WorkflowState;
     expect(lastPersisted.status).toBe('cancelled');
     expect(lastPersisted.memory.step1).toBe('rolled_back');
     expect(lastPersisted.memory.step2).toBe('rolled_back');
-    // Compensation stack should be drained
     expect(lastPersisted.compensation_stack).toHaveLength(0);
   });
 
   /**
    * Rollback should emit workflow:rollback event.
    */
-  test('should emit workflow:rollback event', async () => {
+  it('should emit workflow:rollback event', async () => {
     const state = createState({
       status: 'failed',
       compensation_stack: [],
@@ -633,7 +595,7 @@ describe('GraphRunner — Saga Rollback', () => {
    * it should be skipped — not crash the entire rollback.
    * This is critical: a crashed rollback could leave state inconsistent.
    */
-  test('should skip invalid compensation actions without crashing', async () => {
+  it('should skip invalid compensation actions without crashing', async () => {
     const state = createState({
       status: 'failed',
       compensation_stack: [
@@ -649,10 +611,8 @@ describe('GraphRunner — Saga Rollback', () => {
         },
         {
           action_id: 'bad-action',
-          // Missing required fields — should fail schema validation
           compensation_action: {
             type: 'update_memory',
-            // no id, no idempotency_key, no payload, no metadata
           } as any,
         },
       ],
@@ -669,12 +629,10 @@ describe('GraphRunner — Saga Rollback', () => {
     const persistSpy = vi.fn().mockResolvedValue(undefined);
     const runner = new GraphRunner(graph, state, { persistStateFn: persistSpy });
 
-    // Should NOT throw
     await runner.rollback();
 
     const lastPersisted = persistSpy.mock.calls[persistSpy.mock.calls.length - 1][0] as WorkflowState;
     expect(lastPersisted.status).toBe('cancelled');
-    // The good compensation should have been applied
     expect(lastPersisted.memory.good).toBe(true);
   });
 });
@@ -684,14 +642,14 @@ describe('GraphRunner — Graph Validation', () => {
    * A graph with a start_node that doesn't exist should fail validation
    * and throw BEFORE any node execution occurs.
    */
-  test('should throw on invalid graph (start node not in nodes)', async () => {
+  it('should throw on invalid graph (start node not in nodes)', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Invalid', description: '',
       nodes: [
         makeNode({ id: 'orphan', type: 'agent', agent_id: 'agent-x' }),
       ],
       edges: [],
-      start_node: 'nonexistent', // Not in nodes array
+      start_node: 'nonexistent',
       end_nodes: ['orphan'],
     };
 
@@ -703,7 +661,7 @@ describe('GraphRunner — Graph Validation', () => {
   /**
    * A graph with an end_node that doesn't exist should also fail validation.
    */
-  test('should throw on invalid graph (end node references missing node)', async () => {
+  it('should throw on invalid graph (end node references missing node)', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Bad End', description: '',
       nodes: [
@@ -711,7 +669,7 @@ describe('GraphRunner — Graph Validation', () => {
       ],
       edges: [],
       start_node: 'start',
-      end_nodes: ['does-not-exist'], // Missing node
+      end_nodes: ['does-not-exist'],
     };
 
     const runner = new GraphRunner(graph, createState());
@@ -722,7 +680,7 @@ describe('GraphRunner — Graph Validation', () => {
   /**
    * Validation failure should set state to 'failed' and persist it.
    */
-  test('should persist failed state on graph validation failure', async () => {
+  it('should persist failed state on graph validation failure', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Invalid Persist', description: '',
       nodes: [],
@@ -734,11 +692,7 @@ describe('GraphRunner — Graph Validation', () => {
     const persistSpy = vi.fn().mockResolvedValue(undefined);
     const runner = new GraphRunner(graph, createState(), { persistStateFn: persistSpy });
 
-    try {
-      await runner.run();
-    } catch {
-      // expected
-    }
+    await runner.run().catch(() => {});
 
     expect(persistSpy).toHaveBeenCalled();
     const lastPersisted = persistSpy.mock.calls[persistSpy.mock.calls.length - 1][0] as WorkflowState;
@@ -749,7 +703,7 @@ describe('GraphRunner — Graph Validation', () => {
   /**
    * Duplicate node IDs should cause graph validation to fail.
    */
-  test('should throw on graph with duplicate node IDs', async () => {
+  it('should throw on graph with duplicate node IDs', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Duplicate IDs', description: '',
       nodes: [
@@ -772,7 +726,7 @@ describe('GraphRunner — Persistence Resilience', () => {
    * After MAX_PERSIST_FAILURES (3) consecutive failures, the workflow halts
    * to prevent data loss from unbounded in-memory-only execution.
    */
-  test('should throw after consecutive persistence failures exceed threshold', async () => {
+  it('should throw after consecutive persistence failures exceed threshold', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Persist Fail', description: '',
       nodes: [
@@ -799,7 +753,7 @@ describe('GraphRunner — Persistence Resilience', () => {
     expect(brokenPersist).toHaveBeenCalled();
   });
 
-  test('should reset persistence failure counter on success', async () => {
+  it('should reset persistence failure counter on success', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Persist Recovery', description: '',
       nodes: [
@@ -817,7 +771,6 @@ describe('GraphRunner — Persistence Resilience', () => {
       end_nodes: ['end'],
     };
 
-    // Fail twice, succeed, fail twice, succeed — never hits 3 consecutive
     let callCount = 0;
     const intermittentPersist = vi.fn().mockImplementation(async () => {
       callCount++;
@@ -829,7 +782,7 @@ describe('GraphRunner — Persistence Resilience', () => {
     expect(final.status).toBe('completed');
   });
 
-  test('should tolerate fewer than threshold consecutive failures', async () => {
+  it('should tolerate fewer than threshold consecutive failures', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Persist Partial Fail', description: '',
       nodes: [
@@ -843,7 +796,6 @@ describe('GraphRunner — Persistence Resilience', () => {
       end_nodes: ['end'],
     };
 
-    // Fail only the first 2 calls, then succeed — never reaches threshold of 3
     let callCount = 0;
     const partialPersist = vi.fn().mockImplementation(async () => {
       callCount++;
@@ -866,7 +818,7 @@ describe('GraphRunner — Rate Limiter', () => {
     end_nodes: ['n'],
   });
 
-  test('awaits the rate limiter before each LLM call', async () => {
+  it('awaits the rate limiter before each LLM call', async () => {
     const order: string[] = [];
     agentCallCounts.clear();
     const calls: Array<{ agentId: string; kind: string; nodeId?: string }> = [];
@@ -882,21 +834,18 @@ describe('GraphRunner — Rate Limiter', () => {
     expect(final.status).toBe('completed');
     expect(rateLimiter).toHaveBeenCalledTimes(1);
     expect(calls[0]).toMatchObject({ agentId: 'good-agent', kind: 'agent', nodeId: 'n' });
-    // The limiter resolved before the agent produced its result.
     expect(order[0]).toBe('limiter');
   });
 
-  test('a throwing rate limiter fails the node', async () => {
+  it('a throwing rate limiter fails the node', async () => {
     const rateLimiter = vi.fn(async () => { throw new Error('rate limit ceiling reached'); });
 
-    // makeNode's default failure_policy (max_retries: 1) — the limiter throws on
-    // every attempt, so the run exhausts retries and rejects with its error.
     const runner = new GraphRunner(singleAgentGraph(), createState(), { rateLimiter });
     await expect(runner.run()).rejects.toThrow(/rate limit ceiling reached/);
     expect(rateLimiter).toHaveBeenCalled();
   });
 
-  test('no overhead path: runs normally without a rate limiter', async () => {
+  it('no overhead path: runs normally without a rate limiter', async () => {
     const runner = new GraphRunner(singleAgentGraph(), createState());
     const final = await runner.run();
     expect(final.status).toBe('completed');

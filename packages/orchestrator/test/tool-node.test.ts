@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { executeToolNode } from '../src/runner/node-executors/tool.js';
 import { NodeConfigError } from '../src/runner/errors.js';
 import { createTestState, makeNode, createSimpleGraph } from './helpers/factories.js';
@@ -53,16 +53,15 @@ describe('executeToolNode', () => {
   });
 
   describe('missing tool_id', () => {
-    test('throws NodeConfigError when tool_id is missing', async () => {
+    it('throws NodeConfigError when tool_id is missing', async () => {
       const node = makeNode({ id: 'bad-node', type: 'tool' });
-      // node has no tool_id
 
       await expect(
         executeToolNode(node, mockCtx.createStateView(node), 0, mockCtx),
       ).rejects.toThrow(NodeConfigError);
     });
 
-    test('error includes node id and field name', async () => {
+    it('error includes node id and field name', async () => {
       const node = makeNode({ id: 'bad-node', type: 'tool' });
 
       await expect(
@@ -72,7 +71,7 @@ describe('executeToolNode', () => {
   });
 
   describe('tool not found', () => {
-    test('throws NodeConfigError when resolveTools returns empty', async () => {
+    it('throws NodeConfigError when resolveTools returns empty', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'missing_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({});
 
@@ -81,7 +80,7 @@ describe('executeToolNode', () => {
       ).rejects.toThrow(NodeConfigError);
     });
 
-    test('throws NodeConfigError when tool is not in resolved set', async () => {
+    it('throws NodeConfigError when tool is not in resolved set', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'missing_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({ other_tool: { execute: vi.fn() } });
 
@@ -92,7 +91,7 @@ describe('executeToolNode', () => {
   });
 
   describe('tool without execute function', () => {
-    test('throws NodeConfigError when tool has no execute', async () => {
+    it('throws NodeConfigError when tool has no execute', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'no_exec', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         no_exec: { description: 'A tool', parameters: {} },
@@ -105,7 +104,7 @@ describe('executeToolNode', () => {
   });
 
   describe('successful execution', () => {
-    test('returns update_memory action with result', async () => {
+    it('returns update_memory action with result', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue('tool output') },
@@ -119,7 +118,7 @@ describe('executeToolNode', () => {
       });
     });
 
-    test('passes stateView.memory as args to tool execute', async () => {
+    it('passes stateView.memory as args to tool execute', async () => {
       const executeFn = vi.fn().mockResolvedValue('ok');
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({ my_tool: { execute: executeFn } });
@@ -132,7 +131,7 @@ describe('executeToolNode', () => {
   });
 
   describe('tainted result handling', () => {
-    test('extracts result from tainted shape and updates taint registry', async () => {
+    it('extracts result from tainted shape and updates taint registry', async () => {
       const taintedResult = {
         result: 'external data',
         taint: { source: 'mcp', server: 'web-search' },
@@ -154,7 +153,7 @@ describe('executeToolNode', () => {
       });
     });
 
-    test('emits only the NEW taint entry on the wire (reducer appends to state)', async () => {
+    it('emits only the NEW taint entry on the wire (reducer appends to state)', async () => {
       const taintedResult = { result: 'data', taint: { source: 'external' } };
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
@@ -170,7 +169,7 @@ describe('executeToolNode', () => {
   });
 
   describe('non-tainted result handling', () => {
-    test('stores result directly without taint registry update', async () => {
+    it('stores result directly without taint registry update', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue({ answer: 42 }) },
@@ -184,7 +183,7 @@ describe('executeToolNode', () => {
       expect(mockGetTaintRegistry).not.toHaveBeenCalled();
     });
 
-    test('handles string result without taint detection', async () => {
+    it('handles string result without taint detection', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue('plain string') },
@@ -197,7 +196,7 @@ describe('executeToolNode', () => {
       });
     });
 
-    test('handles null result', async () => {
+    it('handles null result', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue(null) },
@@ -211,8 +210,51 @@ describe('executeToolNode', () => {
     });
   });
 
+  describe('MCP-drained taint', () => {
+    it('tags a plain result with drained MCP taint using the collected tool names', async () => {
+      const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'web_search', tools: [] } as any);
+      mockResolveTools.mockResolvedValue({ web_search: { execute: vi.fn().mockResolvedValue('external data') } });
+      (mockCtx.deps.drainTaintEntries as ReturnType<typeof vi.fn>).mockReturnValue(
+        new Map([['web_search_result', { source: 'mcp_tool', tool_name: 'web_search', server_id: 'srv-1', created_at: 'now' }]]),
+      );
+
+      const action = await executeToolNode(node, mockCtx.createStateView(node), 0, mockCtx);
+
+      const updates = action.payload.updates as Record<string, any>;
+      expect(updates['tool-node_result']).toBe('external data');
+      expect(updates['_taint_registry']['tool-node_result']).toMatchObject({
+        source: 'mcp_tool',
+        tool_name: 'web_search',
+        server_id: 'srv-1',
+      });
+    });
+
+    it('falls back to the tool_id when drained entries carry no tool names', async () => {
+      const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
+      mockResolveTools.mockResolvedValue({ my_tool: { execute: vi.fn().mockResolvedValue('data') } });
+      (mockCtx.deps.drainTaintEntries as ReturnType<typeof vi.fn>).mockReturnValue(
+        new Map([['tool-node_result', { source: 'mcp_tool', tool_name: undefined, server_id: 'srv-9', created_at: 'now' }]]),
+      );
+
+      const action = await executeToolNode(node, mockCtx.createStateView(node), 0, mockCtx);
+
+      const updates = action.payload.updates as Record<string, any>;
+      expect(updates['_taint_registry']['tool-node_result'].tool_name).toBe('my_tool');
+    });
+
+    it('leaves the result untainted when the drain yields no entries', async () => {
+      const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
+      mockResolveTools.mockResolvedValue({ my_tool: { execute: vi.fn().mockResolvedValue('data') } });
+      (mockCtx.deps.drainTaintEntries as ReturnType<typeof vi.fn>).mockReturnValue(new Map());
+
+      const action = await executeToolNode(node, mockCtx.createStateView(node), 0, mockCtx);
+
+      expect((action.payload.updates as Record<string, unknown>)['_taint_registry']).toBeUndefined();
+    });
+  });
+
   describe('idempotency key format', () => {
-    test('uses node_id:iteration_count:attempt format', async () => {
+    it('uses node_id:iteration_count:attempt format', async () => {
       const node = makeNode({ id: 'my-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue('ok') },
@@ -225,7 +267,7 @@ describe('executeToolNode', () => {
   });
 
   describe('action metadata', () => {
-    test('includes correct node_id, timestamp, and attempt', async () => {
+    it('includes correct node_id, timestamp, and attempt', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue('ok') },
@@ -240,7 +282,7 @@ describe('executeToolNode', () => {
       });
     });
 
-    test('action has uuid id', async () => {
+    it('action has uuid id', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue('ok') },
@@ -253,7 +295,7 @@ describe('executeToolNode', () => {
   });
 
   describe('tool sources from node config', () => {
-    test('passes node.tools to resolveTools', async () => {
+    it('passes node.tools to resolveTools', async () => {
       const toolSources = [
         { type: 'mcp' as const, server_id: 'test-server' },
         { type: 'builtin' as const, name: 'save_to_memory' },
@@ -273,9 +315,8 @@ describe('executeToolNode', () => {
       expect(mockResolveTools).toHaveBeenCalledWith(toolSources, node.agent_id);
     });
 
-    test('defaults to empty array when node.tools is undefined', async () => {
+    it('defaults to empty array when node.tools is undefined', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool' } as any);
-      // node.tools is not set
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue('ok') },
       });
@@ -287,7 +328,7 @@ describe('executeToolNode', () => {
   });
 
   describe('empty tools array', () => {
-    test('still calls resolveTools with empty array', async () => {
+    it('still calls resolveTools with empty array', async () => {
       const node = makeNode({ id: 'tool-node', type: 'tool', tool_id: 'my_tool', tools: [] } as any);
       mockResolveTools.mockResolvedValue({
         my_tool: { execute: vi.fn().mockResolvedValue('ok') },

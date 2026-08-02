@@ -75,10 +75,6 @@ describe('buildAgentMemoryOptions', () => {
 
 describe('synthetic sub-nodes inherit memory_query (regression)', () => {
   it('voting voter nodes carry the parent node memory_query', async () => {
-    // Just construct the synthetic node the same way voting.ts does and
-    // assert the propagation. The full voting executor is integration-
-    // tested elsewhere; this guards against regressions in the
-    // construction site.
     const parent: GraphNode = makeNode({
       id: 'vote',
       memory_query: { tags: ['voter-context'], max_facts: 3 },

@@ -1,4 +1,4 @@
-import { describe, test, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import {
   updateMemoryReducer,
@@ -14,7 +14,6 @@ import {
 import type { WorkflowState, Action } from '../src/types/state.js';
 
 describe('Reducers', () => {
-  // Helper to create base state
   const createBaseState = (): WorkflowState => ({
     workflow_id: uuidv4(),
     run_id: uuidv4(),
@@ -39,7 +38,7 @@ describe('Reducers', () => {
   });
 
   describe('updateMemoryReducer', () => {
-    test('should update memory with new values', () => {
+    it('updates memory with new values', () => {
       const state = createBaseState();
       state.memory = { count: 1, name: 'test' };
 
@@ -61,11 +60,11 @@ describe('Reducers', () => {
 
       expect(newState.memory.count).toBe(2);
       expect(newState.memory.color).toBe('blue');
-      expect(newState.memory.name).toBe('test'); // Preserved
+      expect(newState.memory.name).toBe('test');
       expect(newState.updated_at).not.toBe(state.updated_at);
     });
 
-    test('should not mutate original state', () => {
+    it('does not mutate original state', () => {
       const state = createBaseState();
       state.memory = { count: 1 };
 
@@ -81,10 +80,10 @@ describe('Reducers', () => {
 
       expect(newState).not.toBe(state);
       expect(newState.memory).not.toBe(state.memory);
-      expect(state.memory.count).toBe(1); // Original unchanged
+      expect(state.memory.count).toBe(1);
     });
 
-    test('should ignore non-update_memory actions', () => {
+    it('ignores non-update_memory actions', () => {
       const state = createBaseState();
       const action: Action = {
         id: uuidv4(),
@@ -96,12 +95,12 @@ describe('Reducers', () => {
 
       const newState = updateMemoryReducer(state, action);
 
-      expect(newState).toBe(state); // Same reference
+      expect(newState).toBe(state);
     });
   });
 
   describe('setStatusReducer', () => {
-    test('should update workflow status', () => {
+    it('updates workflow status', () => {
       const state = createBaseState();
       state.status = 'pending';
 
@@ -119,7 +118,7 @@ describe('Reducers', () => {
       expect(newState.updated_at).not.toBe(state.updated_at);
     });
 
-    test('should handle all valid statuses', () => {
+    it('handles all valid statuses', () => {
       const statuses = [
         'pending',
         'scheduled',
@@ -147,7 +146,7 @@ describe('Reducers', () => {
       }
     });
 
-    test('should ignore non-set_status actions', () => {
+    it('ignores non-set_status actions', () => {
       const state = createBaseState();
       const action: Action = {
         id: uuidv4(),
@@ -163,7 +162,7 @@ describe('Reducers', () => {
   });
 
   describe('gotoNodeReducer', () => {
-    test('should update current_node and track visited nodes', () => {
+    it('updates current_node and track visited nodes', () => {
       const state = createBaseState();
       state.current_node = 'node1';
       state.visited_nodes = ['node1'];
@@ -181,10 +180,10 @@ describe('Reducers', () => {
 
       expect(newState.current_node).toBe('node2');
       expect(newState.visited_nodes).toEqual(['node1', 'node2']);
-      expect(newState.iteration_count).toBe(1); // goto_node no longer increments; runner loop does
+      expect(newState.iteration_count).toBe(1);
     });
 
-    test('should increment iteration count', () => {
+    it('increments iteration count', () => {
       const state = createBaseState();
       state.iteration_count = 5;
 
@@ -197,10 +196,10 @@ describe('Reducers', () => {
       };
 
       const newState = gotoNodeReducer(state, action);
-      expect(newState.iteration_count).toBe(5); // goto_node no longer increments; runner loop does
+      expect(newState.iteration_count).toBe(5);
     });
 
-    test('should ignore non-goto_node actions', () => {
+    it('ignores non-goto_node actions', () => {
       const state = createBaseState();
       const action: Action = {
         id: uuidv4(),
@@ -216,7 +215,7 @@ describe('Reducers', () => {
   });
 
   describe('rootReducer', () => {
-    test('should apply all reducers in sequence', () => {
+    it('applies all reducers in sequence', () => {
       const state = createBaseState();
       state.status = 'pending';
       state.memory = {};
@@ -234,10 +233,9 @@ describe('Reducers', () => {
       expect(newState.memory.result).toBe('success');
     });
 
-    test('should be composable', () => {
+    it('is composable', () => {
       let state = createBaseState();
 
-      // Apply multiple actions
       state = rootReducer(state, {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -265,12 +263,12 @@ describe('Reducers', () => {
       expect(state.memory.step).toBe(1);
       expect(state.current_node).toBe('n2');
       expect(state.status).toBe('running');
-      expect(state.iteration_count).toBe(0); // goto_node no longer increments; runner loop does
+      expect(state.iteration_count).toBe(0);
     });
   });
 
   describe('bounded visited_nodes', () => {
-    test('should cap visited_nodes at MAX_VISITED_NODES via gotoNodeReducer', () => {
+    it('caps visited_nodes at MAX_VISITED_NODES via gotoNodeReducer', () => {
       const state = createBaseState();
       state.visited_nodes = Array.from({ length: MAX_VISITED_NODES }, (_, i) => `n${i}`);
 
@@ -286,10 +284,10 @@ describe('Reducers', () => {
 
       expect(newState.visited_nodes).toHaveLength(MAX_VISITED_NODES);
       expect(newState.visited_nodes.at(-1)).toBe('overflow');
-      expect(newState.visited_nodes[0]).toBe('n1'); // n0 was dropped
+      expect(newState.visited_nodes[0]).toBe('n1');
     });
 
-    test('should cap visited_nodes at MAX_VISITED_NODES via handoffReducer', () => {
+    it('caps visited_nodes at MAX_VISITED_NODES via handoffReducer', () => {
       const state = createBaseState();
       state.visited_nodes = Array.from({ length: MAX_VISITED_NODES }, (_, i) => `n${i}`);
 
@@ -308,7 +306,7 @@ describe('Reducers', () => {
       expect(newState.visited_nodes[0]).toBe('n1');
     });
 
-    test('should cap visited_nodes via _advance internal action', () => {
+    it('caps visited_nodes via _advance internal action', () => {
       const state = createBaseState();
       state.status = 'running';
       state.visited_nodes = Array.from({ length: MAX_VISITED_NODES }, (_, i) => `n${i}`);
@@ -328,7 +326,7 @@ describe('Reducers', () => {
       expect(newState.visited_nodes[0]).toBe('n1');
     });
 
-    test('should cap visited_nodes via _init internal action', () => {
+    it('caps visited_nodes via _init internal action', () => {
       const state = createBaseState();
       state.visited_nodes = Array.from({ length: MAX_VISITED_NODES }, (_, i) => `n${i}`);
 
@@ -347,7 +345,7 @@ describe('Reducers', () => {
       expect(newState.visited_nodes[0]).toBe('n1');
     });
 
-    test('should not truncate when under the cap', () => {
+    it('does not truncate when under the cap', () => {
       const state = createBaseState();
       state.visited_nodes = ['a', 'b'];
 
@@ -366,7 +364,7 @@ describe('Reducers', () => {
   });
 
   describe('validateAction', () => {
-    test('should allow wildcard permissions', () => {
+    it('allows wildcard permissions', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -379,7 +377,7 @@ describe('Reducers', () => {
       expect(isValid).toBe(true);
     });
 
-    test('should allow writes to permitted keys', () => {
+    it('allows writes to permitted keys', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -392,7 +390,7 @@ describe('Reducers', () => {
       expect(isValid).toBe(true);
     });
 
-    test('should block writes to unpermitted keys', () => {
+    it('blocks writes to unpermitted keys', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -405,7 +403,7 @@ describe('Reducers', () => {
       expect(isValid).toBe(false);
     });
 
-    test('should block partial unauthorized writes', () => {
+    it('blocks partial unauthorized writes', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -415,10 +413,10 @@ describe('Reducers', () => {
       };
 
       const isValid = validateAction(action, ['result']);
-      expect(isValid).toBe(false); // 'secret' not allowed
+      expect(isValid).toBe(false);
     });
 
-    test('should block non-update_memory actions without explicit permission', () => {
+    it('blocks non-update_memory actions without explicit permission', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -427,12 +425,11 @@ describe('Reducers', () => {
         metadata: { node_id: 'test', timestamp: new Date(), attempt: 1 },
       };
 
-      // set_status requires 'status' in write_keys
       const isValid = validateAction(action, []);
       expect(isValid).toBe(false);
     });
 
-    test('should allow set_status with status permission', () => {
+    it('allows set_status with status permission', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -445,7 +442,7 @@ describe('Reducers', () => {
       expect(isValid).toBe(true);
     });
 
-    test('should allow goto_node with control_flow permission', () => {
+    it('allows goto_node with control_flow permission', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -458,7 +455,7 @@ describe('Reducers', () => {
       expect(isValid).toBe(true);
     });
 
-    test('should block unknown action types even with wildcard', () => {
+    it('blocks unknown action types even with wildcard', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -468,14 +465,10 @@ describe('Reducers', () => {
       };
 
       const isValid = validateAction(action, ['*']);
-      expect(isValid).toBe(false); // Unknown types are always rejected (deny-by-default)
+      expect(isValid).toBe(false);
     });
 
-    test('should skip _-prefixed system keys during validation (executor handles agent blocking)', () => {
-      // _-prefixed keys like _taint_registry are injected by the executor as
-      // trusted system metadata. validateAction skips them — the agent-level
-      // check in validateMemoryUpdatePermissions blocks agents from writing
-      // _-prefixed keys directly.
+    it('skips _-prefixed system keys during validation (executor handles agent blocking)', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -484,12 +477,11 @@ describe('Reducers', () => {
         metadata: { node_id: 'test', timestamp: new Date(), attempt: 1 },
       };
 
-      // Only system keys — no user keys to validate, so passes
       expect(validateAction(action, ['*'])).toBe(true);
       expect(validateAction(action, ['some_key'])).toBe(true);
     });
 
-    test('should allow wildcard write to normal keys via update_memory', () => {
+    it('allows wildcard write to normal keys via update_memory', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -501,7 +493,7 @@ describe('Reducers', () => {
       expect(validateAction(action, ['*'])).toBe(true);
     });
 
-    test('should skip _-prefixed keys in merge_parallel_results', () => {
+    it('skips _-prefixed keys in merge_parallel_results', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -510,11 +502,10 @@ describe('Reducers', () => {
         metadata: { node_id: 'test', timestamp: new Date(), attempt: 1 },
       };
 
-      // _internal is skipped, result is allowed by wildcard
       expect(validateAction(action, ['*'])).toBe(true);
     });
 
-    test('should allow merge_parallel_results with normal keys and wildcard', () => {
+    it('allows merge_parallel_results with normal keys and wildcard', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -526,7 +517,7 @@ describe('Reducers', () => {
       expect(validateAction(action, ['*'])).toBe(true);
     });
 
-    test('should validate user keys alongside _-prefixed system keys', () => {
+    it('validates user keys alongside _-prefixed system keys', () => {
       const action: Action = {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -535,16 +526,14 @@ describe('Reducers', () => {
         metadata: { node_id: 'test', timestamp: new Date(), attempt: 1 },
       };
 
-      // _taint_registry skipped; 'normal' checked against allowedKeys
       expect(validateAction(action, ['normal'])).toBe(true);
       expect(validateAction(action, ['other_key'])).toBe(false);
     });
   });
 
   describe('Memory value size validation', () => {
-    test('drops oversized memory values in updateMemoryReducer and records them in state.memory_drops', () => {
+    it('drops oversized memory values in updateMemoryReducer and records them in state.memory_drops', () => {
       const state = createBaseState();
-      // Create a value larger than MAX_MEMORY_VALUE_BYTES (1MB)
       const oversizedValue = 'x'.repeat(1024 * 1024 + 1);
 
       const action: Action = {
@@ -572,7 +561,7 @@ describe('Reducers', () => {
       expect(newState.memory_drops[0].bytes).toBeGreaterThan(1024 * 1024);
     });
 
-    test('drops oversized values in mergeParallelResultsReducer and records them in state.memory_drops', () => {
+    it('drops oversized values in mergeParallelResultsReducer and records them in state.memory_drops', () => {
       const state = createBaseState();
       const oversizedValue = 'y'.repeat(1024 * 1024 + 1);
 
@@ -597,10 +586,7 @@ describe('Reducers', () => {
       expect(newState.memory_drops[0]).toMatchObject({ key: 'big', reason: 'oversized' });
     });
 
-    test('mergeParallelResultsReducer does NOT add tokens (runner _track_tokens is sole accountant)', () => {
-      // Regression guard for the fan-out double-count: the runner dispatches a
-      // separate _track_tokens for the same fan-out action, so if the reducer
-      // also added payload.total_tokens, total_tokens_used would be 2×.
+    it('mergeParallelResultsReducer does NOT add tokens (runner _track_tokens is sole accountant)', () => {
       const state = { ...createBaseState(), total_tokens_used: 500 };
       const action: Action = {
         id: uuidv4(),
@@ -614,10 +600,7 @@ describe('Reducers', () => {
       expect(newState.memory.r).toBe('ok');
     });
 
-    test('mergeParallelResultsReducer merges _taint_registry append-only', () => {
-      // Regression guard for taint laundering: fan-out executors re-surface
-      // worker taint onto aggregate keys; a merge must preserve prior taint and
-      // add the new entries, never replace the registry wholesale.
+    it('mergeParallelResultsReducer merges _taint_registry append-only', () => {
       const state: WorkflowState = {
         ...createBaseState(),
         memory: {},
@@ -641,7 +624,7 @@ describe('Reducers', () => {
       expect(registry.node_results).toMatchObject({ source: 'derived' });
     });
 
-    test('records non-serializable values as memory drops', () => {
+    it('records non-serializable values as memory drops', () => {
       const state = createBaseState();
       const circular: Record<string, unknown> = {};
       circular.self = circular;
@@ -661,11 +644,10 @@ describe('Reducers', () => {
       expect(newState.memory_drops[0].bytes).toBeUndefined();
     });
 
-    test('memory_drops ring buffer is bounded to MAX_MEMORY_DROPS', () => {
+    it('memory_drops ring buffer is bounded to MAX_MEMORY_DROPS', () => {
       let state = createBaseState();
       const oversizedValue = 'x'.repeat(1024 * 1024 + 1);
 
-      // Push 55 drops; only the last MAX_MEMORY_DROPS (50) should remain
       for (let i = 0; i < 55; i++) {
         const action: Action = {
           id: uuidv4(),
@@ -678,14 +660,13 @@ describe('Reducers', () => {
       }
 
       expect(state.memory_drops).toHaveLength(50);
-      // The earliest 5 drops should have been evicted; first remaining is drop_5
       expect(state.memory_drops[0].key).toBe('drop_5');
       expect(state.memory_drops[49].key).toBe('drop_54');
     });
 
-    test('allows values within the size limit', () => {
+    it('allows values within the size limit', () => {
       const state = createBaseState();
-      const normalValue = 'x'.repeat(1000); // well within 1MB
+      const normalValue = 'x'.repeat(1000);
 
       const action: Action = {
         id: uuidv4(),
@@ -735,20 +716,18 @@ describe('Replay determinism — reducers derive time from action metadata', () 
     metadata: { node_id: 'test-node', timestamp: timestamp as Date, attempt: 1 },
   });
 
-  test('request_human_input reproduces the original approval deadline on replay', () => {
+  it('request_human_input reproduces the original approval deadline on replay', () => {
     const action = makeAction('request_human_input', {
       timeout_ms: 60_000,
       pending_approval: { node_id: 'gate' },
     });
 
-    // Replaying the same stored action at any later wall-clock time must
-    // produce the same deadline the live run computed.
     const replayed = requestHumanInputReducer(makeState(), action);
     expect(replayed.waiting_since).toEqual(FIXED_TS);
     expect(replayed.waiting_timeout_at).toEqual(new Date(FIXED_TS.getTime() + 60_000));
   });
 
-  test('request_human_input tolerates string timestamps from JSON round-trips', () => {
+  it('request_human_input tolerates string timestamps from JSON round-trips', () => {
     const action = makeAction(
       'request_human_input',
       { timeout_ms: 60_000, pending_approval: {} },
@@ -759,14 +738,14 @@ describe('Replay determinism — reducers derive time from action metadata', () 
     expect(replayed.waiting_timeout_at).toEqual(new Date(FIXED_TS.getTime() + 60_000));
   });
 
-  test('_init derives started_at from the action timestamp, not wall clock', () => {
+  it('_init derives started_at from the action timestamp, not wall clock', () => {
     const action = makeAction('_init' as Action['type'], { start_node: 'a' });
     const next = internalReducer(makeState(), action);
     expect(next.started_at).toEqual(FIXED_TS);
     expect(next.updated_at).toEqual(FIXED_TS);
   });
 
-  test('public reducers stamp updated_at from the action timestamp', () => {
+  it('public reducers stamp updated_at from the action timestamp', () => {
     const updated = updateMemoryReducer(
       makeState(),
       makeAction('update_memory', { updates: { k: 'v' } }),
@@ -781,7 +760,7 @@ describe('Replay determinism — reducers derive time from action metadata', () 
     expect(handed.supervisor_history[0].timestamp).toEqual(FIXED_TS);
   });
 
-  test('replaying the same action sequence twice yields identical timestamps', () => {
+  it('replaying the same action sequence twice yields identical timestamps', () => {
     const actions: Action[] = [
       makeAction('_init' as Action['type'], { start_node: 'a' }, new Date('2026-03-15T12:00:00Z')),
       makeAction('update_memory', { updates: { x: 1 } }, new Date('2026-03-15T12:00:05Z')),

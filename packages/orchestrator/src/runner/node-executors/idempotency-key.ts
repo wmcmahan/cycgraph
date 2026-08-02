@@ -1,8 +1,8 @@
 /**
  * Canonical idempotency key for action envelopes emitted by node
  * executors: one `(node, workflow iteration, retry attempt)` triple per
- * action. Every executor uses this helper so the format can never drift
- * between executors again.
+ * action. Every executor uses this helper so the format cannot drift
+ * between executors.
  *
  * Executors that emit multiple actions for one execution append a
  * discriminator suffix (e.g. the subgraph executor's `:wait` action).

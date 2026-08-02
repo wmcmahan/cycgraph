@@ -1,9 +1,9 @@
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { jsonSchemaToZod } from '../src/mcp/json-schema-converter.js';
 
 describe('jsonSchemaToZod', () => {
   describe('Primitive Types', () => {
-    test('converts string type', () => {
+    it('converts string type', () => {
       const schema = { type: 'string' };
       const zod = jsonSchemaToZod(schema);
 
@@ -11,7 +11,7 @@ describe('jsonSchemaToZod', () => {
       expect(() => zod.parse(123)).toThrow();
     });
 
-    test('converts number type', () => {
+    it('converts number type', () => {
       const schema = { type: 'number' };
       const zod = jsonSchemaToZod(schema);
 
@@ -20,14 +20,14 @@ describe('jsonSchemaToZod', () => {
       expect(() => zod.parse('hello')).toThrow();
     });
 
-    test('converts integer type as number', () => {
+    it('converts integer type as number', () => {
       const schema = { type: 'integer' };
       const zod = jsonSchemaToZod(schema);
 
       expect(zod.parse(42)).toBe(42);
     });
 
-    test('converts boolean type', () => {
+    it('converts boolean type', () => {
       const schema = { type: 'boolean' };
       const zod = jsonSchemaToZod(schema);
 
@@ -38,7 +38,7 @@ describe('jsonSchemaToZod', () => {
   });
 
   describe('String with Enum', () => {
-    test('converts string enum', () => {
+    it('converts string enum', () => {
       const schema = { type: 'string', enum: ['red', 'green', 'blue'] };
       const zod = jsonSchemaToZod(schema);
 
@@ -49,7 +49,7 @@ describe('jsonSchemaToZod', () => {
   });
 
   describe('Object Type', () => {
-    test('converts simple object', () => {
+    it('converts simple object', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -65,30 +65,25 @@ describe('jsonSchemaToZod', () => {
       expect(result).toEqual({ name: 'Alice', age: 30 });
     });
 
-    test('handles optional fields', () => {
+    it('handles optional fields', () => {
       const schema = {
         type: 'object',
         properties: {
           name: { type: 'string' },
           email: { type: 'string' },
         },
-        required: ['name'], // email is optional
+        required: ['name'],
       };
 
       const zod = jsonSchemaToZod(schema);
 
-      // Should pass with required only
       expect(zod.parse({ name: 'Alice' })).toEqual({ name: 'Alice' });
-
-      // Should pass with both
       expect(zod.parse({ name: 'Alice', email: 'alice@example.com' }))
         .toEqual({ name: 'Alice', email: 'alice@example.com' });
-
-      // Should fail without required
       expect(() => zod.parse({ email: 'alice@example.com' })).toThrow();
     });
 
-    test('handles nested objects', () => {
+    it('handles nested objects', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -109,7 +104,7 @@ describe('jsonSchemaToZod', () => {
       expect(result).toEqual({ user: { name: 'Alice' } });
     });
 
-    test('handles empty properties', () => {
+    it('handles empty properties', () => {
       const schema = { type: 'object' };
       const zod = jsonSchemaToZod(schema);
 
@@ -118,7 +113,7 @@ describe('jsonSchemaToZod', () => {
   });
 
   describe('Array Type', () => {
-    test('converts array of strings', () => {
+    it('converts array of strings', () => {
       const schema = {
         type: 'array',
         items: { type: 'string' },
@@ -130,7 +125,7 @@ describe('jsonSchemaToZod', () => {
       expect(() => zod.parse([1, 2, 3])).toThrow();
     });
 
-    test('converts array of objects', () => {
+    it('converts array of objects', () => {
       const schema = {
         type: 'array',
         items: {
@@ -148,28 +143,24 @@ describe('jsonSchemaToZod', () => {
       expect(result).toEqual([{ id: 1 }, { id: 2 }]);
     });
 
-    test('handles array without items', () => {
+    it('handles array without items', () => {
       const schema = { type: 'array' };
       const zod = jsonSchemaToZod(schema);
-
-      // Should accept any array
       expect(zod.parse([1, 'two', true])).toEqual([1, 'two', true]);
     });
   });
 
   describe('Unsupported Types', () => {
-    test('falls back to z.any() for unknown types', () => {
+    it('falls back to z.any() for unknown types', () => {
       const schema = { type: 'null' };
       const zod = jsonSchemaToZod(schema);
-
-      // z.any() accepts anything
       expect(zod.parse(null)).toBe(null);
       expect(zod.parse('anything')).toBe('anything');
     });
   });
 
   describe('Description Handling', () => {
-    test('preserves descriptions on fields', () => {
+    it('preserves descriptions on fields', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -179,13 +170,12 @@ describe('jsonSchemaToZod', () => {
       };
 
       const zod = jsonSchemaToZod(schema);
-      // Should parse correctly (description doesn't affect validation)
       expect(zod.parse({ query: 'test' })).toEqual({ query: 'test' });
     });
   });
 
   describe('Real-World MCP Tool Schemas', () => {
-    test('converts calculator tool schema', () => {
+    it('converts calculator tool schema', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -204,7 +194,7 @@ describe('jsonSchemaToZod', () => {
       expect(() => zod.parse({ operation: 'sqrt', a: 4, b: 0 })).toThrow();
     });
 
-    test('converts search tool schema', () => {
+    it('converts search tool schema', () => {
       const schema = {
         type: 'object',
         properties: {
@@ -229,12 +219,10 @@ describe('jsonSchemaToZod', () => {
 
   describe('untrusted-manifest bounds', () => {
     it('does not blow the stack on a deeply nested schema', () => {
-      // Build a schema nested far beyond the depth cap.
       let schema: Record<string, unknown> = { type: 'string' };
       for (let i = 0; i < 5000; i++) {
         schema = { type: 'object', properties: { child: schema } };
       }
-      // Converts without throwing (RangeError) — depth is bounded.
       expect(() => jsonSchemaToZod(schema as never)).not.toThrow();
     });
 
@@ -242,6 +230,33 @@ describe('jsonSchemaToZod', () => {
       const properties: Record<string, unknown> = {};
       for (let i = 0; i < 5000; i++) properties[`p${i}`] = { type: 'string' };
       expect(() => jsonSchemaToZod({ type: 'object', properties } as never)).not.toThrow();
+    });
+  });
+
+  describe('conversion error fallback', () => {
+    it('falls back to z.any() when reading the schema throws', () => {
+      const hostile = {} as Record<string, unknown>;
+      Object.defineProperty(hostile, 'type', {
+        get() { throw new Error('hostile getter'); },
+        enumerable: true,
+      });
+
+      const zod = jsonSchemaToZod(hostile as never);
+
+      expect(zod.parse('anything')).toBe('anything');
+      expect(zod.parse(42)).toBe(42);
+    });
+
+    it('falls back to z.any() when a non-Error value is thrown', () => {
+      const hostile = {} as Record<string, unknown>;
+      Object.defineProperty(hostile, 'type', {
+        get() { throw 'plain string failure'; },
+        enumerable: true,
+      });
+
+      const zod = jsonSchemaToZod(hostile as never);
+
+      expect(zod.parse('anything')).toBe('anything');
     });
   });
 });

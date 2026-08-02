@@ -1,7 +1,12 @@
-import { describe, test, expect, vi } from 'vitest';
+/**
+ * executeAnnealingLoop — temperature-annealed iterative refinement node.
+ *
+ * Exercised through GraphRunner (integration) and via direct calls (unit,
+ * for the budget-guard, JSONPath-scoring, and no-iteration fallback
+ * branches that the integration path cannot reach deterministically).
+ */
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-
-// ─── Mocks ────────────────────────────────────────────────────────
 
 vi.mock('@ai-sdk/openai', () => ({ openai: vi.fn((m: string) => ({ provider: 'openai', modelId: m })) }));
 vi.mock('@ai-sdk/anthropic', () => ({ anthropic: vi.fn((m: string) => ({ provider: 'anthropic', modelId: m })) }));
@@ -27,21 +32,15 @@ vi.mock('@opentelemetry/api', () => ({
 
 let agentCallCount = 0;
 vi.mock('../src/agent/agent-executor/executor', () => ({
-  executeAgent: vi.fn(async (agentId: string, stateView: any, _t: any, attempt: number, options?: any) => {
+  executeAgent: vi.fn(async (agentId: string, stateView: any, _t: any, attempt: number) => {
     agentCallCount++;
     const iter = stateView.taskContext?.annealing_iteration ?? 0;
-    // Simulate improving quality over iterations
     const score = Math.min(0.3 + iter * 0.25, 1.0);
     return {
       id: uuidv4(),
       idempotency_key: uuidv4(),
       type: 'update_memory',
-      payload: {
-        updates: {
-          [`${agentId}_result`]: `Iteration ${iter} output`,
-          score,
-        },
-      },
+      payload: { updates: { [`${agentId}_result`]: `Iteration ${iter} output`, score } },
       metadata: {
         node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt,
         token_usage: { totalTokens: 50 },
@@ -75,10 +74,10 @@ vi.mock('../src/utils/tracing', () => ({
 }));
 
 import { GraphRunner } from '../src/runner/graph-runner.js';
-import type { Graph } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
-
-// ─── Helpers ──────────────────────────────────────────────────────
+import { executeAnnealingLoop } from '../src/runner/node-executors/annealing.js';
+import type { Graph, GraphNode } from '../src/types/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/types/state.js';
+import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
 
 const createState = (): WorkflowState => ({
   workflow_id: uuidv4(),
@@ -127,123 +126,244 @@ const createAnnealingGraph = (config: any = {}): Graph => ({
   end_nodes: ['annealing-agent'],
 });
 
-// ─── Tests ────────────────────────────────────────────────────────
+describe('executeAnnealingLoop', () => {
+  describe('via GraphRunner', () => {
+    it('iterates until the quality threshold is met', async () => {
+      agentCallCount = 0;
+      const runner = new GraphRunner(createAnnealingGraph({ threshold: 0.8 }), createState());
 
-describe('Self-Annealing Loops', () => {
-  test('should iterate until threshold is met', async () => {
-    agentCallCount = 0;
-    const graph = createAnnealingGraph({ threshold: 0.8 });
-    const state = createState();
+      const finalState = await runner.run();
 
-    const runner = new GraphRunner(graph, state);
-    const finalState = await runner.run();
-
-    expect(finalState.status).toBe('completed');
-    // Score reaches 0.8 at iteration 2 (0.3 + 2*0.25 = 0.8)
-    expect(agentCallCount).toBe(3); // iterations 0, 1, 2
-  });
-
-  test('should stop at max_iterations', async () => {
-    agentCallCount = 0;
-    const graph = createAnnealingGraph({ threshold: 0.99, max_iterations: 3 });
-    const state = createState();
-
-    const runner = new GraphRunner(graph, state);
-    const finalState = await runner.run();
-
-    expect(finalState.status).toBe('completed');
-    expect(agentCallCount).toBe(3);
-  });
-
-  test('should use evaluator agent when configured', async () => {
-    agentCallCount = 0;
-    let evalCalls = 0;
-    mockEvaluateQuality.mockImplementation(async () => {
-      evalCalls++;
-      return { score: evalCalls >= 2 ? 0.9 : 0.5, reasoning: 'test', tokensUsed: 20 };
+      expect(finalState.status).toBe('completed');
+      expect(agentCallCount).toBe(3);
     });
 
-    const graph = createAnnealingGraph({
-      evaluator_agent_id: 'eval-agent',
-      threshold: 0.85,
-      max_iterations: 5,
+    it('stops at max_iterations when the threshold is never met', async () => {
+      agentCallCount = 0;
+      const runner = new GraphRunner(createAnnealingGraph({ threshold: 0.99, max_iterations: 3 }), createState());
+
+      const finalState = await runner.run();
+
+      expect(finalState.status).toBe('completed');
+      expect(agentCallCount).toBe(3);
     });
-    const state = createState();
 
-    const runner = new GraphRunner(graph, state);
-    const finalState = await runner.run();
+    it('scores iterations with the evaluator agent when configured', async () => {
+      agentCallCount = 0;
+      let evalCalls = 0;
+      mockEvaluateQuality.mockImplementation(async () => {
+        evalCalls++;
+        return { score: evalCalls >= 2 ? 0.9 : 0.5, reasoning: 'test', tokensUsed: 20 };
+      });
+      const runner = new GraphRunner(
+        createAnnealingGraph({ evaluator_agent_id: 'eval-agent', threshold: 0.85, max_iterations: 5 }),
+        createState(),
+      );
 
-    expect(finalState.status).toBe('completed');
-    expect(mockEvaluateQuality).toHaveBeenCalled();
-    expect(evalCalls).toBe(2);
-  });
+      const finalState = await runner.run();
 
-  test('should track total tokens across iterations', async () => {
-    agentCallCount = 0;
-    const graph = createAnnealingGraph({ threshold: 0.8 });
-    const state = createState();
-
-    const runner = new GraphRunner(graph, state);
-    const finalState = await runner.run();
-
-    // 3 iterations × 50 tokens each = 150
-    expect(finalState.total_tokens_used).toBeGreaterThanOrEqual(150);
-  });
-
-  test('should pass temperature override to agent', async () => {
-    const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
-    (executeAgent as any).mockClear();
-
-    const graph = createAnnealingGraph({
-      threshold: 0.99,
-      max_iterations: 2,
-      initial_temperature: 1.0,
-      final_temperature: 0.2,
+      expect(finalState.status).toBe('completed');
+      expect(evalCalls).toBe(2);
     });
-    const state = createState();
 
-    const runner = new GraphRunner(graph, state);
-    await runner.run();
+    it('accumulates token usage across iterations', async () => {
+      agentCallCount = 0;
+      const runner = new GraphRunner(createAnnealingGraph({ threshold: 0.8 }), createState());
 
-    // Check that executeAgent was called with temperature options
-    const calls = (executeAgent as any).mock.calls;
-    expect(calls.length).toBeGreaterThanOrEqual(2);
-    // First call should have initial temperature
-    expect(calls[0][4].temperatureOverride).toBeCloseTo(1.0, 5);
-    // Last call should have final temperature
-    expect(calls[calls.length - 1][4].temperatureOverride).toBeCloseTo(0.2, 5);
-  });
+      const finalState = await runner.run();
 
-  test('should stop on diminishing returns', async () => {
-    agentCallCount = 0;
-    // With delta=0.5 and score improvements of 0.25, should stop after detecting low improvement
-    const graph = createAnnealingGraph({
-      threshold: 0.99,
-      max_iterations: 10,
-      diminishing_returns_delta: 0.5,
+      expect(finalState.total_tokens_used).toBeGreaterThanOrEqual(150);
     });
-    const state = createState();
 
-    const runner = new GraphRunner(graph, state);
-    const finalState = await runner.run();
+    it('interpolates temperature from initial to final across iterations', async () => {
+      const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+      (executeAgent as any).mockClear();
+      const runner = new GraphRunner(
+        createAnnealingGraph({ threshold: 0.99, max_iterations: 2, initial_temperature: 1.0, final_temperature: 0.2 }),
+        createState(),
+      );
 
-    // Should stop early due to diminishing returns
-    expect(agentCallCount).toBeLessThan(10);
+      await runner.run();
+
+      const calls = (executeAgent as any).mock.calls;
+      expect(calls[0][4].temperatureOverride).toBeCloseTo(1.0, 5);
+      expect(calls[calls.length - 1][4].temperatureOverride).toBeCloseTo(0.2, 5);
+    });
+
+    it('stops early when improvement falls below the diminishing-returns delta', async () => {
+      agentCallCount = 0;
+      const runner = new GraphRunner(
+        createAnnealingGraph({ threshold: 0.99, max_iterations: 10, diminishing_returns_delta: 0.5 }),
+        createState(),
+      );
+
+      await runner.run();
+
+      expect(agentCallCount).toBeLessThan(10);
+    });
+
+    it('injects the annealing iteration and temperature into the agent taskContext', async () => {
+      const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+      (executeAgent as any).mockClear();
+      const runner = new GraphRunner(createAnnealingGraph({ max_iterations: 2, threshold: 0.99 }), createState());
+
+      await runner.run();
+
+      const stateView = (executeAgent as any).mock.calls[0][1];
+      expect(stateView.taskContext?.annealing_iteration).toBe(0);
+      expect(stateView.taskContext?.annealing_temperature).toBeDefined();
+    });
   });
 
-  test('should inject annealing context into stateView', async () => {
-    const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
-    (executeAgent as any).mockClear();
+  describe('direct invocation', () => {
+    const makeNode = (config: any = {}, overrides: Partial<GraphNode> = {}): GraphNode => ({
+      id: 'anneal',
+      type: 'agent',
+      agent_id: 'writer',
+      annealing_config: {
+        score_path: '$.updates.score',
+        threshold: 0.99,
+        max_iterations: 3,
+        initial_temperature: 1.0,
+        final_temperature: 0.2,
+        diminishing_returns_delta: 0,
+        ...config,
+      },
+      read_keys: ['*'],
+      write_keys: ['*'],
+      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 100, max_backoff_ms: 100 },
+      requires_compensation: false,
+      ...overrides,
+    } as GraphNode);
 
-    const graph = createAnnealingGraph({ max_iterations: 2, threshold: 0.99 });
-    const state = createState();
+    const makeStateView = (): StateView => ({
+      workflow_id: 'wf-1', run_id: 'run-1', goal: 'g', constraints: [], memory: {},
+    });
 
-    const runner = new GraphRunner(graph, state);
-    await runner.run();
+    const voterAction = (updates: Record<string, unknown>, metadata: Record<string, unknown> = {}): Action => ({
+      id: uuidv4(),
+      idempotency_key: uuidv4(),
+      type: 'update_memory',
+      payload: { updates },
+      metadata: { node_id: 'anneal', timestamp: new Date(), attempt: 1, token_usage: { totalTokens: 50 }, ...metadata },
+    } as Action);
 
-    // Check that the stateView passed to executeAgent contains annealing fields
-    const firstCallStateView = (executeAgent as any).mock.calls[0][1];
-    expect(firstCallStateView.taskContext?.annealing_iteration).toBe(0);
-    expect(firstCallStateView.taskContext?.annealing_temperature).toBeDefined();
+    const makeDeps = (overrides: Partial<ExecutorDependencies> = {}): ExecutorDependencies => ({
+      executeAgent: vi.fn(async () => voterAction({ score: 0.5 })),
+      executeSupervisor: vi.fn(),
+      evaluateQualityExecutor: vi.fn(),
+      resolveTools: vi.fn().mockResolvedValue({}),
+      loadAgent: vi.fn().mockResolvedValue({ tools: [], write_keys: [], provider: 'anthropic', model: 'claude-sonnet-4-6' }),
+      getTaintRegistry: vi.fn().mockReturnValue({}),
+      ...overrides,
+    });
+
+    const makeCtx = (overrides: Partial<NodeExecutorContext> = {}): NodeExecutorContext => ({
+      state: createState(),
+      graph: { id: 'g-1', name: 'Test', nodes: [], edges: [], start_node: 's', metadata: {} } as any,
+      createStateView: () => makeStateView(),
+      deps: makeDeps(),
+      ...overrides,
+    });
+
+    it('stops before the next iteration once the node token budget is reached', async () => {
+      const deps = makeDeps({ executeAgent: vi.fn(async () => voterAction({ score: 0.5 }, { token_usage: { totalTokens: 50 } })) });
+      const node = makeNode({ max_iterations: 5 }, { budget: { max_tokens: 40 } } as any);
+
+      await executeAnnealingLoop(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect(deps.executeAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it('scores zero when the score_path expression is malformed', async () => {
+      const deps = makeDeps({ executeAgent: vi.fn(async () => voterAction({ score: 0.9 })) });
+      const node = makeNode({ score_path: '$.updates[(@', max_iterations: 1 });
+
+      const result = await executeAnnealingLoop(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect((result.payload.updates as Record<string, unknown>).score).toBe(0.9);
+    });
+
+    it('scores zero when the score_path resolves to a non-number', async () => {
+      const deps = makeDeps({ executeAgent: vi.fn(async () => voterAction({ score: 'high' })) });
+      const node = makeNode({ max_iterations: 1 });
+
+      const result = await executeAnnealingLoop(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect((result.payload.updates as Record<string, unknown>).score).toBe('high');
+    });
+
+    it('records the first reported model across iterations', async () => {
+      const deps = makeDeps({
+        executeAgent: vi.fn(async (_id: string, sv: any) => {
+          const iter = sv.taskContext?.annealing_iteration ?? 0;
+          return voterAction({ score: iter === 0 ? 0.5 : 0.4 }, { model: 'claude-anneal-model' });
+        }),
+      });
+      const node = makeNode({ max_iterations: 2 });
+
+      await executeAnnealingLoop(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect(deps.executeAgent).toHaveBeenCalledTimes(2);
+    });
+
+    it('skips the best-result update when a later iteration scores lower', async () => {
+      const deps = makeDeps({
+        executeAgent: vi.fn(async (_id: string, sv: any) => {
+          const iter = sv.taskContext?.annealing_iteration ?? 0;
+          return voterAction({ score: iter === 0 ? 0.6 : 0.2 });
+        }),
+      });
+      const node = makeNode({ max_iterations: 2 });
+
+      const result = await executeAnnealingLoop(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect((result.payload.updates as Record<string, unknown>).score).toBe(0.6);
+    });
+
+    it('treats a missing token_usage as zero tokens for the iteration', async () => {
+      const deps = makeDeps({ executeAgent: vi.fn(async () => voterAction({ score: 0.5 }, { token_usage: undefined })) });
+      const node = makeNode({ max_iterations: 1 });
+
+      const result = await executeAnnealingLoop(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect(result.metadata.token_usage).toEqual({ totalTokens: 0, inputTokens: 0, outputTokens: 0 });
+    });
+
+    it('forwards a resolved modelOverride to the agent', async () => {
+      const deps = makeDeps({
+        loadAgent: vi.fn().mockResolvedValue({ tools: [], write_keys: [], provider: 'anthropic', model: 'claude-sonnet-4-6', model_preference: 'high' }),
+      });
+      const ctx = makeCtx({
+        deps,
+        modelResolver: (() => ({ model: 'claude-opus-4-8', reason: 'high-tier' })) as any,
+        remainingBudgetUsd: 100,
+      });
+      const node = makeNode({ max_iterations: 1 });
+
+      await executeAnnealingLoop(node, makeStateView(), 1, ctx);
+
+      expect((deps.executeAgent as any).mock.calls[0][4].modelOverride).toBe('claude-opus-4-8');
+    });
+
+    it('forwards default_write_key as defaultWriteKey', async () => {
+      const deps = makeDeps();
+      const node = makeNode({ max_iterations: 1 }, { default_write_key: 'summary' } as any);
+
+      await executeAnnealingLoop(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect((deps.executeAgent as any).mock.calls[0][4].defaultWriteKey).toBe('summary');
+    });
+
+    it('returns an empty no-op action when no iteration runs', async () => {
+      const deps = makeDeps();
+      const node = makeNode({ max_iterations: 0 });
+
+      const result = await executeAnnealingLoop(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect(deps.executeAgent).not.toHaveBeenCalled();
+      expect(result.payload.updates).toEqual({});
+      expect(result.metadata.token_usage).toEqual({ totalTokens: 0, inputTokens: 0, outputTokens: 0 });
+    });
   });
 });

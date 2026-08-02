@@ -10,9 +10,11 @@
  * Returning a modified fact substitutes it. Returning `null` drops the
  * fact entirely — it never reaches the writer.
  *
- * Best-effort by contract: the runner logs and absorbs any error thrown
- * by a sanitizer so a downed PII service or buggy regex never blocks the
- * compound-learning loop. Errors fall through as "pass the fact unchanged."
+ * Fails closed by default: a thrown sanitizer (downed PII service, buggy
+ * regex) is logged and the fact is DROPPED rather than persisted unredacted
+ * into durable, cross-run memory. Hosts that prioritize reflection
+ * availability over redaction can set `factSanitizerFailMode: 'pass'` on
+ * `GraphRunnerOptions` to keep the original fact on error instead.
  *
  * @module agent/fact-sanitizer
  */

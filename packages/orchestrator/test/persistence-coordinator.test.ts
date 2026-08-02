@@ -11,6 +11,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PersistenceCoordinator, MAX_PERSIST_FAILURES } from '../src/runner/persistence-coordinator.js';
 import { NoopEventLogWriter, InMemoryEventLogWriter } from '../src/db/event-log.js';
+import { StaleClaimError } from '../src/persistence/errors.js';
 import type { WorkflowState } from '../src/types/state.js';
 import type { StatePatch } from '../src/persistence/delta-tracker.js';
 
@@ -69,7 +70,6 @@ describe('PersistenceCoordinator — basic routing', () => {
     const persistStateFn = vi.fn().mockResolvedValue(undefined);
     const persistDeltaFn = vi.fn().mockResolvedValue(undefined);
 
-    // Fake delta tracker: alternates between full and patch
     let nextIsFull = true;
     const deltaTracker = {
       computeDelta: vi.fn(() => {
@@ -90,8 +90,44 @@ describe('PersistenceCoordinator — basic routing', () => {
     await coord.persist(makeState(), 0);
     await coord.persist(makeState(), 1);
 
-    expect(persistStateFn).toHaveBeenCalledTimes(1); // first call: full
-    expect(persistDeltaFn).toHaveBeenCalledTimes(1); // second call: patch
+    expect(persistStateFn).toHaveBeenCalledTimes(1);
+    expect(persistDeltaFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('PersistenceCoordinator — delta write failures', () => {
+  it('rolls back the tracker and rethrows when a delta write fails', async () => {
+    const rollback = vi.fn();
+    const deltaTracker = {
+      computeDelta: vi.fn(() => ({
+        type: 'patch' as const,
+        patch: { run_id: 'r', version: 1, changes: {} } as unknown as StatePatch,
+      })),
+      rollback,
+    };
+    const persistStateFn = vi.fn().mockResolvedValue(undefined);
+    const persistDeltaFn = vi.fn().mockRejectedValue(new Error('delta write failed'));
+
+    const coord = new PersistenceCoordinator(makeDeps({
+      persistStateFn,
+      persistDeltaFn,
+      deltaTracker: deltaTracker as unknown as Parameters<typeof makeDeps>[0]['deltaTracker'],
+    }));
+
+    await coord.persist(makeState(), 0);
+
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(coord.failureCount).toBe(1);
+  });
+});
+
+describe('PersistenceCoordinator — stale claim', () => {
+  it('rethrows a StaleClaimError immediately without counting a strike', async () => {
+    const persistStateFn = vi.fn().mockRejectedValue(new StaleClaimError('run-1', 1, 2));
+    const coord = new PersistenceCoordinator(makeDeps({ persistStateFn }));
+
+    await expect(coord.persist(makeState(), 0)).rejects.toBeInstanceOf(StaleClaimError);
+    expect(coord.failureCount).toBe(0);
   });
 });
 
@@ -144,12 +180,10 @@ describe('PersistenceCoordinator — 3-strike failure counter', () => {
     const persistStateFn = vi.fn().mockRejectedValue(new Error('DB down'));
     const coord = new PersistenceCoordinator(makeDeps({ persistStateFn }));
 
-    // Strikes 1 and 2: failure is swallowed, counter increments
     await expect(coord.persist(makeState(), 0)).resolves.toBeUndefined();
     expect(coord.failureCount).toBe(1);
     await expect(coord.persist(makeState(), 1)).resolves.toBeUndefined();
     expect(coord.failureCount).toBe(2);
-    // Strike 3: throws
     await expect(coord.persist(makeState(), 2)).rejects.toThrow(/Persistence unavailable after 3/);
     expect(coord.failureCount).toBe(MAX_PERSIST_FAILURES);
   });
@@ -162,13 +196,12 @@ describe('PersistenceCoordinator — 3-strike failure counter', () => {
     });
     const coord = new PersistenceCoordinator(makeDeps({ persistStateFn }));
 
-    await coord.persist(makeState(), 0); // fail 1
-    await coord.persist(makeState(), 1); // fail 2
+    await coord.persist(makeState(), 0);
+    await coord.persist(makeState(), 1);
     expect(coord.failureCount).toBe(2);
-    await coord.persist(makeState(), 2); // success → reset
+    await coord.persist(makeState(), 2);
     expect(coord.failureCount).toBe(0);
-    // Counter is back to zero — next failure starts over
-    await coord.persist(makeState(), 3); // not configured to fail now (calls > 2)
+    await coord.persist(makeState(), 3);
     expect(coord.failureCount).toBe(0);
   });
 });
@@ -199,19 +232,47 @@ describe('PersistenceCoordinator — auto-compaction', () => {
       compactionInterval: 3,
     }));
 
-    await coord.persist(makeState(), 1); // 1st
-    await coord.persist(makeState(), 2); // 2nd
+    await coord.persist(makeState(), 1);
+    await coord.persist(makeState(), 2);
     expect(checkpointSpy).not.toHaveBeenCalled();
-    await coord.persist(makeState(), 3); // 3rd — should trigger
+    await coord.persist(makeState(), 3);
     expect(checkpointSpy).toHaveBeenCalledTimes(1);
     expect(compactSpy).toHaveBeenCalledTimes(1);
 
-    // Counter resets — next batch must reach 3 again
     await coord.persist(makeState(), 4);
     await coord.persist(makeState(), 5);
     expect(checkpointSpy).toHaveBeenCalledTimes(1);
     await coord.persist(makeState(), 6);
     expect(checkpointSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs the deleted count when auto-compaction removes events', async () => {
+    const eventLog = new InMemoryEventLogWriter();
+    vi.spyOn(eventLog, 'checkpoint').mockResolvedValue(undefined);
+    vi.spyOn(eventLog, 'compact').mockResolvedValue(5);
+    const coord = new PersistenceCoordinator(makeDeps({
+      persistStateFn: vi.fn().mockResolvedValue(undefined),
+      eventLog,
+      compactionInterval: 1,
+    }));
+
+    await coord.persist(makeState(), 10);
+
+    expect(coord.failureCount).toBe(0);
+  });
+
+  it('swallows a non-Error compaction failure', async () => {
+    const eventLog = new InMemoryEventLogWriter();
+    vi.spyOn(eventLog, 'checkpoint').mockRejectedValue('checkpoint blew up');
+    const coord = new PersistenceCoordinator(makeDeps({
+      persistStateFn: vi.fn().mockResolvedValue(undefined),
+      eventLog,
+      compactionInterval: 1,
+    }));
+
+    await coord.persist(makeState(), 5);
+
+    expect(coord.failureCount).toBe(0);
   });
 
   it('compaction failures do NOT increment the persist-failure counter', async () => {
@@ -224,10 +285,8 @@ describe('PersistenceCoordinator — auto-compaction', () => {
       compactionInterval: 1,
     }));
 
-    // persist succeeds, compaction fails — counter stays at 0
     await coord.persist(makeState(), 0);
     expect(coord.failureCount).toBe(0);
-    // Run again — same result
     await coord.persist(makeState(), 1);
     expect(coord.failureCount).toBe(0);
   });

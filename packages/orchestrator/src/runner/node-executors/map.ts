@@ -170,9 +170,9 @@ export async function executeMapNode(
   }
 
   // Per-item context rides on the dedicated taskContext channel and is
-  // rendered into the worker's prompt as a `## Task Context` section.
-  // (Formerly `_map_*` memory keys, which sanitizeForPrompt stripped —
-  // workers never actually saw their item.)
+  // rendered into the worker's prompt as a `## Task Context` section. It
+  // rides taskContext rather than memory keys so the item survives
+  // sanitizeForPrompt (which strips `_`-prefixed memory keys).
   const tasks: ParallelTask[] = items.map((item, index) => ({
     node: workerNode,
     stateView: {

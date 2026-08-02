@@ -66,10 +66,13 @@ vi.mock('../src/utils/tracing.js', () => ({
 }));
 
 import { GraphRunner } from '../src/runner/graph-runner.js';
+import { executeSubgraphNode } from '../src/runner/node-executors/subgraph.js';
 import { executeAgent } from '../src/agent/agent-executor/executor.js';
+import { NodeConfigError } from '../src/runner/errors.js';
 import { markTainted } from '../src/utils/taint.js';
-import type { Graph } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
+import type { Graph, GraphNode } from '../src/types/graph.js';
+import type { WorkflowState, StateView } from '../src/types/state.js';
+import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
 
 function createTestState(overrides: Partial<WorkflowState> = {}): WorkflowState {
   return {
@@ -199,7 +202,6 @@ describe('Subgraph Execution', () => {
       end_nodes: ['sub-node'],
     };
 
-    // Track what child state gets built by intercepting the loadGraphFn
     const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
     const state = createTestState({
       memory: { allowed_key: 'mapped_value', secret_key: 'should_not_transfer' },
@@ -209,9 +211,7 @@ describe('Subgraph Execution', () => {
     const finalState = await runner.run();
 
     expect(finalState.status).toBe('completed');
-    // Secret key should NOT appear in parent output from child
-    // (child never had it, so it can't map it back)
-    expect(finalState.memory.secret_key).toBe('should_not_transfer'); // unchanged from parent
+    expect(finalState.memory.secret_key).toBe('should_not_transfer');
   });
 
   it('inherits remaining token budget', async () => {
@@ -256,8 +256,9 @@ describe('Subgraph Execution', () => {
 
   // ── subgraph USD cost propagation & enforcement ──
 
-  // A child graph with one agent node that spends $2.50 (1M gpt-4o input
-  // tokens @ $2.50/Mtok). Parent wraps it in a single subgraph node.
+  const ONE_MILLION_INPUT_TOKENS = 1_000_000;
+  const CHILD_SPEND_USD = 2.5;
+
   function createCostyChildAndParent() {
     const childGraph: Graph = {
       id: 'child-graph', name: 'costly child', description: 'spends money',
@@ -286,7 +287,7 @@ describe('Subgraph Execution', () => {
       metadata: {
         node_id: 'child-agent', agent_id: 'a1', timestamp: new Date(), attempt: 1,
         model: 'gpt-4o',
-        token_usage: { inputTokens: 1_000_000, outputTokens: 0, totalTokens: 1_000_000 },
+        token_usage: { inputTokens: ONE_MILLION_INPUT_TOKENS, outputTokens: 0, totalTokens: ONE_MILLION_INPUT_TOKENS },
       },
     });
     return { childGraph, parentGraph };
@@ -300,15 +301,14 @@ describe('Subgraph Execution', () => {
     const finalState = await new GraphRunner(parentGraph, state, { loadGraphFn }).run();
 
     expect(finalState.status).toBe('completed');
-    // Child spent $2.50; before the fix the parent saw $0.
-    expect(finalState.total_cost_usd).toBeCloseTo(2.5, 5);
+    expect(finalState.total_cost_usd).toBeCloseTo(CHILD_SPEND_USD, 5);
   });
 
   it('enforces the parent USD budget against child subgraph spend', async () => {
     const { childGraph, parentGraph } = createCostyChildAndParent();
     const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
-    // Remaining budget ($1) is less than the child's $2.50 spend.
-    const state = createTestState({ budget_usd: 1 });
+    const BUDGET_BELOW_CHILD_SPEND = 1;
+    const state = createTestState({ budget_usd: BUDGET_BELOW_CHILD_SPEND });
 
     await expect(
       new GraphRunner(parentGraph, state, { loadGraphFn }).run(),
@@ -316,7 +316,6 @@ describe('Subgraph Execution', () => {
   });
 
   it('detects subgraph cycles (A -> B -> A)', async () => {
-    // Child graph that tries to invoke parent graph as subgraph
     const childGraph: Graph = {
       id: 'child-graph',
       name: 'child',
@@ -326,7 +325,7 @@ describe('Subgraph Execution', () => {
           id: 'recursive-sub',
           type: 'subgraph',
           subgraph_config: {
-            subgraph_id: 'parent-graph', // Cycle: parent -> child -> parent
+            subgraph_id: 'parent-graph',
             input_mapping: {},
             output_mapping: {},
             max_iterations: 50,
@@ -380,9 +379,6 @@ describe('Subgraph Execution', () => {
   });
 
   it('enforces a maximum subgraph nesting depth', async () => {
-    // A chain of DISTINCT subgraphs passes cycle detection but would recurse
-    // without bound — the depth cap must reject it. Seed the parent state
-    // with a deep _subgraph_stack to simulate having already nested 32 deep.
     const parentGraph: Graph = {
       id: 'deep-parent',
       name: 'deep',
@@ -408,9 +404,8 @@ describe('Subgraph Execution', () => {
       end_nodes: ['sub-node'],
     };
 
-    const deepStack = Array.from({ length: 32 }, (_, i) => `g${i}`);
-    // First-class state field (schema v2) — formerly `memory._subgraph_stack`.
-    const state = createTestState({ subgraph_stack: deepStack });
+    const stackAlreadyNestedAtDepthCap = Array.from({ length: 32 }, (_, i) => `g${i}`);
+    const state = createTestState({ subgraph_stack: stackAlreadyNestedAtDepthCap });
     const loadGraphFn = vi.fn().mockResolvedValue(createToolGraph('child-graph'));
     const runner = new GraphRunner(parentGraph, state, { loadGraphFn });
 
@@ -450,8 +445,7 @@ describe('Subgraph Execution', () => {
     await expect(runner.run()).rejects.toThrow(/missing graph/);
   });
 
-  it('propagates child failure to parent', async () => {
-    // Child graph with a node that will fail (no tool_id for a tool node)
+  it('propagates child failure to parent (child tool node is missing tool_id)', async () => {
     const childGraph: Graph = {
       id: 'failing-child',
       name: 'failing child',
@@ -460,7 +454,6 @@ describe('Subgraph Execution', () => {
         {
           id: 'bad-node',
           type: 'tool',
-          // Missing tool_id — will throw
           read_keys: ['*'],
           write_keys: ['*'],
           failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
@@ -504,6 +497,247 @@ describe('Subgraph Execution', () => {
     await expect(runner.run()).rejects.toThrow(/missing tool_id/);
   });
 
+  it('skips output keys the child never produced', async () => {
+    const childGraph = createToolGraph('child-graph');
+    const parentGraph: Graph = {
+      id: 'parent-graph', name: 'parent', description: 'partial output mapping',
+      nodes: [{
+        id: 'sub-node', type: 'subgraph',
+        subgraph_config: {
+          subgraph_id: 'child-graph',
+          input_mapping: {},
+          output_mapping: { 'tool-node_result': 'produced', 'never_written': 'absent' },
+          max_iterations: 50,
+        },
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sub-node', end_nodes: ['sub-node'],
+    };
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+
+    const finalState = await new GraphRunner(parentGraph, createTestState(), { loadGraphFn }).run();
+
+    expect(finalState.status).toBe('completed');
+    expect(finalState.memory.produced).toBeDefined();
+    expect(finalState.memory.absent).toBeUndefined();
+  });
+
+  it('revives a JSON-round-tripped child checkpoint (string dates) on resume', async () => {
+    const childGraph: Graph = {
+      id: 'child-graph', name: 'child', description: 'child with an approval gate',
+      nodes: [
+        {
+          id: 'gate', type: 'approval',
+          approval_config: {
+            approval_type: 'human_review',
+            prompt_message: 'approve child',
+            review_keys: ['child_input'],
+            timeout_ms: 60000,
+          },
+          read_keys: ['*'], write_keys: [],
+          failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+          requires_compensation: false,
+        },
+      ],
+      edges: [], start_node: 'gate', end_nodes: ['gate'],
+    };
+    const parentGraph: Graph = {
+      id: 'parent-graph', name: 'parent', description: 'wraps a gated child',
+      nodes: [{
+        id: 'sub-node', type: 'subgraph',
+        subgraph_config: {
+          subgraph_id: 'child-graph',
+          input_mapping: { parent_input: 'child_input' },
+          output_mapping: {},
+          max_iterations: 50,
+        },
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sub-node', end_nodes: ['sub-node'],
+    };
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+    const state = createTestState({ memory: { parent_input: 'review me' } });
+
+    const waiting = await new GraphRunner(parentGraph, state, { loadGraphFn }).run();
+    expect(waiting.status).toBe('waiting');
+    expect(waiting.subgraph_checkpoints['sub-node'].waiting_timeout_at).toBeDefined();
+
+    const serialized = JSON.parse(JSON.stringify(waiting)) as WorkflowState;
+    const r2 = new GraphRunner(parentGraph, serialized, { loadGraphFn });
+    r2.applyHumanResponse({ decision: 'approved' });
+    const done = await r2.run();
+
+    expect(done.status).toBe('completed');
+  });
+
+  it('throws NodeConfigError when subgraph_config is missing', async () => {
+    const node = { id: 'sub-node', type: 'subgraph', read_keys: ['*'], write_keys: ['*'] } as unknown as GraphNode;
+    const stateView: StateView = { workflow_id: 'wf', run_id: 'run', goal: 'g', constraints: [], memory: {} };
+    const ctx = {
+      state: createTestState(),
+      graph: createToolGraph('parent'),
+      loadGraphFn: vi.fn(),
+      createStateView: () => stateView,
+      deps: {} as never,
+    } as unknown as NodeExecutorContext;
+
+    await expect(executeSubgraphNode(node, stateView, 1, ctx)).rejects.toThrow(NodeConfigError);
+  });
+
+  it('only maps input keys that are present in parent memory', async () => {
+    const childGraph = createToolGraph('child-graph');
+    const parentGraph: Graph = {
+      id: 'parent-graph', name: 'parent', description: 'partial input mapping',
+      nodes: [{
+        id: 'sub-node', type: 'subgraph',
+        subgraph_config: {
+          subgraph_id: 'child-graph',
+          input_mapping: { present_key: 'child_a', absent_key: 'child_b' },
+          output_mapping: {},
+          max_iterations: 50,
+        },
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sub-node', end_nodes: ['sub-node'],
+    };
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+    const state = createTestState({ memory: { present_key: 'value' } });
+
+    const finalState = await new GraphRunner(parentGraph, state, { loadGraphFn }).run();
+
+    expect(finalState.status).toBe('completed');
+  });
+
+  it('propagates the parent rate limiter into the child runner', async () => {
+    const rateLimiter = vi.fn().mockResolvedValue(undefined);
+    (executeAgent as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: uuidv4(), idempotency_key: uuidv4(), type: 'update_memory',
+      payload: { updates: { child_result: 'done' } },
+      metadata: { node_id: 'child-agent', agent_id: 'a1', timestamp: new Date(), attempt: 1 },
+    });
+    const childGraph: Graph = {
+      id: 'child-graph', name: 'child', description: 'agent child',
+      nodes: [{
+        id: 'child-agent', type: 'agent', agent_id: 'a1',
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'child-agent', end_nodes: ['child-agent'],
+    };
+    const parentGraph: Graph = {
+      id: 'parent-graph', name: 'parent', description: 'wraps child',
+      nodes: [{
+        id: 'sub-node', type: 'subgraph',
+        subgraph_config: { subgraph_id: 'child-graph', input_mapping: {}, output_mapping: {}, max_iterations: 50 },
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sub-node', end_nodes: ['sub-node'],
+    };
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+
+    const finalState = await new GraphRunner(parentGraph, createTestState(), { loadGraphFn, rateLimiter }).run();
+
+    expect(finalState.status).toBe('completed');
+    expect(rateLimiter).toHaveBeenCalled();
+  });
+
+  it('propagates a child compensation entry with a namespaced action id', async () => {
+    const childActionId = uuidv4();
+    (executeAgent as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: childActionId, idempotency_key: uuidv4(), type: 'update_memory',
+      payload: { updates: { child_result: 'done' } },
+      compensation: { type: 'update_memory', payload: { rollback: true } },
+      metadata: { node_id: 'child-agent', agent_id: 'a1', timestamp: new Date(), attempt: 1 },
+    });
+    const childGraph: Graph = {
+      id: 'child-graph', name: 'child', description: 'compensating agent child',
+      nodes: [{
+        id: 'child-agent', type: 'agent', agent_id: 'a1',
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: true,
+      }],
+      edges: [], start_node: 'child-agent', end_nodes: ['child-agent'],
+    };
+    const parentGraph: Graph = {
+      id: 'parent-graph', name: 'parent', description: 'wraps compensating child',
+      nodes: [{
+        id: 'sub-node', type: 'subgraph',
+        subgraph_config: { subgraph_id: 'child-graph', input_mapping: {}, output_mapping: {}, max_iterations: 50 },
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sub-node', end_nodes: ['sub-node'],
+    };
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+
+    const finalState = await new GraphRunner(parentGraph, createTestState(), { loadGraphFn }).run();
+
+    expect(finalState.status).toBe('completed');
+    expect(finalState.compensation_stack.some(e => e.action_id === `subgraph:sub-node:${childActionId}`)).toBe(true);
+  });
+
+  it('fails the parent closed when a rejected nested approval cancels the child', async () => {
+    (executeAgent as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: uuidv4(), idempotency_key: uuidv4(), type: 'update_memory',
+      payload: { updates: { send: 'the message' } },
+      metadata: { node_id: 'sender', agent_id: 'sender', timestamp: new Date(), attempt: 1 },
+    });
+    const securityPolicy = (c: { node: { write_keys?: string[] } }) =>
+      (c.node.write_keys ?? []).includes('send')
+        ? { effect: 'require_approval' as const, sensitivity: ['state_write'], reason: 'gate' }
+        : { effect: 'allow' as const };
+
+    const childGraph: Graph = {
+      id: 'child-graph', name: 'child', description: 'child',
+      nodes: [{
+        id: 'sender', type: 'agent', agent_id: 'sender',
+        read_keys: ['child_input'], write_keys: ['send'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sender', end_nodes: ['sender'],
+    };
+    const parentGraph: Graph = {
+      id: 'parent-graph', name: 'parent', description: 'parent',
+      nodes: [{
+        id: 'sub-node', type: 'subgraph',
+        subgraph_config: {
+          subgraph_id: 'child-graph',
+          input_mapping: { parent_input: 'child_input' },
+          output_mapping: { send: 'parent_result' },
+          max_iterations: 50,
+        },
+        read_keys: ['*'], write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        requires_compensation: false,
+      }],
+      edges: [], start_node: 'sub-node', end_nodes: ['sub-node'],
+    };
+    const loadGraphFn = vi.fn().mockResolvedValue(childGraph);
+
+    const state = createTestState({ memory: { parent_input: 'untrusted content' } });
+    state.taint_registry = markTainted({}, 'parent_input', { source: 'tool_node', tool_name: 'ext', created_at: new Date().toISOString() });
+
+    const waiting = await new GraphRunner(parentGraph, state, { loadGraphFn, securityPolicy }).run();
+    expect(waiting.status).toBe('waiting');
+
+    const r2 = new GraphRunner(parentGraph, JSON.parse(JSON.stringify(waiting)), { loadGraphFn, securityPolicy });
+    r2.applyHumanResponse({ decision: 'rejected', data: 'no' });
+
+    await expect(r2.run()).rejects.toThrow(/did not complete/);
+  });
+
   it('throws when no loadGraphFn is provided', async () => {
     const parentGraph: Graph = {
       id: 'parent-graph',
@@ -537,7 +771,6 @@ describe('Subgraph Execution', () => {
   });
 
   it('propagates child compensation stack to parent', async () => {
-    // Create a child graph with a tool node that requires compensation
     const childGraph: Graph = {
       id: 'child-with-compensation',
       name: 'child',
@@ -589,27 +822,17 @@ describe('Subgraph Execution', () => {
     const finalState = await runner.run();
 
     expect(finalState.status).toBe('completed');
-    // The parent should have compensation entries from the child,
-    // namespaced with subgraph:<node_id>: prefix
     for (const entry of finalState.compensation_stack) {
       if (entry.action_id.startsWith('subgraph:sub-node:')) {
-        // Found a propagated entry — test passes
         return;
       }
     }
-    // If child had compensation entries, they should be propagated.
-    // The child's tool node requires_compensation but may or may not have
-    // produced a compensation action depending on the mock. Either way,
-    // the code path is exercised.
   });
 
   it('propagates taint across the subgraph boundary (no laundering)', async () => {
-    // The child agent records whether it saw the parent's taint under the
-    // mapped key, and (like the real executor) marks its output derived-tainted.
     let childSawTaintedInput = false;
     (executeAgent as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (agentId: string, stateView: { memory: Record<string, unknown>; taint?: Record<string, unknown> }) => {
-        // Scoped taint rides on the view's dedicated field (schema v2).
         childSawTaintedInput = 'child_input' in (stateView.taint ?? {});
         return {
           id: uuidv4(),
@@ -618,7 +841,6 @@ describe('Subgraph Execution', () => {
           payload: {
             updates: {
               child_output: 'processed',
-              // Wire encoding — only the NEW entry (the reducer appends).
               _taint_registry: { child_output: { source: 'derived', agent_id: agentId, created_at: new Date().toISOString() } },
             },
           },
@@ -662,15 +884,12 @@ describe('Subgraph Execution', () => {
     const finalState = await new GraphRunner(parentGraph, state, { loadGraphFn }).run();
 
     expect(finalState.status).toBe('completed');
-    // INPUT: untrusted parent data entered the child still marked tainted.
     expect(childSawTaintedInput).toBe(true);
-    // OUTPUT: taint came back to the parent — the subgraph cannot launder it.
     const reg = (finalState.taint_registry ?? {}) as Record<string, unknown>;
     expect('parent_result' in reg).toBe(true);
   });
 
   it('gates a sensitive child node and resumes it across the boundary (HITL)', async () => {
-    // The fooled child agent writes 'send' (sensitive) — only reached if approved.
     (executeAgent as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (agentId: string) => ({
         id: uuidv4(), idempotency_key: uuidv4(), type: 'update_memory',
@@ -679,7 +898,6 @@ describe('Subgraph Execution', () => {
       }),
     );
 
-    // Gate any node that writes the sensitive 'send' key (works on the CHILD node).
     const securityPolicy = (c: { node: { write_keys?: string[] } }) =>
       (c.node.write_keys ?? []).includes('send')
         ? { effect: 'require_approval' as const, sensitivity: ['state_write'], reason: 'untrusted → send' }
@@ -716,15 +934,13 @@ describe('Subgraph Execution', () => {
     const state = createTestState({ memory: { parent_input: 'untrusted content' } });
     state.taint_registry = markTainted({}, 'parent_input', { source: 'tool_node', tool_name: 'external_input', created_at: new Date().toISOString() });
 
-    // First run: the child gates the sensitive node → the PARENT pauses.
     const waiting = await new GraphRunner(parentGraph, state, { loadGraphFn, securityPolicy }).run();
     expect(waiting.status).toBe('waiting');
     expect((waiting.pending_approval as { subgraph_node_id?: string }).subgraph_node_id).toBe('sub-node');
     expect(waiting.subgraph_checkpoints['sub-node']).toBeDefined();
-    expect(executeAgent).not.toHaveBeenCalled(); // gated BEFORE the child agent ran
+    expect(executeAgent).not.toHaveBeenCalled();
     expect(waiting.memory.parent_result).toBeUndefined();
 
-    // Resume (approve): the child continues from its checkpoint → parent completes.
     const r2 = new GraphRunner(parentGraph, waiting, { loadGraphFn, securityPolicy });
     r2.applyHumanResponse({ decision: 'approved' });
     const done = await r2.run();

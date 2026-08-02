@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { executeSynthesizerNode } from '../src/runner/node-executors/synthesizer.js';
 import type { GraphNode } from '../src/types/graph.js';
 import type { WorkflowState, StateView, Action } from '../src/types/state.js';
@@ -152,7 +152,7 @@ describe('executeSynthesizerNode (simple merge)', () => {
 
     const result = await executeSynthesizerNode(makeNode(), makeStateView(), 1, ctx);
 
-    expect(result.idempotency_key).toBe('synth-1:3:1'); // node_id:iteration:attempt
+    expect(result.idempotency_key).toBe('synth-1:3:1');
   });
 });
 
@@ -209,5 +209,27 @@ describe('executeSynthesizerNode (agent-powered)', () => {
 
     const callArgs = (deps.executeAgent as any).mock.calls[0][4];
     expect(callArgs.onToken).toBeDefined();
+  });
+
+  it('forwards default_write_key as defaultWriteKey when configured', async () => {
+    const deps = makeDeps();
+    const ctx = makeCtx({ deps });
+    const node = makeNode({ agent_id: 'synthesizer-agent', default_write_key: 'summary' });
+
+    await executeSynthesizerNode(node, makeStateView(), 1, ctx);
+
+    const callArgs = (deps.executeAgent as any).mock.calls[0][4];
+    expect(callArgs.defaultWriteKey).toBe('summary');
+  });
+
+  it('omits defaultWriteKey when default_write_key is not set', async () => {
+    const deps = makeDeps();
+    const ctx = makeCtx({ deps });
+    const node = makeNode({ agent_id: 'synthesizer-agent' });
+
+    await executeSynthesizerNode(node, makeStateView(), 1, ctx);
+
+    const callArgs = (deps.executeAgent as any).mock.calls[0][4];
+    expect(callArgs.defaultWriteKey).toBeUndefined();
   });
 });

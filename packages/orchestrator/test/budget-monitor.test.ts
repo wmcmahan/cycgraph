@@ -59,8 +59,6 @@ describe('BudgetMonitor.calculateActionCost', () => {
       metadata: { node_id: 'n', timestamp: new Date(), attempt: 1, model: 'claude-sonnet-4-6' },
     };
     const cost = monitor.calculateActionCost(1000, 500, action);
-    // Pure delegation to calculateCost — just assert it returned a number
-    // and didn't throw. Real cost values are covered by pricing tests.
     expect(typeof cost).toBe('number');
     expect(cost).toBeGreaterThanOrEqual(0);
   });
@@ -137,7 +135,6 @@ describe('BudgetMonitor.checkThresholds — firing semantics', () => {
     });
     await monitor.checkThresholds(state);
 
-    // 50% and 75% already fired — only 90% remaining (not crossed at 80%)
     expect(cb.dispatch).not.toHaveBeenCalled();
     expect(cb.emit).not.toHaveBeenCalled();
   });
@@ -188,7 +185,6 @@ describe('BudgetMonitor.checkThresholds — terminal (100%)', () => {
     const dispatchedTypes = cb.dispatch.mock.calls.map(c => c[0]);
     expect(dispatchedTypes).toContain('_fire_cost_threshold');
     expect(dispatchedTypes).toContain('_budget_exceeded');
-    // _budget_exceeded MUST be dispatched before throw
     const fireIdx = dispatchedTypes.indexOf('_fire_cost_threshold');
     const exceededIdx = dispatchedTypes.indexOf('_budget_exceeded');
     expect(exceededIdx).toBeGreaterThan(fireIdx);
@@ -207,8 +203,6 @@ describe('BudgetMonitor.checkThresholds — terminal (100%)', () => {
     const cb = makeCallbacks();
     const monitor = new BudgetMonitor(cb);
 
-    // 100% already fired — but the workflow somehow continued. The monitor
-    // should not fire it again or throw.
     await monitor.checkThresholds(makeState({
       budget_usd: 100,
       total_cost_usd: 100,

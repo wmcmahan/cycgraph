@@ -1,8 +1,10 @@
 /**
  * Shared model resolution helper for node executors.
  *
- * Extracts the duplicated resolution logic from agent.ts and supervisor.ts
- * into a single function.
+ * Single home for the budget-aware model-resolution logic shared by the
+ * agent and supervisor executors.
+ *
+ * @module runner/node-executors/resolve-model
  */
 import { createLogger } from '../../utils/logger.js';
 import type { ModelResolutionResult } from '../../agent/model-resolver.js';

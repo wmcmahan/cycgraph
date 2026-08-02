@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   WorkflowStateSchema,
   WorkflowStatusSchema,
@@ -29,7 +29,7 @@ import {
 
 describe('Type Validation (Zod Schemas)', () => {
   describe('WorkflowStatusSchema', () => {
-    test('should accept valid statuses', () => {
+    it('accepts valid statuses', () => {
       const validStatuses = [
         'pending',
         'scheduled',
@@ -47,7 +47,7 @@ describe('Type Validation (Zod Schemas)', () => {
       }
     });
 
-    test('should reject invalid statuses', () => {
+    it('rejects invalid statuses', () => {
       expect(() => WorkflowStatusSchema.parse('invalid')).toThrow();
       expect(() => WorkflowStatusSchema.parse('RUNNING')).toThrow();
       expect(() => WorkflowStatusSchema.parse('')).toThrow();
@@ -55,7 +55,7 @@ describe('Type Validation (Zod Schemas)', () => {
   });
 
   describe('WaitingReasonSchema', () => {
-    test('should accept valid waiting reasons', () => {
+    it('accepts valid waiting reasons', () => {
       const validReasons = [
         'human_approval',
         'external_event',
@@ -69,13 +69,13 @@ describe('Type Validation (Zod Schemas)', () => {
       }
     });
 
-    test('should reject invalid reasons', () => {
+    it('rejects invalid reasons', () => {
       expect(() => WaitingReasonSchema.parse('unknown')).toThrow();
     });
   });
 
   describe('WorkflowStateSchema', () => {
-    test('should parse valid workflow state', () => {
+    it('parses valid workflow state', () => {
       const validState = {
         workflow_id: '123e4567-e89b-12d3-a456-426614174000',
         run_id: '123e4567-e89b-12d3-a456-426614174001',
@@ -97,7 +97,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(() => WorkflowStateSchema.parse(validState)).not.toThrow();
     });
 
-    test('should apply default values', () => {
+    it('applies default values', () => {
       const minimalState = {
         workflow_id: '123e4567-e89b-12d3-a456-426614174000',
         run_id: '123e4567-e89b-12d3-a456-426614174001',
@@ -119,19 +119,18 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(parsed.max_execution_time_ms).toBe(3600000);
     });
 
-    test('should reject missing required fields', () => {
+    it('rejects missing required fields', () => {
       expect(() => WorkflowStateSchema.parse({})).toThrow();
       expect(() =>
         WorkflowStateSchema.parse({
           workflow_id: '123e4567-e89b-12d3-a456-426614174000',
-          // Missing run_id
         })
       ).toThrow();
     });
   });
 
   describe('ActionSchema', () => {
-    test('should parse valid action', () => {
+    it('parses valid action', () => {
       const validAction = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         idempotency_key: '123e4567-e89b-12d3-a456-426614174001',
@@ -147,7 +146,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(() => ActionSchema.parse(validAction)).not.toThrow();
     });
 
-    test('should parse action with compensation', () => {
+    it('parses action with compensation', () => {
       const actionWithCompensation = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         idempotency_key: '123e4567-e89b-12d3-a456-426614174001',
@@ -167,7 +166,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(() => ActionSchema.parse(actionWithCompensation)).not.toThrow();
     });
 
-    test('should apply default attempt value', () => {
+    it('applies default attempt value', () => {
       const action = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         idempotency_key: '123e4567-e89b-12d3-a456-426614174001',
@@ -195,23 +194,23 @@ describe('Type Validation (Zod Schemas)', () => {
       'merge_parallel_results',
     ] as const;
 
-    test('should accept all 7 valid action types', () => {
+    it('accepts all 7 valid action types', () => {
       for (const type of validActionTypes) {
         expect(() => ActionTypeSchema.parse(type)).not.toThrow();
       }
     });
 
-    test('should reject invalid action type', () => {
+    it('rejects invalid action type', () => {
       const result = ActionTypeSchema.safeParse('invalid_type');
       expect(result.success).toBe(false);
     });
 
-    test('should reject typo action type (updat_memory)', () => {
+    it('rejects typo action type (updat_memory)', () => {
       const result = ActionTypeSchema.safeParse('updat_memory');
       expect(result.success).toBe(false);
     });
 
-    test('ActionSchema should parse with valid type update_memory', () => {
+    it('ActionSchema should parse with valid type update_memory', () => {
       const action = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         idempotency_key: '123e4567-e89b-12d3-a456-426614174001',
@@ -227,7 +226,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(() => ActionSchema.parse(action)).not.toThrow();
     });
 
-    test('ActionSchema should reject invalid type string', () => {
+    it('ActionSchema should reject invalid type string', () => {
       const action = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         idempotency_key: '123e4567-e89b-12d3-a456-426614174001',
@@ -244,7 +243,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(result.success).toBe(false);
     });
 
-    test('ActionSchema should reject typo type (updat_memory)', () => {
+    it('ActionSchema should reject typo type (updat_memory)', () => {
       const action = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         idempotency_key: '123e4567-e89b-12d3-a456-426614174001',
@@ -261,7 +260,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(result.success).toBe(false);
     });
 
-    test('all 7 valid types should parse successfully through ActionSchema', () => {
+    it('all 7 valid types should parse successfully through ActionSchema', () => {
       for (const type of validActionTypes) {
         const action = {
           id: '123e4567-e89b-12d3-a456-426614174000',
@@ -281,40 +280,38 @@ describe('Type Validation (Zod Schemas)', () => {
     });
   });
 
-  // ─── Typed Action Payloads (Item 1.1) ────────────────────────────────
-
   describe('Action Payload Schemas', () => {
-    test('UpdateMemoryPayloadSchema validates correct payload', () => {
+    it('UpdateMemoryPayloadSchema validates correct payload', () => {
       const result = UpdateMemoryPayloadSchema.safeParse({ updates: { key: 'value' } });
       expect(result.success).toBe(true);
     });
 
-    test('UpdateMemoryPayloadSchema rejects missing updates', () => {
+    it('UpdateMemoryPayloadSchema rejects missing updates', () => {
       const result = UpdateMemoryPayloadSchema.safeParse({});
       expect(result.success).toBe(false);
     });
 
-    test('SetStatusPayloadSchema validates correct payload', () => {
+    it('SetStatusPayloadSchema validates correct payload', () => {
       const result = SetStatusPayloadSchema.safeParse({ status: 'running' });
       expect(result.success).toBe(true);
     });
 
-    test('SetStatusPayloadSchema rejects invalid status', () => {
+    it('SetStatusPayloadSchema rejects invalid status', () => {
       const result = SetStatusPayloadSchema.safeParse({ status: 'invalid_status' });
       expect(result.success).toBe(false);
     });
 
-    test('GotoNodePayloadSchema validates correct payload', () => {
+    it('GotoNodePayloadSchema validates correct payload', () => {
       const result = GotoNodePayloadSchema.safeParse({ node_id: 'node-1' });
       expect(result.success).toBe(true);
     });
 
-    test('GotoNodePayloadSchema rejects missing node_id', () => {
+    it('GotoNodePayloadSchema rejects missing node_id', () => {
       const result = GotoNodePayloadSchema.safeParse({});
       expect(result.success).toBe(false);
     });
 
-    test('HandoffPayloadSchema validates correct payload', () => {
+    it('HandoffPayloadSchema validates correct payload', () => {
       const result = HandoffPayloadSchema.safeParse({
         node_id: 'worker',
         supervisor_id: 'sup-1',
@@ -323,19 +320,19 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(result.success).toBe(true);
     });
 
-    test('HandoffPayloadSchema rejects missing required fields', () => {
+    it('HandoffPayloadSchema rejects missing required fields', () => {
       expect(HandoffPayloadSchema.safeParse({ node_id: 'worker' }).success).toBe(false);
       expect(HandoffPayloadSchema.safeParse({ node_id: 'worker', supervisor_id: 'sup' }).success).toBe(false);
     });
 
-    test('RequestHumanInputPayloadSchema validates with optional fields', () => {
+    it('RequestHumanInputPayloadSchema validates with optional fields', () => {
       const result = RequestHumanInputPayloadSchema.safeParse({
         pending_approval: { question: 'approve?' },
       });
       expect(result.success).toBe(true);
     });
 
-    test('ResumeFromHumanPayloadSchema validates correct payload', () => {
+    it('ResumeFromHumanPayloadSchema validates correct payload', () => {
       const result = ResumeFromHumanPayloadSchema.safeParse({
         response: 'approved',
         decision: 'yes',
@@ -344,7 +341,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(result.success).toBe(true);
     });
 
-    test('MergeParallelResultsPayloadSchema validates with optional tokens', () => {
+    it('MergeParallelResultsPayloadSchema validates with optional tokens', () => {
       const result = MergeParallelResultsPayloadSchema.safeParse({
         updates: { result_a: 'done', result_b: 'done' },
         total_tokens: 150,
@@ -352,7 +349,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(result.success).toBe(true);
     });
 
-    test('MergeParallelResultsPayloadSchema validates without optional tokens', () => {
+    it('MergeParallelResultsPayloadSchema validates without optional tokens', () => {
       const result = MergeParallelResultsPayloadSchema.safeParse({
         updates: { result_a: 'done' },
       });
@@ -368,31 +365,31 @@ describe('Type Validation (Zod Schemas)', () => {
       '_pop_compensation',
     ];
 
-    test('should accept all 13 internal action types', () => {
+    it('accepts all 13 internal action types', () => {
       for (const type of internalTypes) {
         expect(InternalActionTypeSchema.safeParse(type).success).toBe(true);
       }
     });
 
-    test('should reject non-internal types', () => {
+    it('rejects non-internal types', () => {
       expect(InternalActionTypeSchema.safeParse('update_memory').success).toBe(false);
       expect(InternalActionTypeSchema.safeParse('_unknown').success).toBe(false);
     });
   });
 
   describe('narrowActionPayload', () => {
-    test('should narrow update_memory payload', () => {
+    it('narrows update_memory payload', () => {
       const result = narrowActionPayload('update_memory', { updates: { key: 'val' } });
       expect(result).toHaveProperty('updates');
     });
 
-    test('should throw on invalid payload', () => {
+    it('throws on invalid payload', () => {
       expect(() => narrowActionPayload('update_memory', {})).toThrow();
     });
   });
 
   describe('NodeTypeSchema', () => {
-    test('should accept valid node types', () => {
+    it('accepts valid node types', () => {
       const validTypes = ['agent', 'tool', 'subgraph', 'synthesizer', 'router'];
 
       for (const type of validTypes) {
@@ -400,13 +397,13 @@ describe('Type Validation (Zod Schemas)', () => {
       }
     });
 
-    test('should reject invalid node types', () => {
+    it('rejects invalid node types', () => {
       expect(() => NodeTypeSchema.parse('invalid')).toThrow();
     });
   });
 
   describe('FailurePolicySchema', () => {
-    test('should parse valid failure policy', () => {
+    it('parses valid failure policy', () => {
       const validPolicy = {
         max_retries: 5,
         backoff_strategy: 'exponential',
@@ -424,7 +421,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(() => FailurePolicySchema.parse(validPolicy)).not.toThrow();
     });
 
-    test('should apply default values', () => {
+    it('applies default values', () => {
       const parsed = FailurePolicySchema.parse({});
 
       expect(parsed.max_retries).toBe(3);
@@ -433,18 +430,16 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(parsed.max_backoff_ms).toBe(60000);
     });
 
-    test('rejects an unbounded max_retries (cost-exhaustion guard)', () => {
-      // Each retry is an LLM call — a huge/infinite/NaN value must not parse.
+    it('rejects an unbounded max_retries (cost-exhaustion guard)', () => {
       expect(() => FailurePolicySchema.parse({ max_retries: 1_000_000_000 })).toThrow();
       expect(() => FailurePolicySchema.parse({ max_retries: Infinity })).toThrow();
       expect(() => FailurePolicySchema.parse({ max_retries: NaN })).toThrow();
       expect(() => FailurePolicySchema.parse({ max_retries: -1 })).toThrow();
-      // The legitimate range still parses.
       expect(FailurePolicySchema.parse({ max_retries: 0 }).max_retries).toBe(0);
       expect(FailurePolicySchema.parse({ max_retries: 10 }).max_retries).toBe(10);
     });
 
-    test('should validate backoff strategy enum', () => {
+    it('validates backoff strategy enum', () => {
       expect(() =>
         FailurePolicySchema.parse({ backoff_strategy: 'invalid' })
       ).toThrow();
@@ -456,7 +451,7 @@ describe('Type Validation (Zod Schemas)', () => {
   });
 
   describe('GraphNodeSchema', () => {
-    test('should parse valid graph node', () => {
+    it('parses valid graph node', () => {
       const validNode = {
         id: 'node-1',
         type: 'agent',
@@ -472,7 +467,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(() => GraphNodeSchema.parse(validNode)).not.toThrow();
     });
 
-    test('should apply default values', () => {
+    it('applies default values', () => {
       const minimalNode = {
         id: 'node-1',
         type: 'tool',
@@ -480,8 +475,6 @@ describe('Type Validation (Zod Schemas)', () => {
 
       const parsed = GraphNodeSchema.parse(minimalNode);
 
-      // read_keys defaults to [] (least privilege) — nodes see only
-      // goal/constraints unless they explicitly opt into memory keys.
       expect(parsed.read_keys).toEqual([]);
       expect(parsed.write_keys).toEqual([]);
       expect(parsed.requires_compensation).toBe(false);
@@ -490,7 +483,7 @@ describe('Type Validation (Zod Schemas)', () => {
   });
 
   describe('GraphEdgeSchema', () => {
-    test('should parse valid edge', () => {
+    it('parses valid edge', () => {
       const validEdge = {
         id: 'e1',
         source: 'node1',
@@ -501,7 +494,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(() => GraphEdgeSchema.parse(validEdge)).not.toThrow();
     });
 
-    test('should apply default condition', () => {
+    it('applies default condition', () => {
       const edge = {
         id: 'e1',
         source: 'node1',
@@ -514,7 +507,7 @@ describe('Type Validation (Zod Schemas)', () => {
   });
 
   describe('GraphSchema', () => {
-    test('should parse valid graph', () => {
+    it('parses valid graph', () => {
       const validGraph = {
         id: '123e4567-e89b-12d3-a456-426614174000',
         name: 'Test Graph',
@@ -533,7 +526,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(() => GraphSchema.parse(validGraph)).not.toThrow();
     });
 
-    test('should auto-generate id when omitted', () => {
+    it('auto-generates id when omitted', () => {
       const parsed = GraphSchema.parse({
         name: 'Test',
         description: 'Test',
@@ -548,7 +541,7 @@ describe('Type Validation (Zod Schemas)', () => {
       expect(parsed.id.length).toBeGreaterThan(0);
     });
 
-    test('should preserve explicitly provided id', () => {
+    it('preserves explicitly provided id', () => {
       const parsed = GraphSchema.parse({
         id: 'my-custom-id',
         name: 'Test',
@@ -565,7 +558,7 @@ describe('Type Validation (Zod Schemas)', () => {
 });
 
 describe('Resource bounds (DoS guards)', () => {
-  test('evolution population_size and max_generations are capped', () => {
+  it('evolution population_size and max_generations are capped', () => {
     const base = { candidate_agent_id: 'gen' };
     expect(EvolutionConfigSchema.safeParse({ ...base, population_size: 100 }).success).toBe(true);
     expect(EvolutionConfigSchema.safeParse({ ...base, population_size: 100_000 }).success).toBe(false);
@@ -573,31 +566,31 @@ describe('Resource bounds (DoS guards)', () => {
     expect(EvolutionConfigSchema.safeParse({ ...base, max_generations: 100_000 }).success).toBe(false);
   });
 
-  test('evolution max_concurrency is capped at 50', () => {
+  it('evolution max_concurrency is capped at 50', () => {
     const base = { candidate_agent_id: 'gen' };
     expect(EvolutionConfigSchema.safeParse({ ...base, max_concurrency: 50 }).success).toBe(true);
     expect(EvolutionConfigSchema.safeParse({ ...base, max_concurrency: 51 }).success).toBe(false);
   });
 
-  test('voting voter_agent_ids is capped at 50', () => {
+  it('voting voter_agent_ids is capped at 50', () => {
     const ok = Array.from({ length: 50 }, (_, i) => `v${i}`);
     const tooMany = Array.from({ length: 51 }, (_, i) => `v${i}`);
     expect(VotingConfigSchema.safeParse({ voter_agent_ids: ok }).success).toBe(true);
     expect(VotingConfigSchema.safeParse({ voter_agent_ids: tooMany }).success).toBe(false);
   });
 
-  test('map-reduce max_concurrency is capped at 50', () => {
+  it('map-reduce max_concurrency is capped at 50', () => {
     expect(MapReduceConfigSchema.safeParse({ worker_node_id: 'w', max_concurrency: 50 }).success).toBe(true);
     expect(MapReduceConfigSchema.safeParse({ worker_node_id: 'w', max_concurrency: 100_000 }).success).toBe(false);
   });
 
-  test('supervisor max_iterations is capped at 1000', () => {
+  it('supervisor max_iterations is capped at 1000', () => {
     const base = { managed_nodes: ['a'] };
     expect(SupervisorConfigSchema.safeParse({ ...base, max_iterations: 1000 }).success).toBe(true);
     expect(SupervisorConfigSchema.safeParse({ ...base, max_iterations: 1_000_001 }).success).toBe(false);
   });
 
-  test('fan-out knobs reject non-integers', () => {
+  it('fan-out knobs reject non-integers', () => {
     expect(EvolutionConfigSchema.safeParse({ candidate_agent_id: 'g', population_size: 5.5 }).success).toBe(false);
   });
 });

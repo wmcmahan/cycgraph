@@ -14,7 +14,6 @@ import type {
 
 describe('MemoryRetriever type exports', () => {
   it('MemoryRetriever type is importable from @cycgraph/orchestrator', () => {
-    // Type-level check — if this compiles, the type is exported.
     const retriever: MemoryRetriever = vi.fn().mockResolvedValue(null);
     expect(retriever).toBeDefined();
   });

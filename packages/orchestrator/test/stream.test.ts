@@ -1,4 +1,4 @@
-import { describe, test, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { GraphRunner } from '../src/runner/graph-runner';
 import { isTerminalEvent } from '../src/runner/stream-events';
@@ -143,25 +143,20 @@ async function collectStreamEvents(runner: GraphRunner, options?: { signal?: Abo
 // ─── Tests ──────────────────────────────────────────────────────────
 
 describe('GraphRunner.stream() — Event Sequence', () => {
-  test('yields correct event order for a linear graph', async () => {
+  it('yields correct event order for a linear graph', async () => {
     const runner = new GraphRunner(createLinearGraph(), createInitialState());
     const events = await collectStreamEvents(runner);
 
     const types = events.map(e => e.type);
 
-    // Must start with workflow:start
     expect(types[0]).toBe('workflow:start');
-
-    // Must contain node lifecycle events for both nodes
     expect(types).toContain('node:start');
     expect(types).toContain('node:complete');
     expect(types).toContain('action:applied');
-
-    // Must end with workflow:complete
     expect(types[types.length - 1]).toBe('workflow:complete');
   });
 
-  test('yields node:start before node:complete for each node', async () => {
+  it('yields node:start before node:complete for each node', async () => {
     const runner = new GraphRunner(createLinearGraph(), createInitialState());
     const events = await collectStreamEvents(runner);
 
@@ -169,7 +164,6 @@ describe('GraphRunner.stream() — Event Sequence', () => {
       e => e.type === 'node:start' || e.type === 'node:complete'
     ) as (StreamEvent & { node_id: string })[];
 
-    // For each node, start must come before complete
     const nodeIds = [...new Set(nodeEvents.map(e => e.node_id))];
     for (const nodeId of nodeIds) {
       const forNode = nodeEvents.filter(e => e.node_id === nodeId);
@@ -179,7 +173,7 @@ describe('GraphRunner.stream() — Event Sequence', () => {
     }
   });
 
-  test('single node graph yields workflow:start → node events → workflow:complete', async () => {
+  it('single node graph yields workflow:start → node events → workflow:complete', async () => {
     const runner = new GraphRunner(createSingleNodeGraph(), createInitialState());
     const events = await collectStreamEvents(runner);
 
@@ -193,7 +187,7 @@ describe('GraphRunner.stream() — Event Sequence', () => {
 });
 
 describe('GraphRunner.stream() — Terminal Events', () => {
-  test('workflow:complete carries state with status completed', async () => {
+  it('workflow:complete carries state with status completed', async () => {
     const runner = new GraphRunner(createLinearGraph(), createInitialState());
     const events = await collectStreamEvents(runner);
 
@@ -206,8 +200,7 @@ describe('GraphRunner.stream() — Terminal Events', () => {
     }
   });
 
-  test('workflow:failed carries error and state on failure', async () => {
-    // Use an invalid graph to trigger failure
+  it('workflow:failed carries error and state on failure', async () => {
     const badGraph: Graph = {
       id: uuidv4(),
       name: 'Bad Graph',
@@ -228,8 +221,7 @@ describe('GraphRunner.stream() — Terminal Events', () => {
     }
   });
 
-  test('workflow:waiting event for HITL approval nodes', async () => {
-    // Mock executeAgent to return a request_human_input action
+  it('workflow:waiting event for HITL approval nodes', async () => {
     const { executeAgent } = await import('../src/agent/agent-executor/executor');
     const mockedExecute = vi.mocked(executeAgent);
     mockedExecute.mockResolvedValueOnce({
@@ -244,7 +236,7 @@ describe('GraphRunner.stream() — Terminal Events', () => {
     });
 
     const graph = createSingleNodeGraph();
-    graph.end_nodes = []; // Not an end node — so it doesn't complete early
+    graph.end_nodes = [];
     graph.nodes[0].id = 'start';
     graph.start_node = 'start';
     const runner = new GraphRunner(graph, createInitialState());
@@ -260,16 +252,12 @@ describe('GraphRunner.stream() — Terminal Events', () => {
 });
 
 describe('GraphRunner.stream() — Token Streaming', () => {
-  test('yields agent:token_delta events with onToken callback', async () => {
-    const tokenEvents: StreamEvent[] = [];
+  it('yields agent:token_delta events with onToken callback', async () => {
     const onToken = vi.fn();
 
-    // Mock executeAgent to simulate token callbacks
     const { executeAgent } = await import('../src/agent/agent-executor/executor');
     const mockedExecute = vi.mocked(executeAgent);
     mockedExecute.mockImplementation(async (agentId, _stateView, _tools, attempt) => {
-      // The onToken is wired via buildExecutorContext, but since we mock
-      // executeAgent directly, tokens come through the onToken option callback
       return {
         id: uuidv4(),
         idempotency_key: uuidv4(),
@@ -282,43 +270,36 @@ describe('GraphRunner.stream() — Token Streaming', () => {
     const runner = new GraphRunner(createSingleNodeGraph(), createInitialState(), { onToken });
     const events = await collectStreamEvents(runner);
 
-    // Even without actual token deltas (mock doesn't call onToken),
-    // the stream should still complete successfully
     expect(events.map(e => e.type)).toContain('workflow:complete');
   });
 });
 
 describe('GraphRunner.stream() — Cancellation', () => {
-  test('AbortSignal cancels stream cleanly', async () => {
+  it('AbortSignal cancels stream cleanly', async () => {
     const controller = new AbortController();
     const runner = new GraphRunner(createLinearGraph(), createInitialState());
 
-    // Abort immediately
     controller.abort();
 
     const events = await collectStreamEvents(runner, { signal: controller.signal });
     const types = events.map(e => e.type);
 
-    // Should have started but workflow should not complete normally
     expect(types[0]).toBe('workflow:start');
   });
 
-  test('already-aborted signal stops immediately', async () => {
+  it('already-aborted signal stops immediately', async () => {
     const controller = new AbortController();
     controller.abort();
 
     const runner = new GraphRunner(createSingleNodeGraph(), createInitialState());
     const events = await collectStreamEvents(runner, { signal: controller.signal });
 
-    // Should not have any completed workflow
-    const hasComplete = events.some(e => e.type === 'workflow:complete');
-    // The workflow either didn't complete or terminated early
     expect(events.length).toBeGreaterThan(0);
   });
 });
 
 describe('GraphRunner.stream() — Backward Compatibility', () => {
-  test('run() still returns WorkflowState', async () => {
+  it('run() still returns WorkflowState', async () => {
     const runner = new GraphRunner(createLinearGraph(), createInitialState());
     const result = await runner.run();
 
@@ -327,7 +308,7 @@ describe('GraphRunner.stream() — Backward Compatibility', () => {
     expect(result.visited_nodes).toContain('end');
   });
 
-  test('run() still throws on graph validation failure', async () => {
+  it('run() still throws on graph validation failure', async () => {
     const badGraph: Graph = {
       id: uuidv4(),
       name: 'Bad',
@@ -342,7 +323,7 @@ describe('GraphRunner.stream() — Backward Compatibility', () => {
     await expect(runner.run()).rejects.toThrow('Graph validation failed');
   });
 
-  test('run() still emits EventEmitter events', async () => {
+  it('run() still emits EventEmitter events', async () => {
     const runner = new GraphRunner(createLinearGraph(), createInitialState());
 
     const startSpy = vi.fn();
@@ -356,18 +337,17 @@ describe('GraphRunner.stream() — Backward Compatibility', () => {
     expect(completeSpy).toHaveBeenCalledOnce();
   });
 
-  test('run() cleans up listeners after completion', async () => {
+  it('run() cleans up listeners after completion', async () => {
     const runner = new GraphRunner(createLinearGraph(), createInitialState());
     const spy = vi.fn();
     runner.on('workflow:start', spy);
 
     await runner.run();
 
-    // After run(), listeners should be removed
     expect(runner.listenerCount('workflow:start')).toBe(0);
   });
 
-  test('state:persisted events emitted with persistStateFn', async () => {
+  it('state:persisted events emitted with persistStateFn', async () => {
     const persistSpy = vi.fn().mockResolvedValue(undefined);
     const runner = new GraphRunner(createLinearGraph(), createInitialState(), { persistStateFn: persistSpy });
     const events = await collectStreamEvents(runner);
@@ -381,7 +361,7 @@ describe('GraphRunner.stream() — Backward Compatibility', () => {
 });
 
 describe('isTerminalEvent — Type Guard', () => {
-  test('returns true for workflow:complete', () => {
+  it('returns true for workflow:complete', () => {
     const event: StreamEvent = {
       type: 'workflow:complete',
       workflow_id: 'w1',
@@ -393,7 +373,7 @@ describe('isTerminalEvent — Type Guard', () => {
     expect(isTerminalEvent(event)).toBe(true);
   });
 
-  test('returns true for workflow:failed', () => {
+  it('returns true for workflow:failed', () => {
     const event: StreamEvent = {
       type: 'workflow:failed',
       workflow_id: 'w1',
@@ -405,7 +385,7 @@ describe('isTerminalEvent — Type Guard', () => {
     expect(isTerminalEvent(event)).toBe(true);
   });
 
-  test('returns true for workflow:timeout', () => {
+  it('returns true for workflow:timeout', () => {
     const event: StreamEvent = {
       type: 'workflow:timeout',
       workflow_id: 'w1',
@@ -417,7 +397,7 @@ describe('isTerminalEvent — Type Guard', () => {
     expect(isTerminalEvent(event)).toBe(true);
   });
 
-  test('returns true for workflow:waiting', () => {
+  it('returns true for workflow:waiting', () => {
     const event: StreamEvent = {
       type: 'workflow:waiting',
       workflow_id: 'w1',
@@ -429,7 +409,7 @@ describe('isTerminalEvent — Type Guard', () => {
     expect(isTerminalEvent(event)).toBe(true);
   });
 
-  test('returns false for non-terminal events', () => {
+  it('returns false for non-terminal events', () => {
     const nonTerminals: StreamEvent[] = [
       { type: 'workflow:start', workflow_id: 'w1', run_id: 'r1', timestamp: Date.now() },
       { type: 'node:start', node_id: 'n1', node_type: 'agent', timestamp: Date.now() },

@@ -1,4 +1,4 @@
-import { describe, test, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { executeRouterNode } from '../src/runner/node-executors/router.js';
 import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
 import { makeNode, createTestState, createSimpleGraph } from './helpers/factories.js';
@@ -24,7 +24,7 @@ function createMockCtx(overrides: Partial<NodeExecutorContext> = {}): NodeExecut
 
 describe('executeRouterNode', () => {
   describe('basic execution', () => {
-    test('returns an action with type update_memory', async () => {
+    it('returns an action with type update_memory', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const ctx = createMockCtx();
       const stateView = ctx.createStateView(node);
@@ -34,7 +34,7 @@ describe('executeRouterNode', () => {
       expect(action.type).toBe('update_memory');
     });
 
-    test('returns empty updates in payload', async () => {
+    it('returns empty updates in payload', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const ctx = createMockCtx();
       const stateView = ctx.createStateView(node);
@@ -46,7 +46,7 @@ describe('executeRouterNode', () => {
   });
 
   describe('action ID', () => {
-    test('generates a valid UUID for each call', async () => {
+    it('generates a valid UUID for each call', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const ctx = createMockCtx();
       const stateView = ctx.createStateView(node);
@@ -58,7 +58,7 @@ describe('executeRouterNode', () => {
       );
     });
 
-    test('generates unique IDs across multiple calls', async () => {
+    it('generates unique IDs across multiple calls', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const ctx = createMockCtx();
       const stateView = ctx.createStateView(node);
@@ -71,7 +71,7 @@ describe('executeRouterNode', () => {
   });
 
   describe('idempotency key', () => {
-    test('follows format nodeId:iterationCount:attempt', async () => {
+    it('follows format nodeId:iterationCount:attempt', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const ctx = createMockCtx({ state: createTestState({ iteration_count: 5 }) });
       const stateView = ctx.createStateView(node);
@@ -81,7 +81,7 @@ describe('executeRouterNode', () => {
       expect(action.idempotency_key).toBe('router-1:5:2');
     });
 
-    test('different iteration counts produce different keys', async () => {
+    it('different iteration counts produce different keys', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const stateView = { workflow_id: 'test', run_id: 'test', goal: 'test', constraints: [], memory: {} };
 
@@ -96,7 +96,7 @@ describe('executeRouterNode', () => {
       expect(action1.idempotency_key).not.toBe(action2.idempotency_key);
     });
 
-    test('different attempt numbers produce different keys', async () => {
+    it('different attempt numbers produce different keys', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const ctx = createMockCtx();
       const stateView = ctx.createStateView(node);
@@ -110,7 +110,7 @@ describe('executeRouterNode', () => {
   });
 
   describe('metadata', () => {
-    test('contains correct node_id', async () => {
+    it('contains correct node_id', async () => {
       const node = makeNode({ id: 'my-router', type: 'router' });
       const ctx = createMockCtx();
       const stateView = ctx.createStateView(node);
@@ -120,7 +120,7 @@ describe('executeRouterNode', () => {
       expect(action.metadata.node_id).toBe('my-router');
     });
 
-    test('contains a timestamp that is a Date', async () => {
+    it('contains a timestamp that is a Date', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const ctx = createMockCtx();
       const stateView = ctx.createStateView(node);
@@ -130,7 +130,7 @@ describe('executeRouterNode', () => {
       expect(action.metadata.timestamp).toBeInstanceOf(Date);
     });
 
-    test('contains the correct attempt number', async () => {
+    it('contains the correct attempt number', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const ctx = createMockCtx();
       const stateView = ctx.createStateView(node);
@@ -142,7 +142,7 @@ describe('executeRouterNode', () => {
   });
 
   describe('stateView is unused', () => {
-    test('different state views produce identical action structure', async () => {
+    it('different state views produce identical action structure', async () => {
       const node = makeNode({ id: 'router-1', type: 'router' });
       const ctx = createMockCtx();
 
@@ -161,7 +161,7 @@ describe('executeRouterNode', () => {
   });
 
   describe('different node IDs', () => {
-    test('reflects the node ID in action metadata and idempotency key', async () => {
+    it('reflects the node ID in action metadata and idempotency key', async () => {
       const ctx = createMockCtx({ state: createTestState({ iteration_count: 1 }) });
       const stateView = ctx.createStateView(makeNode());
 

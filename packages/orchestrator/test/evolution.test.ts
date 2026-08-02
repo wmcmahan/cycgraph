@@ -1,7 +1,12 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+/**
+ * Evolution (DGM) node: EvolutionConfigSchema, graph validation, and
+ * executeEvolutionNode — population-based Darwinian selection exercised
+ * through GraphRunner (integration) and via direct calls (unit, for the
+ * abort/budget/taint/provenance branches the integration path can't reach
+ * deterministically).
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-
-// ─── Mocks ────────────────────────────────────────────────────────
 
 vi.mock('@ai-sdk/openai', () => ({ openai: vi.fn((m: string) => ({ provider: 'openai', modelId: m })) }));
 vi.mock('@ai-sdk/anthropic', () => ({ anthropic: vi.fn((m: string) => ({ provider: 'anthropic', modelId: m })) }));
@@ -55,12 +60,12 @@ vi.mock('../src/utils/tracing', () => ({
 }));
 
 import { GraphRunner } from '../src/runner/graph-runner.js';
+import { executeEvolutionNode } from '../src/runner/node-executors/evolution.js';
 import { EvolutionConfigSchema } from '../src/types/graph.js';
 import { validateGraph } from '../src/validation/graph-validator.js';
-import type { Graph } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
-
-// ─── Helpers ──────────────────────────────────────────────────────
+import type { Graph, GraphNode } from '../src/types/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/types/state.js';
+import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
 
 const createState = (): WorkflowState => ({
   workflow_id: uuidv4(),
@@ -115,9 +120,6 @@ const createEvolutionGraph = (configOverrides: any = {}): Graph => ({
   end_nodes: ['evo-node'],
 });
 
-/**
- * Default agent mock: returns candidate output including the generation/index metadata.
- */
 function setupDefaultAgentMock() {
   candidateCallCount = 0;
   mockExecuteAgent.mockImplementation(async (agentId: string, stateView: any, _tools: any, attempt: number) => {
@@ -128,13 +130,7 @@ function setupDefaultAgentMock() {
       id: uuidv4(),
       idempotency_key: uuidv4(),
       type: 'update_memory',
-      payload: {
-        updates: {
-          agent_response: `Candidate gen=${gen} idx=${idx}`,
-          generation: gen,
-          candidate_index: idx,
-        },
-      },
+      payload: { updates: { agent_response: `Candidate gen=${gen} idx=${idx}`, generation: gen, candidate_index: idx } },
       metadata: {
         node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt,
         token_usage: { totalTokens: 30 },
@@ -143,399 +139,262 @@ function setupDefaultAgentMock() {
   });
 }
 
-// ─── Tests ────────────────────────────────────────────────────────
+beforeEach(() => {
+  vi.clearAllMocks();
+  setupDefaultAgentMock();
+});
 
-describe('Evolution (DGM) Node', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    setupDefaultAgentMock();
+describe('EvolutionConfigSchema', () => {
+  it('parses a valid config and applies defaults', () => {
+    const result = EvolutionConfigSchema.parse({ candidate_agent_id: 'writer', evaluator_agent_id: 'judge' });
+
+    expect(result.population_size).toBe(5);
+    expect(result.selection_strategy).toBe('rank');
+    expect(result.elite_count).toBe(1);
+    expect(result.max_generations).toBe(10);
+    expect(result.fitness_threshold).toBe(0.9);
+    expect(result.stagnation_generations).toBe(3);
+    expect(result.initial_temperature).toBe(1.0);
+    expect(result.final_temperature).toBe(0.3);
+    expect(result.tournament_size).toBe(3);
+    expect(result.max_concurrency).toBe(5);
+    expect(result.error_strategy).toBe('best_effort');
   });
 
-  // ── Schema tests ──────────────────────────────────────────────
-
-  describe('EvolutionConfigSchema', () => {
-    test('should parse valid config with defaults', () => {
-      const result = EvolutionConfigSchema.parse({
-        candidate_agent_id: 'writer',
-        evaluator_agent_id: 'judge',
-      });
-
-      expect(result.population_size).toBe(5);
-      expect(result.selection_strategy).toBe('rank');
-      expect(result.elite_count).toBe(1);
-      expect(result.max_generations).toBe(10);
-      expect(result.fitness_threshold).toBe(0.9);
-      expect(result.stagnation_generations).toBe(3);
-      expect(result.initial_temperature).toBe(1.0);
-      expect(result.final_temperature).toBe(0.3);
-      expect(result.tournament_size).toBe(3);
-      expect(result.max_concurrency).toBe(5);
-      expect(result.error_strategy).toBe('best_effort');
+  it('rejects a population_size below 2', () => {
+    const result = EvolutionConfigSchema.safeParse({
+      population_size: 1,
+      candidate_agent_id: 'writer',
+      evaluator_agent_id: 'judge',
     });
 
-    test('should reject population_size < 2', () => {
-      const result = EvolutionConfigSchema.safeParse({
-        population_size: 1,
-        candidate_agent_id: 'writer',
-        evaluator_agent_id: 'judge',
-      });
-      expect(result.success).toBe(false);
-    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('validateGraph (evolution nodes)', () => {
+  it('reports a missing evolution_config', () => {
+    const graph: Graph = {
+      id: 'bad-graph',
+      name: 'Bad',
+      description: 'Missing config',
+      nodes: [{
+        id: 'evo',
+        type: 'evolution',
+        read_keys: ['*'],
+        write_keys: ['*'],
+        failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 100, max_backoff_ms: 100 },
+        requires_compensation: false,
+      }],
+      edges: [],
+      start_node: 'evo',
+      end_nodes: ['evo'],
+    };
+
+    const validation = validateGraph(graph);
+
+    expect(validation.errors).toContain("Evolution node 'evo' is missing evolution_config");
   });
 
-  // ── Validator tests ───────────────────────────────────────────
+  it('rejects elite_count greater than or equal to population_size', () => {
+    const validation = validateGraph(createEvolutionGraph({ elite_count: 3, population_size: 3 }));
 
-  describe('Graph Validator', () => {
-    test('should error on missing evolution_config', () => {
-      const graph: Graph = {
-        id: 'bad-graph',
-        name: 'Bad',
-        description: 'Missing config',
-        nodes: [{
-          id: 'evo',
-          type: 'evolution',
-          // No evolution_config
-          read_keys: ['*'],
-          write_keys: ['*'],
-          failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 100, max_backoff_ms: 100 },
-          requires_compensation: false,
-        }],
-        edges: [],
-        start_node: 'evo',
-        end_nodes: ['evo'],
-      };
-
-      const validation = validateGraph(graph);
-      expect(validation.errors).toContain("Evolution node 'evo' is missing evolution_config");
-    });
-
-    test('should error on elite_count >= population_size', () => {
-      const graph = createEvolutionGraph({ elite_count: 3, population_size: 3 });
-      const validation = validateGraph(graph);
-      expect(validation.errors.some(e => e.includes('elite_count must be less than population_size'))).toBe(true);
-    });
-
-    test('should error on tournament_size > population_size', () => {
-      const graph = createEvolutionGraph({
-        selection_strategy: 'tournament',
-        tournament_size: 10,
-        population_size: 3,
-      });
-      const validation = validateGraph(graph);
-      expect(validation.errors.some(e => e.includes('tournament_size exceeds population_size'))).toBe(true);
-    });
-
-    test('should warn on increasing temperature schedule', () => {
-      const graph = createEvolutionGraph({
-        initial_temperature: 0.3,
-        final_temperature: 1.0,
-      });
-      const validation = validateGraph(graph);
-      expect(validation.warnings.some(w => w.includes('temperature increases over generations'))).toBe(true);
-    });
+    expect(validation.errors.some(e => e.includes('elite_count must be less than population_size'))).toBe(true);
   });
 
-  // ── Execution tests ───────────────────────────────────────────
+  it('rejects tournament_size greater than population_size', () => {
+    const validation = validateGraph(createEvolutionGraph({ selection_strategy: 'tournament', tournament_size: 10, population_size: 3 }));
 
-  describe('Execution', () => {
-    test('should complete when fitness threshold met in gen 0', async () => {
-      // Evaluator returns high fitness immediately
-      mockEvaluateQuality.mockResolvedValue({
-        score: 0.95,
-        reasoning: 'Excellent candidate',
-        tokensUsed: 20,
-      });
+    expect(validation.errors.some(e => e.includes('tournament_size exceeds population_size'))).toBe(true);
+  });
 
-      const graph = createEvolutionGraph({ max_generations: 5, fitness_threshold: 0.9 });
-      const state = createState();
+  it('warns on an increasing temperature schedule', () => {
+    const validation = validateGraph(createEvolutionGraph({ initial_temperature: 0.3, final_temperature: 1.0 }));
 
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
+    expect(validation.warnings.some(w => w.includes('temperature increases over generations'))).toBe(true);
+  });
+});
+
+describe('executeEvolutionNode', () => {
+  describe('via GraphRunner', () => {
+    it('completes when the fitness threshold is met in generation 0', async () => {
+      mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Excellent candidate', tokensUsed: 20 });
+
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ max_generations: 5, fitness_threshold: 0.9 }),
+        createState(),
+      ).run();
 
       expect(finalState.status).toBe('completed');
       expect(finalState.memory['evo-node_winner']).toBeDefined();
       expect(finalState.memory['evo-node_winner_fitness']).toBe(0.95);
-      expect(finalState.memory['evo-node_generation']).toBe(1); // Only 1 generation needed
+      expect(finalState.memory['evo-node_generation']).toBe(1);
     });
 
-    test('should stop at max_generations when threshold unreachable', async () => {
-      // Evaluator always returns low fitness
-      mockEvaluateQuality.mockResolvedValue({
-        score: 0.3,
-        reasoning: 'Poor quality',
-        tokensUsed: 20,
-      });
+    it('stops at max_generations when the threshold is unreachable', async () => {
+      mockEvaluateQuality.mockResolvedValue({ score: 0.3, reasoning: 'Poor quality', tokensUsed: 20 });
 
-      const graph = createEvolutionGraph({
-        max_generations: 3,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10, // Disable stagnation exit
-      });
-      const state = createState();
-
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ max_generations: 3, fitness_threshold: 0.99, stagnation_generations: 10 }),
+        createState(),
+      ).run();
 
       expect(finalState.status).toBe('completed');
       expect(finalState.memory['evo-node_generation']).toBe(3);
       expect((finalState.memory['evo-node_fitness_history'] as number[]).length).toBe(3);
     });
 
-    test('stops early when the node token budget is reached mid-evolution (bounds overspend)', async () => {
+    it('stops early when the node token budget is reached mid-evolution', async () => {
       mockEvaluateQuality.mockResolvedValue({ score: 0.3, reasoning: 'meh', tokensUsed: 20 });
-      setupDefaultAgentMock(); // resets candidateCallCount
-
-      // Each gen spends ~150 tokens (3 candidates × 30 + 3 evals × 20). The
-      // between-generation guard stops once accumulated spend crosses the cap.
-      // The runner's hard NodeBudgetExceededError still fires (the budget WAS
-      // exceeded), but the guard means we run ~2 generations, not all 10.
-      const graph = createEvolutionGraph({
-        max_generations: 10,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10, // disable stagnation exit
-        population_size: 3,
-      });
+      setupDefaultAgentMock();
+      const graph = createEvolutionGraph({ max_generations: 10, fitness_threshold: 0.99, stagnation_generations: 10, population_size: 3 });
       graph.nodes[0].budget = { max_tokens: 200 };
 
       await expect(new GraphRunner(graph, createState()).run()).rejects.toThrow(/max_tokens/);
 
-      // Without the guard the loop would run all 10 generations = 30 candidate
-      // calls. The guard stops it after ~2 generations.
       expect(candidateCallCount).toBeLessThanOrEqual(6);
     });
 
-    test('should detect stagnation and exit early', async () => {
-      // Evaluator returns same fitness every time → stagnation
-      mockEvaluateQuality.mockResolvedValue({
-        score: 0.5,
-        reasoning: 'Mediocre',
-        tokensUsed: 20,
-      });
+    it('detects stagnation and exits early', async () => {
+      mockEvaluateQuality.mockResolvedValue({ score: 0.5, reasoning: 'Mediocre', tokensUsed: 20 });
 
-      const graph = createEvolutionGraph({
-        max_generations: 10,
-        fitness_threshold: 0.99,
-        stagnation_generations: 2,
-      });
-      const state = createState();
-
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ max_generations: 10, fitness_threshold: 0.99, stagnation_generations: 2 }),
+        createState(),
+      ).run();
 
       expect(finalState.status).toBe('completed');
-      // First gen finds best (0.5), gen 2 stagnation=1, gen 3 stagnation=2 → exit
       expect(finalState.memory['evo-node_generation']).toBeLessThanOrEqual(3);
     });
 
-    test('should inject parent context in gen 1+ only', async () => {
+    it('injects parent context in generation 1 and later', async () => {
       let evaluationCount = 0;
       mockEvaluateQuality.mockImplementation(async () => {
         evaluationCount++;
-        // Return improving scores to prevent stagnation
         return { score: 0.3 + evaluationCount * 0.01, reasoning: 'ok', tokensUsed: 10 };
       });
 
-      const graph = createEvolutionGraph({
-        max_generations: 2,
-        fitness_threshold: 0.99,
-        population_size: 2,
-        stagnation_generations: 10,
-      });
-      const state = createState();
+      await new GraphRunner(
+        createEvolutionGraph({ max_generations: 2, fitness_threshold: 0.99, population_size: 2, stagnation_generations: 10 }),
+        createState(),
+      ).run();
 
-      const runner = new GraphRunner(graph, state);
-      await runner.run();
-
-      // Gen 0 candidates: no parent context
-      const gen0Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].taskContext?.generation === 0
-      );
+      const gen0Calls = mockExecuteAgent.mock.calls.filter((call: any[]) => call[1].taskContext?.generation === 0);
       for (const call of gen0Calls) {
         expect(call[1].taskContext?.parent).toBeUndefined();
         expect(call[1].taskContext?.parent_fitness).toBeUndefined();
       }
-
-      // Gen 1 candidates: parent context injected
-      const gen1Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].taskContext?.generation === 1
-      );
+      const gen1Calls = mockExecuteAgent.mock.calls.filter((call: any[]) => call[1].taskContext?.generation === 1);
       for (const call of gen1Calls) {
         expect(call[1].taskContext?.parent).toBeDefined();
         expect(call[1].taskContext?.parent_fitness).toBeDefined();
       }
     });
 
-    test('should not inject parent context in generation 0', async () => {
+    it('omits parent context in generation 0', async () => {
       mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Great', tokensUsed: 10 });
 
-      const graph = createEvolutionGraph({ max_generations: 1, population_size: 2 });
-      const state = createState();
-
-      const runner = new GraphRunner(graph, state);
-      await runner.run();
+      await new GraphRunner(createEvolutionGraph({ max_generations: 1, population_size: 2 }), createState()).run();
 
       for (const call of mockExecuteAgent.mock.calls) {
-        const taskContext = call[1].taskContext;
-        expect(taskContext?.parent).toBeUndefined();
-        expect(taskContext?.parent_fitness).toBeUndefined();
-        expect(taskContext?.generation).toBe(0);
+        expect(call[1].taskContext?.parent).toBeUndefined();
+        expect(call[1].taskContext?.parent_fitness).toBeUndefined();
+        expect(call[1].taskContext?.generation).toBe(0);
       }
     });
 
-    test('should track total tokens across all generations', async () => {
+    it('accumulates total tokens across all generations exactly once', async () => {
       mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Good', tokensUsed: 20 });
 
-      const graph = createEvolutionGraph({
-        max_generations: 1,
-        population_size: 3,
-        fitness_threshold: 0.9,
-      });
-      const state = createState();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ max_generations: 1, population_size: 3, fitness_threshold: 0.9 }),
+        createState(),
+      ).run();
 
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
-
-      // 3 candidates × 30 + 3 evals × 20 = 150, counted exactly once via the
-      // runner's _track_tokens. Exact equality guards against the fan-out
-      // double-count regression (the reducer must not also add total_tokens).
       expect(finalState.total_tokens_used).toBe(150);
     });
 
-    test('should pass temperature override with linear interpolation', async () => {
+    it('passes a linearly interpolated temperature override', async () => {
       mockEvaluateQuality.mockResolvedValue({ score: 0.3, reasoning: 'ok', tokensUsed: 10 });
 
-      const graph = createEvolutionGraph({
-        max_generations: 3,
-        population_size: 2,
-        fitness_threshold: 0.99,
-        initial_temperature: 1.0,
-        final_temperature: 0.0,
-        stagnation_generations: 10,
-      });
-      const state = createState();
+      await new GraphRunner(
+        createEvolutionGraph({ max_generations: 3, population_size: 2, fitness_threshold: 0.99, initial_temperature: 1.0, final_temperature: 0.0, stagnation_generations: 10 }),
+        createState(),
+      ).run();
 
-      const runner = new GraphRunner(graph, state);
-      await runner.run();
-
-      // Gen 0: temp = 1.0, Gen 1: temp = 0.5, Gen 2: temp = 0.0
-      const gen0Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].taskContext?.generation === 0
-      );
-      const gen1Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].taskContext?.generation === 1
-      );
-      const gen2Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].taskContext?.generation === 2
-      );
-
-      // Check temperatureOverride in options (5th arg)
-      expect(gen0Calls[0][4].temperatureOverride).toBeCloseTo(1.0, 5);
-      expect(gen1Calls[0][4].temperatureOverride).toBeCloseTo(0.5, 5);
-      expect(gen2Calls[0][4].temperatureOverride).toBeCloseTo(0.0, 5);
+      const genCalls = (g: number) => mockExecuteAgent.mock.calls.filter((call: any[]) => call[1].taskContext?.generation === g);
+      expect(genCalls(0)[0][4].temperatureOverride).toBeCloseTo(1.0, 5);
+      expect(genCalls(1)[0][4].temperatureOverride).toBeCloseTo(0.5, 5);
+      expect(genCalls(2)[0][4].temperatureOverride).toBeCloseTo(0.0, 5);
     });
 
-    test('should handle all candidates failing in best_effort mode', async () => {
-      // All agents throw
+    it('completes with a null winner when all candidates fail in best_effort mode', async () => {
       mockExecuteAgent.mockRejectedValue(new Error('Agent failure'));
       mockEvaluateQuality.mockResolvedValue({ score: 0.5, reasoning: 'ok', tokensUsed: 10 });
 
-      const graph = createEvolutionGraph({
-        max_generations: 2,
-        population_size: 2,
-        error_strategy: 'best_effort',
-        stagnation_generations: 2,
-        fitness_threshold: 0.99,
-      });
-      const state = createState();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ max_generations: 2, population_size: 2, error_strategy: 'best_effort', stagnation_generations: 2, fitness_threshold: 0.99 }),
+        createState(),
+      ).run();
 
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
-
-      // Should complete without throwing (best_effort) — winner will be null
       expect(finalState.status).toBe('completed');
       expect(finalState.memory['evo-node_winner']).toBeNull();
     });
 
-    test('should throw when all candidates fail in fail_fast mode', async () => {
+    it('throws when all candidates fail in fail_fast mode', async () => {
       mockExecuteAgent.mockRejectedValue(new Error('Agent failure'));
 
-      const graph = createEvolutionGraph({
-        max_generations: 2,
-        population_size: 2,
-        error_strategy: 'fail_fast',
-      });
-      const state = createState();
+      const runner = new GraphRunner(
+        createEvolutionGraph({ max_generations: 2, population_size: 2, error_strategy: 'fail_fast' }),
+        createState(),
+      );
 
-      const runner = new GraphRunner(graph, state);
       await expect(runner.run()).rejects.toThrow();
     });
 
-    test('should store fitness_history and final population in memory', async () => {
+    it('stores fitness history and the final population sorted by fitness', async () => {
       let evalCall = 0;
       mockEvaluateQuality.mockImplementation(async () => {
         evalCall++;
-        // Different scores for different candidates
         const score = 0.4 + (evalCall % 3) * 0.1;
         return { score, reasoning: `Score ${score}`, tokensUsed: 15 };
       });
 
-      const graph = createEvolutionGraph({
-        max_generations: 2,
-        population_size: 3,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10,
-      });
-      const state = createState();
-
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ max_generations: 2, population_size: 3, fitness_threshold: 0.99, stagnation_generations: 10 }),
+        createState(),
+      ).run();
 
       const history = finalState.memory['evo-node_fitness_history'] as number[];
-      expect(Array.isArray(history)).toBe(true);
       expect(history.length).toBe(2);
-
       const population = finalState.memory['evo-node_population'] as any[];
-      expect(Array.isArray(population)).toBe(true);
       expect(population.length).toBeGreaterThan(0);
-      // Population should be sorted by fitness descending
       for (let i = 1; i < population.length; i++) {
         expect(population[i - 1].fitness).toBeGreaterThanOrEqual(population[i].fitness);
       }
     });
   });
 
-  // ── Selection Strategy tests ───────────────────────────────────
-
-  describe('Selection Strategies', () => {
-    test('tournament selection should still track absolute best', async () => {
+  describe('selection strategies', () => {
+    it('tracks the absolute best under tournament selection', async () => {
       let evalCount = 0;
       mockEvaluateQuality.mockImplementation(async () => {
         evalCount++;
-        // Candidates get different scores
         const score = 0.3 + (evalCount % 3) * 0.15;
         return { score, reasoning: `Score ${score}`, tokensUsed: 10 };
       });
 
-      const graph = createEvolutionGraph({
-        selection_strategy: 'tournament',
-        tournament_size: 2,
-        max_generations: 2,
-        population_size: 3,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10,
-      });
-      const state = createState();
-
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ selection_strategy: 'tournament', tournament_size: 2, max_generations: 2, population_size: 3, fitness_threshold: 0.99, stagnation_generations: 10 }),
+        createState(),
+      ).run();
 
       expect(finalState.status).toBe('completed');
-      // Winner should be the absolute best regardless of tournament selection
       expect(finalState.memory['evo-node_winner']).toBeDefined();
       expect(finalState.memory['evo-node_winner_fitness']).toBeGreaterThan(0);
     });
 
-    test('roulette selection should still track absolute best', async () => {
+    it('tracks the absolute best under roulette selection', async () => {
       let evalCount = 0;
       mockEvaluateQuality.mockImplementation(async () => {
         evalCount++;
@@ -543,87 +402,54 @@ describe('Evolution (DGM) Node', () => {
         return { score, reasoning: `Score ${score}`, tokensUsed: 10 };
       });
 
-      const graph = createEvolutionGraph({
-        selection_strategy: 'roulette',
-        max_generations: 2,
-        population_size: 3,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10,
-      });
-      const state = createState();
-
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ selection_strategy: 'roulette', max_generations: 2, population_size: 3, fitness_threshold: 0.99, stagnation_generations: 10 }),
+        createState(),
+      ).run();
 
       expect(finalState.status).toBe('completed');
       expect(finalState.memory['evo-node_winner']).toBeDefined();
       expect(finalState.memory['evo-node_winner_fitness']).toBeGreaterThan(0);
     });
 
-    test('tournament_size = population_size degenerates to rank selection', async () => {
+    it('degenerates to rank when tournament_size equals population_size', async () => {
       mockEvaluateQuality.mockResolvedValue({ score: 0.95, reasoning: 'Good', tokensUsed: 10 });
 
-      const graph = createEvolutionGraph({
-        selection_strategy: 'tournament',
-        tournament_size: 3,
-        population_size: 3,
-        max_generations: 1,
-        fitness_threshold: 0.9,
-      });
-      const state = createState();
-
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ selection_strategy: 'tournament', tournament_size: 3, population_size: 3, max_generations: 1, fitness_threshold: 0.9 }),
+        createState(),
+      ).run();
 
       expect(finalState.status).toBe('completed');
       expect(finalState.memory['evo-node_winner_fitness']).toBe(0.95);
     });
 
-    test('roulette with all-zero fitness falls back to first candidate', async () => {
+    it('falls back to the first candidate under roulette when all fitness is zero', async () => {
       mockEvaluateQuality.mockResolvedValue({ score: 0.0, reasoning: 'Zero', tokensUsed: 10 });
 
-      const graph = createEvolutionGraph({
-        selection_strategy: 'roulette',
-        max_generations: 2,
-        population_size: 3,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10,
-      });
-      const state = createState();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ selection_strategy: 'roulette', max_generations: 2, population_size: 3, fitness_threshold: 0.99, stagnation_generations: 10 }),
+        createState(),
+      ).run();
 
-      const runner = new GraphRunner(graph, state);
-      const finalState = await runner.run();
-
-      // Should still complete without error (fallback to rank for parent selection)
       expect(finalState.status).toBe('completed');
       expect(finalState.memory['evo-node_winner_fitness']).toBe(0);
     });
 
-    test('parent context in gen 1+ uses strategy-selected parent', async () => {
+    it('uses the strategy-selected parent for generation 1 breeding', async () => {
       let evalCount = 0;
       mockEvaluateQuality.mockImplementation(async () => {
         evalCount++;
-        // Different scores so parent selection varies by strategy
         const score = 0.3 + (evalCount % 3) * 0.2;
         return { score, reasoning: 'ok', tokensUsed: 10 };
       });
 
-      const graph = createEvolutionGraph({
-        selection_strategy: 'rank', // rank always picks best — deterministic
-        max_generations: 2,
-        population_size: 2,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10,
-      });
-      const state = createState();
+      await new GraphRunner(
+        createEvolutionGraph({ selection_strategy: 'rank', max_generations: 2, population_size: 2, fitness_threshold: 0.99, stagnation_generations: 10 }),
+        createState(),
+      ).run();
 
-      const runner = new GraphRunner(graph, state);
-      await runner.run();
-
-      // Gen 1 candidates should have parent context injected
-      const gen1Calls = mockExecuteAgent.mock.calls.filter(
-        (call: any[]) => call[1].taskContext?.generation === 1
-      );
+      const gen1Calls = mockExecuteAgent.mock.calls.filter((call: any[]) => call[1].taskContext?.generation === 1);
       for (const call of gen1Calls) {
         expect(call[1].taskContext?.parent).toBeDefined();
         expect(call[1].taskContext?.parent_fitness).toBeDefined();
@@ -631,91 +457,63 @@ describe('Evolution (DGM) Node', () => {
     });
   });
 
-  // ── fitness_function callback ────────────────────────────────
-  describe('fitnessFunction (deterministic evaluator)', () => {
-    test('uses the runner-supplied fitnessFunction instead of the LLM judge', async () => {
+  describe('fitnessFunction', () => {
+    it('uses the runner-supplied fitness function instead of the LLM judge', async () => {
       const fitnessFn = vi.fn(async (output: any) => ({
-        // Score by the candidate index — gen 0 idx 2 wins, exits on threshold.
         score: 0.5 + (output.candidate_index ?? 0) * 0.2,
         reasoning: `scored idx=${output.candidate_index}`,
       }));
 
-      const graph = createEvolutionGraph({
-        population_size: 3,
-        max_generations: 5,
-        fitness_threshold: 0.85,
-        // Evaluator agent intentionally omitted — fitnessFunction takes over.
-        evaluator_agent_id: undefined,
-      });
-      const state = createState();
-      const runner = new GraphRunner(graph, state, { fitnessFunction: fitnessFn });
-      const finalState = await runner.run();
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ population_size: 3, max_generations: 5, fitness_threshold: 0.85, evaluator_agent_id: undefined }),
+        createState(),
+        { fitnessFunction: fitnessFn },
+      ).run();
 
-      // Should never call the LLM-as-judge
       expect(mockEvaluateQuality).not.toHaveBeenCalled();
-      // fitnessFunction called once per candidate
       expect(fitnessFn).toHaveBeenCalled();
-      // Best fitness recorded in fitness_history
-      const history = finalState.memory['evo-node_fitness_history'] as number[];
-      expect(history[0]).toBeCloseTo(0.9, 5); // 0.5 + 2*0.2 with idx 2
+      expect((finalState.memory['evo-node_fitness_history'] as number[])[0]).toBeCloseTo(0.9, 5);
     });
 
-    test('throws NodeConfigError when neither evaluator_agent_id nor fitnessFunction is provided', async () => {
-      const graph = createEvolutionGraph({
-        population_size: 2,
-        max_generations: 1,
-        evaluator_agent_id: undefined,
-      });
-      const state = createState();
-      const runner = new GraphRunner(graph, state); // no fitnessFunction
+    it('throws when neither evaluator_agent_id nor fitnessFunction is provided', async () => {
+      const runner = new GraphRunner(
+        createEvolutionGraph({ population_size: 2, max_generations: 1, evaluator_agent_id: undefined }),
+        createState(),
+      );
+
       await expect(runner.run()).rejects.toThrow(/evaluator_agent_id or GraphRunnerOptions.fitnessFunction/);
     });
 
-    test('fitnessFunction takes precedence over evaluator_agent_id when both are set', async () => {
+    it('prefers the fitness function over evaluator_agent_id when both are set', async () => {
       const fitnessFn = vi.fn(async () => ({ score: 0.99, reasoning: 'deterministic' }));
-      const graph = createEvolutionGraph({
-        population_size: 2,
-        max_generations: 1,
-        fitness_threshold: 0.95,
-      });
-      const state = createState();
-      const runner = new GraphRunner(graph, state, { fitnessFunction: fitnessFn });
-      await runner.run();
+
+      await new GraphRunner(
+        createEvolutionGraph({ population_size: 2, max_generations: 1, fitness_threshold: 0.95 }),
+        createState(),
+        { fitnessFunction: fitnessFn },
+      ).run();
 
       expect(fitnessFn).toHaveBeenCalled();
       expect(mockEvaluateQuality).not.toHaveBeenCalled();
     });
   });
 
-  // ── Elitism ────────────────────────────────────────────────────
-  // The top `elite_count` candidates carry forward unchanged, so the best can
-  // never be lost to a worse generation (monotonic fitness) and aren't
-  // re-generated (fewer LLM calls).
-
-  describe('Elitism (elite_count)', () => {
-    // Generation 0 candidates are good; every later generation is strictly worse.
-    // Without elitism the per-generation best would crash from 0.8 to 0.2.
+  describe('elitism', () => {
     const decliningFitness = () =>
       vi.fn(async (output: any) => ({
         score: (output.generation ?? 0) === 0 ? 0.8 : 0.2,
         reasoning: `gen ${output.generation}`,
       }));
 
-    test('best fitness is monotonic non-decreasing even when later generations are worse', async () => {
-      const graph = createEvolutionGraph({
-        population_size: 3,
-        elite_count: 1,
-        max_generations: 3,
-        fitness_threshold: 0.99,   // never reached → run all generations
-        stagnation_generations: 10, // don't stop on plateau
-        evaluator_agent_id: undefined,
-      });
-      const runner = new GraphRunner(graph, createState(), { fitnessFunction: decliningFitness() });
-      const finalState = await runner.run();
+    it('keeps best fitness monotonic when later generations are worse', async () => {
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ population_size: 3, elite_count: 1, max_generations: 3, fitness_threshold: 0.99, stagnation_generations: 10, evaluator_agent_id: undefined }),
+        createState(),
+        { fitnessFunction: decliningFitness() },
+      ).run();
 
       const history = finalState.memory['evo-node_fitness_history'] as number[];
       expect(history.length).toBe(3);
-      // The elite preserves gen 0's 0.8 — the curve holds rather than dropping to 0.2.
       for (let i = 1; i < history.length; i++) {
         expect(history[i]).toBeGreaterThanOrEqual(history[i - 1]);
       }
@@ -724,56 +522,217 @@ describe('Evolution (DGM) Node', () => {
       expect(finalState.memory['evo-node_winner_fitness']).toBeCloseTo(0.8, 5);
     });
 
-    test('carried-forward elites are not re-generated (fewer candidate calls)', async () => {
-      setupDefaultAgentMock(); // resets candidateCallCount
-      const graph = createEvolutionGraph({
-        population_size: 3,
-        elite_count: 1,
-        max_generations: 3,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10,
-        evaluator_agent_id: undefined,
-      });
-      const runner = new GraphRunner(graph, createState(), { fitnessFunction: decliningFitness() });
-      await runner.run();
+    it('does not re-generate carried-forward elites', async () => {
+      setupDefaultAgentMock();
 
-      // Gen 0 generates 3; gens 1 and 2 generate only 2 (the 3rd slot is the
-      // carried elite) → 3 + 2 + 2 = 7, vs 9 without elitism.
+      await new GraphRunner(
+        createEvolutionGraph({ population_size: 3, elite_count: 1, max_generations: 3, fitness_threshold: 0.99, stagnation_generations: 10, evaluator_agent_id: undefined }),
+        createState(),
+        { fitnessFunction: decliningFitness() },
+      ).run();
+
       expect(candidateCallCount).toBe(7);
     });
 
-    test('marks the surviving candidate as an elite in the population summary', async () => {
-      const graph = createEvolutionGraph({
-        population_size: 3,
-        elite_count: 1,
-        max_generations: 2,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10,
-        evaluator_agent_id: undefined,
-      });
-      const runner = new GraphRunner(graph, createState(), { fitnessFunction: decliningFitness() });
-      const finalState = await runner.run();
+    it('marks the surviving candidate as elite in the population summary', async () => {
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ population_size: 3, elite_count: 1, max_generations: 2, fitness_threshold: 0.99, stagnation_generations: 10, evaluator_agent_id: undefined }),
+        createState(),
+        { fitnessFunction: decliningFitness() },
+      ).run();
 
       const population = finalState.memory['evo-node_population'] as Array<{ is_elite?: boolean }>;
       expect(population.some((c) => c.is_elite === true)).toBe(true);
     });
 
-    test('elite_count: 0 disables elitism (best may drop on a worse generation)', async () => {
-      const graph = createEvolutionGraph({
-        population_size: 3,
-        elite_count: 0,
-        max_generations: 2,
-        fitness_threshold: 0.99,
-        stagnation_generations: 10,
-        evaluator_agent_id: undefined,
-      });
-      const runner = new GraphRunner(graph, createState(), { fitnessFunction: decliningFitness() });
-      const finalState = await runner.run();
+    it('drops best fitness on a worse generation when elite_count is zero', async () => {
+      const finalState = await new GraphRunner(
+        createEvolutionGraph({ population_size: 3, elite_count: 0, max_generations: 2, fitness_threshold: 0.99, stagnation_generations: 10, evaluator_agent_id: undefined }),
+        createState(),
+        { fitnessFunction: decliningFitness() },
+      ).run();
 
       const history = finalState.memory['evo-node_fitness_history'] as number[];
-      // No elite carried → generation 1's pool is all the worse candidates.
       expect(history[0]).toBeCloseTo(0.8, 5);
       expect(history[1]).toBeCloseTo(0.2, 5);
+    });
+  });
+
+  describe('direct invocation', () => {
+    const makeNode = (config: any = {}, overrides: Partial<GraphNode> = {}): GraphNode => ({
+      id: 'evo',
+      type: 'evolution',
+      read_keys: ['*'],
+      write_keys: ['*'],
+      evolution_config: {
+        population_size: 2,
+        candidate_agent_id: 'candidate-agent',
+        evaluator_agent_id: 'eval-agent',
+        selection_strategy: 'rank',
+        elite_count: 0,
+        max_generations: 1,
+        fitness_threshold: 0.9,
+        stagnation_generations: 3,
+        initial_temperature: 1.0,
+        final_temperature: 0.3,
+        tournament_size: 2,
+        max_concurrency: 2,
+        error_strategy: 'best_effort',
+        ...config,
+      },
+      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 100, max_backoff_ms: 100 },
+      requires_compensation: false,
+      ...overrides,
+    } as GraphNode);
+
+    const makeStateView = (): StateView => ({
+      workflow_id: 'wf-1', run_id: 'run-1', goal: 'g', constraints: [], memory: {},
+    });
+
+    const candidateAction = (sv: any, extraUpdates: Record<string, unknown> = {}, metaExtra: Record<string, unknown> = {}): Action => ({
+      id: uuidv4(),
+      idempotency_key: uuidv4(),
+      type: 'update_memory',
+      payload: {
+        updates: {
+          agent_response: 'candidate',
+          generation: sv.taskContext?.generation ?? 0,
+          candidate_index: sv.taskContext?.candidate_index ?? 0,
+          ...extraUpdates,
+        },
+      },
+      metadata: { node_id: 'c', timestamp: new Date(), attempt: 1, token_usage: { totalTokens: 30 }, ...metaExtra },
+    } as Action);
+
+    const makeDeps = (overrides: Partial<ExecutorDependencies> = {}): ExecutorDependencies => ({
+      executeAgent: vi.fn(async (_id: string, sv: any) => candidateAction(sv)),
+      executeSupervisor: vi.fn(),
+      evaluateQualityExecutor: vi.fn(),
+      resolveTools: vi.fn().mockResolvedValue({}),
+      loadAgent: vi.fn().mockResolvedValue({ tools: [], write_keys: [], provider: 'anthropic', model: 'claude-sonnet-4-6' }),
+      getTaintRegistry: vi.fn().mockReturnValue({}),
+      ...overrides,
+    });
+
+    const passFitness = async () => ({ score: 0.95, reasoning: 'r' });
+
+    const makeCtx = (overrides: Partial<NodeExecutorContext> = {}): NodeExecutorContext => ({
+      state: createState(),
+      graph: { id: 'g-1', name: 'Test', nodes: [], edges: [], start_node: 's', metadata: {} } as any,
+      createStateView: () => makeStateView(),
+      deps: makeDeps(),
+      fitnessFunction: passFitness,
+      ...overrides,
+    });
+
+    it('throws when evolution_config is missing', async () => {
+      const node = makeNode();
+      (node as any).evolution_config = undefined;
+
+      await expect(executeEvolutionNode(node, makeStateView(), 1, makeCtx())).rejects.toThrow('evolution_config');
+    });
+
+    it('stops immediately when the abort signal is already aborted', async () => {
+      const deps = makeDeps();
+      const ctx = makeCtx({ deps, abortSignal: AbortSignal.abort() });
+
+      const action = await executeEvolutionNode(makeNode(), makeStateView(), 1, ctx);
+
+      expect(deps.executeAgent).not.toHaveBeenCalled();
+      expect((action.payload.updates as Record<string, unknown>).evo_winner).toBeNull();
+    });
+
+    it('selects the sole candidate when the population holds one', async () => {
+      const node = makeNode({ population_size: 1, elite_count: 0, max_generations: 1, fitness_threshold: 0.9 });
+
+      const action = await executeEvolutionNode(node, makeStateView(), 1, makeCtx());
+
+      expect((action.payload.updates as Record<string, unknown>).evo_winner_fitness).toBe(0.95);
+    });
+
+    it('falls back to the top candidate for an unrecognized selection strategy', async () => {
+      const fitnessFunction = vi.fn(async (o: any) => ({ score: 0.4 + (o.candidate_index ?? 0) * 0.1, reasoning: 'r' }));
+      const node = makeNode({ selection_strategy: 'invalid' as any, population_size: 3, max_generations: 2, fitness_threshold: 0.99, stagnation_generations: 10 });
+
+      const action = await executeEvolutionNode(node, makeStateView(), 1, makeCtx({ fitnessFunction }));
+
+      expect((action.payload.updates as Record<string, unknown>).evo_generation).toBe(2);
+    });
+
+    it('unions lesson provenance from candidates into the merged action', async () => {
+      const deps = makeDeps({
+        executeAgent: vi.fn(async (_id: string, sv: any) =>
+          candidateAction(sv, { _lesson_provenance: { 'entry-1': { fact_ids: ['f1'] } } })),
+      });
+
+      const action = await executeEvolutionNode(makeNode(), makeStateView(), 1, makeCtx({ deps }));
+
+      expect((action.payload.updates as Record<string, unknown>)._lesson_provenance).toMatchObject({ 'entry-1': { fact_ids: ['f1'] } });
+    });
+
+    it('marks aggregate keys tainted when a candidate output was tainted', async () => {
+      const deps = makeDeps({
+        executeAgent: vi.fn(async (_id: string, sv: any) =>
+          candidateAction(sv, { _taint_registry: { ext: { source: 'mcp', agent_id: 'c', created_at: '2026-01-01T00:00:00.000Z' } } })),
+      });
+
+      const action = await executeEvolutionNode(makeNode(), makeStateView(), 1, makeCtx({ deps }));
+
+      expect((action.payload.updates as Record<string, unknown>)._taint_registry).toMatchObject({
+        evo_winner: { source: 'derived' },
+        evo_population: { source: 'derived' },
+      });
+    });
+
+    it('derives candidate tokens from input and output when totalTokens is absent', async () => {
+      const deps = makeDeps({
+        executeAgent: vi.fn(async (_id: string, sv: any) =>
+          candidateAction(sv, {}, { token_usage: { inputTokens: 4, outputTokens: 6 } })),
+      });
+      const node = makeNode({ population_size: 1, elite_count: 0, max_generations: 1 });
+
+      const action = await executeEvolutionNode(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect(action.metadata.token_usage).toEqual({ totalTokens: 10, inputTokens: 4, outputTokens: 6 });
+    });
+
+    it('records the first candidate model in the aggregate metadata', async () => {
+      const deps = makeDeps({
+        executeAgent: vi.fn(async (_id: string, sv: any) => candidateAction(sv, {}, { model: 'evo-model' })),
+      });
+      const node = makeNode({ population_size: 1, elite_count: 0, max_generations: 1 });
+
+      const action = await executeEvolutionNode(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect(action.metadata.model).toBe('evo-model');
+    });
+
+    it('forwards a resolved modelOverride to candidate agents', async () => {
+      const deps = makeDeps({
+        loadAgent: vi.fn().mockResolvedValue({ tools: [], write_keys: [], provider: 'anthropic', model: 'claude-sonnet-4-6', model_preference: 'high' }),
+      });
+      const ctx = makeCtx({ deps, modelResolver: (() => ({ model: 'claude-opus-4-8', reason: 'high-tier' })) as any, remainingBudgetUsd: 100 });
+
+      await executeEvolutionNode(makeNode(), makeStateView(), 1, ctx);
+
+      expect((deps.executeAgent as any).mock.calls[0][4].modelOverride).toBe('claude-opus-4-8');
+    });
+
+    it('propagates the node memory_query to each synthetic candidate', async () => {
+      const deps = makeDeps();
+      const node = makeNode({}, { memory_query: { tags: ['lesson'] } } as any);
+
+      await executeEvolutionNode(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect((deps.executeAgent as any).mock.calls[0][4].memoryQuery).toMatchObject({ tags: ['lesson'] });
+    });
+
+    it('defaults winner reasoning to empty when the fitness function omits it', async () => {
+      const fitnessFunction = vi.fn(async () => ({ score: 0.95 }));
+
+      const action = await executeEvolutionNode(makeNode(), makeStateView(), 1, makeCtx({ fitnessFunction }));
+
+      expect((action.payload.updates as Record<string, unknown>).evo_winner_reasoning).toBe('');
     });
   });
 });
