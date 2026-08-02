@@ -80,8 +80,8 @@ export async function executeSubgraphNode(
 
   logger.info('subgraph_executing', { node_id: node.id, subgraph_id: config.subgraph_id });
 
-  // Cycle detection: prevent A → B → A recursion. First-class state field
-  // (schema v2) — formerly `memory._subgraph_stack`.
+  // Cycle detection: prevent A → B → A recursion. Reads the ancestor chain
+  // from the first-class `subgraph_stack` state field (schema v2).
   const subgraphStack = ctx.state.subgraph_stack ?? [];
   if (subgraphStack.includes(config.subgraph_id)) {
     throw new NodeConfigError(node.id, 'subgraph', `non-cyclic graph (cycle: ${[...subgraphStack, config.subgraph_id].join(' -> ')})`);

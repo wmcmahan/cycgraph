@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { AgentFactory } from '../src/agent/agent-factory/agent-factory.js';
 import { AgentNotFoundError, UnsupportedProviderError, AgentLoadError } from '../src/agent/agent-factory/errors.js';
 import { isValidUUID } from '../src/agent/agent-factory/validation.js';
 import { InMemoryAgentRegistry } from '../src/persistence/in-memory.js';
-import { createProviderRegistry } from '../src/agent/provider-registry.js';
-import type { LanguageModel } from 'ai';
+import { MAX_AGENT_CONFIG_CACHE_SIZE } from '../src/agent/constants.js';
 
 // Mock the AI SDK providers so tests don't need real API keys
 vi.mock('@ai-sdk/openai', () => ({
@@ -61,7 +60,6 @@ describe('AgentFactory', () => {
     factory = new AgentFactory();
     registry = new InMemoryAgentRegistry();
     factory.setRegistry(registry);
-    // Set dummy API keys so model creation doesn't throw
     process.env.ANTHROPIC_API_KEY = 'test-key';
     process.env.OPENAI_API_KEY = 'test-key';
   });
@@ -112,6 +110,25 @@ describe('AgentFactory', () => {
       const config = factory.getDefaultConfig('test');
       expect(() => factory.getModel(config)).toThrow(AgentLoadError);
     });
+
+    it('rethrows UnsupportedProviderError for an unregistered provider', () => {
+      const config = { ...factory.getDefaultConfig('test'), provider: 'gemini' };
+      expect(() => factory.getModel(config)).toThrow(UnsupportedProviderError);
+    });
+
+    it('evicts the oldest entry when the model cache reaches capacity', () => {
+      factory.setProviderRegistry({
+        resolveModel: (provider: string, model: string) => ({ provider, modelId: model }),
+        inferProvider: () => 'anthropic',
+      } as never);
+
+      for (let i = 0; i <= MAX_AGENT_CONFIG_CACHE_SIZE; i++) {
+        factory.getModel({ ...factory.getDefaultConfig(`agent-${i}`), model: `model-${i}` });
+      }
+
+      const refetched = factory.getModel({ ...factory.getDefaultConfig('agent-0'), model: 'model-0' });
+      expect(refetched).toBeDefined();
+    });
   });
 
   // ─── loadAgent ────────────────────────────────────────────────────
@@ -126,8 +143,6 @@ describe('AgentFactory', () => {
     });
 
     it('fails closed for a non-UUID id when a registry is configured', async () => {
-      // A typo'd/invalid agent_id must surface, not silently become a generic
-      // deny-all assistant that "completes" with garbage output.
       await expect(factory.loadAgent('missing-agent')).rejects.toThrow(AgentNotFoundError);
     });
 
@@ -158,7 +173,6 @@ describe('AgentFactory', () => {
         permissions: null,
       });
       const config = await factory.loadAgent(TEST_UUID);
-      // Absent ceiling: the node's grant alone governs at execution time.
       expect(config.read_keys).toBeUndefined();
       expect(config.write_keys).toBeUndefined();
     });
@@ -240,11 +254,159 @@ describe('AgentFactory', () => {
       expect(config1).toEqual(config2);
     });
 
+    it('serves a registry-loaded agent from cache on the second call', async () => {
+      const registryLoad = vi.spyOn(registry, 'loadAgent');
+      registry.register({
+        id: TEST_UUID,
+        name: 'Cached Registry Agent',
+        description: 'test',
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        system_prompt: 'You are helpful',
+        temperature: 0.5,
+        max_steps: 5,
+        tools: [],
+        permissions: { read_keys: ['*'], write_keys: ['output'] },
+      });
+
+      const first = await factory.loadAgent(TEST_UUID);
+      const second = await factory.loadAgent(TEST_UUID);
+
+      expect(second).toEqual(first);
+      expect(registryLoad).toHaveBeenCalledTimes(1);
+    });
+
+    it('defaults a null description to an empty string', async () => {
+      registry.register({
+        id: TEST_UUID,
+        name: 'No Description Agent',
+        description: null,
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        system_prompt: 'You are helpful',
+        temperature: 0.5,
+        max_steps: 5,
+        tools: [],
+        permissions: null,
+      });
+
+      const config = await factory.loadAgent(TEST_UUID);
+
+      expect(config.description).toBe('');
+    });
+
     it('falls back to default when no registry is configured', async () => {
       const noDbFactory = new AgentFactory();
       const config = await noDbFactory.loadAgent(TEST_UUID);
       expect(config.id).toBe(TEST_UUID);
       expect(config.model).toBe('claude-sonnet-4-6');
+    });
+
+    it('maps provider_options into the loaded config', async () => {
+      registry.register({
+        id: TEST_UUID,
+        name: 'Options Agent',
+        description: 'test',
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        system_prompt: 'You are helpful',
+        temperature: 0.5,
+        max_steps: 5,
+        tools: [],
+        provider_options: { thinking: { type: 'enabled', budgetTokens: 4000 } },
+        permissions: null,
+      });
+
+      const config = await factory.loadAgent(TEST_UUID);
+
+      expect(config.providerOptions).toEqual({
+        anthropic: { thinking: { type: 'enabled', budgetTokens: 4000 } },
+      });
+    });
+
+    it('maps model_preference into the loaded config', async () => {
+      registry.register({
+        id: TEST_UUID,
+        name: 'Tiered Agent',
+        description: 'test',
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        system_prompt: 'You are helpful',
+        temperature: 0.5,
+        max_steps: 5,
+        tools: [],
+        model_preference: 'high',
+        permissions: null,
+      });
+
+      const config = await factory.loadAgent(TEST_UUID);
+
+      expect(config.model_preference).toBe('high');
+    });
+
+    it('coerces null read/write keys inside a permissions block to deny-all', async () => {
+      registry.register({
+        id: TEST_UUID,
+        name: 'Partial Permissions Agent',
+        description: 'test',
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        system_prompt: 'You are helpful',
+        temperature: 0.5,
+        max_steps: 5,
+        tools: [],
+        permissions: { read_keys: null, write_keys: null },
+      } as never);
+
+      const config = await factory.loadAgent(TEST_UUID);
+
+      expect(config.read_keys).toEqual([]);
+      expect(config.write_keys).toEqual([]);
+    });
+
+    it('defaults the provider when the registry cannot infer one', async () => {
+      factory.setProviderRegistry({
+        inferProvider: () => undefined,
+        resolveModel: () => ({}),
+      } as never);
+      registry.register({
+        id: TEST_UUID,
+        name: 'Mystery Model Agent',
+        description: 'test',
+        model: 'mystery-model-x',
+        provider: null,
+        system_prompt: 'You are helpful',
+        temperature: 0.5,
+        max_steps: 5,
+        tools: [],
+        permissions: null,
+      });
+
+      const config = await factory.loadAgent(TEST_UUID);
+
+      expect(config.provider).toBe('anthropic');
+    });
+  });
+
+  // ─── config cache TTL ─────────────────────────────────────────────
+
+  describe('config cache TTL', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('evicts and reloads a fallback config after its TTL expires', async () => {
+      factory.setAllowDefaultFallback(true);
+      const first = await factory.loadAgent('ttl-agent');
+
+      vi.advanceTimersByTime(60_000);
+      const second = await factory.loadAgent('ttl-agent');
+
+      expect(second).toEqual(first);
     });
   });
 
@@ -253,12 +415,10 @@ describe('AgentFactory', () => {
   describe('clearCache', () => {
     it('clears all caches so new instances are created', () => {
       const config = factory.getDefaultConfig('test');
-      const model1 = factory.getModel(config);
+      const _model1 = factory.getModel(config);
       factory.clearCache();
       const model2 = factory.getModel(config);
       expect(model2).toBeDefined();
-      // After clearing, a new model instance should be created (not the same ref)
-      // Note: with mocked providers, the objects are structurally equal but different refs
     });
   });
 

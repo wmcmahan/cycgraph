@@ -15,6 +15,7 @@ export default defineConfig(
   },
   {
     files: [
+      'packages/orchestrator/**/*.ts',
       'packages/context-engine/**/*.ts',
       'packages/memory/**/*.ts',
       'packages/orchestrator-postgres/**/*.ts',
@@ -41,6 +42,7 @@ export default defineConfig(
   },
   {
     files: [
+      'packages/orchestrator/**/test/**/*.ts',
       'packages/context-engine/**/test/**/*.ts',
       'packages/memory/**/test/**/*.ts',
       'packages/orchestrator-postgres/**/test/**/*.ts',

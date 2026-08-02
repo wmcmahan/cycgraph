@@ -84,9 +84,10 @@ export async function executeAnnealingLoop(
     const temperature = config.initial_temperature +
       (config.final_temperature - config.initial_temperature) * progress;
 
-    // Per-iteration context on the dedicated channel — rendered into the
-    // prompt as `## Task Context` (formerly `_`-prefixed memory keys that
-    // sanitizeForPrompt stripped, so the feedback never reached the LLM).
+    // Per-iteration context on the dedicated taskContext channel — rendered
+    // into the prompt as a `## Task Context` section. Rides taskContext rather
+    // than memory keys so the feedback survives sanitizeForPrompt (which strips
+    // `_`-prefixed memory keys).
     const annealingView: StateView = {
       ...stateView,
       taskContext: {

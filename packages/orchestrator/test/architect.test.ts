@@ -287,7 +287,6 @@ describe('generateWorkflow', () => {
   // ─── Self-correction ───────────────────────────────────────
 
   it('self-corrects when first attempt produces invalid graph', async () => {
-    // First call: invalid (bad start_node), second call: valid
     (generateText as any)
       .mockResolvedValueOnce({ output: makeInvalidLLMGraph() })
       .mockResolvedValueOnce({ output: makeValidLLMGraph() });
@@ -306,14 +305,12 @@ describe('generateWorkflow', () => {
 
     await generateWorkflow({ prompt: 'test' });
 
-    // Second call should include error feedback in the prompt
     const secondCall = (generateText as any).mock.calls[1][0];
     expect(secondCall.prompt).toContain('validation errors');
     expect(secondCall.prompt).toContain('nonexistent');
   });
 
   it('throws ArchitectError after max_retries exceeded', async () => {
-    // All attempts return invalid graph
     (generateText as any).mockResolvedValue({ output: makeInvalidLLMGraph() });
 
     await expect(
@@ -342,7 +339,6 @@ describe('generateWorkflow', () => {
   });
 
   it('retries on generateObject errors', async () => {
-    // First call: throws, second call: success
     (generateText as any)
       .mockRejectedValueOnce(new Error('Transient API error'))
       .mockResolvedValueOnce({ output: makeValidLLMGraph() });
@@ -383,7 +379,6 @@ describe('generateWorkflow', () => {
   });
 
   it('reports warnings from graph validation', async () => {
-    // Graph with an unreachable node
     const llmGraph = makeValidLLMGraph();
     llmGraph.nodes.push({
       id: 'orphan',
@@ -438,7 +433,6 @@ describe('LLMGraphSchema', () => {
 
     expect(node.failure_policy.max_retries).toBe(3);
     expect(node.failure_policy.backoff_strategy).toBe('exponential');
-    // Least-privilege default — architect nodes must opt into memory reads.
     expect(node.read_keys).toEqual([]);
     expect(node.write_keys).toEqual([]);
     expect(node.requires_compensation).toBe(false);
@@ -453,7 +447,7 @@ describe('LLMGraphSchema', () => {
   });
 
   it('rejects graph with missing name', () => {
-    const { name, ...noName } = makeValidLLMGraph();
+    const { name: _name, ...noName } = makeValidLLMGraph();
     const result = LLMGraphSchema.safeParse(noName);
     expect(result.success).toBe(false);
   });

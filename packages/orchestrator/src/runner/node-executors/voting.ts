@@ -1,3 +1,13 @@
+/**
+ * Voting Node Executor
+ *
+ * Runs a panel of voter agents in parallel and reduces their outputs to a
+ * single consensus via one of three strategies: `majority_vote`,
+ * `weighted_vote`, or `llm_judge`. Enforces an optional `quorum`.
+ *
+ * @module runner/node-executors/voting
+ */
+
 import type { GraphNode } from '../../types/graph.js';
 import type { Action, StateView } from '../../types/state.js';
 import { executeParallel, type ParallelTask } from '../parallel-executor.js';
@@ -33,18 +43,15 @@ function canonicalStringify(value: unknown): string {
 }
 
 /**
- * Execute voting node: parallel voters + consensus.
- * 
- * Description:
- * This function implements a voting node that executes multiple voters in parallel
- * and aggregates their results based on a specified strategy (majority vote, weighted vote, or LLM judge).
- * It supports configurable quorum, weights, and judge agent.
- * 
- * @param node - The node to execute.
- * @param stateView - The state view for the node.
- * @param attempt - The attempt number.
- * @param ctx - The node executor context.
- * @returns The action result.
+ * Execute a voting node: run the voter panel in parallel, then reduce to
+ * consensus by the configured strategy.
+ *
+ * @param node - Voting node with `voting_config`.
+ * @param stateView - Filtered state view shared by every voter.
+ * @param attempt - Retry attempt number.
+ * @param ctx - Executor context.
+ * @returns `merge_parallel_results` action carrying the consensus and per-voter votes.
+ * @throws {NodeConfigError} If `voting_config` is missing, quorum is unmet, no votes arrive, or `llm_judge` lacks `judge_agent_id`.
  */
 export async function executeVotingNode(
   node: GraphNode,
@@ -79,8 +86,9 @@ export async function executeVotingNode(
     },
     stateView: {
       ...stateView,
-      // Rendered into the voter's prompt as `## Task Context` (formerly
-      // `_`-prefixed memory keys that sanitizeForPrompt stripped).
+      // Rendered into the voter's prompt as a `## Task Context` section.
+      // Rides the taskContext channel rather than memory keys so it
+      // survives sanitizeForPrompt (which strips `_`-prefixed memory keys).
       taskContext: {
         vote_key: config.vote_key,
         voter_index: idx,

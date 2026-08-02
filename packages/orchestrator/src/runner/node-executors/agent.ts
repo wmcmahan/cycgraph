@@ -23,16 +23,13 @@ import { nodeIdempotencyKey } from './idempotency-key.js';
 const logger = createLogger('runner.node.agent');
 
 /**
- * Pass through tool sources unchanged.
+ * Pass through tool sources unchanged — a vestigial no-op.
  *
- * Previously this function auto-injected `save_to_memory` when the agent had
- * `write_keys`. This is no longer needed because the orchestrator now captures
- * agent text output directly and routes it to the appropriate write key via
- * {@link extractMemoryUpdates}. Agents that need structured multi-key writes
- * can still explicitly declare `save_to_memory` in their tools array.
- *
- * The function signature is preserved for backward compatibility with all
- * 7 call sites across node executors.
+ * No `save_to_memory` injection is needed: the orchestrator captures agent
+ * text output directly and routes it to the appropriate write key. Agents
+ * that need structured multi-key writes declare `save_to_memory` in their
+ * own tools array. The `_writeKeys` parameter is retained only so the
+ * agent-style executors can keep calling through one shared shim.
  */
 export function ensureSaveToMemory(sources: ToolSource[], _writeKeys?: string[]): ToolSource[] {
   return sources;

@@ -8,7 +8,7 @@
  * - Supervisor prompt taint warnings
  * - Agent executor derived taint propagation
  */
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, expect, vi, beforeEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────
@@ -96,6 +96,7 @@ import {
   getTaintRegistry,
   getTaintInfo,
   propagateDerivedTaint,
+  aggregateParallelTaint,
 } from '../src/utils/taint.js';
 import type { TaintMetadata, TaintRegistry } from '../src/types/state.js';
 import { GraphRunner } from '../src/runner/graph-runner.js';
@@ -138,7 +139,7 @@ const createState = (overrides: Partial<WorkflowState> = {}): WorkflowState => (
 // ─── Utility Tests ──────────────────────────────────────────────────────
 
 describe('Taint Utilities', () => {
-  test('markTainted returns a new registry with the entry (pure)', () => {
+  it('markTainted returns a new registry with the entry (pure)', () => {
     const registry: TaintRegistry = {};
 
     const next = markTainted(registry, 'search_result', {
@@ -147,7 +148,7 @@ describe('Taint Utilities', () => {
       created_at: '2024-01-01T00:00:00.000Z',
     });
 
-    expect(registry).toEqual({}); // input untouched
+    expect(registry).toEqual({});
     expect(next['search_result']).toEqual({
       source: 'mcp_tool',
       tool_name: 'web_search',
@@ -155,7 +156,7 @@ describe('Taint Utilities', () => {
     });
   });
 
-  test('isTainted returns true for tainted keys, false for clean ones', () => {
+  it('isTainted returns true for tainted keys, false for clean ones', () => {
     const registry: TaintRegistry = {
       dirty: { source: 'mcp_tool', tool_name: 'web_search', created_at: '2024-01-01T00:00:00.000Z' },
     };
@@ -165,11 +166,11 @@ describe('Taint Utilities', () => {
     expect(isTainted(registry, 'nonexistent')).toBe(false);
   });
 
-  test('getTaintRegistry returns empty object when the state field is absent', () => {
+  it('getTaintRegistry returns empty object when the state field is absent', () => {
     expect(getTaintRegistry({ taint_registry: undefined as never })).toEqual({});
   });
 
-  test('getTaintRegistry returns the state field', () => {
+  it('getTaintRegistry returns the state field', () => {
     const registry: TaintRegistry = {
       key1: { source: 'mcp_tool', tool_name: 'web_search', created_at: '2024-01-01T00:00:00.000Z' },
     };
@@ -177,7 +178,7 @@ describe('Taint Utilities', () => {
     expect(getTaintRegistry({ taint_registry: registry })).toEqual(registry);
   });
 
-  test('getTaintInfo returns metadata for tainted key', () => {
+  it('getTaintInfo returns metadata for tainted key', () => {
     const meta: TaintMetadata = {
       source: 'mcp_tool',
       tool_name: 'browser',
@@ -189,7 +190,7 @@ describe('Taint Utilities', () => {
     expect(getTaintInfo(registry, 'clean_key')).toBeUndefined();
   });
 
-  test('propagateDerivedTaint marks outputs when readable inputs are tainted', () => {
+  it('propagateDerivedTaint marks outputs when readable inputs are tainted', () => {
     const memory: Record<string, unknown> = { search_result: 'external data' };
     const registry: TaintRegistry = {
       search_result: { source: 'mcp_tool', tool_name: 'web_search', created_at: '2024-01-01T00:00:00.000Z' },
@@ -205,10 +206,59 @@ describe('Taint Utilities', () => {
     );
   });
 
-  test('propagateDerivedTaint returns empty when no inputs are tainted', () => {
+  it('propagateDerivedTaint returns empty when no inputs are tainted', () => {
     const memory: Record<string, unknown> = { clean_data: 'safe' };
 
     const result = propagateDerivedTaint(memory, {}, ['output'], 'agent-1');
+    expect(result).toEqual({});
+  });
+});
+
+describe('aggregateParallelTaint', () => {
+  const taintedUpdate = () => ({
+    _taint_registry: {
+      'srv:tool': { source: 'mcp_tool', tool_name: 'tool', created_at: '2024-01-01T00:00:00.000Z' },
+    },
+  });
+
+  it('marks every aggregate key derived when any worker produced taint', () => {
+    const result = aggregateParallelTaint(
+      [{ clean: 'x' }, taintedUpdate()],
+      ['node_results', 'node_consensus'],
+      'fanout',
+    );
+
+    expect(result['node_results']).toEqual(
+      expect.objectContaining({ source: 'derived', agent_id: 'fanout' }),
+    );
+    expect(result['node_consensus']).toEqual(
+      expect.objectContaining({ source: 'derived', agent_id: 'fanout' }),
+    );
+    expect(typeof result['node_results'].created_at).toBe('string');
+  });
+
+  it('returns empty when no worker produced taint', () => {
+    const result = aggregateParallelTaint([{ a: 1 }, { b: 2 }], ['out'], 'fanout');
+    expect(result).toEqual({});
+  });
+
+  it('ignores null, undefined, and non-object worker updates', () => {
+    const result = aggregateParallelTaint([null, undefined, 'string' as never], ['out'], 'fanout');
+    expect(result).toEqual({});
+  });
+
+  it('ignores an empty taint registry on a worker', () => {
+    const result = aggregateParallelTaint([{ _taint_registry: {} }], ['out'], 'fanout');
+    expect(result).toEqual({});
+  });
+
+  it('ignores an array-valued _taint_registry', () => {
+    const result = aggregateParallelTaint([{ _taint_registry: [] as never }], ['out'], 'fanout');
+    expect(result).toEqual({});
+  });
+
+  it('returns empty when there are no aggregate keys even with tainted workers', () => {
+    const result = aggregateParallelTaint([taintedUpdate()], [], 'fanout');
     expect(result).toEqual({});
   });
 });
@@ -225,7 +275,7 @@ describe('Supervisor — Taint Warnings', () => {
     vi.mocked(generateText).mockReset();
   });
 
-  test('supervisor prompt includes taint warning when memory has tainted keys', async () => {
+  it('supervisor prompt includes taint warning when memory has tainted keys', async () => {
     vi.mocked(generateText).mockResolvedValue({
       output: { next_node: '__done__', reasoning: 'all done' },
       usage: { inputTokens: 100, outputTokens: 50 },
@@ -239,7 +289,6 @@ describe('Supervisor — Taint Warnings', () => {
       memory: {
         search_result: 'some external data',
       },
-      // Scoped taint rides on the dedicated StateView field (schema v2).
       taint: {
         search_result: {
           source: 'mcp_tool' as const,
@@ -267,7 +316,7 @@ describe('Supervisor — Taint Warnings', () => {
     expect(systemPrompt).toContain('search_result');
   });
 
-  test('supervisor prompt has no taint warning when memory is clean', async () => {
+  it('supervisor prompt has no taint warning when memory is clean', async () => {
     vi.mocked(generateText).mockResolvedValue({
       output: { next_node: '__done__', reasoning: 'all done' },
       usage: { inputTokens: 100, outputTokens: 50 },
@@ -320,7 +369,7 @@ describe('Supervisor — budget accounting', () => {
     ...overrides,
   });
 
-  test('handoff action carries token_usage and model for budget tracking', async () => {
+  it('handoff action carries token_usage and model for budget tracking', async () => {
     vi.mocked(generateText).mockResolvedValue({
       output: { next_node: 'worker-1', reasoning: 'go' },
       usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
@@ -333,7 +382,7 @@ describe('Supervisor — budget accounting', () => {
     expect(action.metadata.model).toBeTruthy();
   });
 
-  test('completion action carries token_usage', async () => {
+  it('completion action carries token_usage', async () => {
     vi.mocked(generateText).mockResolvedValue({
       output: { next_node: '__done__', reasoning: 'done' },
       usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 },
@@ -345,36 +394,31 @@ describe('Supervisor — budget accounting', () => {
     expect(action.metadata.token_usage).toEqual({ inputTokens: 80, outputTokens: 20, totalTokens: 100 });
   });
 
-  test('totalTokens is derived when the provider omits it', async () => {
+  it('totalTokens is derived when the provider omits it', async () => {
     vi.mocked(generateText).mockResolvedValue({
       output: { next_node: '__done__', reasoning: 'done' },
-      usage: { inputTokens: 70, outputTokens: 30 }, // no totalTokens
+      usage: { inputTokens: 70, outputTokens: 30 },
     } as any);
 
     const action = await executeSupervisor(supervisorNode(), cleanStateView(), [], 1);
     expect(action.metadata.token_usage?.totalTokens).toBe(100);
   });
 
-  test('supervisor prompt memory is byte-capped (no quadratic growth)', async () => {
+  it('supervisor prompt memory is byte-capped (no quadratic growth)', async () => {
     vi.mocked(generateText).mockResolvedValue({
       output: { next_node: '__done__', reasoning: 'done' },
       usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
     } as any);
-
-    // A memory value far larger than MAX_MEMORY_PROMPT_BYTES (50KB).
     const huge = 'x'.repeat(500_000);
     await executeSupervisor(supervisorNode(), cleanStateView({ blob: huge }), [], 1);
 
     const systemPrompt = vi.mocked(generateText).mock.calls[0][0].system as string;
     expect(systemPrompt).toContain('[truncated');
-    // The prompt must be far smaller than the raw 500KB memory.
     expect(systemPrompt.length).toBeLessThan(200_000);
   });
 });
 
 describe('GraphRunner — strict_taint routing', () => {
-  // A → (conditional on a tainted key) go_node ; else (always) safe_node.
-  // The conditional edge is declared first, so it wins when allowed.
   const buildBranchGraph = (strict_taint: boolean): Graph => ({
     id: 'strict-taint-graph',
     name: 'Strict Taint Routing',
@@ -393,20 +437,19 @@ describe('GraphRunner — strict_taint routing', () => {
     end_nodes: ['go_node', 'safe_node'],
   });
 
-  // Taint lives on the first-class state field (schema v2).
   const taintedDecisionState = () => createState({
     memory: { decision: 'go' },
     taint_registry: { decision: { source: 'mcp_tool' as const, tool_name: 'web_search', created_at: new Date().toISOString() } },
   });
 
-  test('default (strict_taint false): routes on the tainted key', async () => {
+  it('default (strict_taint false): routes on the tainted key', async () => {
     const runner = new GraphRunner(buildBranchGraph(false), taintedDecisionState());
     const final = await runner.run();
     expect(final.visited_nodes).toContain('go_node');
     expect(final.visited_nodes).not.toContain('safe_node');
   });
 
-  test('strict_taint true: refuses to route on the tainted key, takes the safe edge', async () => {
+  it('strict_taint true: refuses to route on the tainted key, takes the safe edge', async () => {
     const runner = new GraphRunner(buildBranchGraph(true), taintedDecisionState());
     const final = await runner.run();
     expect(final.visited_nodes).toContain('safe_node');

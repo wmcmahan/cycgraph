@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks (must come before importing GraphRunner) ─────────────────────
@@ -65,7 +65,6 @@ import type { Graph } from '../src/types/graph.js';
 import type { WorkflowState } from '../src/types/state.js';
 
 // ─── Deferred import to avoid top-level await crashing the worker ────────
-// eslint-disable-next-line prefer-const
 let GraphRunner: Awaited<typeof import('../src/runner/graph-runner.js')>['GraphRunner'];
 
 beforeAll(async () => {
@@ -120,7 +119,7 @@ const createLinearGraph = (): Graph => ({
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('GraphRunner — Iteration Limits', () => {
-  test('should stop at max_iterations', async () => {
+  it('should stop at max_iterations', async () => {
     const cyclicGraph: Graph = {
       ...createLinearGraph(),
       edges: [
@@ -142,7 +141,7 @@ describe('GraphRunner — Iteration Limits', () => {
 });
 
 describe('GraphRunner — Timeout Management', () => {
-  test('should throw WorkflowTimeoutError if max_execution_time_ms exceeded', async () => {
+  it('should throw WorkflowTimeoutError if max_execution_time_ms exceeded', async () => {
     const graph = createLinearGraph();
     const initialState = createInitialState();
     initialState.max_execution_time_ms = 10;
@@ -153,16 +152,14 @@ describe('GraphRunner — Timeout Management', () => {
 
     const slowRunner = new GraphRunner(graph, initialState, { persistStateFn: slowPersist });
 
-    // Timeout now throws instead of returning silently
     try {
       await slowRunner.run();
-      // If it completes before timeout, that's also acceptable
     } catch (error) {
       expect((error as Error).name).toBe('WorkflowTimeoutError');
     }
   }, 10000);
 
-  test('should emit workflow:timeout event on timeout', async () => {
+  it('should emit workflow:timeout event on timeout', async () => {
     const graph = createLinearGraph();
     const initialState = createInitialState();
     initialState.max_execution_time_ms = 1;
@@ -171,11 +168,7 @@ describe('GraphRunner — Timeout Management', () => {
     const timeoutSpy = vi.fn();
     runner.on('workflow:timeout', timeoutSpy);
 
-    try {
-      await runner.run();
-    } catch {
-      // Expected: WorkflowTimeoutError is thrown after timeout
-    }
+    await runner.run().catch(() => {});
 
     if (timeoutSpy.mock.calls.length > 0) {
       expect(timeoutSpy).toHaveBeenCalledWith(
@@ -184,24 +177,16 @@ describe('GraphRunner — Timeout Management', () => {
     }
   }, 5000);
 
-  // A NODE-level timeout must abort only that node's in-flight work — not the
-  // single shared workflow controller, which would cancel parallel siblings and
-  // irreversibly trip the run loop.
-  test('a node-level timeout aborts only the node controller, not the workflow controller', async () => {
+  it('a node-level timeout aborts only the node controller, not the workflow controller', async () => {
     const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
 
     const graph = createLinearGraph();
-    // Tiny node timeout on the first node; workflow deadline far away so the
-    // NODE timeout (not the workflow timeout) is what fires. max_retries: 1 =
-    // exactly one attempt (the retry loop runs `1..=max_retries`).
     graph.nodes[0].failure_policy = {
       max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 10, max_backoff_ms: 10, timeout_ms: 30,
     };
     const initialState = createInitialState();
     initialState.max_execution_time_ms = 3_600_000;
 
-    // Hang forever (never settles) so the node timeout is what ends the node.
-    // Capture the abort signal the node received.
     let nodeSignal: AbortSignal | undefined;
     (executeAgent as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(
       (_id: string, _sv: unknown, _tools: unknown, _attempt: number, opts?: { abortSignal?: AbortSignal }) =>
@@ -211,10 +196,7 @@ describe('GraphRunner — Timeout Management', () => {
     const runner = new GraphRunner(graph, initialState);
     await expect(runner.run()).rejects.toThrow(/timeout/i);
 
-    // The node's in-flight call was cancelled by the per-node controller...
     expect(nodeSignal?.aborted).toBe(true);
-    // ...but the shared workflow controller must NOT be poisoned by a node
-    // timeout. (No public accessor — assert the internal invariant directly.)
     expect((runner as unknown as { abortController: AbortController }).abortController.signal.aborted).toBe(false);
   }, 5000);
 });

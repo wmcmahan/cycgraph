@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { llmGraphToGraph, graphToLLMSnapshot, type LLMGraph } from '../src/architect/utils.js';
 import type { Graph, GraphNode, GraphEdge } from '../src/types/graph.js';
 
@@ -81,7 +81,7 @@ describe('llmGraphToGraph', () => {
     const graph = llmGraphToGraph(llm);
 
     expect(graph.id).toBeDefined();
-    expect(graph.id).toMatch(/^[0-9a-f]{8}-/); // UUID format
+    expect(graph.id).toMatch(/^[0-9a-f]{8}-/);
   });
 
   it('preserves existingId in modification mode', () => {

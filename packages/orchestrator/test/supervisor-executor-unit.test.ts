@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { executeSupervisor, SupervisorDecisionSchema } from '../src/agent/supervisor-executor/executor.js';
 import { SUPERVISOR_DONE } from '../src/agent/supervisor-executor/constants.js';
 import { SupervisorConfigError, SupervisorRoutingError } from '../src/agent/supervisor-executor/errors.js';
+import { AgentExecutionError } from '../src/agent/agent-executor/errors.js';
 import { buildSupervisorSystemPrompt } from '../src/agent/supervisor-executor/prompts.js';
 import type { GraphNode, SupervisorConfig } from '../src/types/graph.js';
 import type { StateView, WorkflowState } from '../src/types/state.js';
@@ -126,6 +127,85 @@ describe('SupervisorExecutor', () => {
       await expect(
         executeSupervisor(node, makeStateView(), [], 1),
       ).rejects.toThrow(SupervisorConfigError);
+    });
+
+    it('throws SupervisorConfigError when no agent_id is resolvable from config or node', async () => {
+      const node = makeNode({
+        agent_id: undefined,
+        supervisor_config: { managed_nodes: ['worker-a'], max_iterations: 10 },
+      });
+
+      await expect(
+        executeSupervisor(node, makeStateView(), [], 1),
+      ).rejects.toThrow(SupervisorConfigError);
+    });
+
+    it('falls back to node.agent_id when supervisor_config has no agent_id', async () => {
+      const { generateText } = await import('ai');
+      (generateText as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        output: { next_node: 'worker-a', reasoning: 'go' },
+        usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 },
+      });
+      const node = makeNode({
+        agent_id: 'node-level-agent',
+        supervisor_config: { managed_nodes: ['worker-a'], max_iterations: 10 },
+      });
+
+      const action = await executeSupervisor(node, makeStateView(), [], 1);
+
+      expect(action.metadata.agent_id).toBe('node-level-agent');
+    });
+
+    it('wraps a provider error from generateText in AgentExecutionError', async () => {
+      const { generateText } = await import('ai');
+      (generateText as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('provider 500'));
+
+      await expect(
+        executeSupervisor(makeNode(), makeStateView(), [], 1),
+      ).rejects.toThrow(/provider 500/);
+    });
+
+    it('wraps a non-Error thrown value from generateText in AgentExecutionError', async () => {
+      const { generateText } = await import('ai');
+      (generateText as ReturnType<typeof vi.fn>).mockRejectedValueOnce('bare string failure');
+
+      await expect(
+        executeSupervisor(makeNode(), makeStateView(), [], 1),
+      ).rejects.toThrow(AgentExecutionError);
+    });
+
+    it('defaults token usage to zero when the provider omits usage', async () => {
+      const { generateText } = await import('ai');
+      (generateText as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        output: { next_node: 'worker-a', reasoning: 'no usage reported' },
+        usage: undefined,
+      });
+
+      const action = await executeSupervisor(makeNode(), makeStateView(), [], 1);
+
+      expect(action.metadata.token_usage).toEqual({ inputTokens: 0, outputTokens: 0, totalTokens: 0 });
+    });
+
+    it('forwards abortSignal and provider options to generateText', async () => {
+      const { agentFactory } = await import('../src/agent/agent-factory/index.js');
+      (agentFactory.loadAgent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'sup-agent', name: 'Supervisor', model: 'claude-sonnet-4-6', provider: 'anthropic',
+        system: 'You are a supervisor.', temperature: 0.5, maxSteps: 10, tools: [],
+        read_keys: ['*'], write_keys: ['*'],
+        providerOptions: { anthropic: { thinking: { type: 'enabled' } } },
+      });
+      const { generateText } = await import('ai');
+      (generateText as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        output: { next_node: '__done__', reasoning: 'done' },
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      });
+      const controller = new AbortController();
+
+      await executeSupervisor(makeNode(), makeStateView(), [], 1, { abortSignal: controller.signal });
+
+      const callArgs = (generateText as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(callArgs.abortSignal).toBe(controller.signal);
+      expect(callArgs.providerOptions).toEqual({ anthropic: { thinking: { type: 'enabled' } } });
     });
 
     it('returns set_status completed when max iterations reached', async () => {
@@ -372,7 +452,6 @@ describe('SupervisorExecutor', () => {
     });
 
     it('mints lesson_provenance on the completion (set_status) action', async () => {
-      // beforeEach mocks generateText to return __done__ → completion path.
       const memoryRetriever = vi.fn().mockResolvedValue({
         facts: [{ content: 'A lesson.', validFrom: new Date(), id: 'fact-9' }],
         entities: [],

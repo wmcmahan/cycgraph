@@ -239,9 +239,10 @@ export async function executeEvolutionNode(
       },
       stateView: {
         ...stateView,
-        // Rendered into the candidate's prompt as `## Task Context`
-        // (formerly `_`-prefixed memory keys that sanitizeForPrompt
-        // stripped — candidates never saw their parent or its feedback).
+        // Rendered into the candidate's prompt as a `## Task Context`
+        // section. Rides the dedicated taskContext channel rather than
+        // memory keys so the parent output and its feedback survive
+        // sanitizeForPrompt (which strips `_`-prefixed memory keys).
         taskContext: {
           generation: gen,
           candidate_index: idx,

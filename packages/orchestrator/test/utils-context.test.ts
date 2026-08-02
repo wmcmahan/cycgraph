@@ -48,14 +48,12 @@ describe('RunContext (AsyncLocalStorage)', () => {
         return getCurrentContext();
       });
     });
-    // Inner scope replaces the entire context
     expect(result.run_id).toBe('inner');
     expect(result.graph_id).toBeUndefined();
   });
 
   it('returns empty context after scope exits', async () => {
     await runWithContext({ run_id: 'scoped' }, async () => {
-      // noop
     });
     const ctx = getCurrentContext();
     expect(ctx).toEqual({});

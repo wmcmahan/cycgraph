@@ -11,7 +11,7 @@
  * These tests verify the defense-in-depth model that prevents agents from
  * escaping their sandbox, overspending, or corrupting state.
  */
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────
@@ -57,7 +57,6 @@ const capturedStateViews = new Map<string, any>();
 
 vi.mock('../src/agent/agent-executor/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, stateView: any, _tools: any, attempt: number) => {
-    // Capture the stateView so tests can verify filtering
     capturedStateViews.set(agentId, JSON.parse(JSON.stringify(stateView)));
 
     if (agentId === 'writer-secret') {
@@ -116,7 +115,6 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
       };
     }
 
-    // Default: well-behaved agent
     return {
       id: uuidv4(),
       idempotency_key: `${agentId}:mock:${attempt}`,
@@ -200,13 +198,13 @@ describe('GraphRunner — Write Key Permissions', () => {
    * Node write_keys: ['public_result']
    * Agent tries to write: { secret_data: '...' }  → BLOCKED
    */
-  test('should reject action writing to unauthorized memory key', async () => {
+  it('should reject action writing to unauthorized memory key', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Permission Block', description: '',
       nodes: [
         makeNode({
           id: 'restricted-node', type: 'agent', agent_id: 'writer-secret',
-          write_keys: ['public_result'], // does NOT include 'secret_data'
+          write_keys: ['public_result'],
         }),
       ],
       edges: [],
@@ -222,13 +220,13 @@ describe('GraphRunner — Write Key Permissions', () => {
   /**
    * Same agent writing to an allowed key should succeed.
    */
-  test('should allow action writing to authorized memory key', async () => {
+  it('should allow action writing to authorized memory key', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Permission Allow', description: '',
       nodes: [
         makeNode({
           id: 'allowed-node', type: 'agent', agent_id: 'writer-allowed',
-          write_keys: ['public_result'], // includes the key being written
+          write_keys: ['public_result'],
         }),
       ],
       edges: [],
@@ -246,13 +244,13 @@ describe('GraphRunner — Write Key Permissions', () => {
   /**
    * write_keys: ['*'] should grant wildcard write access.
    */
-  test('should allow wildcard write_keys to write any key', async () => {
+  it('should allow wildcard write_keys to write any key', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Wildcard Write', description: '',
       nodes: [
         makeNode({
           id: 'wild-node', type: 'agent', agent_id: 'writer-secret',
-          write_keys: ['*'], // wildcard → everything allowed
+          write_keys: ['*'],
         }),
       ],
       edges: [],
@@ -264,7 +262,6 @@ describe('GraphRunner — Write Key Permissions', () => {
     const final = await runner.run();
 
     expect(final.status).toBe('completed');
-    // Even the 'secret_data' key goes through with wildcard
     expect(final.memory.secret_data).toBe('STOLEN_API_KEY');
   });
 
@@ -272,13 +269,13 @@ describe('GraphRunner — Write Key Permissions', () => {
    * A non-update_memory action type (e.g. set_status) should require
    * explicit permission. Without 'status' in write_keys, it's blocked.
    */
-  test('should reject set_status action without explicit status permission', async () => {
+  it('should reject set_status action without explicit status permission', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Status Block', description: '',
       nodes: [
         makeNode({
           id: 'status-node', type: 'agent', agent_id: 'status-changer',
-          write_keys: ['public_result'], // no 'status' permission
+          write_keys: ['public_result'],
         }),
       ],
       edges: [],
@@ -295,13 +292,13 @@ describe('GraphRunner — Write Key Permissions', () => {
    * Empty write_keys should deny everything (deny-all policy).
    * This is the safest default for untrusted agents.
    */
-  test('should deny all writes with empty write_keys', async () => {
+  it('should deny all writes with empty write_keys', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Deny All', description: '',
       nodes: [
         makeNode({
           id: 'locked-node', type: 'agent', agent_id: 'writer-allowed',
-          write_keys: [], // NO permissions
+          write_keys: [],
         }),
       ],
       edges: [],
@@ -320,13 +317,13 @@ describe('GraphRunner — StateView Read Key Filtering', () => {
    * A node with restricted read_keys should only see allowed memory keys.
    * Secret keys should be filtered out of the StateView.
    */
-  test('should filter memory by read_keys in StateView', async () => {
+  it('should filter memory by read_keys in StateView', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Read Filter', description: '',
       nodes: [
         makeNode({
           id: 'reader-node', type: 'agent', agent_id: 'reader-agent',
-          read_keys: ['public_data', 'shared_info'], // only these keys visible
+          read_keys: ['public_data', 'shared_info'],
           write_keys: ['*'],
         }),
       ],
@@ -347,7 +344,6 @@ describe('GraphRunner — StateView Read Key Filtering', () => {
     const runner = new GraphRunner(graph, state);
     await runner.run();
 
-    // Verify the stateView passed to the agent was filtered
     const capturedView = capturedStateViews.get('reader-agent');
     expect(capturedView).toBeDefined();
     expect(capturedView.memory.public_data).toBe('visible');
@@ -359,7 +355,7 @@ describe('GraphRunner — StateView Read Key Filtering', () => {
   /**
    * read_keys: ['*'] should give full access to all memory.
    */
-  test('should give full memory access with wildcard read_keys', async () => {
+  it('should give full memory access with wildcard read_keys', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Full Read', description: '',
       nodes: [
@@ -393,7 +389,7 @@ describe('GraphRunner — StateView Read Key Filtering', () => {
    * A read_keys array that references keys NOT in memory should produce
    * an empty filtered memory — no errors, no undefined property access.
    */
-  test('should produce empty memory when read_keys reference non-existent keys', async () => {
+  it('should produce empty memory when read_keys reference non-existent keys', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Empty Read', description: '',
       nodes: [
@@ -423,7 +419,7 @@ describe('GraphRunner — StateView Read Key Filtering', () => {
    * StateView should always include workflow-level fields (workflow_id, run_id,
    * goal, constraints) regardless of read_keys — these are needed for context.
    */
-  test('should always include workflow-level fields in StateView', async () => {
+  it('should always include workflow-level fields in StateView', async () => {
     const state = createState({
       goal: 'important mission',
       constraints: ['be polite', 'stay on topic'],
@@ -434,7 +430,7 @@ describe('GraphRunner — StateView Read Key Filtering', () => {
       nodes: [
         makeNode({
           id: 'context-reader', type: 'agent', agent_id: 'context-agent',
-          read_keys: [], // no memory access at all
+          read_keys: [],
           write_keys: ['*'],
         }),
       ],
@@ -461,7 +457,7 @@ describe('GraphRunner — Token Budget Enforcement', () => {
    *
    * big-spender agent returns 50000 tokens; budget is 10000.
    */
-  test('should throw BudgetExceededError when token budget exceeded', async () => {
+  it('should throw BudgetExceededError when token budget exceeded', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Budget Exceed', description: '',
       nodes: [
@@ -479,7 +475,6 @@ describe('GraphRunner — Token Budget Enforcement', () => {
 
     try {
       await runner.run();
-      // Should not reach here
       expect(true).toBe(false);
     } catch (error) {
       expect(error).toBeInstanceOf(BudgetExceededError);
@@ -491,7 +486,7 @@ describe('GraphRunner — Token Budget Enforcement', () => {
   /**
    * When token usage is within budget, workflow should complete normally.
    */
-  test('should not throw when token usage is within budget', async () => {
+  it('should not throw when token usage is within budget', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Budget OK', description: '',
       nodes: [
@@ -516,7 +511,7 @@ describe('GraphRunner — Token Budget Enforcement', () => {
    * When no max_token_budget is set, token tracking should still work
    * but no error should be thrown.
    */
-  test('should track tokens without budget enforcement when no budget set', async () => {
+  it('should track tokens without budget enforcement when no budget set', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'No Budget', description: '',
       nodes: [
@@ -527,7 +522,6 @@ describe('GraphRunner — Token Budget Enforcement', () => {
       end_nodes: ['node'],
     };
 
-    // No max_token_budget set
     const state = createState();
     const runner = new GraphRunner(graph, state);
     const final = await runner.run();
@@ -539,7 +533,7 @@ describe('GraphRunner — Token Budget Enforcement', () => {
   /**
    * Token budget exceeded should persist the failed state with last_error.
    */
-  test('should persist failed state when budget exceeded', async () => {
+  it('should persist failed state when budget exceeded', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Budget Persist', description: '',
       nodes: [
@@ -554,11 +548,7 @@ describe('GraphRunner — Token Budget Enforcement', () => {
     const state = createState({ max_token_budget: 1000 });
     const runner = new GraphRunner(graph, state, { persistStateFn: persistSpy });
 
-    try {
-      await runner.run();
-    } catch {
-      // expected
-    }
+    await runner.run().catch(() => {});
 
     const lastPersisted = persistSpy.mock.calls[persistSpy.mock.calls.length - 1][0] as WorkflowState;
     expect(lastPersisted.status).toBe('failed');
@@ -570,7 +560,7 @@ describe('GraphRunner — Token Budget Enforcement', () => {
    * each = 1000 total. Budget of 1500 should succeed; budget of 800 should fail
    * on the second node.
    */
-  test('should accumulate tokens across multiple nodes', async () => {
+  it('should accumulate tokens across multiple nodes', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Cumulative Tokens', description: '',
       nodes: [
@@ -584,16 +574,15 @@ describe('GraphRunner — Token Budget Enforcement', () => {
       end_nodes: ['node2'],
     };
 
-    // Budget large enough for both
     const state = createState({ max_token_budget: 1500 });
     const runner = new GraphRunner(graph, state);
     const final = await runner.run();
 
     expect(final.status).toBe('completed');
-    expect(final.total_tokens_used).toBe(1000); // 500 + 500
+    expect(final.total_tokens_used).toBe(1000);
   });
 
-  test('should fail when cumulative tokens exceed budget on second node', async () => {
+  it('should fail when cumulative tokens exceed budget on second node', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Cumulative Over', description: '',
       nodes: [
@@ -607,7 +596,6 @@ describe('GraphRunner — Token Budget Enforcement', () => {
       end_nodes: ['node2'],
     };
 
-    // Budget only for one node, not two
     const state = createState({ max_token_budget: 800 });
     const runner = new GraphRunner(graph, state);
 
@@ -621,12 +609,12 @@ describe('GraphRunner — Memory Accumulation', () => {
    * in the chain. This verifies that state is properly threaded through
    * the execution loop.
    */
-  test('should accumulate memory across node executions', async () => {
+  it('should accumulate memory across node executions', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Memory Accum', description: '',
       nodes: [
-        makeNode({ id: 'node-a', type: 'agent', agent_id: 'writer-allowed' }), // writes public_result
-        makeNode({ id: 'node-b', type: 'agent', agent_id: 'writer-secret' }),   // writes secret_data
+        makeNode({ id: 'node-a', type: 'agent', agent_id: 'writer-allowed' }),
+        makeNode({ id: 'node-b', type: 'agent', agent_id: 'writer-secret' }),
       ],
       edges: [
         { id: 'e1', source: 'node-a', target: 'node-b', condition: { type: 'always' } },
@@ -638,7 +626,6 @@ describe('GraphRunner — Memory Accumulation', () => {
     const runner = new GraphRunner(graph, createState());
     const final = await runner.run();
 
-    // Both nodes' memory updates should be present
     expect(final.memory.public_result).toBe('this is fine');
     expect(final.memory.secret_data).toBe('STOLEN_API_KEY');
   });
@@ -646,7 +633,7 @@ describe('GraphRunner — Memory Accumulation', () => {
   /**
    * Pre-populated memory should survive and be augmented by node executions.
    */
-  test('should preserve pre-populated memory alongside new writes', async () => {
+  it('should preserve pre-populated memory alongside new writes', async () => {
     const graph: Graph = {
       id: uuidv4(), name: 'Preserve Memory', description: '',
       nodes: [
@@ -664,10 +651,8 @@ describe('GraphRunner — Memory Accumulation', () => {
     const runner = new GraphRunner(graph, state);
     const final = await runner.run();
 
-    // Original keys preserved
     expect(final.memory.existing_key).toBe('preserved');
     expect(final.memory.another).toBe(42);
-    // New key added
     expect(final.memory.public_result).toBe('this is fine');
   });
 });

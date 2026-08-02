@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { StateDeltaTracker } from '../src/persistence/delta-tracker.js';
 import { createWorkflowState, type WorkflowState } from '../src/types/state.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -19,7 +19,7 @@ describe('StateDeltaTracker', () => {
   });
 
   describe('first persist', () => {
-    test('always returns full snapshot on first call', () => {
+    it('always returns full snapshot on first call', () => {
       const state = makeState();
       const result = tracker.computeDelta(state);
 
@@ -31,9 +31,9 @@ describe('StateDeltaTracker', () => {
   });
 
   describe('patch computation', () => {
-    test('returns patch when scalar fields change', () => {
+    it('returns patch when scalar fields change', () => {
       const state = makeState({ status: 'running', current_node: 'node-1' });
-      tracker.computeDelta(state); // first = full
+      tracker.computeDelta(state);
 
       const updated = { ...state, status: 'completed' as const, current_node: 'node-2' };
       const result = tracker.computeDelta(updated);
@@ -45,9 +45,9 @@ describe('StateDeltaTracker', () => {
       }
     });
 
-    test('returns patch with memory additions', () => {
+    it('returns patch with memory additions', () => {
       const state = makeState({ memory: { key1: 'value1' } });
-      tracker.computeDelta(state); // first = full
+      tracker.computeDelta(state);
 
       const updated = { ...state, memory: { key1: 'value1', key2: 'value2' } };
       const result = tracker.computeDelta(updated);
@@ -59,9 +59,9 @@ describe('StateDeltaTracker', () => {
       }
     });
 
-    test('returns patch with memory removals', () => {
+    it('returns patch with memory removals', () => {
       const state = makeState({ memory: { key1: 'value1', key2: 'value2' } });
-      tracker.computeDelta(state); // first = full
+      tracker.computeDelta(state);
 
       const updated = { ...state, memory: { key1: 'value1' } };
       const result = tracker.computeDelta(updated);
@@ -73,7 +73,7 @@ describe('StateDeltaTracker', () => {
       }
     });
 
-    test('returns patch with memory changes', () => {
+    it('returns patch with memory changes', () => {
       const state = makeState({ memory: { key1: 'old' } });
       tracker.computeDelta(state);
 
@@ -86,7 +86,7 @@ describe('StateDeltaTracker', () => {
       }
     });
 
-    test('patch includes run_id and version', () => {
+    it('patch includes run_id and version', () => {
       const state = makeState();
       tracker.computeDelta(state);
 
@@ -98,11 +98,10 @@ describe('StateDeltaTracker', () => {
       }
     });
 
-    test('empty patch when nothing changed', () => {
+    it('empty patch when nothing changed', () => {
       const state = makeState({ memory: { key: 'value' } });
       tracker.computeDelta(state);
 
-      // Same state object — values haven't changed
       const result = tracker.computeDelta(state);
       expect(result.type).toBe('patch');
       if (result.type === 'patch') {
@@ -114,38 +113,32 @@ describe('StateDeltaTracker', () => {
   });
 
   describe('full snapshot interval', () => {
-    test('forces full snapshot at configured interval', () => {
+    it('forces full snapshot at configured interval', () => {
       const state = makeState();
 
-      // persist 1 = full (first)
       expect(tracker.computeDelta(state).type).toBe('full');
-      // persist 2-4 = patch
       expect(tracker.computeDelta(state).type).toBe('patch');
       expect(tracker.computeDelta(state).type).toBe('patch');
       expect(tracker.computeDelta(state).type).toBe('patch');
-      // persist 5 = full (interval=5)
       expect(tracker.computeDelta(state).type).toBe('full');
-      // persist 6-9 = patch
       expect(tracker.computeDelta(state).type).toBe('patch');
       expect(tracker.computeDelta(state).type).toBe('patch');
       expect(tracker.computeDelta(state).type).toBe('patch');
       expect(tracker.computeDelta(state).type).toBe('patch');
-      // persist 10 = full
       expect(tracker.computeDelta(state).type).toBe('full');
     });
   });
 
   describe('max patch size', () => {
-    test('falls back to full snapshot when patch exceeds max size', () => {
+    it('falls back to full snapshot when patch exceeds max size', () => {
       const tracker = new StateDeltaTracker({
         fullSnapshotInterval: 100,
-        maxPatchBytes: 50, // Very small limit
+        maxPatchBytes: 50,
       });
 
       const state = makeState({ memory: {} });
       tracker.computeDelta(state);
 
-      // Add a large memory value that exceeds 50 bytes
       const updated = {
         ...state,
         memory: { large_key: 'x'.repeat(100) },
@@ -156,7 +149,7 @@ describe('StateDeltaTracker', () => {
   });
 
   describe('reset', () => {
-    test('reset forces next persist to be full', () => {
+    it('reset forces next persist to be full', () => {
       const state = makeState();
       tracker.computeDelta(state);
       expect(tracker.computeDelta(state).type).toBe('patch');
@@ -168,17 +161,14 @@ describe('StateDeltaTracker', () => {
   });
 
   describe('rollback', () => {
-    test('rollback re-includes a failed persist in the next delta', () => {
+    it('rollback re-includes a failed persist in the next delta', () => {
       const s1 = makeState({ memory: { a: '1' } });
-      tracker.computeDelta(s1); // first = full, baseline = s1
+      tracker.computeDelta(s1);
 
-      // Persist of s2 "fails" — the changes a→2, b added must not be lost.
       const s2 = makeState({ run_id: s1.run_id, memory: { a: '2', b: 'new' } });
       tracker.computeDelta(s2);
       tracker.rollback();
 
-      // Next delta diffs against s1 (the last *durable* state), so it carries
-      // the rolled-back changes rather than diffing against the never-persisted s2.
       const s3 = makeState({ run_id: s1.run_id, memory: { a: '2', b: 'new' } });
       const result = tracker.computeDelta(s3);
       expect(result.type).toBe('patch');
@@ -187,30 +177,101 @@ describe('StateDeltaTracker', () => {
       }
     });
 
-    test('rollback restores the persist count (no skipped versions)', () => {
+    it('rollback restores the persist count (no skipped versions)', () => {
       const state = makeState();
-      tracker.computeDelta(state); // count 1
-      tracker.computeDelta(state); // count 2
+      tracker.computeDelta(state);
+      tracker.computeDelta(state);
       expect(tracker.getPersistCount()).toBe(2);
 
-      tracker.rollback(); // undo the second
+      tracker.rollback();
       expect(tracker.getPersistCount()).toBe(1);
     });
   });
 
   describe('isolation', () => {
-    test('mutations to original state do not affect tracked state', () => {
+    it('mutations to original state do not affect tracked state', () => {
       const state = makeState({ memory: { key: 'original' } });
       tracker.computeDelta(state);
 
-      // Mutate the original
       state.memory.key = 'mutated';
 
-      // Tracker should see the mutation as a change
       const result = tracker.computeDelta(state);
       expect(result.type).toBe('patch');
       if (result.type === 'patch') {
         expect(result.patch.memory_updates).toEqual({ key: 'mutated' });
+      }
+    });
+  });
+
+  describe('defaults', () => {
+    it('applies the default full-snapshot interval when constructed without options', () => {
+      const defaultTracker = new StateDeltaTracker();
+      const state = makeState();
+
+      expect(defaultTracker.computeDelta(state).type).toBe('full');
+      for (let i = 0; i < 8; i++) {
+        expect(defaultTracker.computeDelta(state).type).toBe('patch');
+      }
+      expect(defaultTracker.computeDelta(state).type).toBe('full');
+    });
+  });
+
+  describe('Date-valued field diffing', () => {
+    it('treats two equal Dates as unchanged', () => {
+      const at = new Date('2026-05-01T00:00:00Z');
+      const state = makeState({ started_at: at });
+      tracker.computeDelta(state);
+
+      const result = tracker.computeDelta({ ...state, started_at: new Date(at.getTime()) });
+
+      expect(result.type).toBe('patch');
+      if (result.type === 'patch') {
+        expect(result.patch.fields).not.toHaveProperty('started_at');
+      }
+    });
+
+    it('detects a Date replacing a non-Date value', () => {
+      const state = makeState({ started_at: undefined });
+      tracker.computeDelta(state);
+
+      const result = tracker.computeDelta({ ...state, started_at: new Date('2026-05-01T00:00:00Z') });
+
+      expect(result.type).toBe('patch');
+      if (result.type === 'patch') {
+        expect(result.patch.fields).toHaveProperty('started_at');
+      }
+    });
+  });
+
+  describe('object-valued field diffing', () => {
+    it('treats an equal object-valued field as unchanged', () => {
+      const breakdown = { a: { input_tokens: 1, output_tokens: 2, cost_usd: 0.1, calls: 1 } };
+      const state = makeState({ model_breakdown: breakdown });
+      tracker.computeDelta(state);
+
+      const result = tracker.computeDelta({
+        ...state,
+        model_breakdown: { a: { input_tokens: 1, output_tokens: 2, cost_usd: 0.1, calls: 1 } },
+      });
+
+      expect(result.type).toBe('patch');
+      if (result.type === 'patch') {
+        expect(result.patch.fields).not.toHaveProperty('model_breakdown');
+      }
+    });
+
+    it('treats a differing object-valued field as changed', () => {
+      const state = makeState({ model_breakdown: { a: { input_tokens: 1, output_tokens: 2, cost_usd: 0.1, calls: 1 } } });
+      tracker.computeDelta(state);
+
+      const result = tracker.computeDelta({
+        ...state,
+        model_breakdown: { a: { input_tokens: 9, output_tokens: 2, cost_usd: 0.1, calls: 1 } },
+      });
+
+      expect(result.type).toBe('patch');
+      if (result.type === 'patch') {
+        expect(result.patch.fields).toHaveProperty('model_breakdown');
       }
     });
   });

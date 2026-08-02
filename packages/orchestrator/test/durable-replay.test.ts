@@ -5,10 +5,8 @@
  * Verifies that the event log captures all significant state transitions and
  * that GraphRunner.recover() can reconstruct pre-crash state from events alone.
  */
-import { describe, test, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-
-// ─── Mocks (must be before any imports that use them) ───────────────
 
 vi.mock('@ai-sdk/openai', () => ({
   openai: vi.fn((model: string) => ({ provider: 'openai', modelId: model })),
@@ -83,8 +81,6 @@ vi.mock('../src/utils/taint', () => ({
   getTaintRegistry: vi.fn().mockReturnValue({}),
 }));
 
-// ─── Imports (after mocks) ──────────────────────────────────────────
-
 import { GraphRunner } from '../src/runner/graph-runner.js';
 import { InMemoryEventLogWriter, EventSequenceConflictError } from '../src/db/event-log.js';
 import { REPLAY_VERSION } from '../src/reducers/index.js';
@@ -92,8 +88,6 @@ import { hydrateWorkflowState } from '../src/types/state.js';
 import { executeAgent } from '../src/agent/agent-executor/executor.js';
 import type { Graph, GraphNode, GraphEdge } from '../src/types/graph.js';
 import type { WorkflowState } from '../src/types/state.js';
-
-// ─── Helpers ────────────────────────────────────────────────────────
 
 function makeNode(id: string, type: GraphNode['type'] = 'agent'): GraphNode {
   return {
@@ -138,12 +132,10 @@ function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
   };
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────
-
 describe('Durable Execution — Event Sourcing', () => {
 
   describe('Event Logging (Write Path)', () => {
-    test('should append events during a normal 2-node run', async () => {
+    it('appends events during a normal 2-node run', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -161,29 +153,25 @@ describe('Durable Execution — Event Sourcing', () => {
 
       const events = eventLog.getEventsForRun(state.run_id);
 
-      // Should have multiple events for a 2-node run
       expect(events.length).toBeGreaterThan(5);
 
-      // Verify core event types present
       const types = events.map(e => e.event_type);
       expect(types).toContain('workflow_started');
       expect(types).toContain('node_started');
       expect(types).toContain('action_dispatched');
       expect(types).toContain('internal_dispatched');
 
-      // Verify action_dispatched events contain full Actions
       const actionEvents = events.filter(e => e.event_type === 'action_dispatched');
       expect(actionEvents).toHaveLength(2);
       expect(actionEvents[0].action?.type).toBe('update_memory');
       expect(actionEvents[1].action?.type).toBe('update_memory');
 
-      // Sequence IDs are monotonically increasing
       for (let i = 1; i < events.length; i++) {
         expect(events[i].sequence_id).toBeGreaterThan(events[i - 1].sequence_id);
       }
     });
 
-    test('should preserve event ordering across nodes', async () => {
+    it('preserves event ordering across nodes', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -198,7 +186,6 @@ describe('Durable Execution — Event Sourcing', () => {
       const runner = new GraphRunner(graph, state, { eventLog });
       await runner.run();
 
-      // node_started events should be in execution order
       const nodeStartEvents = eventLog
         .getEventsForRun(state.run_id)
         .filter(e => e.event_type === 'node_started');
@@ -206,7 +193,7 @@ describe('Durable Execution — Event Sourcing', () => {
       expect(nodeStartEvents.map(e => e.node_id)).toEqual(['a', 'b', 'c']);
     });
 
-    test('should capture internal dispatch events', async () => {
+    it('captures internal dispatch events', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -233,7 +220,7 @@ describe('Durable Execution — Event Sourcing', () => {
   });
 
   describe('Recovery (Replay Path)', () => {
-    test('should recover completed workflow state from event log', async () => {
+    it('recovers completed workflow state from event log', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -245,28 +232,20 @@ describe('Durable Execution — Event Sourcing', () => {
       };
       const state = makeState({ workflow_id: graph.id });
 
-      // Run to completion, capturing events
       const runner1 = new GraphRunner(graph, state, { eventLog });
       const result1 = await runner1.run();
       expect(result1.status).toBe('completed');
 
-      // Recover from events only — no state snapshot
       const runner2 = await GraphRunner.recover(graph, state.run_id, eventLog);
 
-      // Recovered state should match completed state
       const recovered = runner2['state'] as WorkflowState;
       expect(recovered.status).toBe('completed');
       expect(recovered.visited_nodes).toEqual(result1.visited_nodes);
       expect(recovered.iteration_count).toBe(result1.iteration_count);
-      // Memory should contain the agent outputs
       expect(recovered.memory).toEqual(result1.memory);
     });
 
-    test('recovery from event log (no checkpoint) preserves run limits/config', async () => {
-      // Regression: without a checkpoint, recover() used to seed default limits
-      // (no token budget, max_iterations 50, empty goal), silently disabling
-      // budget/iteration/timeout enforcement after a crash. The limits are now
-      // persisted in the workflow_started event and restored on replay.
+    it('recovery from event log (no checkpoint) preserves run limits/config', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -302,7 +281,7 @@ describe('Durable Execution — Event Sourcing', () => {
       expect(recovered.constraints).toEqual(['stay under budget']);
     });
 
-    test('should recover 3-node workflow with correct memory accumulation', async () => {
+    it('recovers 3-node workflow with correct memory accumulation', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -318,21 +297,19 @@ describe('Durable Execution — Event Sourcing', () => {
       const result1 = await runner1.run();
       expect(result1.status).toBe('completed');
 
-      // Each node writes {agentId_result: 'done'}, so memory should have 3 keys
       expect(result1.memory).toEqual({
         step1_result: 'done',
         step2_result: 'done',
         step3_result: 'done',
       });
 
-      // Recover and verify identical state
       const runner2 = await GraphRunner.recover(graph, state.run_id, eventLog);
       const recovered = runner2['state'] as WorkflowState;
       expect(recovered.memory).toEqual(result1.memory);
       expect(recovered.visited_nodes).toEqual(['step1', 'step2', 'step3']);
     });
 
-    test('should throw on empty event log', async () => {
+    it('throws on empty event log', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -348,7 +325,7 @@ describe('Durable Execution — Event Sourcing', () => {
       ).rejects.toThrow(/corrupted or incomplete/);
     });
 
-    test('should continue sequence_id after recovery', async () => {
+    it('continues sequence_id after recovery', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -366,17 +343,14 @@ describe('Durable Execution — Event Sourcing', () => {
       const eventsBefore = eventLog.getEventsForRun(state.run_id);
       const maxSeqBefore = Math.max(...eventsBefore.map(e => e.sequence_id));
 
-      // Recover — sequenceId should be set past all replayed events
       const runner2 = await GraphRunner.recover(graph, state.run_id, eventLog);
-      // The recovered runner's sequence counter is internal (owned by the
-      // EventLogCoordinator) — reach through to verify it advanced past the log.
       expect(runner2.getEventLog()).toBe(eventLog);
       expect(runner2['events'].nextSequenceId).toBe(maxSeqBefore + 1);
     });
   });
 
   describe('Event log integrity', () => {
-    test('recovery throws EventLogCorruptionError on a sequence gap', async () => {
+    it('recovery throws EventLogCorruptionError on a sequence gap', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -391,7 +365,6 @@ describe('Durable Execution — Event Sourcing', () => {
       const runner = new GraphRunner(graph, state, { eventLog });
       await runner.run();
 
-      // Simulate a lost append: remove an event from the middle of the log.
       const events = eventLog.getEventsForRun(state.run_id);
       expect(events.length).toBeGreaterThan(4);
       events.splice(3, 1);
@@ -401,7 +374,7 @@ describe('Durable Execution — Event Sourcing', () => {
       ).rejects.toThrow(/corrupted or incomplete/);
     });
 
-    test('append rejects duplicate (run_id, sequence_id) with EventSequenceConflictError', async () => {
+    it('append rejects duplicate (run_id, sequence_id) with EventSequenceConflictError', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const runId = uuidv4();
 
@@ -411,9 +384,7 @@ describe('Durable Execution — Event Sourcing', () => {
       ).rejects.toBeInstanceOf(EventSequenceConflictError);
     });
 
-    test('run halts after three consecutive failed event-log flushes', async () => {
-      // Event log whose appends always fail (e.g. DB down) but isn't a Noop —
-      // the runner must halt instead of silently losing its durable history.
+    it('run halts after three consecutive failed event-log flushes', async () => {
       const failingLog = new InMemoryEventLogWriter();
       failingLog.append = async () => {
         throw new Error('db down');
@@ -433,7 +404,7 @@ describe('Durable Execution — Event Sourcing', () => {
       await expect(runner.run()).rejects.toThrow(/Event log unavailable/);
     });
 
-    test('a sequence conflict during execution is fatal (split-brain guard)', async () => {
+    it('a sequence conflict during execution is fatal (split-brain guard)', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -445,8 +416,6 @@ describe('Durable Execution — Event Sourcing', () => {
       };
       const state = makeState({ workflow_id: graph.id });
 
-      // Simulate a second writer racing on the same run: pre-claim a
-      // sequence id this runner will try to use.
       await eventLog.append({ run_id: state.run_id, sequence_id: 4, event_type: 'node_started', node_id: 'intruder' });
 
       const runner = new GraphRunner(graph, state, { eventLog });
@@ -477,7 +446,6 @@ describe('Durable Execution — Event Sourcing', () => {
       const runner = new GraphRunner(graph, state, {
         eventLog,
         persistStateFn: async (s) => {
-          // Simulate real storage: JSON round-trip like a jsonb column.
           snapshots.push(JSON.parse(JSON.stringify(s)));
         },
       });
@@ -485,11 +453,9 @@ describe('Durable Execution — Event Sourcing', () => {
       return { eventLog, snapshots, graph, state };
     }
 
-    test('resume after post-reduce/pre-advance crash skips the applied node', async () => {
+    it('resume after post-reduce/pre-advance crash skips the applied node', async () => {
       const { eventLog, snapshots, graph } = await runAndCaptureSnapshots();
 
-      // The post-a-action, pre-advance snapshot: a's output is in memory but
-      // current_node hasn't moved yet.
       const crashSnapshot = snapshots.find(
         s => s.current_node === 'a' && (s.memory as Record<string, unknown>).a_result === 'done',
       );
@@ -503,15 +469,13 @@ describe('Durable Execution — Event Sourcing', () => {
       expect(result.memory.a_result).toBe('done');
       expect(result.memory.b_result).toBe('done');
 
-      // Only node b executed on resume — a's action was already applied.
       const resumeCalls = vi.mocked(executeAgent).mock.calls.slice(callsBefore);
       expect(resumeCalls.map(c => c[0])).toEqual(['b']);
     });
 
-    test('resume from a pre-action snapshot re-executes the node (at-least-once)', async () => {
+    it('resume from a pre-action snapshot re-executes the node (at-least-once)', async () => {
       const { eventLog, snapshots, graph } = await runAndCaptureSnapshots();
 
-      // The earliest snapshot: _init applied, node a not yet executed.
       const preActionSnapshot = snapshots.find(
         s => s.current_node === 'a' && (s.memory as Record<string, unknown>).a_result === undefined,
       );
@@ -522,14 +486,13 @@ describe('Durable Execution — Event Sourcing', () => {
       const result = await resumed.run();
 
       expect(result.status).toBe('completed');
-      // a's effects were NOT in the snapshot, so a must re-execute.
       const resumeCalls = vi.mocked(executeAgent).mock.calls.slice(callsBefore);
       expect(resumeCalls.map(c => c[0])).toEqual(['a', 'b']);
     });
   });
 
   describe('InMemoryEventLogWriter', () => {
-    test('should store and retrieve events in sequence_id order', async () => {
+    it('stores and retrieve events in sequence_id order', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const runId = uuidv4();
 
@@ -541,13 +504,13 @@ describe('Durable Execution — Event Sourcing', () => {
       expect(events.map(e => e.sequence_id)).toEqual([0, 1, 2]);
     });
 
-    test('should return -1 for latest sequence_id of unknown run', async () => {
+    it('returns -1 for latest sequence_id of unknown run', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const seq = await eventLog.getLatestSequenceId('unknown');
       expect(seq).toBe(-1);
     });
 
-    test('should isolate events by run_id', async () => {
+    it('isolates events by run_id', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const run1 = uuidv4();
       const run2 = uuidv4();
@@ -560,7 +523,7 @@ describe('Durable Execution — Event Sourcing', () => {
       expect((await eventLog.loadEvents(run2)).length).toBe(1);
     });
 
-    test('should clear all events', async () => {
+    it('clears all events', async () => {
       const eventLog = new InMemoryEventLogWriter();
       await eventLog.append({ run_id: uuidv4(), sequence_id: 0, event_type: 'workflow_started' });
       eventLog.clear();
@@ -569,7 +532,7 @@ describe('Durable Execution — Event Sourcing', () => {
   });
 
   describe('Compaction', () => {
-    test('should compact events after workflow completion', async () => {
+    it('compacts events after workflow completion', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -587,21 +550,18 @@ describe('Durable Execution — Event Sourcing', () => {
       const eventsBefore = eventLog.getEventsForRun(state.run_id);
       expect(eventsBefore.length).toBeGreaterThan(5);
 
-      // Compact all events
       const deleted = await runner.compactEvents();
       expect(deleted).toBe(eventsBefore.length);
 
-      // Events should be gone
       const eventsAfter = eventLog.getEventsForRun(state.run_id);
       expect(eventsAfter.length).toBe(0);
 
-      // Checkpoint should exist
       const checkpoint = await eventLog.loadCheckpoint(state.run_id);
       expect(checkpoint).not.toBeNull();
       expect(checkpoint!.state.status).toBe('completed');
     });
 
-    test('should recover from checkpoint after compaction', async () => {
+    it('recovers from checkpoint after compaction', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -613,14 +573,11 @@ describe('Durable Execution — Event Sourcing', () => {
       };
       const state = makeState({ workflow_id: graph.id });
 
-      // Run to completion
       const runner1 = new GraphRunner(graph, state, { eventLog });
       const result1 = await runner1.run();
 
-      // Compact all events
       await runner1.compactEvents();
 
-      // Recover — should use checkpoint, not events
       const runner2 = await GraphRunner.recover(graph, state.run_id, eventLog);
       const recovered = runner2['state'] as WorkflowState;
 
@@ -629,11 +586,10 @@ describe('Durable Execution — Event Sourcing', () => {
       expect(recovered.visited_nodes).toEqual(result1.visited_nodes);
     });
 
-    test('should compact and load only events after checkpoint', async () => {
+    it('compacts and load only events after checkpoint', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const runId = uuidv4();
 
-      // Simulate a 6-event log
       for (let i = 0; i < 6; i++) {
         await eventLog.append({
           run_id: runId,
@@ -643,25 +599,21 @@ describe('Durable Execution — Event Sourcing', () => {
         });
       }
 
-      // Checkpoint at sequence 3
       const mockState = makeState({ run_id: runId });
       await eventLog.checkpoint(runId, 3, mockState);
 
-      // Compact events <= 3
       const deleted = await eventLog.compact(runId, 3);
-      expect(deleted).toBe(4); // events 0,1,2,3
+      expect(deleted).toBe(4);
 
-      // Only events 4,5 remain
       const remaining = eventLog.getEventsForRun(runId);
       expect(remaining.length).toBe(2);
       expect(remaining.map(e => e.sequence_id)).toEqual([4, 5]);
 
-      // loadEventsAfter should also return only 4,5
       const after = await eventLog.loadEventsAfter(runId, 3);
       expect(after.map(e => e.sequence_id)).toEqual([4, 5]);
     });
 
-    test('workflow_started event carries the reducer replay version', async () => {
+    it('workflow_started event carries the reducer replay version', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -682,7 +634,7 @@ describe('Durable Execution — Event Sourcing', () => {
       expect(started?.internal_payload?.replay_version).toBe(REPLAY_VERSION);
     });
 
-    test('applyHumanResponse appends resume_from_human to the event log', async () => {
+    it('applyHumanResponse appends resume_from_human to the event log', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -703,8 +655,6 @@ describe('Durable Execution — Event Sourcing', () => {
 
       const runner = new GraphRunner(graph, state, { eventLog });
       runner.applyHumanResponse({ decision: 'approved', data: { note: 'lgtm' } });
-      // The resume events are deferred until execution — they land once the
-      // resume path has advanced sequenceId past the run's existing log.
       await runner.run();
 
       const events = eventLog.getEventsForRun(state.run_id);
@@ -713,8 +663,6 @@ describe('Durable Execution — Event Sourcing', () => {
       );
       expect(resume).toBeDefined();
 
-      // The human decision must precede the _advance so replay applies them
-      // in the same order as the live run.
       const advance = events.find(
         e => e.event_type === 'internal_dispatched' && e.internal_type === '_advance',
       );
@@ -722,7 +670,7 @@ describe('Durable Execution — Event Sourcing', () => {
       expect(resume!.sequence_id).toBeLessThan(advance!.sequence_id);
     });
 
-    test('compactEvents() on fresh runner (no events) returns 0', async () => {
+    it('compactEvents() on fresh runner (no events) returns 0', async () => {
       const eventLog = new InMemoryEventLogWriter();
       const graph: Graph = {
         id: uuidv4(),
@@ -738,5 +686,90 @@ describe('Durable Execution — Event Sourcing', () => {
       const deleted = await runner.compactEvents();
       expect(deleted).toBe(0);
     });
+  });
+});
+
+describe('recoverGraphRunner — replay fallback branches', () => {
+  async function runCompleted() {
+    const eventLog = new InMemoryEventLogWriter();
+    const graph: Graph = {
+      id: uuidv4(),
+      name: 'fallbacks',
+      nodes: [makeNode('a'), makeNode('b')],
+      edges: [makeEdge('a', 'b')],
+      start_node: 'a',
+      end_nodes: ['b'],
+    };
+    const state = makeState({
+      workflow_id: graph.id,
+      goal: 'original goal',
+      max_iterations: 9,
+      max_execution_time_ms: 111_000,
+      max_retries: 4,
+    });
+
+    await new GraphRunner(graph, state, { eventLog }).run();
+    return { eventLog, graph, runId: state.run_id };
+  }
+
+  it('seeds default limits when workflow_started carries no config', async () => {
+    const { eventLog, graph, runId } = await runCompleted();
+    const started = eventLog.getEventsForRun(runId).find(e => e.event_type === 'workflow_started')!;
+    delete (started.internal_payload as Record<string, unknown>).config;
+
+    const runner = await GraphRunner.recover(graph, runId, eventLog);
+    const recovered = runner.getState();
+
+    expect(recovered.status).toBe('completed');
+    expect(recovered.goal).toBe('');
+    expect(recovered.constraints).toEqual([]);
+    expect(recovered.max_iterations).toBe(50);
+    expect(recovered.max_execution_time_ms).toBe(3_600_000);
+    expect(recovered.max_retries).toBe(3);
+  });
+
+  it('recovers with a warning when the logged replay_version differs', async () => {
+    const { eventLog, graph, runId } = await runCompleted();
+    const started = eventLog.getEventsForRun(runId).find(e => e.event_type === 'workflow_started')!;
+    (started.internal_payload as Record<string, unknown>).replay_version = REPLAY_VERSION + 1;
+
+    const runner = await GraphRunner.recover(graph, runId, eventLog);
+
+    expect(runner.getState().status).toBe('completed');
+  });
+
+  it('falls back to action metadata and empty payloads when event fields are absent', async () => {
+    const { eventLog, graph, runId } = await runCompleted();
+    const events = eventLog.getEventsForRun(runId);
+
+    const action = events.find(e => e.event_type === 'action_dispatched')!;
+    (action as { node_id: string | null }).node_id = null;
+
+    const increment = events.find(
+      e => e.event_type === 'internal_dispatched' && e.internal_type === '_increment_iteration',
+    )!;
+    (increment as { internal_payload?: unknown }).internal_payload = undefined;
+
+    const runner = await GraphRunner.recover(graph, runId, eventLog);
+
+    expect(runner.getState().status).toBe('completed');
+    expect(runner.getState().memory.a_result).toBe('done');
+  });
+
+  it('throws when events exist but no _init dispatch is present', async () => {
+    const eventLog = new InMemoryEventLogWriter();
+    const runId = uuidv4();
+    const graph: Graph = {
+      id: uuidv4(),
+      name: 'no-init',
+      nodes: [makeNode('a')],
+      edges: [],
+      start_node: 'a',
+      end_nodes: ['a'],
+    };
+
+    await eventLog.append({ run_id: runId, sequence_id: 0, event_type: 'node_started', node_id: 'a' });
+
+    await expect(GraphRunner.recover(graph, runId, eventLog)).rejects.toThrow(/corrupted or incomplete/);
   });
 });

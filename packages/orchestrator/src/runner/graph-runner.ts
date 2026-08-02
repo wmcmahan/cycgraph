@@ -11,7 +11,7 @@
 
 import { EventEmitter } from 'events';
 import type { Graph, GraphNode, GraphEdge } from '../types/graph.js';
-import type { WorkflowState, Action, StateView } from '../types/state.js';
+import type { WorkflowState, Action } from '../types/state.js';
 import { rootReducer, internalReducer, validateAction, REPLAY_VERSION } from '../reducers/index.js';
 import { getNextNode, getCurrentNode, shouldContinue, buildEdgeMap } from './router.js';
 import { IdempotencyTracker } from './idempotency-tracker.js';
@@ -61,7 +61,7 @@ import type { SecurityPolicy } from './security-policy.js';
 import { evaluateSecurityPolicy } from './security-policy.js';
 import { computeHumanResponseOutcome, type HumanResponse } from './hitl-resume.js';
 
-// Re-export for backward compatibility — HumanResponse moved to hitl-resume.ts
+// Re-export for backward compatibility — canonical definition in hitl-resume.ts
 export type { HumanResponse } from './hitl-resume.js';
 
 // Extracted modules
@@ -563,6 +563,7 @@ export class GraphRunner extends EventEmitter {
     // Adapter object — exposes only the fields the context builder needs.
     // Property GETTERS, not snapshots, so the closures see live `this.state`,
     // `this.isStreaming`, etc.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- the object-literal getters below need the runner's `this`, not the adapter's
     const self = this;
     const adapter: ExecutorContextRunner = {
       get graph() { return self.graph; },
@@ -677,7 +678,6 @@ export class GraphRunner extends EventEmitter {
       logger.warn('runner_wiring_warning', { graph_id: this.graph.id, warning: w });
     }
 
-    // Log validation warnings
     if (validation.warnings.length > 0) {
       logger.warn('graph_validation_warnings', { warnings: validation.warnings });
     }
@@ -924,7 +924,6 @@ export class GraphRunner extends EventEmitter {
             yield { type: 'node:start', node_id: currentNode.id, node_type: currentNode.type, timestamp: nodeStartTime };
             this.emit('node:start', { node_id: currentNode.id, type: currentNode.type, timestamp: nodeStartTime });
 
-            // Drain any pending retry events from executeNodeWithRetry
             try {
               const gen = this.executeNodeAndDrainTokens(currentNode);
               let genResult = await gen.next();
@@ -1526,16 +1525,6 @@ export class GraphRunner extends EventEmitter {
 
 
   /**
-   * Persist state to the configured persistence layer and trigger
-   * auto-compaction when due. Delegates to {@link PersistenceCoordinator}.
-   *
-   * Flushes the event log FIRST — events are the snapshot's history and must
-   * never be missing for a snapshot that exists. If the flush fails (below
-   * the halt threshold) the snapshot still proceeds: the snapshot is the
-   * stronger recovery anchor, and recovery reconciles the two by taking
-   * whichever has more progress.
-   */
-  /**
    * Validate that the runner's injected dependencies match what the graph
    * needs, before execution starts. Returns hard errors (which fail the run
    * immediately) and soft warnings.
@@ -1583,6 +1572,16 @@ export class GraphRunner extends EventEmitter {
     return { errors, warnings };
   }
 
+  /**
+   * Persist state to the configured persistence layer and trigger
+   * auto-compaction when due. Delegates to {@link PersistenceCoordinator}.
+   *
+   * Flushes the event log FIRST — events are the snapshot's history and must
+   * never be missing for a snapshot that exists. If the flush fails (below
+   * the halt threshold) the snapshot still proceeds: the snapshot is the
+   * stronger recovery anchor, and recovery reconciles the two by taking
+   * whichever has more progress.
+   */
   private async persistState(): Promise<void> {
     // Stamp the snapshot with the event-log high-water mark BEFORE flushing:
     // every event with sequence_id <= this mark is durable by the time the

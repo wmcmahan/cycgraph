@@ -164,7 +164,7 @@ function sanitizeTokens(n: number): number {
  * `false`, that single bad value would permanently stop the USD budget from
  * ever enforcing again.
  *
- * @param model - Model identifier (must match a key in {@link MODEL_PRICING}).
+ * @param model - Model identifier resolved via {@link getModelPricing} (runtime overrides, then {@link MODEL_PRICING}).
  * @param inputTokens - Number of input (prompt) tokens.
  * @param outputTokens - Number of output (completion) tokens.
  * @returns Estimated cost in USD (always finite and >= 0).

@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { InMemoryMCPServerRegistry } from '../src/persistence/in-memory.js';
 import {
   registerDefaultMCPServers,
@@ -14,23 +14,22 @@ describe('Default MCP Servers', () => {
     registry = new InMemoryMCPServerRegistry();
   });
 
-  test('DEFAULT_MCP_SERVERS contains web-search and fetch', () => {
+  it('DEFAULT_MCP_SERVERS contains web-search and fetch', () => {
     expect(DEFAULT_MCP_SERVERS).toHaveLength(2);
     expect(DEFAULT_MCP_SERVERS.map(s => s.id)).toEqual(['web-search', 'fetch']);
   });
 
-  test('WEB_SEARCH_SERVER has correct structure', () => {
+  it('WEB_SEARCH_SERVER has correct structure', () => {
     expect(WEB_SEARCH_SERVER.id).toBe('web-search');
     expect(WEB_SEARCH_SERVER.transport.type).toBe('stdio');
     if (WEB_SEARCH_SERVER.transport.type === 'stdio') {
       expect(WEB_SEARCH_SERVER.transport.command).toBe('npx');
       expect(WEB_SEARCH_SERVER.transport.args).toContain('@modelcontextprotocol/server-brave-search');
-      // --silent prevents npm audit/fund messages from polluting stdio JSON-RPC
       expect(WEB_SEARCH_SERVER.transport.args).toContain('--silent');
     }
   });
 
-  test('FETCH_SERVER has correct structure', () => {
+  it('FETCH_SERVER has correct structure', () => {
     expect(FETCH_SERVER.id).toBe('fetch');
     expect(FETCH_SERVER.transport.type).toBe('stdio');
     if (FETCH_SERVER.transport.type === 'stdio') {
@@ -40,7 +39,7 @@ describe('Default MCP Servers', () => {
   });
 
   describe('registerDefaultMCPServers', () => {
-    test('registers all defaults when no options provided', async () => {
+    it('registers all defaults when no options provided', async () => {
       const registered = await registerDefaultMCPServers(registry);
 
       expect(registered).toEqual(['web-search', 'fetch']);
@@ -48,7 +47,7 @@ describe('Default MCP Servers', () => {
       expect(await registry.loadServer('fetch')).not.toBeNull();
     });
 
-    test('respects "only" filter', async () => {
+    it('respects "only" filter', async () => {
       const registered = await registerDefaultMCPServers(registry, {
         only: ['fetch'],
       });
@@ -58,7 +57,7 @@ describe('Default MCP Servers', () => {
       expect(await registry.loadServer('fetch')).not.toBeNull();
     });
 
-    test('respects "exclude" filter', async () => {
+    it('respects "exclude" filter', async () => {
       const registered = await registerDefaultMCPServers(registry, {
         exclude: ['web-search'],
       });
@@ -68,7 +67,7 @@ describe('Default MCP Servers', () => {
       expect(await registry.loadServer('fetch')).not.toBeNull();
     });
 
-    test('applies allowed_agents override', async () => {
+    it('applies allowed_agents override', async () => {
       await registerDefaultMCPServers(registry, {
         allowedAgents: ['agent-1', 'agent-2'],
       });
@@ -80,7 +79,7 @@ describe('Default MCP Servers', () => {
       expect(fetch?.allowed_agents).toEqual(['agent-1', 'agent-2']);
     });
 
-    test('applies brave_api_key override to web-search', async () => {
+    it('applies brave_api_key override to web-search', async () => {
       await registerDefaultMCPServers(registry, {
         braveApiKey: 'BSA-test-key-123',
       });
@@ -92,22 +91,18 @@ describe('Default MCP Servers', () => {
       }
     });
 
-    test('does not mutate original server entries', async () => {
+    it('does not mutate original server entries', async () => {
       await registerDefaultMCPServers(registry, {
         braveApiKey: 'BSA-override',
         allowedAgents: ['agent-x'],
       });
-
-      // Original should be unchanged: no allowed_agents applied, and no env
-      // injected (the constant deliberately carries no BRAVE_API_KEY — the
-      // key is injected only into the registered copy).
       expect(WEB_SEARCH_SERVER.allowed_agents).toBeUndefined();
       if (WEB_SEARCH_SERVER.transport.type === 'stdio') {
         expect(WEB_SEARCH_SERVER.transport.env).toBeUndefined();
       }
     });
 
-    test('only + exclude combined — exclude takes precedence', async () => {
+    it('only + exclude combined — exclude takes precedence', async () => {
       const registered = await registerDefaultMCPServers(registry, {
         only: ['web-search', 'fetch'],
         exclude: ['web-search'],
@@ -116,7 +111,7 @@ describe('Default MCP Servers', () => {
       expect(registered).toEqual(['fetch']);
     });
 
-    test('returns empty array when all servers are excluded', async () => {
+    it('returns empty array when all servers are excluded', async () => {
       const registered = await registerDefaultMCPServers(registry, {
         exclude: ['web-search', 'fetch'],
       });
@@ -125,7 +120,7 @@ describe('Default MCP Servers', () => {
       expect(await registry.listServers()).toHaveLength(0);
     });
 
-    test('is idempotent — re-registering overwrites cleanly', async () => {
+    it('is idempotent — re-registering overwrites cleanly', async () => {
       await registerDefaultMCPServers(registry);
       await registerDefaultMCPServers(registry);
 

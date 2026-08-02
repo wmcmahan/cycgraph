@@ -2,8 +2,7 @@
  * Node Executor Registry
  *
  * The single source of truth mapping each `NodeType` to the function that
- * executes it. Replaces the dispatch `switch` that used to live in
- * `GraphRunner.executeNodeLogic`.
+ * executes it. There is no dispatch `switch` — dispatch is a table lookup.
  *
  * Two payoffs from making this a `Record<NodeType, NodeExecutor>`:
  *

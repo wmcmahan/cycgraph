@@ -1,7 +1,7 @@
 /**
  * memory-differ.test.ts — computeMemoryDiff (incl. apply round-trip)
  */
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { computeMemoryDiff } from '../src/runner/memory-differ.js';
 import type { MemoryDiff } from '../src/runner/stream-events.js';
 
@@ -16,12 +16,12 @@ function applyDiff(before: Record<string, unknown>, diff: MemoryDiff | undefined
 }
 
 describe('computeMemoryDiff', () => {
-  test('returns undefined when nothing changed', () => {
+  it('returns undefined when nothing changed', () => {
     const m = { a: 1, b: 'x' };
     expect(computeMemoryDiff(m, { ...m })).toBeUndefined();
   });
 
-  test('detects added, changed, and removed keys', () => {
+  it('detects added, changed, and removed keys', () => {
     const before = { keep: 1, change: 'old', drop: true };
     const after = { keep: 1, change: 'new', add: [1, 2] };
     const diff = computeMemoryDiff(before, after)!;
@@ -31,7 +31,7 @@ describe('computeMemoryDiff', () => {
     expect(diff.values).toEqual({ add: [1, 2], change: 'new' });
   });
 
-  test('referentially-equal value is not reported as changed', () => {
+  it('referentially-equal value is not reported as changed', () => {
     const shared = { nested: true };
     expect(computeMemoryDiff({ x: shared }, { x: shared })).toBeUndefined();
   });
@@ -49,7 +49,7 @@ describe('computeMemoryDiff', () => {
     ];
 
     for (const [name, before, after] of cases) {
-      test(name, () => {
+      it(name, () => {
         const diff = computeMemoryDiff(before, after);
         expect(applyDiff(before, diff)).toEqual(after);
       });

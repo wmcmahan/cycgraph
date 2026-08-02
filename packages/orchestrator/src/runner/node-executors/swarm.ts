@@ -31,10 +31,10 @@ const logger = createLogger('runner.node.swarm');
 /**
  * Execute a swarm agent node.
  *
- * After the agent executes, checks for a `_peer_delegation` key in
- * the output. If present and valid, converts it to a `handoff` action.
- * If the handoff limit is reached, strips the delegation and returns
- * the agent's original action.
+ * After the agent executes, checks its output for a `peer_delegation`
+ * key (or the legacy `_peer_delegation`). If present and valid, converts
+ * it to a `handoff` action. If the handoff limit is reached, strips the
+ * delegation and returns the agent's original action.
  *
  * @param node - Agent node with `swarm_config`.
  * @param stateView - Filtered state view.
@@ -58,14 +58,15 @@ export async function executeSwarmAgentNode(
     peer_nodes: config.peer_nodes,
   });
 
-  // First-class state field (schema v2) — formerly `memory._swarm_handoff_count`.
+  // First-class state field (schema v2).
   const handoffCount = ctx.state.swarm_handoff_count ?? 0;
 
   const swarmView: StateView = {
     ...stateView,
-    // Rendered into the agent's prompt as `## Task Context` so the agent
-    // can see its peers and remaining handoff budget (formerly a `_`-prefixed
-    // memory key that sanitizeForPrompt stripped).
+    // Rendered into the agent's prompt as a `## Task Context` section so the
+    // agent can see its peers and remaining handoff budget. Rides the
+    // taskContext channel rather than memory keys so it survives
+    // sanitizeForPrompt (which strips `_`-prefixed memory keys).
     taskContext: {
       swarm: {
         peer_nodes: config.peer_nodes,
@@ -112,7 +113,7 @@ export async function executeSwarmAgentNode(
 
     // Omit the delegation directive from the carried memory — it has been
     // consumed by this handoff.
-    const { _peer_delegation, peer_delegation, ...outputUpdates } = updates;
+    const { _peer_delegation, peer_delegation: _peerDelegation, ...outputUpdates } = updates;
 
     return {
       id: uuidv4(),

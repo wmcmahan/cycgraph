@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { executeAgentNode } from '../src/runner/node-executors/agent.js';
 import { executeSupervisorNode } from '../src/runner/node-executors/supervisor.js';
 import { defaultModelResolver } from '../src/agent/model-resolver.js';
-import type { ModelResolver, ModelTierMap, ModelResolutionResult } from '../src/agent/model-resolver.js';
+import type { ModelTierMap } from '../src/agent/model-resolver.js';
 import type { GraphNode, Graph } from '../src/types/graph.js';
 import type { WorkflowState, StateView, Action } from '../src/types/state.js';
 import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
@@ -157,7 +157,6 @@ describe('executeAgentNode — model resolution', () => {
 
     await executeAgentNode(node, makeStateView(), 1, ctx);
 
-    // Should have called executeAgent with model_override set to the high-tier model
     expect(deps.executeAgent).toHaveBeenCalledWith(
       'agent-1',
       expect.any(Object),
@@ -176,7 +175,6 @@ describe('executeAgentNode — model resolution', () => {
         write_keys: [],
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
-        // no model_preference
       }),
     });
     const resolver = defaultModelResolver(TIER_MAP);
@@ -189,7 +187,6 @@ describe('executeAgentNode — model resolution', () => {
 
     await executeAgentNode(node, makeStateView(), 1, ctx);
 
-    // Should NOT have modelOverride in options
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
     expect(callArgs.modelOverride).toBeUndefined();
   });
@@ -207,7 +204,6 @@ describe('executeAgentNode — model resolution', () => {
     const node = makeNode({ agent_id: 'agent-1' });
     const ctx = makeCtx({
       deps,
-      // no modelResolver
     });
 
     await executeAgentNode(node, makeStateView(), 1, ctx);
@@ -258,7 +254,6 @@ describe('executeAgentNode — model resolution', () => {
     await executeAgentNode(node, makeStateView(), 1, ctx);
 
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
-    // Should have been downgraded from opus to sonnet or haiku
     expect(callArgs.modelOverride).toBeDefined();
     expect(callArgs.modelOverride).not.toBe('claude-opus-4-8');
   });
@@ -318,15 +313,11 @@ describe('executeAgentNode — model resolution', () => {
 
     await executeAgentNode(node, makeStateView(), 1, ctx);
 
-    // resolver returns null → no override → falls back to config.model
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
     expect(callArgs.modelOverride).toBeUndefined();
   });
 
   it('security: agent cannot influence resolution via memory writes', async () => {
-    // Even if the agent writes to memory._model_resolution or memory.budget_usd,
-    // the resolver reads from ctx.remainingBudgetUsd (top-level WorkflowState),
-    // not from memory
     const stateWithPoisonedMemory = makeState({
       memory: {
         _model_resolution: 'hacked',
@@ -356,8 +347,6 @@ describe('executeAgentNode — model resolution', () => {
 
     await executeAgentNode(node, makeStateView(), 1, ctx);
 
-    // Should downgrade due to tight budget (0.01 remaining),
-    // regardless of memory.budget_usd value
     const callArgs = (deps.executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4];
     expect(callArgs.modelOverride).toBeDefined();
     expect(callArgs.modelOverride).not.toBe('claude-opus-4-8');
@@ -412,7 +401,6 @@ describe('executeSupervisorNode — model resolution', () => {
         write_keys: [],
         provider: 'anthropic',
         model: 'claude-sonnet-4-6',
-        // no model_preference
       }),
     });
     const resolver = defaultModelResolver(TIER_MAP);

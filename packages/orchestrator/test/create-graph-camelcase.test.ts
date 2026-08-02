@@ -40,7 +40,6 @@ describe('createGraph camelCase authoring', () => {
     expect(node.read_keys).toEqual(['goal', 'notes']);
     expect(node.write_keys).toEqual(['draft']);
     expect(node.default_write_key).toBe('draft');
-    // Wire format carries no camelCase keys.
     expect(node).not.toHaveProperty('agentId');
     expect(node).not.toHaveProperty('readKeys');
   });
@@ -135,8 +134,6 @@ describe('createGraph camelCase authoring', () => {
   });
 
   it('createGraph still tolerates snake_case at runtime (idempotent remap)', () => {
-    // The authoring type is camelCase-only, but the runtime remap is a no-op on
-    // snake keys, so external/untyped snake callers keep working.
     const graph = createGraph({
       name: 'Snake via createGraph',
       description: '',
@@ -162,10 +159,8 @@ describe('createGraph camelCase authoring', () => {
           votingConfig: {
             voterAgentIds: ['v1', 'v2'],
             strategy: 'weighted_vote',
-            // Arbitrary user keys — must NOT be snake-cased.
             weights: { agentOne: 0.7, agentTwo: 0.3 },
           },
-          // Arbitrary user metadata — keys must be preserved.
           metadata: { camelKey: 'value', nested: { anotherCamelKey: 1 } },
         },
         {
@@ -173,7 +168,6 @@ describe('createGraph camelCase authoring', () => {
           type: 'subgraph',
           subgraphConfig: {
             subgraphId: 'child',
-            // Memory-key maps — both keys and values are user-controlled.
             inputMapping: { parentKey: 'childKey' },
             outputMapping: { childResult: 'parentResult' },
           },
@@ -217,7 +211,6 @@ describe('createGraph camelCase authoring', () => {
     const mr = graph.nodes[0].map_reduce_config!;
     expect(mr.worker_node_id).toBe('worker');
     expect(mr.max_concurrency).toBe(3);
-    // Item object keys are user data — untouched.
     expect(mr.static_items).toEqual([{ camelField: 1 }, { camelField: 2 }]);
   });
 
@@ -244,7 +237,7 @@ describe('createGraph camelCase authoring', () => {
     });
 
     const vc = graph.nodes[0].verifier_config!;
-    expect(vc.type).toBe('llm_judge'); // discriminant value preserved
+    expect(vc.type).toBe('llm_judge');
     if (vc.type === 'llm_judge') {
       expect(vc.target_key).toBe('draft');
       expect(vc.evaluator_agent_id).toBe('judge');
@@ -253,7 +246,6 @@ describe('createGraph camelCase authoring', () => {
   });
 
   it('exposes camelCase authoring types', () => {
-    // Compile-time assertion: the camelCase types are usable for authoring.
     const node: NodeConfig = {
       id: 'n',
       type: 'agent',

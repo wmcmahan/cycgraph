@@ -119,10 +119,11 @@ export class UnsupportedNodeTypeError extends CycgraphError {
 
 /**
  * Thrown when execution reaches a node that is NOT a declared end node, yet
- * has no outgoing edge whose condition matched. Previously the runner
- * silently `_complete`d here, so a typo'd filtrex condition (which evaluates
- * to `false`) or an unexpected memory shape produced a "successful" run that
- * had only executed part of the graph. Failing loud surfaces the dead-end.
+ * has no outgoing edge whose condition matched. Without this guard the runner
+ * would silently `_complete` here, so a typo'd filtrex condition (which
+ * evaluates to `false`) or an unexpected memory shape would produce a
+ * "successful" run that had only executed part of the graph. Failing loud
+ * surfaces the dead-end.
  *
  * Opt back into the legacy silent-completion behavior with
  * `GraphRunnerOptions.allowImplicitCompletion = true`.

@@ -4,7 +4,7 @@
  * Tests edge cases, malformed payloads, and boundary conditions
  * in the reducer pipeline to ensure robustness.
  */
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import {
   updateMemoryReducer,
@@ -45,7 +45,7 @@ const makeAction = (type: string, payload: Record<string, unknown>): Action => (
 
 describe('Adversarial Reducer Tests', () => {
   describe('update_memory with unusual payloads', () => {
-    test('should handle null values in updates', () => {
+    it('handles null values in updates', () => {
       const state = createBaseState();
       state.memory = { key: 'existing' };
 
@@ -57,7 +57,7 @@ describe('Adversarial Reducer Tests', () => {
       expect(newState.memory.key).toBeNull();
     });
 
-    test('should handle undefined values in updates', () => {
+    it('handles undefined values in updates', () => {
       const state = createBaseState();
       state.memory = { key: 'existing' };
 
@@ -66,11 +66,10 @@ describe('Adversarial Reducer Tests', () => {
       });
 
       const newState = updateMemoryReducer(state, action);
-      // undefined spread still sets the key
       expect('key' in newState.memory).toBe(true);
     });
 
-    test('should handle array values in updates', () => {
+    it('handles array values in updates', () => {
       const state = createBaseState();
 
       const action = makeAction('update_memory', {
@@ -82,7 +81,7 @@ describe('Adversarial Reducer Tests', () => {
       expect(newState.memory.nested).toEqual({ a: [true] });
     });
 
-    test('should handle empty updates object', () => {
+    it('handles empty updates object', () => {
       const state = createBaseState();
       state.memory = { existing: 'value' };
 
@@ -92,11 +91,10 @@ describe('Adversarial Reducer Tests', () => {
 
       const newState = updateMemoryReducer(state, action);
       expect(newState.memory.existing).toBe('value');
-      // updated_at should still change (reducer always updates timestamp)
       expect(newState.updated_at).not.toBe(state.updated_at);
     });
 
-    test('should handle large number of keys without crashing', () => {
+    it('handles large number of keys without crashing', () => {
       const state = createBaseState();
       const updates: Record<string, unknown> = {};
       for (let i = 0; i < 10_000; i++) {
@@ -113,7 +111,7 @@ describe('Adversarial Reducer Tests', () => {
   });
 
   describe('handoff with missing fields', () => {
-    test('should reject missing supervisor_id with typed payload validation', () => {
+    it('rejects missing supervisor_id with typed payload validation', () => {
       const state = createBaseState();
 
       const action = makeAction('handoff', {
@@ -121,11 +119,10 @@ describe('Adversarial Reducer Tests', () => {
         reasoning: 'test',
       });
 
-      // Typed payload schemas now reject malformed payloads (item 1.1)
       expect(() => handoffReducer(state, action)).toThrow();
     });
 
-    test('should reject missing reasoning with typed payload validation', () => {
+    it('rejects missing reasoning with typed payload validation', () => {
       const state = createBaseState();
 
       const action = makeAction('handoff', {
@@ -133,21 +130,20 @@ describe('Adversarial Reducer Tests', () => {
         supervisor_id: 'sup',
       });
 
-      // Typed payload schemas now reject malformed payloads (item 1.1)
       expect(() => handoffReducer(state, action)).toThrow();
     });
   });
 
   describe('unknown action type', () => {
-    test('rootReducer should return state unchanged for unknown type', () => {
+    it('rootReducer should return state unchanged for unknown type', () => {
       const state = createBaseState();
       const action = makeAction('completely_unknown_type', { data: 'test' });
 
       const newState = rootReducer(state, action);
-      expect(newState).toBe(state); // Same reference — no reducer matched
+      expect(newState).toBe(state);
     });
 
-    test('internalReducer should return state unchanged for unknown type', () => {
+    it('internalReducer should return state unchanged for unknown type', () => {
       const state = createBaseState();
       const action = makeAction('_unknown_internal', { data: 'test' });
 
@@ -157,7 +153,7 @@ describe('Adversarial Reducer Tests', () => {
   });
 
   describe('_init idempotency', () => {
-    test('should be idempotent when called twice (non-resume)', () => {
+    it('is idempotent when called twice (non-resume)', () => {
       const state = createBaseState();
       state.status = 'pending';
 
@@ -168,17 +164,15 @@ describe('Adversarial Reducer Tests', () => {
       expect(state1.current_node).toBe('start');
       expect(state1.visited_nodes).toEqual(['start']);
 
-      // Second _init with same start_node
       const action2 = makeAction('_init', { start_node: 'start' });
       const state2 = internalReducer(state1, action2);
 
       expect(state2.status).toBe('running');
       expect(state2.current_node).toBe('start');
-      // visited_nodes accumulates (not deduplicated)
       expect(state2.visited_nodes).toEqual(['start', 'start']);
     });
 
-    test('_init with resume=true should not change current_node', () => {
+    it('_init with resume=true should not change current_node', () => {
       const state = createBaseState();
       state.status = 'waiting';
       state.current_node = 'paused_node';
@@ -188,13 +182,13 @@ describe('Adversarial Reducer Tests', () => {
       const newState = internalReducer(state, action);
 
       expect(newState.status).toBe('running');
-      expect(newState.current_node).toBe('paused_node'); // Unchanged
-      expect(newState.visited_nodes).toEqual(['start', 'paused_node']); // Unchanged
+      expect(newState.current_node).toBe('paused_node');
+      expect(newState.visited_nodes).toEqual(['start', 'paused_node']);
     });
   });
 
   describe('validateAction edge cases', () => {
-    test('should reject with empty write_keys (deny all)', () => {
+    it('rejects with empty write_keys (deny all)', () => {
       const action = makeAction('update_memory', {
         updates: { key: 'value' },
       });
@@ -202,17 +196,17 @@ describe('Adversarial Reducer Tests', () => {
       expect(validateAction(action, [])).toBe(false);
     });
 
-    test('should reject set_status with empty write_keys', () => {
+    it('rejects set_status with empty write_keys', () => {
       const action = makeAction('set_status', { status: 'completed' });
       expect(validateAction(action, [])).toBe(false);
     });
 
-    test('should reject goto_node with empty write_keys', () => {
+    it('rejects goto_node with empty write_keys', () => {
       const action = makeAction('goto_node', { node_id: 'next' });
       expect(validateAction(action, [])).toBe(false);
     });
 
-    test('should reject handoff with empty write_keys', () => {
+    it('rejects handoff with empty write_keys', () => {
       const action = makeAction('handoff', {
         node_id: 'worker',
         supervisor_id: 'sup',
@@ -221,20 +215,10 @@ describe('Adversarial Reducer Tests', () => {
       expect(validateAction(action, [])).toBe(false);
     });
 
-    test('should handle update_memory with undefined updates gracefully', () => {
+    it('rejects an update_memory action whose payload is missing updates', () => {
       const action = makeAction('update_memory', {});
 
-      // Object.keys(undefined) would throw, but payload.updates is undefined
-      // The reducer casts it: action.payload.updates as Record<string, unknown>
-      // Object.keys(undefined as any) throws — this is an edge case
-      // validateAction should handle this without crashing
-      try {
-        const result = validateAction(action, ['*']);
-        // If it doesn't throw, it should reject (no keys to validate)
-        expect(typeof result).toBe('boolean');
-      } catch {
-        // Acceptable — undefined updates is a malformed payload
-      }
+      expect(() => validateAction(action, ['*'])).toThrow();
     });
   });
 });

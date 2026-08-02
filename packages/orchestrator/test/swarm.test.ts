@@ -1,7 +1,11 @@
-import { describe, test, expect, vi } from 'vitest';
+/**
+ * executeSwarmAgentNode — peer-delegation agent node.
+ *
+ * Covers the GraphRunner-integrated handoff lifecycle and the direct
+ * option-forwarding branches (model override, default write key).
+ */
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-
-// ─── Mocks ────────────────────────────────────────────────────────
 
 vi.mock('@ai-sdk/openai', () => ({ openai: vi.fn((m: string) => ({ provider: 'openai', modelId: m })) }));
 vi.mock('@ai-sdk/anthropic', () => ({ anthropic: vi.fn((m: string) => ({ provider: 'anthropic', modelId: m })) }));
@@ -27,9 +31,8 @@ vi.mock('@opentelemetry/api', () => ({
 
 let delegateTarget: string | null = null;
 vi.mock('../src/agent/agent-executor/executor', () => ({
-  executeAgent: vi.fn(async (agentId: string, stateView: any, _t: any, attempt: number) => {
+  executeAgent: vi.fn(async (agentId: string, _stateView: any, _t: any, attempt: number) => {
     const updates: Record<string, unknown> = { [`${agentId}_result`]: 'done' };
-    // Simulate delegation if configured
     if (delegateTarget) {
       updates._peer_delegation = {
         peer_node_id: delegateTarget,
@@ -70,10 +73,10 @@ vi.mock('../src/utils/tracing', () => ({
 }));
 
 import { GraphRunner } from '../src/runner/graph-runner.js';
-import type { Graph } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
-
-// ─── Helpers ──────────────────────────────────────────────────────
+import { executeSwarmAgentNode } from '../src/runner/node-executors/swarm.js';
+import type { Graph, GraphNode } from '../src/types/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/types/state.js';
+import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
 
 const createState = (): WorkflowState => ({
   workflow_id: uuidv4(),
@@ -104,11 +107,7 @@ const createSwarmGraph = (maxHandoffs = 10): Graph => ({
       id: 'agent-a',
       type: 'agent',
       agent_id: 'swarm-a',
-      swarm_config: {
-        peer_nodes: ['agent-b'],
-        max_handoffs: maxHandoffs,
-        handoff_mode: 'agent_choice',
-      },
+      swarm_config: { peer_nodes: ['agent-b'], max_handoffs: maxHandoffs, handoff_mode: 'agent_choice' },
       read_keys: ['*'],
       write_keys: ['*', 'control_flow'],
       failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 100, max_backoff_ms: 100 },
@@ -118,11 +117,7 @@ const createSwarmGraph = (maxHandoffs = 10): Graph => ({
       id: 'agent-b',
       type: 'agent',
       agent_id: 'swarm-b',
-      swarm_config: {
-        peer_nodes: ['agent-a'],
-        max_handoffs: maxHandoffs,
-        handoff_mode: 'agent_choice',
-      },
+      swarm_config: { peer_nodes: ['agent-a'], max_handoffs: maxHandoffs, handoff_mode: 'agent_choice' },
       read_keys: ['*'],
       write_keys: ['*', 'control_flow'],
       failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 100, max_backoff_ms: 100 },
@@ -137,91 +132,150 @@ const createSwarmGraph = (maxHandoffs = 10): Graph => ({
   end_nodes: ['agent-a', 'agent-b'],
 });
 
-// ─── Tests ────────────────────────────────────────────────────────
+describe('executeSwarmAgentNode', () => {
+  describe('via GraphRunner', () => {
+    it('executes normally when no delegation is requested', async () => {
+      delegateTarget = null;
+      const runner = new GraphRunner(createSwarmGraph(), createState());
 
-describe('Swarm', () => {
-  test('should execute normally when no delegation requested', async () => {
-    delegateTarget = null;
+      const finalState = await runner.run();
 
-    const graph = createSwarmGraph();
-    const state = createState();
+      expect(finalState.status).toBe('completed');
+      expect(finalState.memory['swarm-a_result']).toBe('done');
+    });
 
-    const runner = new GraphRunner(graph, state);
-    const finalState = await runner.run();
+    it('hands off to a peer when the agent delegates', async () => {
+      delegateTarget = 'agent-b';
+      const runner = new GraphRunner(createSwarmGraph(), createState());
 
-    expect(finalState.status).toBe('completed');
-    expect(finalState.memory['swarm-a_result']).toBe('done');
+      const finalState = await runner.run();
+
+      expect(finalState.visited_nodes).toContain('agent-b');
+      expect(finalState.supervisor_history.length).toBeGreaterThan(0);
+    });
+
+    it('rejects a handoff to a non-peer node', async () => {
+      delegateTarget = 'agent-c';
+      const runner = new GraphRunner(createSwarmGraph(), createState());
+
+      await expect(runner.run()).rejects.toThrow('valid peer');
+    });
+
+    it('stops delegating once max_handoffs is reached', async () => {
+      delegateTarget = 'agent-b';
+      const state = createState();
+      state.swarm_handoff_count = 1;
+      const runner = new GraphRunner(createSwarmGraph(1), state);
+
+      const finalState = await runner.run();
+
+      expect(finalState.status).toBe('completed');
+    });
+
+    it('lands the incremented handoff count in state', async () => {
+      delegateTarget = 'agent-b';
+      const runner = new GraphRunner(createSwarmGraph(), createState());
+
+      const finalState = await runner.run();
+
+      expect(finalState.supervisor_history.length).toBeGreaterThan(0);
+      expect(finalState.swarm_handoff_count as number).toBeGreaterThanOrEqual(1);
+    });
+
+    it('injects swarm peer context into the agent taskContext', async () => {
+      delegateTarget = null;
+      const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+      (executeAgent as any).mockClear();
+      const runner = new GraphRunner(createSwarmGraph(), createState());
+
+      await runner.run();
+
+      const stateView = (executeAgent as any).mock.calls[0][1];
+      expect(stateView.taskContext?.swarm).toBeDefined();
+      expect(stateView.taskContext?.swarm.peer_nodes).toContain('agent-b');
+    });
   });
 
-  test('should handoff to peer when agent delegates', async () => {
-    delegateTarget = 'agent-b';
+  describe('option forwarding', () => {
+    const makeNode = (overrides: Partial<GraphNode> = {}): GraphNode => ({
+      id: 'swarm-node',
+      type: 'agent',
+      agent_id: 'swarm-agent',
+      swarm_config: { peer_nodes: ['peer'], max_handoffs: 5, handoff_mode: 'agent_choice' },
+      read_keys: ['*'],
+      write_keys: ['*'],
+      failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 100, max_backoff_ms: 100 },
+      requires_compensation: false,
+      ...overrides,
+    } as GraphNode);
 
-    const graph = createSwarmGraph();
-    const state = createState();
+    const makeStateView = (): StateView => ({
+      workflow_id: 'wf-1', run_id: 'run-1', goal: 'g', constraints: [], memory: {},
+    });
 
-    const runner = new GraphRunner(graph, state);
-    const finalState = await runner.run();
+    const makeAction = (): Action => ({
+      id: 'act-1',
+      idempotency_key: 'idem-1',
+      type: 'update_memory',
+      payload: { updates: { swarm_result: 'done' } },
+      metadata: { node_id: 'swarm-node', timestamp: new Date(), attempt: 1 },
+    });
 
-    // Should have visited agent-b via handoff
-    expect(finalState.visited_nodes).toContain('agent-b');
-    expect(finalState.supervisor_history.length).toBeGreaterThan(0);
-  });
+    const makeDeps = (overrides: Partial<ExecutorDependencies> = {}): ExecutorDependencies => ({
+      executeAgent: vi.fn().mockResolvedValue(makeAction()),
+      executeSupervisor: vi.fn(),
+      evaluateQualityExecutor: vi.fn(),
+      resolveTools: vi.fn().mockResolvedValue({}),
+      loadAgent: vi.fn().mockResolvedValue({ tools: [], write_keys: [], provider: 'anthropic', model: 'claude-sonnet-4-6' }),
+      getTaintRegistry: vi.fn().mockReturnValue({}),
+      ...overrides,
+    });
 
-  test('should reject handoff to non-peer node', async () => {
-    delegateTarget = 'agent-c'; // Not a peer
+    const makeCtx = (overrides: Partial<NodeExecutorContext> = {}): NodeExecutorContext => ({
+      state: { ...createState(), swarm_handoff_count: 0 },
+      graph: { id: 'g-1', name: 'Test', nodes: [], edges: [], start_node: 'start', metadata: {} } as any,
+      createStateView: () => makeStateView(),
+      deps: makeDeps(),
+      ...overrides,
+    });
 
-    const graph = createSwarmGraph();
-    const state = createState();
+    it('forwards a resolved modelOverride to executeAgent', async () => {
+      const deps = makeDeps({
+        loadAgent: vi.fn().mockResolvedValue({
+          tools: [], write_keys: [], provider: 'anthropic', model: 'claude-sonnet-4-6', model_preference: 'high',
+        }),
+      });
+      const ctx = makeCtx({
+        deps,
+        modelResolver: (() => ({ model: 'claude-opus-4-8', reason: 'high-tier' })) as any,
+        remainingBudgetUsd: 100,
+      });
 
-    const runner = new GraphRunner(graph, state);
-    await expect(runner.run()).rejects.toThrow('valid peer');
-  });
+      await executeSwarmAgentNode(makeNode(), makeStateView(), 1, ctx);
 
-  test('should stop delegating when max_handoffs reached', async () => {
-    // Set max_handoffs to 1 and always try to delegate
-    delegateTarget = 'agent-b';
+      const callArgs = (deps.executeAgent as any).mock.calls[0][4];
+      expect(callArgs.modelOverride).toBe('claude-opus-4-8');
+    });
 
-    const graph = createSwarmGraph(1);
-    const state = createState();
-    state.swarm_handoff_count = 1; // Already at max
+    it('forwards default_write_key as defaultWriteKey', async () => {
+      const deps = makeDeps();
+      const ctx = makeCtx({ deps });
 
-    const runner = new GraphRunner(graph, state);
-    const finalState = await runner.run();
+      await executeSwarmAgentNode(makeNode({ default_write_key: 'summary' }), makeStateView(), 1, ctx);
 
-    // Should complete without further handoff
-    expect(finalState.status).toBe('completed');
-  });
+      const callArgs = (deps.executeAgent as any).mock.calls[0][4];
+      expect(callArgs.defaultWriteKey).toBe('summary');
+    });
 
-  test('should increment handoff count in memory', async () => {
-    delegateTarget = 'agent-b';
+    it('omits both options when neither model_preference nor default_write_key is set', async () => {
+      const deps = makeDeps();
+      const ctx = makeCtx({ deps });
 
-    const graph = createSwarmGraph();
-    const state = createState();
+      await executeSwarmAgentNode(makeNode(), makeStateView(), 1, ctx);
 
-    const runner = new GraphRunner(graph, state);
-    const finalState = await runner.run();
-
-    const handoffHistory = finalState.supervisor_history;
-    expect(handoffHistory.length).toBeGreaterThan(0);
-    // The handoff's memory_updates must actually land in memory — this is
-    // what makes max_handoffs enforceable across handoffs.
-    expect(finalState.swarm_handoff_count as number).toBeGreaterThanOrEqual(1);
-  });
-
-  test('should inject swarm context into agent taskContext', async () => {
-    delegateTarget = null;
-    const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
-    (executeAgent as any).mockClear();
-
-    const graph = createSwarmGraph();
-    const state = createState();
-
-    const runner = new GraphRunner(graph, state);
-    await runner.run();
-
-    const firstCall = (executeAgent as any).mock.calls[0];
-    const stateView = firstCall[1];
-    expect(stateView.taskContext?.swarm).toBeDefined();
-    expect(stateView.taskContext?.swarm.peer_nodes).toContain('agent-b');
+      const callArgs = (deps.executeAgent as any).mock.calls[0][4];
+      expect(callArgs.modelOverride).toBeUndefined();
+      expect(callArgs.defaultWriteKey).toBeUndefined();
+    });
   });
 });

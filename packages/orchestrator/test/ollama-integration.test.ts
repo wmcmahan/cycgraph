@@ -112,7 +112,6 @@ describe('Ollama integration (end-to-end)', () => {
   beforeEach(() => {
     factoryCalls = [];
 
-    // Set up provider registry with Ollama
     providerRegistry = new ProviderRegistry();
     registerOllamaProvider(
       providerRegistry,
@@ -122,14 +121,11 @@ describe('Ollama integration (end-to-end)', () => {
       },
     );
 
-    // Set up agent registry
     agentRegistry = new InMemoryAgentRegistry();
 
-    // Configure the global singleton (used by executeAgent)
     configureAgentFactory(agentRegistry);
     configureProviderRegistry(providerRegistry);
 
-    // Mock streamText
     vi.mocked(streamText).mockReturnValue(mockStreamTextResult() as any);
   });
 
@@ -154,7 +150,6 @@ describe('Ollama integration (end-to-end)', () => {
       },
     });
 
-    // Load agent config and resolve model
     const config = await agentFactory.loadAgent(agentId);
     expect(config.provider).toBe('ollama');
     expect(config.model).toBe('qwen2.5:7b');
@@ -193,23 +188,19 @@ describe('Ollama integration (end-to-end)', () => {
       { node_id: 'research' },
     );
 
-    // Action should contain the memory update from save_to_memory tool call
     expect(action).toBeDefined();
     expect(action.type).toBe('update_memory');
     expect(action.metadata.agent_id).toBe(agentId);
     expect(action.metadata.model).toBe('qwen2.5:7b');
 
-    // Verify streamText was called with the Ollama model
     expect(streamText).toHaveBeenCalledTimes(1);
     const call = vi.mocked(streamText).mock.calls[0]![0] as any;
     expect(call.model).toEqual(stubModel('qwen2.5:7b'));
   });
 
   it('Ollama provider coexists with built-in providers', async () => {
-    // Add built-in providers alongside Ollama
     registerBuiltInProviders(providerRegistry);
 
-    // Register two agents: one Ollama, one would-be Anthropic
     const ollamaAgentId = agentRegistry.register({
       name: 'Ollama Agent',
       description: 'Local agent',
@@ -227,14 +218,12 @@ describe('Ollama integration (end-to-end)', () => {
     expect(ollamaModel).toBeDefined();
     expect(factoryCalls[0]!.modelId).toBe('qwen2.5:7b');
 
-    // Verify both providers are registered
     expect(providerRegistry.has('ollama')).toBe(true);
     expect(providerRegistry.has('openai')).toBe(true);
     expect(providerRegistry.has('anthropic')).toBe(true);
   });
 
   it('uses custom base URL from options', async () => {
-    // Re-create provider registry with custom URL
     providerRegistry = new ProviderRegistry();
     registerOllamaProvider(
       providerRegistry,

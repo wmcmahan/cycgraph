@@ -131,9 +131,10 @@ export type FailurePolicy = z.infer<typeof FailurePolicySchema>;
 /**
  * Per-node resource caps. Enforced after each successful node execution.
  *
- * When a cap is exceeded, the runner throws a `NodeBudgetExceededError`
- * that flows through the node's `failure_policy` like any other failure
- * — retries kick in if configured, otherwise the workflow fails fast.
+ * When a cap is exceeded, the runner persists a failed state and throws
+ * `NodeBudgetExceededError` — no retry, since a retry would just compound
+ * the spend (`failure_policy` is not consulted). See
+ * `runner/execution-accounting.ts`.
  *
  * Separate from the workflow-level `budget_usd` / `max_token_budget` on
  * `WorkflowState`: those guard the run as a whole; this guards a single
@@ -755,8 +756,8 @@ export const GraphNodeSchema = z.object({
   }),
   /**
    * Per-node resource caps (tokens / cost). Enforced after each successful
-   * node execution — exceeding a cap throws `NodeBudgetExceededError` and
-   * engages `failure_policy` retry like any other failure.
+   * node execution — exceeding a cap persists a failed state and throws
+   * `NodeBudgetExceededError` with no retry (`failure_policy` is bypassed).
    */
   budget: NodeBudgetSchema.optional(),
   /** Whether this node pushes a compensating action for saga rollback. */

@@ -81,8 +81,8 @@ function filterInternalKeys(
  * Build a memory object containing only the specified keys.
  *
  * Supports dot-notation for nested access (e.g. `'user.name'` returns
- * `{ user: { name: '...' } }`). Keys without dots behave as before
- * (backward compatible).
+ * `{ user: { name: '...' } }`). Keys without dots select the matching
+ * top-level memory entry by exact name.
  */
 function filterMemory(
   memory: Record<string, unknown>,

@@ -470,7 +470,8 @@ export const requestHumanInputReducer: Reducer = (state, action) => {
  * Resume the workflow after human input is received.
  *
  * Clears waiting state and merges the human's response, decision,
- * and any additional memory updates. Removes `_pending_approval`.
+ * and any additional memory updates. Clears the first-class
+ * `pending_approval` field.
  *
  * Action type: `resume_from_human`
  * Payload: `{ response: unknown, decision: unknown, memory_updates?: Record<string, unknown> }`

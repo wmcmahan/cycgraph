@@ -94,6 +94,7 @@ export async function assertHostResolvesPublic(rawUrl: string, serverId: string)
     // Resolution failed/timed out — fail closed rather than connect blind.
     throw new Error(
       `MCP server "${serverId}" host "${host}" could not be resolved for SSRF validation: ${(err as Error).message}`,
+      { cause: err },
     );
   }
 

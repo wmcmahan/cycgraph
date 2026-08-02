@@ -88,9 +88,6 @@ describe('ProviderRegistry', () => {
       const resolver = vi.fn((id: string) => stubModel(id));
       registry.register('custom', resolver, { models: ['known-model'] });
 
-      // A model not in the known list is almost always a typo or a
-      // decommissioned id — fail loudly before any token spend rather than
-      // letting the provider SDK silently substitute or error mid-stream.
       expect(() => registry.resolveModel('custom', 'unknown-model')).toThrow(
         /Unknown model "unknown-model"/,
       );
@@ -201,7 +198,6 @@ describe('ProviderRegistry', () => {
 
     it('does not duplicate existing models', () => {
       registry.addModel('openai', 'gpt-4o');
-      // inferProvider still works (no duplicate issues)
       expect(registry.inferProvider('gpt-4o')).toBe('openai');
     });
 

@@ -19,7 +19,7 @@
  * @module utils/tracing
  */
 
-import { trace, type Tracer, type Span, SpanStatusCode, context } from '@opentelemetry/api';
+import { trace, type Tracer, type Span, SpanStatusCode } from '@opentelemetry/api';
 import { initMetrics } from './metrics.js';
 
 let initialized = false;

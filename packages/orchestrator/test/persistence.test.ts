@@ -9,8 +9,6 @@ import {
 import type { WorkflowState } from '../src/types/state.js';
 import type { Graph } from '../src/types/graph.js';
 
-// ─── Fixtures ──────────────────────────────────────────────────────────────
-
 function createWorkflowState(overrides?: Partial<WorkflowState>): WorkflowState {
   return {
     workflow_id: uuidv4(),
@@ -58,8 +56,6 @@ function createGraph(overrides?: Partial<Graph>): Graph {
   };
 }
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
 describe('InMemoryPersistenceProvider', () => {
   let provider: InMemoryPersistenceProvider;
 
@@ -67,10 +63,8 @@ describe('InMemoryPersistenceProvider', () => {
     provider = new InMemoryPersistenceProvider();
   });
 
-  // ── Graph Operations ──
-
   describe('Graph Operations', () => {
-    it('should save and load a graph', async () => {
+    it('saves and loads a graph', async () => {
       const graph = createGraph();
       await provider.saveGraph(graph);
 
@@ -80,16 +74,15 @@ describe('InMemoryPersistenceProvider', () => {
       expect(loaded!.name).toBe(graph.name);
     });
 
-    it('should return null for unknown graph ID', async () => {
+    it('returns null for unknown graph ID', async () => {
       const loaded = await provider.loadGraph('nonexistent');
       expect(loaded).toBeNull();
     });
 
-    it('should list graphs sorted by updated_at descending', async () => {
+    it('list graphs sorted by updated_at descending', async () => {
       const graph1 = createGraph({ name: 'Graph A' });
       await provider.saveGraph(graph1);
 
-      // Ensure different timestamp
       await new Promise(r => setTimeout(r, 5));
 
       const graph2 = createGraph({ name: 'Graph B' });
@@ -97,11 +90,10 @@ describe('InMemoryPersistenceProvider', () => {
 
       const list = await provider.listGraphs();
       expect(list.length).toBe(2);
-      // Most recently saved should be first
       expect(list[0].name).toBe('Graph B');
     });
 
-    it('should support limit and offset in listGraphs', async () => {
+    it('supports limit and offset in listGraphs', async () => {
       for (let i = 0; i < 5; i++) {
         await provider.saveGraph(createGraph({ name: `Graph ${i}` }));
       }
@@ -113,7 +105,7 @@ describe('InMemoryPersistenceProvider', () => {
       expect(page2.length).toBe(2);
     });
 
-    it('should upsert graph on re-save', async () => {
+    it('upserts a graph on re-save', async () => {
       const graph = createGraph({ name: 'Original' });
       await provider.saveGraph(graph);
       await provider.saveGraph({ ...graph, name: 'Updated' });
@@ -124,12 +116,27 @@ describe('InMemoryPersistenceProvider', () => {
       const loaded = await provider.loadGraph(graph.id);
       expect(loaded!.name).toBe('Updated');
     });
+
+    it('stores a null description when the graph has none', async () => {
+      const graph = createGraph({ description: undefined });
+      await provider.saveGraph(graph);
+
+      const list = await provider.listGraphs();
+      expect(list[0].description).toBeNull();
+    });
+
+    it('deletes a graph and reports whether it existed', async () => {
+      const graph = createGraph();
+      await provider.saveGraph(graph);
+
+      expect(await provider.deleteGraph(graph.id)).toBe(true);
+      expect(await provider.loadGraph(graph.id)).toBeNull();
+      expect(await provider.deleteGraph(graph.id)).toBe(false);
+    });
   });
 
-  // ── Workflow Run Operations ──
-
   describe('Workflow Run Operations', () => {
-    it('should save and load a workflow run', async () => {
+    it('saves and loads a workflow run', async () => {
       const state = createWorkflowState();
       await provider.saveWorkflowRun(state);
 
@@ -139,12 +146,12 @@ describe('InMemoryPersistenceProvider', () => {
       expect(run!.status).toBe('running');
     });
 
-    it('should return null for unknown run ID', async () => {
+    it('returns null for unknown run ID', async () => {
       const run = await provider.loadWorkflowRun('nonexistent');
       expect(run).toBeNull();
     });
 
-    it('should set completed_at for terminal statuses', async () => {
+    it('sets completed_at for terminal statuses', async () => {
       const state = createWorkflowState({ status: 'completed' });
       await provider.saveWorkflowRun(state);
 
@@ -152,7 +159,7 @@ describe('InMemoryPersistenceProvider', () => {
       expect(run!.completed_at).not.toBeNull();
     });
 
-    it('should not set completed_at for non-terminal statuses', async () => {
+    it('does not set completed_at for non-terminal statuses', async () => {
       const state = createWorkflowState({ status: 'running' });
       await provider.saveWorkflowRun(state);
 
@@ -160,7 +167,37 @@ describe('InMemoryPersistenceProvider', () => {
       expect(run!.completed_at).toBeNull();
     });
 
-    it('should list runs sorted by created_at descending', async () => {
+    it('preserves the original created_at across re-saves', async () => {
+      const created = new Date('2026-02-02T02:02:02Z');
+      const state = createWorkflowState({ status: 'running', created_at: created });
+      await provider.saveWorkflowRun(state);
+      await provider.saveWorkflowRun({ ...state, status: 'completed' });
+
+      const run = await provider.loadWorkflowRun(state.run_id);
+      expect(run!.created_at).toEqual(created);
+    });
+
+    it('stamps a created_at when the state carries none', async () => {
+      const state = createWorkflowState({ status: 'running', created_at: undefined as unknown as Date });
+      await provider.saveWorkflowRun(state);
+
+      const run = await provider.loadWorkflowRun(state.run_id);
+      expect(run!.created_at).toBeInstanceOf(Date);
+    });
+
+    it('clears completed_at when a run moves back to a non-terminal status', async () => {
+      const state = createWorkflowState({ status: 'completed' });
+      await provider.saveWorkflowRun(state);
+
+      const affected = await provider.updateRunStatus(state.run_id, 'running');
+      expect(affected).toBe(1);
+
+      const run = await provider.loadWorkflowRun(state.run_id);
+      expect(run!.status).toBe('running');
+      expect(run!.completed_at).toBeNull();
+    });
+
+    it('lists runs sorted by created_at descending', async () => {
       const state1 = createWorkflowState();
       const state2 = createWorkflowState();
       await provider.saveWorkflowRun(state1);
@@ -170,7 +207,7 @@ describe('InMemoryPersistenceProvider', () => {
       expect(runs.length).toBe(2);
     });
 
-    it('should update run status', async () => {
+    it('updates run status', async () => {
       const state = createWorkflowState({ status: 'running' });
       await provider.saveWorkflowRun(state);
 
@@ -182,16 +219,14 @@ describe('InMemoryPersistenceProvider', () => {
       expect(run!.completed_at).not.toBeNull();
     });
 
-    it('should return 0 when updating nonexistent run', async () => {
+    it('returns 0 when updating nonexistent run', async () => {
       const affected = await provider.updateRunStatus('nonexistent', 'completed');
       expect(affected).toBe(0);
     });
   });
 
-  // ── Workflow State Operations ──
-
   describe('Workflow State Operations', () => {
-    it('should save and load latest workflow state', async () => {
+    it('saves and loads the latest workflow state', async () => {
       const state = createWorkflowState();
       await provider.saveWorkflowState(state);
 
@@ -201,12 +236,12 @@ describe('InMemoryPersistenceProvider', () => {
       expect(loaded!.status).toBe(state.status);
     });
 
-    it('should return null for unknown run ID', async () => {
+    it('returns null for unknown run ID', async () => {
       const loaded = await provider.loadLatestWorkflowState('nonexistent');
       expect(loaded).toBeNull();
     });
 
-    it('should auto-increment versions', async () => {
+    it('auto-increments versions', async () => {
       const state = createWorkflowState();
       await provider.saveWorkflowState(state);
       await provider.saveWorkflowState({ ...state, status: 'completed' });
@@ -217,7 +252,26 @@ describe('InMemoryPersistenceProvider', () => {
       expect(history[1].version).toBe(2);
     });
 
-    it('should load latest version when multiple exist', async () => {
+    it('returns empty history for an unknown run', async () => {
+      const history = await provider.loadWorkflowStateHistory('nonexistent');
+      expect(history).toEqual([]);
+    });
+
+    it('maps absent current_node and total_tokens_used to null in history', async () => {
+      const state = createWorkflowState({ current_node: undefined, total_tokens_used: undefined as unknown as number });
+      await provider.saveWorkflowState(state);
+
+      const history = await provider.loadWorkflowStateHistory(state.run_id);
+      expect(history[0].current_node).toBeNull();
+      expect(history[0].total_tokens_used).toBeNull();
+    });
+
+    it('returns null when loading a version for an unknown run', async () => {
+      const loaded = await provider.loadWorkflowStateAtVersion('nonexistent', 1);
+      expect(loaded).toBeNull();
+    });
+
+    it('loads latest version when multiple exist', async () => {
       const state = createWorkflowState();
       await provider.saveWorkflowState({ ...state, status: 'running' });
       await provider.saveWorkflowState({ ...state, status: 'completed' });
@@ -226,7 +280,7 @@ describe('InMemoryPersistenceProvider', () => {
       expect(latest!.status).toBe('completed');
     });
 
-    it('should load state at specific version', async () => {
+    it('loads state at a specific version', async () => {
       const state = createWorkflowState();
       await provider.saveWorkflowState({ ...state, status: 'pending' });
       await provider.saveWorkflowState({ ...state, status: 'running' });
@@ -243,7 +297,7 @@ describe('InMemoryPersistenceProvider', () => {
       expect(v3!.status).toBe('completed');
     });
 
-    it('should return null for nonexistent version', async () => {
+    it('returns null for nonexistent version', async () => {
       const state = createWorkflowState();
       await provider.saveWorkflowState(state);
 
@@ -251,7 +305,7 @@ describe('InMemoryPersistenceProvider', () => {
       expect(loaded).toBeNull();
     });
 
-    it('should support limit and offset in state history', async () => {
+    it('supports limit and offset in state history', async () => {
       const state = createWorkflowState();
       for (let i = 0; i < 5; i++) {
         await provider.saveWorkflowState({ ...state, iteration_count: i });
@@ -263,11 +317,10 @@ describe('InMemoryPersistenceProvider', () => {
       expect(page[1].version).toBe(3);
     });
 
-    it('should deep-copy state on save (no reference sharing)', async () => {
+    it('deep-copies state on save (no reference sharing)', async () => {
       const state = createWorkflowState();
       await provider.saveWorkflowState(state);
 
-      // Mutate original after saving
       state.memory.mutated = true;
 
       const loaded = await provider.loadLatestWorkflowState(state.run_id);
@@ -275,19 +328,15 @@ describe('InMemoryPersistenceProvider', () => {
     });
   });
 
-  // ── Event Operations ──
-
   describe('Event Operations', () => {
-    it('should return empty array for unknown run', async () => {
+    it('returns empty array for unknown run', async () => {
       const events = await provider.loadEvents('nonexistent');
       expect(events).toEqual([]);
     });
   });
 
-  // ── Clear ──
-
   describe('clear', () => {
-    it('should clear all stored data', async () => {
+    it('clears all stored data', async () => {
       const graph = createGraph();
       const state = createWorkflowState();
 
@@ -304,8 +353,6 @@ describe('InMemoryPersistenceProvider', () => {
   });
 });
 
-// ─── InMemoryAgentRegistry ─────────────────────────────────────────────────
-
 describe('InMemoryAgentRegistry', () => {
   let registry: InMemoryAgentRegistry;
 
@@ -313,12 +360,12 @@ describe('InMemoryAgentRegistry', () => {
     registry = new InMemoryAgentRegistry();
   });
 
-  it('should return null for unregistered agent', async () => {
+  it('returns null for unregistered agent', async () => {
     const agent = await registry.loadAgent('nonexistent');
     expect(agent).toBeNull();
   });
 
-  it('should register and load an agent', async () => {
+  it('register and load an agent', async () => {
     registry.register({
       id: 'test-agent',
       name: 'Test Agent',
@@ -339,7 +386,7 @@ describe('InMemoryAgentRegistry', () => {
     expect(agent!.tools).toEqual(['web_search']);
   });
 
-  it('should clear all registered agents', async () => {
+  it('clears all registered agents', async () => {
     registry.register({
       id: 'agent-1',
       name: 'Agent 1',
@@ -360,8 +407,6 @@ describe('InMemoryAgentRegistry', () => {
   });
 });
 
-// ─── InMemoryPersistenceProvider — Atomic Snapshot (Item 1.5) ─────────────────
-
 describe('InMemoryPersistenceProvider — saveWorkflowSnapshot', () => {
   let provider: InMemoryPersistenceProvider;
 
@@ -369,7 +414,7 @@ describe('InMemoryPersistenceProvider — saveWorkflowSnapshot', () => {
     provider = new InMemoryPersistenceProvider();
   });
 
-  it('should atomically save both run and state', async () => {
+  it('atomically save both run and state', async () => {
     const state = createWorkflowState();
     await provider.saveWorkflowSnapshot(state);
 
@@ -383,7 +428,7 @@ describe('InMemoryPersistenceProvider — saveWorkflowSnapshot', () => {
     expect(latestState!.run_id).toBe(state.run_id);
   });
 
-  it('should create versioned state snapshots', async () => {
+  it('create versioned state snapshots', async () => {
     const state = createWorkflowState();
     await provider.saveWorkflowSnapshot(state);
     await provider.saveWorkflowSnapshot({ ...state, status: 'completed' });
@@ -394,8 +439,6 @@ describe('InMemoryPersistenceProvider — saveWorkflowSnapshot', () => {
     expect(history[1].version).toBe(2);
   });
 });
-
-// ─── InMemoryAgentRegistry — CRUD (Items 2.4, 2.5) ───────────────────────────
 
 describe('InMemoryAgentRegistry — CRUD', () => {
   let registry: InMemoryAgentRegistry;
@@ -417,21 +460,20 @@ describe('InMemoryAgentRegistry — CRUD', () => {
     registry = new InMemoryAgentRegistry();
   });
 
-  it('should update an agent', async () => {
+  it('updates an agent', async () => {
     const id = registry.register(makeAgentInput({ name: 'Original' }));
     await registry.updateAgent(id, { name: 'Updated' });
 
     const agent = await registry.loadAgent(id);
     expect(agent!.name).toBe('Updated');
-    // Other fields preserved
     expect(agent!.model).toBe('gpt-4');
   });
 
-  it('should throw when updating nonexistent agent', async () => {
+  it('throws when updating nonexistent agent', async () => {
     await expect(registry.updateAgent('nonexistent', { name: 'X' })).rejects.toThrow('Agent not found');
   });
 
-  it('should list agents with pagination', async () => {
+  it('list agents with pagination', async () => {
     registry.register(makeAgentInput({ name: 'Agent A' }));
     registry.register(makeAgentInput({ name: 'Agent B' }));
     registry.register(makeAgentInput({ name: 'Agent C' }));
@@ -443,7 +485,7 @@ describe('InMemoryAgentRegistry — CRUD', () => {
     expect(page.length).toBe(2);
   });
 
-  it('should delete an agent', async () => {
+  it('deletes an agent', async () => {
     const id = registry.register(makeAgentInput());
 
     const deleted = await registry.deleteAgent(id);
@@ -453,12 +495,12 @@ describe('InMemoryAgentRegistry — CRUD', () => {
     expect(agent).toBeNull();
   });
 
-  it('should return false when deleting nonexistent agent', async () => {
+  it('returns false when deleting nonexistent agent', async () => {
     const deleted = await registry.deleteAgent('nonexistent');
     expect(deleted).toBe(false);
   });
 
-  it('should round-trip provider_options', async () => {
+  it('round-trips provider_options', async () => {
     const id = registry.register(makeAgentInput({
       provider_options: {
         openai: { response_format: 'json_object' as const },
@@ -471,7 +513,7 @@ describe('InMemoryAgentRegistry — CRUD', () => {
     });
   });
 
-  it('should preserve provider_options through update', async () => {
+  it('preserves provider_options through update', async () => {
     const id = registry.register(makeAgentInput({
       provider_options: { anthropic: { max_tokens: 4096 } },
     }));
@@ -484,8 +526,6 @@ describe('InMemoryAgentRegistry — CRUD', () => {
   });
 });
 
-// ─── InMemoryUsageRecorder ──────────────────────────────────────────────────
-
 describe('InMemoryUsageRecorder', () => {
   let recorder: InMemoryUsageRecorder;
 
@@ -493,7 +533,7 @@ describe('InMemoryUsageRecorder', () => {
     recorder = new InMemoryUsageRecorder();
   });
 
-  it('should record usage', async () => {
+  it('record usage', async () => {
     await recorder.saveUsageRecord({
       run_id: uuidv4(),
       graph_id: uuidv4(),
@@ -507,7 +547,7 @@ describe('InMemoryUsageRecorder', () => {
     expect(recorder.records[0].input_tokens).toBe(100);
   });
 
-  it('should store independent copies', async () => {
+  it('stores independent copies', async () => {
     const record = {
       run_id: uuidv4(),
       graph_id: uuidv4(),
@@ -519,12 +559,11 @@ describe('InMemoryUsageRecorder', () => {
 
     await recorder.saveUsageRecord(record);
 
-    // Mutate the original — stored copy should be unaffected
     record.input_tokens = 9999;
     expect(recorder.records[0].input_tokens).toBe(100);
   });
 
-  it('should clear all records', async () => {
+  it('clears all records', async () => {
     await recorder.saveUsageRecord({
       run_id: uuidv4(),
       graph_id: uuidv4(),
@@ -539,8 +578,6 @@ describe('InMemoryUsageRecorder', () => {
   });
 });
 
-// ─── InMemoryRetentionService ───────────────────────────────────────────────
-
 describe('InMemoryRetentionService', () => {
   let retention: InMemoryRetentionService;
 
@@ -548,17 +585,17 @@ describe('InMemoryRetentionService', () => {
     retention = new InMemoryRetentionService();
   });
 
-  it('should return 0 for archiveCompletedWorkflows (no-op)', async () => {
+  it('returns 0 for archiveCompletedWorkflows (no-op)', async () => {
     const count = await retention.archiveCompletedWorkflows();
     expect(count).toBe(0);
   });
 
-  it('should return 0 for deleteWarmData (no-op)', async () => {
+  it('returns 0 for deleteWarmData (no-op)', async () => {
     const count = await retention.deleteWarmData();
     expect(count).toBe(0);
   });
 
-  it('should return zero stats for getStorageStats', async () => {
+  it('returns zero stats for getStorageStats', async () => {
     const stats = await retention.getStorageStats();
     expect(stats).toEqual({ hot_runs: 0, warm_runs: 0, cold_runs: 0 });
   });

@@ -5,7 +5,7 @@
  * the metrics surface.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   ToolCircuitBreakerManager,
   ToolCircuitBreakerOpenError,
@@ -30,7 +30,6 @@ describe('ToolCircuitBreakerManager', () => {
       expect(metrics?.status).toBe('closed');
       expect(metrics?.total_failures).toBe(2);
       expect(metrics?.total_successes).toBe(1);
-      // consecutive_failures resets on a success
       expect(metrics?.consecutive_failures).toBe(0);
     });
 
@@ -66,13 +65,10 @@ describe('ToolCircuitBreakerManager', () => {
       const mgr = new ToolCircuitBreakerManager({ failure_threshold: 1, cooldown_ms: 20 });
       mgr.recordFailure('s1', 't1');
 
-      // Immediately after open: should throw
       expect(() => mgr.check('s1', 't1')).toThrow(ToolCircuitBreakerOpenError);
 
-      // Wait past cooldown
       await new Promise(resolve => setTimeout(resolve, 30));
 
-      // First call after cooldown: should not throw (probe granted)
       expect(() => mgr.check('s1', 't1')).not.toThrow();
       expect(mgr.getMetrics()[0].status).toBe('half_open');
     });
@@ -104,9 +100,32 @@ describe('ToolCircuitBreakerManager', () => {
       await new Promise(resolve => setTimeout(resolve, 20));
       mgr.check('s1', 't1');
 
-      // Half_open + failure → straight back to open
       mgr.recordFailure('s1', 't1');
       expect(mgr.getMetrics()[0].status).toBe('open');
+    });
+
+    it('allows repeated probes without throwing while in half_open', async () => {
+      const mgr = new ToolCircuitBreakerManager({ failure_threshold: 1, success_threshold: 5, cooldown_ms: 10 });
+      mgr.recordFailure('s1', 't1');
+      await new Promise(resolve => setTimeout(resolve, 20));
+      mgr.check('s1', 't1');
+
+      expect(() => mgr.check('s1', 't1')).not.toThrow();
+      expect(mgr.getMetrics()[0].status).toBe('half_open');
+    });
+
+    it('keeps counting lifetime failures when recordFailure is called while open', () => {
+      const mgr = new ToolCircuitBreakerManager({ failure_threshold: 2, cooldown_ms: 60_000 });
+      mgr.recordFailure('s1', 't1');
+      mgr.recordFailure('s1', 't1');
+      expect(mgr.getMetrics()[0].status).toBe('open');
+
+      mgr.recordFailure('s1', 't1');
+
+      const m = mgr.getMetrics()[0];
+      expect(m.status).toBe('open');
+      expect(m.total_failures).toBe(3);
+      expect(m.consecutive_failures).toBe(2);
     });
   });
 
@@ -116,10 +135,8 @@ describe('ToolCircuitBreakerManager', () => {
       mgr.recordFailure('s1', 't1');
       mgr.recordFailure('s1', 't1');
 
-      // s1/t1 is now open; s1/t2 should still be closed
       expect(() => mgr.check('s1', 't1')).toThrow(ToolCircuitBreakerOpenError);
       expect(() => mgr.check('s1', 't2')).not.toThrow();
-      // s2/t1 (different server) should also be unaffected
       expect(() => mgr.check('s2', 't1')).not.toThrow();
     });
   });
@@ -147,7 +164,6 @@ describe('ToolCircuitBreakerManager', () => {
       expect(m.total_calls).toBe(14);
       expect(m.total_successes).toBe(11);
       expect(m.total_failures).toBe(3);
-      // consecutive_failures resets on a success
       expect(m.consecutive_failures).toBe(0);
     });
   });

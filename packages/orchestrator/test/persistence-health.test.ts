@@ -8,7 +8,6 @@ import {
 import type { PersistenceProvider } from '../src/persistence/interfaces.js';
 import type { WorkflowState } from '../src/types/state.js';
 
-// Mock logger to silence output
 vi.mock('../src/utils/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
@@ -60,8 +59,6 @@ describe('Persistence Health', () => {
     resetPersistenceHealth();
   });
 
-  // ─── persistWorkflow ──────────────────────────────────────────────
-
   describe('persistWorkflow', () => {
     it('resets consecutive failures on success', async () => {
       const provider = makeProvider();
@@ -85,13 +82,24 @@ describe('Persistence Health', () => {
       expect(provider.saveWorkflowState).toHaveBeenCalledWith(state);
     });
 
+    it('prefers the atomic saveWorkflowSnapshot when the provider offers one', async () => {
+      const saveWorkflowSnapshot = vi.fn().mockResolvedValue(undefined);
+      const provider = makeProvider({ saveWorkflowSnapshot });
+      const state = makeState();
+
+      await persistWorkflow(state, provider);
+
+      expect(saveWorkflowSnapshot).toHaveBeenCalledWith(state);
+      expect(provider.saveWorkflowRun).not.toHaveBeenCalled();
+      expect(provider.saveWorkflowState).not.toHaveBeenCalled();
+    });
+
     it('increments failure counter on error', async () => {
       const provider = makeProvider({
         saveWorkflowRun: vi.fn().mockRejectedValue(new Error('DB down')),
       });
       const state = makeState();
 
-      // First failure — should NOT throw (below threshold)
       await persistWorkflow(state, provider);
 
       const health = getPersistenceHealth();
@@ -106,11 +114,9 @@ describe('Persistence Health', () => {
       });
       const state = makeState();
 
-      // Failures 1 and 2 — below threshold
       await persistWorkflow(state, provider);
       await persistWorkflow(state, provider);
 
-      // Failure 3 — at threshold, should throw
       await expect(persistWorkflow(state, provider)).rejects.toThrow(PersistenceUnavailableError);
 
       const health = getPersistenceHealth();
@@ -125,19 +131,15 @@ describe('Persistence Health', () => {
       const successProvider = makeProvider();
       const state = makeState();
 
-      // Two failures
       await persistWorkflow(state, failingProvider);
       await persistWorkflow(state, failingProvider);
       expect(getPersistenceHealth().consecutiveFailures).toBe(2);
 
-      // One success resets
       await persistWorkflow(state, successProvider);
       expect(getPersistenceHealth().consecutiveFailures).toBe(0);
       expect(getPersistenceHealth().totalSuccesses).toBe(1);
     });
   });
-
-  // ─── resetPersistenceHealth ───────────────────────────────────────
 
   describe('resetPersistenceHealth', () => {
     it('zeroes all metrics', async () => {
@@ -157,8 +159,6 @@ describe('Persistence Health', () => {
     });
   });
 
-  // ─── getPersistenceHealth ─────────────────────────────────────────
-
   describe('getPersistenceHealth', () => {
     it('returns a snapshot (mutations do not affect internal state)', () => {
       const health = getPersistenceHealth();
@@ -167,8 +167,6 @@ describe('Persistence Health', () => {
       expect(getPersistenceHealth().consecutiveFailures).toBe(0);
     });
   });
-
-  // ─── PersistenceUnavailableError ──────────────────────────────────
 
   describe('PersistenceUnavailableError', () => {
     it('is an Error subclass with correct name', () => {

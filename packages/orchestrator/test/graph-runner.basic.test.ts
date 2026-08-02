@@ -1,4 +1,4 @@
-import { describe, test, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks ─────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ const createLinearGraph = (): Graph => ({
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('GraphRunner — Basic Execution', () => {
-  test('should execute a simple linear graph', async () => {
+  it('should execute a simple linear graph', async () => {
     const runner = new GraphRunner(createLinearGraph(), createTestState());
     const finalState = await runner.run();
 
@@ -93,14 +93,14 @@ describe('GraphRunner — Basic Execution', () => {
     expect(finalState.iteration_count).toBeGreaterThan(0);
   });
 
-  test('should start with pending status', async () => {
+  it('should start with pending status', async () => {
     const initialState = createTestState();
     expect(initialState.status).toBe('pending');
     const runner = new GraphRunner(createLinearGraph(), initialState);
     await runner.run();
   });
 
-  test('should track visited nodes', async () => {
+  it('should track visited nodes', async () => {
     const runner = new GraphRunner(createLinearGraph(), createTestState());
     const finalState = await runner.run();
 
@@ -110,7 +110,7 @@ describe('GraphRunner — Basic Execution', () => {
 });
 
 describe('GraphRunner — Event Emission', () => {
-  test('should emit workflow:start event', async () => {
+  it('should emit workflow:start event', async () => {
     const initialState = createTestState();
     const runner = new GraphRunner(createLinearGraph(), initialState);
 
@@ -125,7 +125,7 @@ describe('GraphRunner — Event Emission', () => {
     });
   });
 
-  test('should emit workflow:complete event', async () => {
+  it('should emit workflow:complete event', async () => {
     const initialState = createTestState();
     const runner = new GraphRunner(createLinearGraph(), initialState);
 
@@ -143,7 +143,7 @@ describe('GraphRunner — Event Emission', () => {
     );
   });
 
-  test('should emit node:start events', async () => {
+  it('should emit node:start events', async () => {
     const runner = new GraphRunner(createLinearGraph(), createTestState());
     const nodeStartSpy = vi.fn();
     runner.on('node:start', nodeStartSpy);
@@ -155,7 +155,7 @@ describe('GraphRunner — Event Emission', () => {
     );
   });
 
-  test('should emit node:complete events', async () => {
+  it('should emit node:complete events', async () => {
     const runner = new GraphRunner(createLinearGraph(), createTestState());
     const nodeCompleteSpy = vi.fn();
     runner.on('node:complete', nodeCompleteSpy);
@@ -167,7 +167,7 @@ describe('GraphRunner — Event Emission', () => {
     );
   });
 
-  test('should emit action:applied events', async () => {
+  it('should emit action:applied events', async () => {
     const runner = new GraphRunner(createLinearGraph(), createTestState());
     const actionSpy = vi.fn();
     runner.on('action:applied', actionSpy);
@@ -181,7 +181,7 @@ describe('GraphRunner — Event Emission', () => {
 });
 
 describe('GraphRunner — State Persistence', () => {
-  test('should call persistState function', async () => {
+  it('should call persistState function', async () => {
     const initialState = createTestState();
     const persistSpy = vi.fn().mockResolvedValue(undefined);
     const runner = new GraphRunner(createLinearGraph(), initialState, { persistStateFn: persistSpy });
@@ -193,7 +193,7 @@ describe('GraphRunner — State Persistence', () => {
     );
   });
 
-  test('should emit state:persisted events', async () => {
+  it('should emit state:persisted events', async () => {
     const initialState = createTestState();
     const runner = new GraphRunner(createLinearGraph(), initialState, { persistStateFn: vi.fn().mockResolvedValue(undefined) });
     const persistedSpy = vi.fn();

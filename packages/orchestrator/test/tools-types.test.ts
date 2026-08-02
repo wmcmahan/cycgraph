@@ -14,8 +14,6 @@ import { InMemoryMCPServerRegistry } from '../src/persistence/in-memory.js';
 import { MCPServerNotFoundError } from '../src/mcp/errors.js';
 import type { MCPServerEntry } from '../src/types/tools.js';
 
-// ─── ToolSource Schema Tests ────────────────────────────────────────────
-
 describe('ToolSourceSchema', () => {
   describe('builtin type', () => {
     it('accepts valid builtin tool sources', () => {
@@ -104,8 +102,6 @@ describe('ToolSourceSchema', () => {
     expect(result.success).toBe(false);
   });
 });
-
-// ─── Transport Config Schema Tests ──────────────────────────────────────
 
 describe('MCPTransportConfigSchema', () => {
   describe('stdio', () => {
@@ -201,8 +197,6 @@ describe('MCPTransportConfigSchema', () => {
       ['IPv6 link-local', 'http://[fe80::1]/'],
       ['IPv6 ULA', 'http://[fd00::1]/'],
       ['non-http scheme', 'ftp://example.com/'],
-      // Non-dotted-quad encodings of 127.0.0.1 / metadata that getaddrinfo
-      // still resolves — must not bypass the guard.
       ['decimal-encoded loopback', 'http://2130706433/'],
       ['hex-encoded loopback', 'http://0x7f000001/'],
       ['octal-encoded loopback', 'http://0177.0.0.1/'],
@@ -248,8 +242,6 @@ describe('MCPTransportConfigSchema', () => {
   });
 });
 
-// ─── MCPServerEntry Schema Tests ────────────────────────────────────────
-
 describe('MCPServerEntrySchema', () => {
   it('accepts a valid server entry with stdio transport', () => {
     const result = MCPServerEntrySchema.safeParse({
@@ -260,7 +252,7 @@ describe('MCPServerEntrySchema', () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.timeout_ms).toBe(30_000); // default
+      expect(result.data.timeout_ms).toBe(30_000);
     }
   });
 
@@ -320,8 +312,6 @@ describe('MCPServerEntrySchema', () => {
     }
   });
 });
-
-// ─── InMemoryMCPServerRegistry Tests ────────────────────────────────────
 
 describe('InMemoryMCPServerRegistry', () => {
   let registry: InMemoryMCPServerRegistry;
@@ -430,8 +420,6 @@ describe('InMemoryMCPServerRegistry', () => {
     });
   });
 });
-
-// ─── MCPServerNotFoundError Tests ───────────────────────────────────────
 
 describe('MCPServerNotFoundError', () => {
   it('includes the server ID in the message', () => {

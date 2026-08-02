@@ -7,7 +7,7 @@
  * `new Date() >= waiting_timeout_at` against a *string* (always false), so
  * approval timeouts never fired after recovery.
  */
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import {
   createWorkflowState,
@@ -18,7 +18,7 @@ import { InMemoryEventLogWriter } from '../src/db/event-log.js';
 import { InMemoryPersistenceProvider } from '../src/persistence/in-memory.js';
 
 describe('hydrateWorkflowState', () => {
-  test('restores Date fields after a JSON round-trip', () => {
+  it('restores Date fields after a JSON round-trip', () => {
     const original = createWorkflowState({
       workflow_id: uuidv4(),
       goal: 'test',
@@ -38,23 +38,21 @@ describe('hydrateWorkflowState', () => {
     expect(hydrated.waiting_timeout_at).toEqual(new Date('2026-03-16T12:30:00Z'));
   });
 
-  test('hydrated waiting_timeout_at supports real Date comparison (HITL expiry)', () => {
+  it('hydrated waiting_timeout_at supports real Date comparison (HITL expiry)', () => {
     const original = createWorkflowState({
       workflow_id: uuidv4(),
       goal: 'test',
       status: 'waiting',
       waiting_for: 'human_approval',
-      // Deadline in the past — an expired approval gate.
       waiting_timeout_at: new Date(Date.now() - 60_000),
     });
 
     const hydrated = hydrateWorkflowState(JSON.parse(JSON.stringify(original)));
-    // Pre-fix, this comparison was string-vs-Date and always false.
     expect(new Date() >= hydrated.waiting_timeout_at!).toBe(true);
     expect(() => hydrated.waiting_timeout_at!.toISOString()).not.toThrow();
   });
 
-  test('hydrates nested timestamps (supervisor_history, memory_drops)', () => {
+  it('hydrates nested timestamps (supervisor_history, memory_drops)', () => {
     const original = createWorkflowState({
       workflow_id: uuidv4(),
       goal: 'test',
@@ -78,7 +76,7 @@ describe('hydrateWorkflowState', () => {
     expect(hydrated.memory_drops[0].timestamp).toEqual(new Date('2026-03-15T12:01:00Z'));
   });
 
-  test('treats unversioned (legacy) snapshots as v1', () => {
+  it('treats unversioned (legacy) snapshots as v1', () => {
     const original = createWorkflowState({ workflow_id: uuidv4(), goal: 'test' });
     const legacy = JSON.parse(JSON.stringify(original));
     delete legacy.state_schema_version;
@@ -87,7 +85,7 @@ describe('hydrateWorkflowState', () => {
     expect(hydrated.state_schema_version).toBe(CURRENT_STATE_SCHEMA_VERSION);
   });
 
-  test('rejects snapshots from a newer engine version', () => {
+  it('rejects snapshots from a newer engine version', () => {
     const original = createWorkflowState({ workflow_id: uuidv4(), goal: 'test' });
     const fromTheFuture = {
       ...JSON.parse(JSON.stringify(original)),
@@ -97,7 +95,7 @@ describe('hydrateWorkflowState', () => {
     expect(() => hydrateWorkflowState(fromTheFuture)).toThrow(/newer/);
   });
 
-  test('rejects structurally invalid state instead of letting it into the loop', () => {
+  it('rejects structurally invalid state instead of letting it into the loop', () => {
     expect(() => hydrateWorkflowState(null)).toThrow();
     expect(() => hydrateWorkflowState({ goal: 'missing everything else' })).toThrow();
     expect(() =>
@@ -111,7 +109,7 @@ describe('hydrateWorkflowState', () => {
 });
 
 describe('load boundaries hydrate state', () => {
-  test('InMemoryEventLogWriter.loadCheckpoint returns real Dates', async () => {
+  it('InMemoryEventLogWriter.loadCheckpoint returns real Dates', async () => {
     const eventLog = new InMemoryEventLogWriter();
     const state = createWorkflowState({
       workflow_id: uuidv4(),
@@ -127,7 +125,7 @@ describe('load boundaries hydrate state', () => {
     expect(checkpoint!.state.waiting_timeout_at).toEqual(new Date('2026-03-16T12:30:00Z'));
   });
 
-  test('InMemoryPersistenceProvider.loadLatestWorkflowState returns real Dates', async () => {
+  it('InMemoryPersistenceProvider.loadLatestWorkflowState returns real Dates', async () => {
     const persistence = new InMemoryPersistenceProvider();
     const state = createWorkflowState({
       workflow_id: uuidv4(),
@@ -143,8 +141,6 @@ describe('load boundaries hydrate state', () => {
     expect(loaded!.started_at).toEqual(new Date('2026-03-15T12:00:00Z'));
   });
 });
-
-// ─── v1 → v2 migration (engine-owned keys promoted out of memory) ────────
 
 describe('state schema v1 → v2 migration', () => {
   const v1Snapshot = () => ({
@@ -169,7 +165,7 @@ describe('state schema v1 → v2 migration', () => {
     },
   });
 
-  test('lifts engine-owned keys into first-class fields', () => {
+  it('lifts engine-owned keys into first-class fields', () => {
     const state = hydrateWorkflowState(v1Snapshot());
 
     expect(state.state_schema_version).toBe(2);
@@ -182,18 +178,17 @@ describe('state schema v1 → v2 migration', () => {
     expect(state.subgraph_checkpoints['sub-node']).toEqual({ child: 'checkpoint' });
   });
 
-  test('cleans lifted keys from memory but never destroys unknown ones', () => {
+  it('cleans lifted keys from memory but never destroys unknown ones', () => {
     const state = hydrateWorkflowState(v1Snapshot());
 
     expect(state.memory.user_key).toBe('stays');
     expect(state.memory._taint_registry).toBeUndefined();
     expect(state.memory._lesson_provenance).toBeUndefined();
     expect(state.memory._pending_approval).toBeUndefined();
-    // A migration must not delete data it doesn't understand.
     expect(state.memory._unknown_system_key).toBe('preserved-not-destroyed');
   });
 
-  test('a v1 snapshot without system keys migrates to empty defaults', () => {
+  it('a v1 snapshot without system keys migrates to empty defaults', () => {
     const raw = v1Snapshot();
     raw.memory = { user_key: 'stays' } as never;
     const state = hydrateWorkflowState(raw);
@@ -205,7 +200,7 @@ describe('state schema v1 → v2 migration', () => {
     expect(state.swarm_handoff_count).toBe(0);
   });
 
-  test('a v2 snapshot passes through unchanged', () => {
+  it('a v2 snapshot passes through unchanged', () => {
     const v2 = { ...v1Snapshot(), state_schema_version: 2, memory: { user_key: 'x' }, taint_registry: {}, lesson_provenance: {}, policy_approvals: {}, subgraph_checkpoints: {}, subgraph_stack: [], swarm_handoff_count: 1 };
     const state = hydrateWorkflowState(v2);
     expect(state.swarm_handoff_count).toBe(1);

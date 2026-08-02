@@ -118,7 +118,6 @@ describe('Token Streaming', () => {
       const onToken = vi.fn();
       const action = await executeAgent('stream-agent', makeStateView(), {}, 1, { onToken });
 
-      // Full text should be assembled from deltas
       const updates = action.payload.updates as Record<string, unknown>;
       expect(updates.agent_response).toBe('The answer is 42');
     });
@@ -127,7 +126,6 @@ describe('Token Streaming', () => {
       const deltas = ['No', ' callback'];
       (streamText as any).mockReturnValue(mockStreamTextResult(deltas));
 
-      // Should use the await result.text path without error
       const action = await executeAgent('stream-agent', makeStateView(), {}, 1);
       expect(action.type).toBe('update_memory');
       const updates = action.payload.updates as Record<string, unknown>;
@@ -164,14 +162,7 @@ describe('Token Streaming', () => {
   });
 
   describe('GraphRunner agent:token_delta events', () => {
-    // These tests use mocks at a higher level to verify the GraphRunner
-    // event emission through the full executor chain.
-
-    // We import GraphRunner after mocking its dependencies.
-    // The mocks are already set up above for agent-factory and ai SDK.
-
     it('emits agent:token_delta events during graph run', async () => {
-      // Mock dependencies for GraphRunner
       vi.doMock('@ai-sdk/openai', () => ({
         openai: vi.fn((model: string) => ({ provider: 'openai', modelId: model })),
       }));
@@ -189,10 +180,8 @@ describe('Token Streaming', () => {
         context: {},
       }));
 
-      // Mock executeAgent to call onToken if provided
       vi.doMock('../src/agent/agent-executor/executor', () => ({
         executeAgent: vi.fn(async (agentId: string, _sv: any, _tools: any, attempt: number, options?: any) => {
-          // Simulate streaming by calling onToken
           if (options?.onToken) {
             options.onToken('Hello');
             options.onToken(' from ');
@@ -223,7 +212,6 @@ describe('Token Streaming', () => {
         },
       }));
 
-      // Import GraphRunner fresh with the doMock overrides
       const { GraphRunner } = await import('../src/runner/graph-runner.js');
 
       const graph = {
@@ -262,9 +250,7 @@ describe('Token Streaming', () => {
       };
 
       const tokenEvents: Array<{ run_id: string; node_id: string; token: string }> = [];
-      const onToken = vi.fn((token: string, nodeId: string) => {
-        // Just record that onToken was called
-      });
+      const onToken = vi.fn((_token: string, _nodeId: string) => {});
 
       const runner = new GraphRunner(graph, state, { onToken });
 
@@ -274,7 +260,6 @@ describe('Token Streaming', () => {
 
       await runner.run();
 
-      // Verify token delta events were emitted
       expect(tokenEvents.length).toBe(3);
       expect(tokenEvents[0]).toEqual({
         run_id: state.run_id,

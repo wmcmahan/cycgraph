@@ -1,4 +1,4 @@
-import { describe, test, expect, vi } from 'vitest';
+import { describe, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
 // ─── Mocks (mirror human-in-the-loop.test.ts) ─────────────────────
@@ -48,9 +48,17 @@ vi.mock('../src/utils/tracing', () => ({
 
 import { GraphRunner } from '../src/runner/graph-runner.js';
 import { markTainted } from '../src/utils/taint.js';
-import type { SecurityPolicy } from '../src/runner/security-policy.js';
-import type { Graph } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
+import {
+  evaluateSecurityPolicy,
+  readableTaintedKeys,
+  SecurityPolicyViolationError,
+} from '../src/runner/security-policy.js';
+import type {
+  SecurityPolicy,
+  SecurityPolicyEventPayload,
+} from '../src/runner/security-policy.js';
+import type { Graph, GraphNode } from '../src/types/graph.js';
+import type { TaintRegistry, WorkflowState } from '../src/types/state.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -96,7 +104,6 @@ const taintedState = (): WorkflowState => {
     total_tokens_used: 0,
     supervisor_history: [],
   };
-  // Taint lives on the first-class state field (schema v2).
   state.taint_registry = markTainted({}, 'input', {
     source: 'tool_node',
     tool_name: 'external_input',
@@ -108,7 +115,7 @@ const taintedState = (): WorkflowState => {
 // ─── Tests ────────────────────────────────────────────────────────
 
 describe('security policy enforcement', () => {
-  test('allow: tainted + sensitive node runs normally', async () => {
+  it('allow: tainted + sensitive node runs normally', async () => {
     const policy: SecurityPolicy = vi.fn(() => ({ effect: 'allow' }));
     const runner = new GraphRunner(createGraph(), taintedState(), { securityPolicy: policy });
     const final = await runner.run();
@@ -118,10 +125,9 @@ describe('security policy enforcement', () => {
     expect(policy).toHaveBeenCalledTimes(1);
   });
 
-  test('policy is NOT consulted when the node reads no tainted data', async () => {
+  it('policy is NOT consulted when the node reads no tainted data', async () => {
     const policy: SecurityPolicy = vi.fn(() => ({ effect: 'block' }));
     const state = taintedState();
-    // Remove the taint registry so nothing is untrusted.
     state.taint_registry = {};
     const runner = new GraphRunner(createGraph(), state, { securityPolicy: policy });
     const final = await runner.run();
@@ -130,7 +136,7 @@ describe('security policy enforcement', () => {
     expect(policy).not.toHaveBeenCalled();
   });
 
-  test('policy receives the tainted readable keys', async () => {
+  it('policy receives the tainted readable keys', async () => {
     const policy = vi.fn(() => ({ effect: 'allow' as const }));
     const runner = new GraphRunner(createGraph(), taintedState(), { securityPolicy: policy });
     await runner.run();
@@ -143,12 +149,10 @@ describe('security policy enforcement', () => {
     );
   });
 
-  test('block: fails the run (fail-closed) and does NOT execute the node', async () => {
+  it('block: fails the run (fail-closed) and does NOT execute the node', async () => {
     const policy: SecurityPolicy = () => ({ effect: 'block', reason: 'egress blocked', sensitivity: ['egress'] });
     const persist = vi.fn();
     const runner = new GraphRunner(createGraph(), taintedState(), { securityPolicy: policy, persistStateFn: persist });
-
-    // The engine contract: a failed run rejects (the worker persists `failed`).
     await expect(runner.run()).rejects.toThrow('egress blocked');
 
     const lastPersisted = persist.mock.calls.at(-1)?.[0] as WorkflowState | undefined;
@@ -156,14 +160,13 @@ describe('security policy enforcement', () => {
     expect(lastPersisted?.memory.sink_result).toBeUndefined();
   });
 
-  test('require_approval: pauses the run BEFORE the node executes', async () => {
+  it('require_approval: pauses the run BEFORE the node executes', async () => {
     const policy: SecurityPolicy = () => ({ effect: 'require_approval', reason: 'untrusted → fetch', sensitivity: ['egress'] });
     const runner = new GraphRunner(createGraph(), taintedState(), { securityPolicy: policy });
     const final = await runner.run();
 
     expect(final.status).toBe('waiting');
     expect(final.waiting_for).toBe('human_approval');
-    // The gated node has not run yet.
     expect(final.memory.sink_result).toBeUndefined();
     const pending = final.pending_approval as any;
     expect(pending.policy_gate).toBe(true);
@@ -172,7 +175,7 @@ describe('security policy enforcement', () => {
     expect(pending.review_data.tainted_keys).toEqual(['input']);
   });
 
-  test('approving a policy gate re-enters the gated node and runs it', async () => {
+  it('approving a policy gate re-enters the gated node and runs it', async () => {
     const policy: SecurityPolicy = () => ({ effect: 'require_approval' });
     const r1 = new GraphRunner(createGraph(), taintedState(), { securityPolicy: policy });
     const waiting = await r1.run();
@@ -186,7 +189,7 @@ describe('security policy enforcement', () => {
     expect(final.memory.sink_result).toBe('output');
   });
 
-  test('rejecting a policy gate cancels the run (the node never executes)', async () => {
+  it('rejecting a policy gate cancels the run (the node never executes)', async () => {
     const policy: SecurityPolicy = () => ({ effect: 'require_approval' });
     const r1 = new GraphRunner(createGraph(), taintedState(), { securityPolicy: policy });
     const waiting = await r1.run();
@@ -199,10 +202,158 @@ describe('security policy enforcement', () => {
     expect(final.memory.sink_result).toBeUndefined();
   });
 
-  test('no policy provided: tainted node runs unguarded (back-compat)', async () => {
+  it('no policy provided: tainted node runs unguarded (back-compat)', async () => {
     const runner = new GraphRunner(createGraph(), taintedState());
     const final = await runner.run();
     expect(final.status).toBe('completed');
     expect(final.memory.sink_result).toBe('output');
+  });
+});
+
+describe('evaluateSecurityPolicy', () => {
+  const sinkNode = (overrides: Partial<GraphNode> = {}): GraphNode => ({
+    id: 'sink',
+    type: 'agent',
+    agent_id: 'sink',
+    read_keys: ['*'],
+    write_keys: ['*'],
+    failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 10, max_backoff_ms: 10 },
+    requires_compensation: false,
+    ...overrides,
+  });
+
+  const stateWithTaint = (): WorkflowState => taintedState();
+
+  const noopEmit = () => {};
+
+  it('returns undefined when the node reads no tainted data', () => {
+    const state = stateWithTaint();
+    state.taint_registry = {};
+    const policy: SecurityPolicy = () => ({ effect: 'block' });
+
+    const result = evaluateSecurityPolicy({ node: sinkNode(), state, policy, emitPolicyEvent: noopEmit });
+
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined without consulting the policy for a pre-approved node', () => {
+    const state = stateWithTaint();
+    state.policy_approvals = { sink: true };
+    const policy = vi.fn(() => ({ effect: 'block' as const }));
+
+    const result = evaluateSecurityPolicy({ node: sinkNode(), state, policy, emitPolicyEvent: noopEmit });
+
+    expect(result).toBeUndefined();
+    expect(policy).not.toHaveBeenCalled();
+  });
+
+  it('returns undefined when the policy allows', () => {
+    const policy: SecurityPolicy = () => ({ effect: 'allow' });
+
+    const result = evaluateSecurityPolicy({ node: sinkNode(), state: stateWithTaint(), policy, emitPolicyEvent: noopEmit });
+
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined when the policy returns no decision', () => {
+    const policy: SecurityPolicy = () => undefined;
+
+    const result = evaluateSecurityPolicy({ node: sinkNode(), state: stateWithTaint(), policy, emitPolicyEvent: noopEmit });
+
+    expect(result).toBeUndefined();
+  });
+
+  it('emits an audit event and allows the node on a monitor decision', () => {
+    const events: SecurityPolicyEventPayload[] = [];
+    const policy: SecurityPolicy = () => ({ effect: 'monitor', sensitivity: ['egress'], reason: 'watch it' });
+
+    const result = evaluateSecurityPolicy({
+      node: sinkNode(),
+      state: stateWithTaint(),
+      policy,
+      emitPolicyEvent: (p) => events.push(p),
+    });
+
+    expect(result).toBeUndefined();
+    expect(events).toHaveLength(1);
+    expect(events[0].effect).toBe('monitor');
+    expect(events[0].tainted_keys).toEqual(['input']);
+  });
+
+  it('throws SecurityPolicyViolationError on a block decision', () => {
+    const policy: SecurityPolicy = () => ({ effect: 'block', reason: 'egress blocked', sensitivity: ['egress'] });
+
+    expect(() =>
+      evaluateSecurityPolicy({ node: sinkNode(), state: stateWithTaint(), policy, emitPolicyEvent: noopEmit }),
+    ).toThrow(SecurityPolicyViolationError);
+  });
+
+  it('uses a default block message when the policy omits a reason', () => {
+    const policy: SecurityPolicy = () => ({ effect: 'block' });
+
+    try {
+      evaluateSecurityPolicy({ node: sinkNode(), state: stateWithTaint(), policy, emitPolicyEvent: noopEmit });
+      throw new Error('expected throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(SecurityPolicyViolationError);
+      expect((err as SecurityPolicyViolationError).message).toContain('Blocked by security policy');
+      expect((err as SecurityPolicyViolationError).node_id).toBe('sink');
+    }
+  });
+
+  it('returns a human-approval gate action on a require_approval decision', () => {
+    const policy: SecurityPolicy = () => ({ effect: 'require_approval', reason: 'needs review', prompt: 'Approve?' });
+
+    const action = evaluateSecurityPolicy({ node: sinkNode(), state: stateWithTaint(), policy, emitPolicyEvent: noopEmit });
+
+    expect(action?.type).toBe('request_human_input');
+    const payload = action?.payload as Record<string, any>;
+    expect(payload.waiting_for).toBe('human_approval');
+    expect(payload.pending_approval.policy_gate).toBe(true);
+    expect(payload.pending_approval.prompt_message).toBe('Approve?');
+    expect(payload.pending_approval.review_data.tainted_keys).toEqual(['input']);
+  });
+});
+
+describe('readableTaintedKeys', () => {
+  const node = (readKeys: string[]): GraphNode => ({
+    id: 'n',
+    type: 'agent',
+    agent_id: 'a',
+    read_keys: readKeys,
+    write_keys: [],
+    failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 10, max_backoff_ms: 10 },
+    requires_compensation: false,
+  });
+
+  const registry: TaintRegistry = {
+    input: { source: 'tool_node', tool_name: 't', created_at: '2024-01-01T00:00:00.000Z' },
+    user: { source: 'mcp_tool', tool_name: 'm', created_at: '2024-01-01T00:00:00.000Z' },
+  };
+
+  it('returns an empty array when the registry is empty', () => {
+    expect(readableTaintedKeys(node(['*']), {})).toEqual([]);
+  });
+
+  it('returns every tainted key when read_keys contains a wildcard', () => {
+    expect(readableTaintedKeys(node(['*']), registry).sort()).toEqual(['input', 'user']);
+  });
+
+  it('matches dot-notation read keys on their top-level segment', () => {
+    expect(readableTaintedKeys(node(['user.name']), registry)).toEqual(['user']);
+  });
+
+  it('returns only the tainted keys the node can read', () => {
+    expect(readableTaintedKeys(node(['input']), registry)).toEqual(['input']);
+  });
+
+  it('returns an empty array when no read key matches a tainted key', () => {
+    expect(readableTaintedKeys(node(['unrelated']), registry)).toEqual([]);
+  });
+
+  it('treats a missing read_keys as reading nothing', () => {
+    const bare = { ...node([]) };
+    delete (bare as { read_keys?: string[] }).read_keys;
+    expect(readableTaintedKeys(bare, registry)).toEqual([]);
   });
 });

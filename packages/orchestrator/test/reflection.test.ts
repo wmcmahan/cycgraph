@@ -73,10 +73,15 @@ vi.mock('../src/agent/extractor-executor/executor', () => ({
 }));
 
 import { GraphRunner } from '../src/runner/graph-runner.js';
+import { executeReflectionNode } from '../src/runner/node-executors/reflection.js';
 import { ReflectionConfigSchema, GraphNodeSchema, NodeTypeSchema } from '../src/types/graph.js';
-import type { Graph } from '../src/types/graph.js';
-import type { MemoryWriter } from '../src/agent/memory-writer.js';
+import type { Graph, GraphNode, ReflectionConfig } from '../src/types/graph.js';
+import type { MemoryWriter, MemoryWriterFact } from '../src/agent/memory-writer.js';
+import type { FactSanitizer } from '../src/agent/fact-sanitizer.js';
+import type { StateView } from '../src/types/state.js';
+import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
 import { validateGraph } from '../src/validation/graph-validator.js';
+import { NodeConfigError } from '../src/runner/errors.js';
 import { MemoryWriterMissingError } from '../src/runner/node-executors/errors.js';
 import { createTestState, makeNode } from './helpers/factories.js';
 
@@ -304,8 +309,6 @@ describe('GraphRunner — reflection dispatch', () => {
   it('fails pre-flight when a reflection node has no memoryWriter (before any node runs)', async () => {
     const state = createTestState({ memory: { draft: 'some draft text' } });
     const runner = new GraphRunner(makeReflectGraph(), state);
-    // The wiring pre-flight catches this before execution, so the run fails
-    // immediately with a clear message instead of mid-run after spending tokens.
     await expect(runner.run()).rejects.toThrow(/memoryWriter/);
   });
 
@@ -331,8 +334,6 @@ describe('GraphRunner — reflection dispatch', () => {
       strict_taint: false,
     };
     const runner = new GraphRunner(graph, createTestState({ memory: { goal: 'x' } }));
-    // No toolResolver → would otherwise run tool-less and "succeed" with
-    // degraded output. Pre-flight fails it loudly instead.
     await expect(runner.run()).rejects.toThrow(/toolResolver/);
   });
 });
@@ -362,7 +363,6 @@ describe('rule_based reflection extractor', () => {
       'Check the publication date before quoting numbers.',
     ]);
 
-    // Tags propagate to every fact
     for (const fact of calledFacts) {
       expect(fact.tags).toEqual(['lesson']);
       expect(fact.provenance.source).toBe('derived');
@@ -372,7 +372,6 @@ describe('rule_based reflection extractor', () => {
       expect(fact.entities).toBeUndefined();
     }
 
-    // Result envelope is written to default result_key
     const envelope = finalState.memory.reflect_reflection as {
       extractor_type: string;
       fact_ids: string[];
@@ -390,7 +389,6 @@ describe('rule_based reflection extractor', () => {
       fact_ids: facts.map((_, i) => `id-${i}`),
     }));
 
-    // Short sentence (under 15 chars), duplicate via case + whitespace, normal sentence
     const draft = [
       'Tiny.',
       'Cite the original source carefully.',
@@ -689,5 +687,235 @@ describe('llm reflection extractor', () => {
     expect(memoryWriter).not.toHaveBeenCalled();
     const envelope = finalState.memory.reflect_reflection as { fact_ids: string[] };
     expect(envelope.fact_ids).toEqual([]);
+  });
+});
+
+// ─── executeReflectionNode — direct (config, sanitizer, helper branches) ──
+
+function makeReflectionNode(config: ReflectionConfig | undefined): GraphNode {
+  return makeNode({
+    id: 'reflect',
+    type: 'reflection',
+    agent_id: undefined,
+    read_keys: ['*'],
+    write_keys: ['reflect_reflection'],
+    ...(config ? { reflection_config: config } : {}),
+  });
+}
+
+function makeReflectStateView(memory: Record<string, unknown>): StateView {
+  return {
+    workflow_id: 'wf-reflect',
+    run_id: 'run-reflect',
+    goal: 'reflect',
+    constraints: [],
+    memory,
+  };
+}
+
+function makeReflectCtx(overrides: Partial<NodeExecutorContext> = {}): NodeExecutorContext {
+  return {
+    state: { iteration_count: 0 } as never,
+    graph: { id: 'graph-reflect' } as never,
+    createStateView: () => makeReflectStateView({}),
+    deps: {
+      extractFactsExecutor: vi.fn(),
+    } as never,
+    memoryWriter: vi.fn<MemoryWriter>(async (facts) => ({ fact_ids: facts.map((_, i) => `id-${i}`) })),
+    ...overrides,
+  } as NodeExecutorContext;
+}
+
+describe('executeReflectionNode', () => {
+  it('throws NodeConfigError when reflection_config is missing', async () => {
+    await expect(
+      executeReflectionNode(makeReflectionNode(undefined), makeReflectStateView({}), 1, makeReflectCtx()),
+    ).rejects.toBeInstanceOf(NodeConfigError);
+  });
+
+  it('throws MemoryWriterMissingError when no memoryWriter is injected', async () => {
+    const node = makeReflectionNode({ source_keys: ['draft'], extractor: { type: 'rule_based', min_sentence_length: 15 }, tags: ['lesson'] });
+
+    await expect(
+      executeReflectionNode(node, makeReflectStateView({ draft: 'x' }), 1, makeReflectCtx({ memoryWriter: undefined })),
+    ).rejects.toBeInstanceOf(MemoryWriterMissingError);
+  });
+
+  describe('factSanitizer', () => {
+    const node = makeReflectionNode({ source_keys: ['draft'], extractor: { type: 'rule_based', min_sentence_length: 15 }, tags: ['lesson'] });
+    const draft = 'Cite the original source carefully. Avoid Wikipedia for citations.';
+
+    it('drops a fact when the sanitizer returns null', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({ fact_ids: facts.map((_, i) => `id-${i}`) }));
+      const factSanitizer: FactSanitizer = (fact) => (fact.content.includes('Wikipedia') ? null : fact);
+
+      await executeReflectionNode(node, makeReflectStateView({ draft }), 1, makeReflectCtx({ memoryWriter, factSanitizer }));
+
+      const [written] = memoryWriter.mock.calls[0];
+      expect(written.map((f) => f.content)).toEqual(['Cite the original source carefully.']);
+    });
+
+    it('drops a fact when the sanitizer throws under the default fail-closed mode', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({ fact_ids: facts.map((_, i) => `id-${i}`) }));
+      const factSanitizer: FactSanitizer = (fact) => {
+        if (fact.content.includes('Wikipedia')) throw new Error('PII service down');
+        return fact;
+      };
+
+      await executeReflectionNode(node, makeReflectStateView({ draft }), 1, makeReflectCtx({ memoryWriter, factSanitizer }));
+
+      const [written] = memoryWriter.mock.calls[0];
+      expect(written.map((f) => f.content)).toEqual(['Cite the original source carefully.']);
+    });
+
+    it('keeps the original fact when the sanitizer throws under fail-open mode', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({ fact_ids: facts.map((_, i) => `id-${i}`) }));
+      const factSanitizer: FactSanitizer = () => { throw new Error('PII service down'); };
+
+      await executeReflectionNode(
+        node,
+        makeReflectStateView({ draft }),
+        1,
+        makeReflectCtx({ memoryWriter, factSanitizer, factSanitizerFailMode: 'pass' }),
+      );
+
+      const [written] = memoryWriter.mock.calls[0];
+      expect(written.map((f) => f.content)).toEqual([
+        'Cite the original source carefully.',
+        'Avoid Wikipedia for citations.',
+      ]);
+    });
+
+    it('drops on a non-Error throw under fail-closed mode', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({ fact_ids: facts.map((_, i) => `id-${i}`) }));
+      const factSanitizer: FactSanitizer = () => { throw 'bare string failure'; };
+
+      await executeReflectionNode(node, makeReflectStateView({ draft }), 1, makeReflectCtx({ memoryWriter, factSanitizer }));
+
+      expect(memoryWriter).not.toHaveBeenCalled();
+    });
+
+    it('keeps facts on a non-Error throw under fail-open mode', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({ fact_ids: facts.map((_, i) => `id-${i}`) }));
+      const factSanitizer: FactSanitizer = () => { throw 'bare string failure'; };
+
+      await executeReflectionNode(
+        node,
+        makeReflectStateView({ draft }),
+        1,
+        makeReflectCtx({ memoryWriter, factSanitizer, factSanitizerFailMode: 'pass' }),
+      );
+
+      const [written] = memoryWriter.mock.calls[0];
+      expect(written).toHaveLength(2);
+    });
+
+    it('does not call the writer when the sanitizer drops every rule-based fact', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async () => ({ fact_ids: ['unexpected'] }));
+      const factSanitizer: FactSanitizer = () => null;
+
+      const action = await executeReflectionNode(node, makeReflectStateView({ draft }), 1, makeReflectCtx({ memoryWriter, factSanitizer }));
+
+      expect(memoryWriter).not.toHaveBeenCalled();
+      const envelope = action.payload.updates.reflect_reflection as { fact_ids: string[] };
+      expect(envelope.fact_ids).toEqual([]);
+    });
+
+    it('does not call the writer when the sanitizer drops every llm-extracted fact', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async () => ({ fact_ids: ['unexpected'] }));
+      const extractFactsExecutor = vi.fn().mockResolvedValue({ facts: ['Drop me.', 'And me.'], tokensUsed: 42 });
+      const factSanitizer: FactSanitizer = () => null;
+      const llmNode = makeReflectionNode({
+        source_keys: ['draft'],
+        extractor: { type: 'llm', agent_id: 'reflector', max_facts: 5 },
+        tags: ['lesson'],
+      });
+
+      const action = await executeReflectionNode(
+        llmNode,
+        makeReflectStateView({ draft: 'some corpus' }),
+        1,
+        makeReflectCtx({ memoryWriter, factSanitizer, deps: { extractFactsExecutor } as never }),
+      );
+
+      expect(memoryWriter).not.toHaveBeenCalled();
+      const envelope = action.payload.updates.reflect_reflection as { fact_ids: string[] };
+      expect(envelope.fact_ids).toEqual([]);
+      expect(action.metadata.token_usage?.totalTokens).toBe(42);
+    });
+  });
+
+  describe('source concatenation and helpers', () => {
+    it('skips absent source keys and stringifies non-string values', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({ fact_ids: facts.map((_, i) => `id-${i}`) }));
+      const node = makeReflectionNode({
+        source_keys: ['present', 'absent'],
+        extractor: { type: 'rule_based', min_sentence_length: 5 },
+        tags: ['lesson'],
+      });
+
+      await executeReflectionNode(
+        node,
+        makeReflectStateView({ present: { summary: 'A durable structured lesson worth keeping around.' } }),
+        1,
+        makeReflectCtx({ memoryWriter }),
+      );
+
+      const [written] = memoryWriter.mock.calls[0];
+      expect(written[0].content).toContain('durable structured lesson');
+    });
+
+    it('falls back to String() when a source value is not JSON-serialisable', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({ fact_ids: facts.map((_, i) => `id-${i}`) }));
+      const circular: Record<string, unknown> = {};
+      circular.self = circular;
+      const node = makeReflectionNode({
+        source_keys: ['circular'],
+        extractor: { type: 'rule_based', min_sentence_length: 5 },
+        tags: ['lesson'],
+      });
+
+      await executeReflectionNode(node, makeReflectStateView({ circular }), 1, makeReflectCtx({ memoryWriter }));
+
+      const [written] = memoryWriter.mock.calls[0] as [MemoryWriterFact[]];
+      expect(written[0].content).toContain('object Object');
+    });
+
+    it('extracts no facts when every source key is absent (empty corpus)', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async () => ({ fact_ids: [] }));
+      const node = makeReflectionNode({
+        source_keys: ['nothing_here'],
+        extractor: { type: 'rule_based', min_sentence_length: 5 },
+        tags: ['lesson'],
+      });
+
+      const action = await executeReflectionNode(node, makeReflectStateView({}), 1, makeReflectCtx({ memoryWriter }));
+
+      expect(memoryWriter).not.toHaveBeenCalled();
+      const envelope = action.payload.updates.reflect_reflection as { fact_ids: string[] };
+      expect(envelope.fact_ids).toEqual([]);
+    });
+  });
+
+  describe('entity references', () => {
+    it('attaches only string, non-empty entity_keys and omits entities entirely when none qualify', async () => {
+      const memoryWriter = vi.fn<MemoryWriter>(async (facts) => ({ fact_ids: facts.map((_, i) => `id-${i}`) }));
+      const node = makeReflectionNode({
+        source_keys: ['draft'],
+        entity_keys: ['blank', 'numeric'],
+        extractor: { type: 'rule_based', min_sentence_length: 15 },
+        tags: ['lesson'],
+      });
+
+      await executeReflectionNode(
+        node,
+        makeReflectStateView({ draft: 'Cite the original source carefully.', blank: '   ', numeric: 42 }),
+        1,
+        makeReflectCtx({ memoryWriter }),
+      );
+
+      const [written] = memoryWriter.mock.calls[0] as [MemoryWriterFact[]];
+      expect(written[0].entities).toBeUndefined();
+    });
   });
 });

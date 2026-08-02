@@ -507,8 +507,9 @@ export const SetStatusPayloadSchema = z.object({
   /**
    * Lesson provenance minted when a supervisor's `set_status` (completion)
    * action was produced — facts injected into the routing prompt. Merged
-   * append-only into `memory._lesson_provenance` by `setStatusReducer` so
-   * supervisor retrieval is attributable to run outcomes, same as agent nodes.
+   * append-only into the first-class `state.lesson_provenance` field by
+   * `setStatusReducer` so supervisor retrieval is attributable to run
+   * outcomes, same as agent nodes.
    */
   lesson_provenance: LessonProvenanceRegistrySchema.optional(),
   /**
@@ -532,8 +533,8 @@ export const HandoffPayloadSchema = z.object({
   /**
    * Lesson provenance minted when this handoff was produced — facts
    * injected into the supervisor's routing prompt. Merged append-only into
-   * `memory._lesson_provenance` by `handoffReducer` so supervisor retrieval
-   * is attributable to run outcomes, same as agent nodes.
+   * the first-class `state.lesson_provenance` field by `handoffReducer` so
+   * supervisor retrieval is attributable to run outcomes, same as agent nodes.
    */
   lesson_provenance: LessonProvenanceRegistrySchema.optional(),
   /**

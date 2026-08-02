@@ -130,8 +130,6 @@ async function main() {
 
   console.log('Starting streaming workflow...\n');
 
-  let currentNode = '';
-
   for await (const event of runner.stream()) {
     switch (event.type) {
       case 'workflow:start':
@@ -139,7 +137,6 @@ async function main() {
         break;
 
       case 'node:start':
-        currentNode = event.node_id;
         console.log(`\n[node:start] ${event.node_id} (${event.node_type})`);
         break;
 

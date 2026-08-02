@@ -190,4 +190,35 @@ describe('evaluateQualityExecutor', () => {
       }),
     );
   });
+
+  it('forwards providerOptions to generateText when the config declares them', async () => {
+    const { agentFactory } = await import('../src/agent/agent-factory/index.js');
+    (agentFactory.loadAgent as any).mockResolvedValueOnce({
+      id: 'eval-1',
+      name: 'Quality Evaluator',
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      system: 'You are an expert evaluator.',
+      temperature: 0.3,
+      maxSteps: 1,
+      tools: [],
+      read_keys: ['*'],
+      write_keys: [],
+      providerOptions: { anthropic: { thinking: { type: 'enabled', budgetTokens: 2000 } } },
+    });
+    const { generateText } = await import('ai');
+    (generateText as any).mockResolvedValueOnce({
+      output: { score: 0.7, reasoning: 'Fine' },
+      usage: { totalTokens: 40 },
+    });
+
+    const { evaluateQualityExecutor } = await import('../src/agent/evaluator-executor/executor.js');
+    await evaluateQualityExecutor('eval-1', 'goal', 'output');
+
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: { anthropic: { thinking: { type: 'enabled', budgetTokens: 2000 } } },
+      }),
+    );
+  });
 });

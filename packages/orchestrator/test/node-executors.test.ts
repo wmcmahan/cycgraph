@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { executeAgentNode } from '../src/runner/node-executors/agent.js';
 import { executeToolNode } from '../src/runner/node-executors/tool.js';
 import { executeApprovalNode } from '../src/runner/node-executors/approval.js';
 import { executeRouterNode } from '../src/runner/node-executors/router.js';
+import { executeSupervisorNode } from '../src/runner/node-executors/supervisor.js';
 import { NodeConfigError } from '../src/runner/errors.js';
 import type { GraphNode, Graph } from '../src/types/graph.js';
 import type { WorkflowState, StateView, Action } from '../src/types/state.js';
@@ -255,6 +256,106 @@ describe('executeApprovalNode', () => {
     const reviewData = (result.payload.pending_approval as any).review_data;
     expect(reviewData.allowed).toBe('visible');
     expect(reviewData.secret).toBeUndefined();
+  });
+
+  it('omits a review_key that is absent from memory', async () => {
+    const stateView = { ...makeStateView(), memory: { present: 'here' } };
+    const node = makeNode({
+      type: 'approval',
+      approval_config: {
+        approval_type: 'review',
+        review_keys: ['present', 'missing'],
+        prompt_message: 'Review',
+      },
+    });
+    const ctx = makeCtx();
+
+    const result = await executeApprovalNode(node, stateView, 1, ctx);
+
+    const reviewData = (result.payload.pending_approval as any).review_data;
+    expect(reviewData).toEqual({ present: 'here' });
+  });
+
+  it('copies all memory when review_keys contains the wildcard', async () => {
+    const stateView = { ...makeStateView(), memory: { a: 1, b: 2 } };
+    const node = makeNode({
+      type: 'approval',
+      approval_config: {
+        approval_type: 'review',
+        review_keys: ['*'],
+        prompt_message: 'Review',
+      },
+    });
+    const ctx = makeCtx();
+
+    const result = await executeApprovalNode(node, stateView, 1, ctx);
+
+    expect((result.payload.pending_approval as any).review_data).toEqual({ a: 1, b: 2 });
+  });
+});
+
+// ─── executeSupervisorNode ───────────────────────────────────────────
+
+describe('executeSupervisorNode', () => {
+  function makeHandoff(): Action {
+    return {
+      id: 'sup-act',
+      idempotency_key: 'sup-idem',
+      type: 'handoff',
+      payload: { node_id: 'worker', supervisor_id: 'node-1', reasoning: 'go' },
+      metadata: { node_id: 'node-1', timestamp: new Date(), attempt: 1 },
+    };
+  }
+
+  it('loads the supervisor agent config and delegates to executeSupervisor', async () => {
+    const executeSupervisor = vi.fn().mockResolvedValue(makeHandoff());
+    const loadAgent = vi.fn().mockResolvedValue({ tools: [], provider: 'anthropic', model: 'claude-sonnet-4-6' });
+    const deps = makeDeps({ executeSupervisor, loadAgent });
+    const node = makeNode({
+      type: 'supervisor',
+      agent_id: 'sup-agent',
+      supervisor_config: { managed_nodes: ['worker'], max_iterations: 5 },
+    });
+
+    const result = await executeSupervisorNode(node, makeStateView(), 1, makeCtx({ deps }));
+
+    expect(loadAgent).toHaveBeenCalledWith('sup-agent');
+    expect(executeSupervisor).toHaveBeenCalledTimes(1);
+    expect(result.type).toBe('handoff');
+  });
+
+  it('forwards a budget-resolved model override to executeSupervisor', async () => {
+    const executeSupervisor = vi.fn().mockResolvedValue(makeHandoff());
+    const loadAgent = vi.fn().mockResolvedValue({
+      tools: [], provider: 'anthropic', model: 'claude-opus-4', model_preference: 'economy',
+    });
+    const deps = makeDeps({ executeSupervisor, loadAgent });
+    const modelResolver = vi.fn().mockReturnValue({ model: 'claude-haiku-4', reason: 'budget' });
+    const node = makeNode({
+      type: 'supervisor',
+      agent_id: 'sup-agent',
+      supervisor_config: { managed_nodes: ['worker'], max_iterations: 5 },
+    });
+
+    await executeSupervisorNode(node, makeStateView(), 1, makeCtx({ deps, modelResolver }));
+
+    expect(executeSupervisor.mock.calls[0][4]).toMatchObject({ modelOverride: 'claude-haiku-4' });
+  });
+
+  it('skips model resolution when no agent_id is resolvable', async () => {
+    const executeSupervisor = vi.fn().mockResolvedValue(makeHandoff());
+    const loadAgent = vi.fn();
+    const deps = makeDeps({ executeSupervisor, loadAgent });
+    const node = makeNode({
+      type: 'supervisor',
+      agent_id: undefined,
+      supervisor_config: { managed_nodes: ['worker'], max_iterations: 5 },
+    });
+
+    await executeSupervisorNode(node, makeStateView(), 1, makeCtx({ deps }));
+
+    expect(loadAgent).not.toHaveBeenCalled();
+    expect(executeSupervisor).toHaveBeenCalledTimes(1);
   });
 });
 

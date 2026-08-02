@@ -1,272 +1,206 @@
-import { describe, test, expect } from 'vitest';
+/**
+ * Tests for the edge condition evaluator (runner/conditions.ts).
+ */
+
+import { describe, it, expect } from 'vitest';
 import { evaluateCondition } from '../src/runner/conditions.js';
-import type { WorkflowState, EdgeCondition } from '../src/index.js';
-import { v4 as uuidv4 } from 'uuid';
+import { FILTREX_CACHE_SIZE } from '../src/runtime-config.js';
+import { createTestState } from './helpers/factories.js';
+import type { EdgeCondition, WorkflowState } from '../src/index.js';
 
-describe('Conditional Edge Evaluation', () => {
-  const createMockState = (
-    memory: Record<string, unknown>,
-    taint?: Record<string, unknown>,
-  ): WorkflowState => ({
-    workflow_id: uuidv4(),
-    run_id: uuidv4(),
-    created_at: new Date(),
-    updated_at: new Date(),
-    goal: 'test',
-    constraints: [],
-    status: 'running',
-    current_node: 'test_node',
-    iteration_count: 0,
-    retry_count: 0,
-    max_retries: 3,
-    max_execution_time_ms: 3600000,
-    memory,
-    taint_registry: taint ?? {},
-    visited_nodes: [],
-    max_iterations: 50,
-    compensation_stack: [],
-  }) as WorkflowState;
+const TAINT_META = { source: 'mcp_tool', tool_name: 'web_search', created_at: '2026-01-01T00:00:00.000Z' };
 
-  describe('always condition', () => {
-    test('should always return true', () => {
-      const condition: EdgeCondition = { type: 'always' };
-      const state = createMockState({});
+function stateWith(
+  memory: Record<string, unknown>,
+  taint_registry: Record<string, unknown> = {},
+): WorkflowState {
+  return createTestState({ memory, taint_registry });
+}
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+describe('evaluateCondition', () => {
+  describe('always', () => {
+    it('returns true unconditionally', () => {
+      expect(evaluateCondition({ type: 'always' }, stateWith({}))).toBe(true);
     });
   });
 
-  describe('conditional - JSONPath boolean check', () => {
-    test('should return true if path exists and is truthy', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: '$.memory.approved'
-      };
-      const state = createMockState({ approved: true });
+  describe('conditional truthiness', () => {
+    it('returns true when the referenced key is truthy', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: '$.memory.approved' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ approved: true }))).toBe(true);
     });
 
-    test('should return false if path exists but is false', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: '$.memory.approved'
-      };
-      const state = createMockState({ approved: false });
+    it('returns false when the referenced key is falsy', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: '$.memory.approved' };
 
-      expect(evaluateCondition(condition, state)).toBe(false);
+      expect(evaluateCondition(condition, stateWith({ approved: false }))).toBe(false);
     });
 
-    test('should return false if path does not exist', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: '$.memory.nonexistent'
-      };
-      const state = createMockState({});
+    it('returns false when the referenced key is absent', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: '$.memory.nonexistent' };
 
-      expect(evaluateCondition(condition, state)).toBe(false);
+      expect(evaluateCondition(condition, stateWith({}))).toBe(false);
+    });
+
+    it('returns false when the condition string is missing', () => {
+      expect(evaluateCondition({ type: 'conditional' }, stateWith({}))).toBe(false);
+    });
+
+    it('resolves nested paths', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: '$.memory.user.role == "admin"' };
+
+      expect(evaluateCondition(condition, stateWith({ user: { role: 'admin' } }))).toBe(true);
     });
   });
 
-  describe('conditional - JSONPath comparisons', () => {
-    test('should evaluate == for string values', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: "$.memory.decision == 'approve'"
-      };
-      const state = createMockState({ decision: 'approve' });
+  describe('conditional comparisons', () => {
+    it('evaluates == on strings', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: "$.memory.decision == 'approve'" };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ decision: 'approve' }))).toBe(true);
     });
 
-    test('should evaluate != for string values', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: "$.memory.decision != 'reject'"
-      };
-      const state = createMockState({ decision: 'approve' });
+    it('evaluates != on strings', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: "$.memory.decision != 'reject'" };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ decision: 'approve' }))).toBe(true);
     });
 
-    test('should evaluate > for numeric values', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: '$.memory.score > 80'
-      };
-      const state = createMockState({ score: 85 });
+    it('evaluates > on numbers', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: '$.memory.score > 80' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ score: 85 }))).toBe(true);
     });
 
-    test('should evaluate < for numeric values', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: '$.memory.score < 50'
-      };
-      const state = createMockState({ score: 35 });
+    it('evaluates < on numbers', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: '$.memory.score < 50' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ score: 35 }))).toBe(true);
     });
 
-    test('should evaluate >= for numeric values', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: '$.memory.score >= 70'
-      };
-      const state = createMockState({ score: 70 });
+    it('evaluates >= on numbers', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: '$.memory.score >= 70' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ score: 70 }))).toBe(true);
     });
 
-    test('should evaluate <= for numeric values', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: '$.memory.score <= 100'
-      };
-      const state = createMockState({ score: 95 });
+    it('evaluates <= on numbers', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: '$.memory.score <= 100' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ score: 95 }))).toBe(true);
     });
   });
 
-  describe('number() coercion function', () => {
-    test('should coerce string to number for comparison', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'number(memory.score) >= 0.8',
-      };
-      const state = createMockState({ score: '0.85' });
+  describe('extra functions', () => {
+    it('coerces a numeric string via number()', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'number(memory.score) >= 0.8' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ score: '0.85' }))).toBe(true);
     });
 
-    test('should work with actual numbers unchanged', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'number(memory.score) < 0.5',
-      };
-      const state = createMockState({ score: 0.3 });
+    it('passes actual numbers through number() unchanged', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'number(memory.score) < 0.5' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ score: 0.3 }))).toBe(true);
     });
 
-    test('should return 0 for non-numeric strings', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'number(memory.score) == 0',
-      };
-      const state = createMockState({ score: 'not-a-number' });
+    it('coerces a non-numeric string to 0 via number()', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'number(memory.score) == 0' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ score: 'not-a-number' }))).toBe(true);
     });
 
-    test('should return 0 for undefined values', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'number(memory.score) == 0',
-      };
-      const state = createMockState({});
+    it('coerces an absent value to 0 via number()', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'number(memory.score) == 0' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
+      expect(evaluateCondition(condition, stateWith({}))).toBe(true);
     });
   });
 
-  describe('edge cases', () => {
-    test('should handle missing condition property', () => {
-      const condition: EdgeCondition = { type: 'conditional' };
-      const state = createMockState({});
+  describe('malformed expressions', () => {
+    it('returns false when the expression fails to compile', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'invalid[path' };
 
-      expect(evaluateCondition(condition, state)).toBe(false);
+      expect(evaluateCondition(condition, stateWith({}))).toBe(false);
     });
 
-    test('should handle nested paths', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: '$.memory.user.role == \"admin\"'
-      };
-      const state = createMockState({ user: { role: 'admin' } });
+    it('returns false when filtrex yields an Error object at evaluation time', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'nosuchfn(memory.score)' };
 
-      expect(evaluateCondition(condition, state)).toBe(true);
-    });
-
-    test('should return false for malformed JSONPath', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'invalid[path'
-      };
-      const state = createMockState({});
-
-      expect(evaluateCondition(condition, state)).toBe(false);
+      expect(evaluateCondition(condition, stateWith({ score: 1 }))).toBe(false);
     });
   });
 
   describe('taint checking', () => {
-    test('should warn but allow tainted key references by default', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'memory.decision == "go"',
-      };
-      const state = createMockState(
-        { decision: 'go' },
-        { decision: { source: 'mcp_tool', tool_name: 'web_search', created_at: new Date().toISOString() } },
-      );
+    it('warns but still evaluates a tainted reference by default', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'memory.decision == "go"' };
+      const state = stateWith({ decision: 'go' }, { decision: TAINT_META });
 
-      // Default: warning only, still evaluates
       expect(evaluateCondition(condition, state)).toBe(true);
     });
 
-    test('should reject tainted key references when strict_taint is true', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'memory.decision == "go"',
-      };
-      const state = createMockState(
-        { decision: 'go' },
-        { decision: { source: 'mcp_tool', tool_name: 'web_search', created_at: new Date().toISOString() } },
-      );
+    it('rejects a tainted reference under strict_taint', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'memory.decision == "go"' };
+      const state = stateWith({ decision: 'go' }, { decision: TAINT_META });
 
       expect(evaluateCondition(condition, state, { strict_taint: true })).toBe(false);
     });
 
-    test('should allow conditions not referencing tainted keys even in strict mode', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'memory.safe_count > 0',
-      };
-      const state = createMockState({
-        safe_count: 5,
-        tainted_data: 'evil',
-        _taint_registry: { tainted_data: { source: 'mcp_tool', tool_name: 'web_search', created_at: new Date().toISOString() } },
-      });
+    it('allows a condition that references no tainted key under strict_taint', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'memory.safe_count > 0' };
+      const state = stateWith({ safe_count: 5, tainted_data: 'evil' }, { tainted_data: TAINT_META });
 
       expect(evaluateCondition(condition, state, { strict_taint: true })).toBe(true);
     });
 
-    test('should handle empty taint registry without issues', () => {
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'memory.value > 5',
-      };
-      const state = createMockState({ value: 10 });
+    it('handles an empty taint registry under strict_taint', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'memory.value > 5' };
+
+      expect(evaluateCondition(condition, stateWith({ value: 10 }), { strict_taint: true })).toBe(true);
+    });
+
+    it('does not match a short tainted key inside a longer identifier', () => {
+      const condition: EdgeCondition = { type: 'conditional', condition: 'memory.email == "safe"' };
+      const state = stateWith({ email: 'safe', e: 'evil' }, { e: TAINT_META });
 
       expect(evaluateCondition(condition, state, { strict_taint: true })).toBe(true);
     });
+  });
 
-    test('short tainted key does not spuriously match a longer identifier', () => {
-      // A tainted key "e" must not reject `memory.email == "x"`: the match is
-      // boundary-aware on `memory.<key>`, not a bare substring.
-      const condition: EdgeCondition = {
-        type: 'conditional',
-        condition: 'memory.email == "safe"',
-      };
-      const state = createMockState({
-        email: 'safe',
-        e: 'evil',
-        _taint_registry: { e: { source: 'mcp_tool', created_at: new Date().toISOString() } },
-      });
+  describe('map condition', () => {
+    it('delegates to conditional evaluation when a condition string is present', () => {
+      const condition: EdgeCondition = { type: 'map', condition: 'memory.score > 10' };
 
-      expect(evaluateCondition(condition, state, { strict_taint: true })).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ score: 20 }))).toBe(true);
+      expect(evaluateCondition(condition, stateWith({ score: 5 }))).toBe(false);
+    });
+
+    it('returns true when the condition string is missing', () => {
+      expect(evaluateCondition({ type: 'map' }, stateWith({}))).toBe(true);
+    });
+  });
+
+  describe('unknown condition type', () => {
+    it('returns false for a type outside the known set', () => {
+      const condition = { type: 'bogus' } as unknown as EdgeCondition;
+
+      expect(evaluateCondition(condition, stateWith({}))).toBe(false);
+    });
+  });
+
+  describe('expression cache', () => {
+    it('evaluates correctly past the eviction threshold', () => {
+      const overflow = FILTREX_CACHE_SIZE + 5;
+
+      const results = Array.from({ length: overflow }, (_, i) =>
+        evaluateCondition(
+          { type: 'conditional', condition: `memory.cache_key_${i} == ${i}` },
+          stateWith({ [`cache_key_${i}`]: i }),
+        ),
+      );
+
+      expect(results.every(Boolean)).toBe(true);
     });
   });
 });

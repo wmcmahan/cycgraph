@@ -46,7 +46,6 @@ describe('CycgraphError base class', () => {
       }
     })();
     expect(caught instanceof CycgraphError).toBe(true);
-    // A non-engine error is NOT a CycgraphError.
     expect(new TypeError('x') instanceof CycgraphError).toBe(false);
   });
 });

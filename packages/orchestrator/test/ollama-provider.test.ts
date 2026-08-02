@@ -104,7 +104,6 @@ describe('registerOllamaProvider', () => {
     const { factory, calls } = createMockFactory();
     registerOllamaProvider(registry, factory);
 
-    // Set env var AFTER registration
     process.env.OLLAMA_BASE_URL = 'http://late-host:11434';
 
     registry.resolveModel('ollama', 'qwen2.5:7b');
@@ -130,7 +129,6 @@ describe('registerOllamaProvider', () => {
 
     expect(registry.supportsModel('ollama', 'my-finetune:v1')).toBe(true);
     expect(registry.supportsModel('ollama', 'custom-model:latest')).toBe(true);
-    // Default models still present
     expect(registry.supportsModel('ollama', 'qwen2.5:7b')).toBe(true);
   });
 
@@ -148,7 +146,6 @@ describe('registerOllamaProvider', () => {
   // ─── Coexistence ──────────────────────────────────────────────────
 
   it('coexists with other registered providers', () => {
-    // Register a mock OpenAI provider
     registry.register('openai', (id) => stubModel(id), {
       models: ['gpt-4o'],
     });
@@ -163,7 +160,6 @@ describe('registerOllamaProvider', () => {
     expect(registry.has('anthropic')).toBe(true);
     expect(registry.has('ollama')).toBe(true);
 
-    // Each provider infers correctly
     expect(registry.inferProvider('gpt-4o')).toBe('openai');
     expect(registry.inferProvider('claude-sonnet-4-6')).toBe('anthropic');
     expect(registry.inferProvider('qwen2.5:7b')).toBe('ollama');

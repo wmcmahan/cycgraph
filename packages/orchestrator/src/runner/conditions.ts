@@ -101,8 +101,8 @@ export function evaluateCondition(
 
         // Check for tainted keys referenced in the condition expression.
         // Match `memory.<key>` at an identifier boundary so a short tainted key
-        // (e.g. "e") doesn't spuriously match every expression — critical now
-        // that strict_taint actually rejects on a match.
+        // (e.g. "e") doesn't spuriously match every expression — strict_taint
+        // rejects on any match, so a false positive would wrongly kill the edge.
         const taintRegistry = getTaintRegistry(state);
         const taintedKeys = Object.keys(taintRegistry);
         if (taintedKeys.length > 0) {

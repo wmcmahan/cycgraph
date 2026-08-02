@@ -58,9 +58,6 @@ function makeDeps(overrides: Partial<ArchitectToolDeps> = {}): ArchitectToolDeps
   return {
     saveGraph: vi.fn().mockResolvedValue(undefined),
     loadGraph: vi.fn().mockResolvedValue(null),
-    // Publishing is now secure-by-default (denied with no gate); the general
-    // harness opts into unguarded publishing so non-gate tests exercise the
-    // happy path. Fail-closed behavior is asserted explicitly below.
     allowUnguardedPublish: true,
     ...overrides,
   };
@@ -78,7 +75,7 @@ describe('architectToolDefinitions', () => {
   });
 
   it('each tool has description and parameters', () => {
-    for (const [name, def] of Object.entries(architectToolDefinitions)) {
+    for (const [_name, def] of Object.entries(architectToolDefinitions)) {
       expect(def.description).toBeTruthy();
       expect(def.parameters).toBeDefined();
     }
@@ -90,7 +87,6 @@ describe('architectToolDefinitions', () => {
 describe('executeArchitectTool', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset deps by re-initializing
     initArchitectTools(makeDeps());
   });
 
@@ -115,8 +111,6 @@ describe('executeArchitectTool', () => {
     it('passes current_graph for modification mode', async () => {
       const { generateWorkflow } = await import('../src/architect/index.js');
 
-      // current_graph must be a structurally valid Graph — the handler
-      // rejects malformed graphs before entering modification mode.
       await executeArchitectTool('architect_draft_workflow', {
         prompt: 'Add a review step',
         current_graph: {
@@ -171,8 +165,6 @@ describe('executeArchitectTool', () => {
         graph,
       });
 
-      // saveGraph receives the schema-parsed graph (defaults filled in),
-      // not the raw input — assert on identity, not deep equality.
       expect(deps.saveGraph).toHaveBeenCalledTimes(1);
       expect((deps.saveGraph as ReturnType<typeof vi.fn>).mock.calls[0][0].id).toBe('graph-1');
       expect(result).toHaveProperty('status', 'published');
@@ -183,7 +175,6 @@ describe('executeArchitectTool', () => {
       const deps = makeDeps();
       initArchitectTools(deps);
 
-      // Missing required fields (description, end_nodes) + empty nodes.
       const result = await executeArchitectTool('architect_publish_workflow', {
         graph: { id: 'bad', name: 'Bad', nodes: [], edges: [], start_node: 'x' },
       });
@@ -226,6 +217,18 @@ describe('executeArchitectTool', () => {
       expect(deps.saveGraph).not.toHaveBeenCalled();
     });
 
+    it('denies with a generic message when the gate returns false without a reason', async () => {
+      const deps = makeDeps({ canPublish: () => false });
+      initArchitectTools(deps);
+
+      const result = await executeArchitectTool('architect_publish_workflow', {
+        graph: makeGraph(),
+      });
+
+      expect((result as { error: string }).error).toBe('Publish denied by host policy.');
+      expect(deps.saveGraph).not.toHaveBeenCalled();
+    });
+
     it('honors the canPublish gate — allows and persists', async () => {
       const deps = makeDeps({ canPublish: () => true });
       initArchitectTools(deps);
@@ -239,8 +242,6 @@ describe('executeArchitectTool', () => {
     });
 
     it('fails closed when no gate and no opt-out are configured (does not persist)', async () => {
-      // Secure-by-default: an unconfigured host must NOT publish. Neither
-      // canPublish nor allowUnguardedPublish is set here.
       const deps = makeDeps({ allowUnguardedPublish: false });
       initArchitectTools(deps);
 
@@ -313,10 +314,16 @@ describe('executeArchitectTool', () => {
       expect(deps.saveGraph).toHaveBeenCalled();
     });
 
-    it('throws ArchitectError when tools not initialized', async () => {
-      // Re-init with null by calling with undefined deps trick
-      // We need to test the uninitialized path - clear by reinitializing module
-      // Instead, test that a missing graph field throws validation error
+    it('throws when publishing before tools are initialized', async () => {
+      vi.resetModules();
+      const fresh = await import('../src/architect/tools.js');
+
+      await expect(
+        fresh.executeArchitectTool('architect_publish_workflow', { graph: makeGraph() }),
+      ).rejects.toThrow('Architect tools not initialized');
+    });
+
+    it('rejects a publish payload missing the graph field', async () => {
       await expect(
         executeArchitectTool('architect_publish_workflow', {}),
       ).rejects.toThrow();
@@ -359,6 +366,15 @@ describe('executeArchitectTool', () => {
       await expect(
         executeArchitectTool('architect_get_workflow', {}),
       ).rejects.toThrow();
+    });
+
+    it('throws when fetching before tools are initialized', async () => {
+      vi.resetModules();
+      const fresh = await import('../src/architect/tools.js');
+
+      await expect(
+        fresh.executeArchitectTool('architect_get_workflow', { graph_id: 'graph-1' }),
+      ).rejects.toThrow('Architect tools not initialized');
     });
   });
 });
