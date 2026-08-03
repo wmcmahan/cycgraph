@@ -1,10 +1,41 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
+import Database from 'better-sqlite3';
 import { loadManifest, loadGoldenTrajectories, listAvailableSuites } from '../../src/dataset/loader.js';
 import { writeGoldenDataset } from '../../src/dataset/writer.js';
 import type { GoldenTrajectory } from '../../src/dataset/types.js';
+
+function writeRawDataset(goldenDir: string, suite: string, rows: Array<{ id: string; data: string }>): void {
+  const db = new Database(':memory:');
+  db.exec('CREATE TABLE trajectories (id TEXT PRIMARY KEY, data TEXT NOT NULL)');
+  const insert = db.prepare('INSERT INTO trajectories (id, data) VALUES (?, ?)');
+  for (const row of rows) insert.run(row.id, row.data);
+  const compressed = gzipSync(Buffer.from(db.serialize()));
+  db.close();
+
+  const file = `data/${suite}-v1.sqlite.gz`;
+  mkdirSync(resolve(goldenDir, 'data'), { recursive: true });
+  writeFileSync(resolve(goldenDir, file), compressed);
+  writeFileSync(
+    resolve(goldenDir, 'manifest.json'),
+    JSON.stringify({
+      version: '1',
+      datasets: [
+        {
+          name: suite,
+          file,
+          sha256: createHash('sha256').update(compressed).digest('hex'),
+          trajectoryCount: rows.length,
+          schemaVersion: '1.0.0',
+          lastUpdated: '2026-04-01T00:00:00Z',
+        },
+      ],
+    }),
+  );
+}
 
 const TEST_GOLDEN_DIR = resolve(import.meta.dirname, '../.test-golden');
 
@@ -72,12 +103,41 @@ describe('loadGoldenTrajectories', () => {
     );
   });
 
+  it('reports "(none)" available when the manifest has no datasets', () => {
+    const emptyDir = resolve(import.meta.dirname, '../.test-golden-empty');
+    mkdirSync(emptyDir, { recursive: true });
+    try {
+      writeFileSync(
+        resolve(emptyDir, 'manifest.json'),
+        JSON.stringify({ version: '1', datasets: [] }),
+      );
+
+      expect(() => loadGoldenTrajectories('orchestrator', emptyDir)).toThrow(/Available: \(none\)/);
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws when a stored trajectory fails schema validation', () => {
+    const badDir = resolve(import.meta.dirname, '../.test-golden-invalid');
+    try {
+      writeRawDataset(badDir, 'orchestrator', [
+        { id: 'not-a-uuid', data: JSON.stringify({ id: 'not-a-uuid', suite: 'orchestrator' }) },
+      ]);
+
+      expect(() => loadGoldenTrajectories('orchestrator', badDir)).toThrow(
+        /Trajectory at index 0 in suite "orchestrator" failed validation/,
+      );
+    } finally {
+      rmSync(badDir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a tampered dataset (checksum mismatch)', () => {
     const entry = loadManifest(TEST_GOLDEN_DIR).datasets.find(d => d.name === 'orchestrator')!;
     const filePath = resolve(TEST_GOLDEN_DIR, entry.file);
     const original = readFileSync(filePath);
     try {
-      // Corrupt the compressed bytes so the sha256 no longer matches the manifest.
       writeFileSync(filePath, Buffer.concat([original, Buffer.from([0x00])]));
       expect(() => loadGoldenTrajectories('orchestrator', TEST_GOLDEN_DIR)).toThrow(
         /failed integrity check/,
@@ -96,11 +156,9 @@ describe('writeGoldenDataset versioning', () => {
       writeGoldenDataset('orchestrator', sampleTrajectories, '1.0.0', dir);
       writeGoldenDataset('orchestrator', sampleTrajectories, '2.0.0', dir);
 
-      // v2 must NOT overwrite v1 — both files exist.
       expect(existsSync(resolve(dir, 'data/orchestrator-v1.sqlite.gz'))).toBe(true);
       expect(existsSync(resolve(dir, 'data/orchestrator-v2.sqlite.gz'))).toBe(true);
 
-      // The manifest points at the most recently written version.
       const manifest = loadManifest(dir);
       const entry = manifest.datasets.find(d => d.name === 'orchestrator')!;
       expect(entry.file).toBe('data/orchestrator-v2.sqlite.gz');

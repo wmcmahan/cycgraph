@@ -11,6 +11,7 @@
 
 import { DefaultTokenCounter } from '@cycgraph/context-engine';
 
+/** The single token counter every adapter and budget calculation shares. */
 export const benchCounter = new DefaultTokenCounter();
 
 /** Count tokens with the shared benchmark counter. */

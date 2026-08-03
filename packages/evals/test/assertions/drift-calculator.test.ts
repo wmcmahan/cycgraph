@@ -49,7 +49,6 @@ describe('computeDrift', () => {
 
       const report = computeDrift(results);
 
-      // 1 failure / 4 tests = 25%
       expect(report.aggregatePercent).toBe(25);
       expect(report.passed).toBe(false);
     });
@@ -62,8 +61,6 @@ describe('computeDrift', () => {
 
       const report = computeDrift(results);
 
-      // 1 drifted test / 2 tests = 50% (NOT 100% — drift is a fraction of tests,
-      // not a sum of failure events across categories).
       expect(report.aggregatePercent).toBe(50);
       expect(report.perSuite['orchestrator'].driftedTests).toBe(1);
       expect(report.passed).toBe(false);
@@ -77,7 +74,6 @@ describe('computeDrift', () => {
 
       const report = computeDrift(results);
 
-      // 2 drifted / 2 tests = 100% — never exceeds 100.
       expect(report.aggregatePercent).toBe(100);
       expect(report.passed).toBe(false);
     });
@@ -130,7 +126,6 @@ describe('computeDrift', () => {
         makeResult('orchestrator', false, true),  // 1 of 20 = 5%
       ];
 
-      // Default ceiling is 5.0 — exactly 5% fails (< not <=)
       const report = computeDrift(results);
       expect(report.aggregatePercent).toBe(5);
       expect(report.passed).toBe(false);
@@ -201,8 +196,6 @@ describe('computeDrift', () => {
 
       const report = computeDrift(results);
 
-      // 1 test failing all 3 categories is still ONE drifted test → 100%, not
-      // 300%. Per-category counts are retained for reporting.
       expect(report.perSuite['context-engine'].zodFailures).toBe(1);
       expect(report.perSuite['context-engine'].semanticFailures).toBe(1);
       expect(report.perSuite['context-engine'].deterministicFailures).toBe(1);

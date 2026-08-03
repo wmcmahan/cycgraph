@@ -22,14 +22,12 @@ function makeSegment(id: string, content: string, overrides?: Partial<PromptSegm
 const counter = new DefaultTokenCounter();
 
 describe('budget-exhaustion edge cases', () => {
-  it('zero maxTokens budget: allocator returns empty allocations for mutable segments', () => {
-    // BudgetConfigSchema requires positive maxTokens, so use 1 as minimum
+  it('schema-minimum budget of 1 token yields at most 1 allocated token', () => {
     const segments = [makeSegment('a', 'some content here')];
     const budget: BudgetConfig = { maxTokens: 1, outputReserve: 0 };
 
     const result = allocateBudget(segments, budget, counter);
 
-    // With budget of 1, the allocation should be minimal
     const allocation = result.allocations.get('a') ?? 0;
     expect(allocation).toBeLessThanOrEqual(1);
   });
@@ -39,7 +37,6 @@ describe('budget-exhaustion edge cases', () => {
     const mutable = makeSegment('mutable', 'This is mutable content that can be cut');
 
     const lockedTokens = counter.countTokens(locked.content);
-    // Budget is just enough for the locked segment, none left for mutable
     const budget: BudgetConfig = { maxTokens: lockedTokens, outputReserve: 0 };
 
     const result = allocateBudget([locked, mutable], budget, counter);
@@ -76,20 +73,16 @@ describe('budget-exhaustion edge cases', () => {
 
     const result = allocateBudget([seg1, seg2], budget, counter);
 
-    // Locked segments always get their full token count
     expect(result.allocations.get('a')).toBe(counter.countTokens(seg1.content));
     expect(result.allocations.get('b')).toBe(counter.countTokens(seg2.content));
   });
 
-  it('negative priority treated as 0 due to schema validation', () => {
-    // Priority has min(0) in schema, so we test with 0 priority
+  it('zero priority yields no mutable allocation (zero totalPriority returns early)', () => {
     const segments = [makeSegment('zero', 'some content', { priority: 0 })];
     const budget: BudgetConfig = { maxTokens: 100, outputReserve: 0 };
 
     const result = allocateBudget(segments, budget, counter);
 
-    // With zero priority and only one segment, totalPriority = 0
-    // Function returns early with no mutable allocations
     expect(result.allocations.has('zero')).toBe(false);
   });
 
@@ -100,7 +93,6 @@ describe('budget-exhaustion edge cases', () => {
       budget: { maxTokens: 1, outputReserve: 0 },
     });
 
-    // Pipeline should still complete without error
     expect(result.segments).toBeDefined();
     expect(result.metrics).toBeDefined();
   });
@@ -115,7 +107,6 @@ describe('budget-exhaustion edge cases', () => {
 
     const result = allocateBudget(segments, budget, counter);
 
-    // Both segments should get their full allocation
     expect(result.allocations.get('a')).toBe(counter.countTokens('Hello world'));
     expect(result.allocations.get('b')).toBe(counter.countTokens('Foo bar baz'));
     expect(result.overflow).toHaveLength(0);

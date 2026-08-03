@@ -63,6 +63,21 @@ describe('runMemorySut — segmentation', () => {
     const parsed = JSON.parse(result.output) as { episodes: number };
     expect(parsed.episodes).toBe(1);
   });
+
+  it('preserves a supplied UUID and defaults a missing role and non-string content', async () => {
+    const messages = JSON.stringify([
+      { id: '11111111-1111-4111-8111-111111111111', timestamp: '2026-01-01T10:00:00Z' },
+      { role: 'assistant', content: 42, timestamp: '2026-01-01T10:01:00Z' },
+    ]);
+
+    const result = await runMemorySut({
+      trajectory: makeTrajectory(['segmentation', 'episodes'], messages),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as { episodes: number };
+    expect(parsed.episodes).toBe(1);
+  });
 });
 
 describe('runMemorySut — temporal', () => {
@@ -96,6 +111,21 @@ describe('runMemorySut — temporal', () => {
     expect(result.status).toBe('completed');
     const parsed = JSON.parse(result.output) as { kept: string[] };
     expect(parsed.kept).toEqual(['Valid fact']);
+  });
+
+  it('synthesizes a UUID and epoch validity for facts lacking id, content, and valid_from', async () => {
+    const facts = JSON.stringify([
+      { id: '22222222-2222-4222-8222-222222222222', valid_until: '2027-01-01' },
+    ]);
+
+    const result = await runMemorySut({
+      trajectory: makeTrajectory(['temporal', 'validity'], facts),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as { filtered_count: number; kept: string[] };
+    expect(parsed.filtered_count).toBe(1);
+    expect(parsed.kept).toEqual(['']);
   });
 });
 
@@ -136,6 +166,15 @@ describe('runMemorySut — unsupported tags', () => {
 
     expect(result.status).toBe('failed');
   });
+
+  it('treats an absent tags array as no handler match', async () => {
+    const result = await runMemorySut({
+      trajectory: makeTrajectory(undefined as unknown as string[], 'anything'),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain('No memory handler');
+  });
 });
 
 describe('runMemorySut — error path', () => {
@@ -166,6 +205,18 @@ describe('runMemorySut — subgraph', () => {
     expect(parsed.relationships.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('defaults to an empty neighborhood when seed_entities is not an array', async () => {
+    const input = JSON.stringify({ seed_entities: 'e-alice', maxHops: 'two' });
+
+    const result = await runMemorySut({
+      trajectory: makeTrajectory(['subgraph', 'graph'], input),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as { entities: string[] };
+    expect(parsed.entities).toEqual([]);
+  });
+
   it('excludes expired relationships when validAt is supplied', async () => {
     const input = JSON.stringify({
       seed_entities: ['e-alice'],
@@ -181,8 +232,6 @@ describe('runMemorySut — subgraph', () => {
     const parsed = JSON.parse(result.output) as {
       relationships: Array<{ type: string }>;
     };
-    // The seeded fixture's `manages` edge is expired; the expired one should
-    // not appear in the 1-hop output when validAt is the fixture's NOW.
     expect(parsed.relationships.every(r => r.type !== 'manages')).toBe(true);
   });
 });
@@ -223,6 +272,21 @@ describe('runMemorySut — consolidation', () => {
 
     expect(result.status).toBe('completed');
   });
+
+  it('seeds inline themes into the consolidation store', async () => {
+    const input = JSON.stringify({
+      facts: [{ content: 'Alice works at Acme Corp.' }],
+      themes: [{ id: 't-consolidation', fact_ids: ['f-dup-0'] }],
+    });
+
+    const result = await runMemorySut({
+      trajectory: makeTrajectory(['consolidation', 'cascade'], input),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as { totalReclaimed: number };
+    expect(typeof parsed.totalReclaimed).toBe('number');
+  });
 });
 
 describe('runMemorySut — conflict', () => {
@@ -259,6 +323,37 @@ describe('runMemorySut — conflict', () => {
     const parsed = JSON.parse(result.output) as { conflicts_detected: number };
     expect(parsed.conflicts_detected).toBe(0);
   });
+
+  it('parses object-shaped facts carrying explicit validity windows', async () => {
+    const input = JSON.stringify({
+      factA: { valid_until: '2026-06-01' },
+      factB: {
+        content: 'Alice does not work at Acme Corp.',
+        valid_from: '2026-03-01',
+        valid_until: '2026-06-01',
+      },
+    });
+
+    const result = await runMemorySut({
+      trajectory: makeTrajectory(['conflict', 'negation'], input),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as { conflicts_detected: number };
+    expect(typeof parsed.conflicts_detected).toBe('number');
+  });
+
+  it('ignores a missing second fact and still completes', async () => {
+    const input = JSON.stringify({ factA: 'Alice works at Acme Corp.' });
+
+    const result = await runMemorySut({
+      trajectory: makeTrajectory(['conflict', 'negation'], input),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as { conflicts_detected: number };
+    expect(parsed.conflicts_detected).toBe(0);
+  });
 });
 
 describe('memory SUT introspection', () => {
@@ -278,5 +373,11 @@ describe('memory SUT introspection', () => {
     expect(isMemoryTrajectorySupported(makeTrajectory(['subgraph', 'graph'], ''))).toBe(true);
     expect(isMemoryTrajectorySupported(makeTrajectory(['consolidation', 'cascade'], ''))).toBe(true);
     expect(isMemoryTrajectorySupported(makeTrajectory(['conflict', 'negation'], ''))).toBe(true);
+  });
+
+  it('reports a trajectory with no tags array as unsupported', () => {
+    expect(
+      isMemoryTrajectorySupported(makeTrajectory(undefined as unknown as string[], '')),
+    ).toBe(false);
   });
 });

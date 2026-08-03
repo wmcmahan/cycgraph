@@ -77,6 +77,7 @@ interface Tally {
 
 const ratio = (t: Tally): number => (t.total === 0 ? 1 : t.hit / t.total);
 
+/** Runs both extraction-efficacy cases: the corpus metrics and the cross-episode resolution pipeline. */
 export async function runExtractionEfficacy(): Promise<TestCaseResults[]> {
   return [await runCorpusMetrics(), await runCrossEpisodePipeline()];
 }

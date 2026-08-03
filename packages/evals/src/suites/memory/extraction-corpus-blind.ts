@@ -67,6 +67,7 @@ export interface BlindForbid {
   verbs: string[];
 }
 
+/** One natural-text passage with its meaning-space ground-truth labels. */
 export interface BlindPassage {
   id: string;
   /** Multi-sentence natural text — fed to the extractor as one episode. */

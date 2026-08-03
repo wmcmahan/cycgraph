@@ -103,4 +103,28 @@ describe('createAnthropicProvider', () => {
     expect(estimate.estimatedUsd).toBeGreaterThan(0);
     expect(estimate.warning).toContain('exceeds warning threshold');
   });
+
+  it('omits the warning when the estimate is below the threshold', () => {
+    const provider = createAnthropicProvider({ apiKey: 'sk-test', costWarningThreshold: 1000 });
+    const estimate = provider.estimateCost(1);
+    expect(estimate.warning).toBeUndefined();
+  });
+
+  it('wraps a request timeout with the configured timeout in the message', async () => {
+    globalThis.fetch = vi.fn().mockImplementation((_url, init: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+    }) as typeof fetch;
+
+    const provider = createAnthropicProvider({ apiKey: 'sk-test' });
+
+    await expect(provider.callJudge('x', { timeoutMs: 20 })).rejects.toThrow(
+      /Anthropic callJudge timed out after 20ms/,
+    );
+  });
 });

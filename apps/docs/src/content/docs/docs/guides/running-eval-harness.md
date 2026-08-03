@@ -13,7 +13,7 @@ The eval harness has one entry point, `npm run evals`, plus a handful of flags t
 npm run evals --workspace=packages/evals -- --deterministic-only
 ```
 
-Runs ~36 library-level tests in <1 second. Catches:
+Runs the ~35 library-level tests in under a second. Catches:
 - Compression ratio regressions
 - Dedup behavior changes
 - Budget enforcement breaks
@@ -54,7 +54,7 @@ OPENAI_API_KEY=sk-... \
 Adds baseline comparison on top of mode 3:
 - Loads `golden/baselines/main-latest.json`
 - Compares current drift to the prior snapshot
-- Exits with code `2` if any suite regressed by more than 5pp (configurable)
+- Exits with code `2` if any suite regressed by more than the noise floor (1pp by default, configurable)
 - Overwrites the baseline only if the run passed both the absolute gate and the relative comparison
 
 See [Drift & Baselines](/docs/concepts/drift-and-baselines/) for what counts as a regression.
@@ -67,9 +67,10 @@ See [Drift & Baselines](/docs/concepts/drift-and-baselines/) for what counts as 
 | `--suite` | suite name | 3 core suites | Restricts to one suite. Default runs `context-engine`, `memory`, `orchestrator`; `integration` is accepted but drives no goldens (see note). |
 | `--samples` | int | 1 local / 3 ci | Number of independent semantic samples per test |
 | `--sut-model` | string | `claude-sonnet-4-6` | Model driving the system-under-test (SUT) on the semantic track |
+| `--provider` | `anthropic \| openai \| ollama` | ollama local / openai ci | Overrides the judge provider the mode would pick |
 | `--deterministic-only` | flag | false | Skip the semantic track entirely |
 | `--baseline` | flag | false | Load + compare + persist `golden/baselines/main-latest.json` |
-| `--baseline-noise-floor` | float | `5.0` | Minimum pp delta to flag as a regression |
+| `--baseline-noise-floor` | float | `1` | Minimum pp delta to flag as a regression. Kept below the drift ceiling so sub-ceiling regressions are caught |
 | `--commit` | string | (auto) | Short git SHA stamped onto a new baseline snapshot |
 
 :::note
@@ -99,12 +100,12 @@ npm run evals -- --deterministic-only
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `OPENAI_API_KEY` | CI semantic track | — | GPT-4o judge |
+| `ANTHROPIC_API_KEY` | With `--provider anthropic` | — | Anthropic judge |
 | `OLLAMA_BASE_URL` | Local | `http://localhost:11434` | Ollama endpoint |
 | `OLLAMA_MODEL` | Local | `llama3:8b-instruct-q4_K_M` | Local judge model |
-| `EVAL_MAX_CONCURRENCY` | No | `2` / `8` | Parallel evaluations |
 | `EVAL_DRIFT_CEILING` | No | `5.0` | Drift % gate threshold |
 
-CLI flags override env vars where both apply.
+CLI flags override env vars where both apply. Judge concurrency is not an env var: it's a provider option (`maxConcurrency`), defaulting to 2 for Ollama and 8 for OpenAI and Anthropic.
 
 ## Exit codes
 
@@ -134,6 +135,20 @@ Future enhancements (deferred from Phase 1):
 **"Baseline schema version mismatch"**: you're loading an older snapshot than the current code understands. Delete `golden/baselines/main-latest.json` and re-run with `--baseline` to bootstrap a fresh one.
 
 **"No prior baseline"**: expected on the first run with `--baseline`. The current run becomes the baseline.
+
+## Other runners in the package
+
+The regression gate is the main entry point, but two sibling runners ship alongside it:
+
+```bash
+# Efficacy matrix: measures extraction/compression quality against labeled corpora
+npm run evals:efficacy --workspace=packages/evals
+
+# Compression bench: context engine vs reference compressors (or --smoke for a quick pass)
+npm run bench --workspace=packages/evals
+```
+
+These measure absolute quality rather than drift, and neither participates in the gate's exit codes.
 
 ## Related
 

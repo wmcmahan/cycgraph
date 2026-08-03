@@ -24,7 +24,6 @@ describe.skipIf(!available)('extraction efficacy — LLM tier (Ollama)', () => {
     expect(result.suite).toBe('memory');
     const metrics = new Map(result.deterministicResults.map((d) => [d.metric, d]));
 
-    // Core measured metrics present, in [0, 1].
     for (const name of [
       'extraction_llm_entity_recall',
       'extraction_llm_relationship_recall',
@@ -38,7 +37,6 @@ describe.skipIf(!available)('extraction efficacy — LLM tier (Ollama)', () => {
       expect(m!.actual).toBeLessThanOrEqual(1);
     }
 
-    // One delta metric per ceiling case, bounded in [-1, 1].
     const deltas = result.deterministicResults.filter((d) => d.metric.includes('_vs_rule_'));
     expect(deltas.length).toBe(4);
     for (const d of deltas) {
@@ -46,7 +44,6 @@ describe.skipIf(!available)('extraction efficacy — LLM tier (Ollama)', () => {
       expect(d.actual).toBeLessThanOrEqual(1);
     }
 
-    // Print the measured baseline so a first real run documents itself.
     // eslint-disable-next-line no-console
     console.log('\nLLM extraction efficacy baseline:');
     for (const d of result.deterministicResults) {

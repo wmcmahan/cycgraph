@@ -4,7 +4,6 @@ import { runDeterministic } from '../../src/suites/context-engine/suite.js';
 describe('context-engine deterministic suite', () => {
   it('runs all deterministic test cases (Phase 1-4 + efficacy frontier)', async () => {
     const results = await runDeterministic();
-    // 18 Phase 1-4 cases + 6 efficacy frontier cells (2 scenarios x 3 presets)
     expect(results.length).toBe(24);
   });
 

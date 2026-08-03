@@ -15,6 +15,7 @@ import {
   type BaselineSnapshot,
 } from './types.js';
 
+/** Inputs for building a `BaselineSnapshot` from a runtime drift report. */
 export interface SnapshotInput {
   drift: DriftReport;
   driftCeiling: number;

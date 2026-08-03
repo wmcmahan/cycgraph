@@ -165,6 +165,34 @@ describe('assertToolCallStructure', () => {
       expect(result.typeMismatches).toHaveLength(1);
       expect(result.typeMismatches[0].param).toBe('limit');
     });
+
+    it('ignores value-level violations, treating only structural issues as failures', () => {
+      const schema = z.object({ query: z.string().min(5) });
+
+      const actual: ToolCall = { toolName: 'search', args: { query: 'ab' } };
+      const expected: ToolCall = { toolName: 'search', args: { query: 'ab' } };
+
+      const result = assertToolCallStructure(actual, expected, schema);
+
+      expect(result.passed).toBe(true);
+      expect(result.missingParams).toEqual([]);
+      expect(result.typeMismatches).toEqual([]);
+    });
+
+    it('treats a nested schema path over a primitive value as a missing param', () => {
+      const schema = z.any().superRefine((_value, ctx) => {
+        ctx.addIssue({ code: 'invalid_type', expected: 'string', path: ['config', 'timeout'], message: 'forced' });
+      });
+
+      const actual: ToolCall = { toolName: 'search', args: { config: 5 } };
+      const expected: ToolCall = { toolName: 'search', args: { config: 5 } };
+
+      const result = assertToolCallStructure(actual, expected, schema);
+
+      expect(result.passed).toBe(false);
+      expect(result.missingParams).toEqual(['config.timeout']);
+      expect(result.typeMismatches).toEqual([]);
+    });
   });
 });
 

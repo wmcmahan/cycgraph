@@ -70,6 +70,26 @@ describe('formatReport', () => {
       expect(output.text).toContain('5 tests');
     });
 
+    it('includes deterministic failure counts in the suite line', () => {
+      const report = makeReport({
+        perSuite: {
+          integration: {
+            suiteName: 'integration',
+            totalTests: 8,
+            zodFailures: 0,
+            semanticFailures: 0,
+            deterministicFailures: 3,
+            driftedTests: 3,
+            driftPercent: 37.5,
+          },
+        },
+      });
+
+      const output = formatReport(report, 'local');
+
+      expect(output.text).toContain('3 deterministic');
+    });
+
     it('shows PASS for suites with zero drift', () => {
       const report = makeReport({
         perSuite: {
@@ -129,6 +149,30 @@ describe('formatReport', () => {
 
       expect(zodWarning).toContain('2 structural');
       expect(semanticWarning).toContain('1 semantic');
+    });
+
+    it('produces a warning annotation for deterministic failures', () => {
+      const report = makeReport({
+        passed: false,
+        aggregatePercent: 20,
+        perSuite: {
+          integration: {
+            suiteName: 'integration',
+            totalTests: 10,
+            zodFailures: 0,
+            semanticFailures: 0,
+            deterministicFailures: 4,
+            driftPercent: 40,
+          },
+        },
+      });
+
+      const output = formatReport(report, 'ci');
+
+      const deterministicWarning = output.annotations.find(a =>
+        a.includes('Deterministic Failures'),
+      );
+      expect(deterministicWarning).toContain('4 deterministic');
     });
 
     it('produces no annotations when all suites pass', () => {

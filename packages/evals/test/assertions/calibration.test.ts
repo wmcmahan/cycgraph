@@ -28,7 +28,6 @@ describe('calibrateJudge', () => {
   ];
 
   it('perfect judge: deviation = 0, isCalibrated = true', async () => {
-    // Judge returns scores that exactly match ground truth
     let callIndex = 0;
     const scores = [0.95, 0.9, 0.1];
     const callJudge = async () => {
@@ -44,9 +43,6 @@ describe('calibrateJudge', () => {
   });
 
   it('biased judge (consistent +0.4 offset): deviation > 0.15, isCalibrated = false, threshold adjusted', async () => {
-    // Ground truth: [0.95, 0.9, 0.1]
-    // Biased:       [1.0,  1.0, 0.5]  (clamped)
-    // Deviations:   [0.05, 0.1, 0.4]  → avg = 0.183
     let callIndex = 0;
     const scores = [1.0, 1.0, 0.5];
     const callJudge = async () => {
@@ -62,7 +58,6 @@ describe('calibrateJudge', () => {
   });
 
   it('noisy judge: high deviation, not calibrated', async () => {
-    // Judge returns random-ish scores that don't match ground truth
     let callIndex = 0;
     const scores = [0.1, 0.1, 0.9]; // Inverted from ground truth
     const callJudge = async () => {
@@ -103,7 +98,6 @@ describe('calibrateJudge', () => {
   });
 
   it('threshold adjustment: adjustedThreshold = baseThreshold - deviation', async () => {
-    // Judge is consistently off by 0.3
     let callIndex = 0;
     const scores = [0.95 + 0.3, 0.9 + 0.3, 0.1 + 0.3];
     const callJudge = async () => {
@@ -113,7 +107,6 @@ describe('calibrateJudge', () => {
 
     const result = await calibrateJudge(calibrationSet, ANSWER_RELEVANCY, callJudge, 0.8);
 
-    // Not calibrated, so threshold is adjusted
     expect(result.isCalibrated).toBe(false);
     expect(result.adjustedThreshold).toBeCloseTo(0.8 - result.deviation, 5);
   });
@@ -131,8 +124,6 @@ describe('calibrateJudge', () => {
 
     const result = await calibrateJudge(calibrationSet, ANSWER_RELEVANCY, callJudge);
 
-    // parseJudgeResponse returns score=0 for unparseable responses
-    // Ground truth scores are 0.95, 0.9, 0.1 so deviations are 0.95, 0.9, 0.1 → avg ~0.65
     expect(result.deviation).toBeGreaterThan(0.5);
     expect(result.isCalibrated).toBe(false);
   });

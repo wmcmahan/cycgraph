@@ -54,7 +54,6 @@ describe('selectMusiqueSubset', () => {
     const twoHop = byId.get('2hop__1_2')!;
     expect(twoHop.question).toBe('Question for 2hop__1_2?');
     expect(twoHop.answer).toBe('answer-2hop__1_2');
-    // Blank aliases are dropped, real ones kept
     expect(twoHop.answerAliases).toEqual(['alias one']);
     expect(twoHop.documents).toHaveLength(20);
     expect(twoHop.documents[0]).toEqual({
@@ -84,7 +83,6 @@ describe('selectMusiqueSubset', () => {
     expect(a.questions.map(q => q.id)).toEqual(b.questions.map(q => q.id));
     expect(a.subsetHash).toBe(b.subsetHash);
     expect(a.questions.map(q => q.id)).not.toEqual(c.questions.map(q => q.id));
-    // Seeded shuffle of the full set, not "first N"
     expect(a.questions.map(q => q.id)).not.toEqual(items.slice(0, 10).map(i => i.id));
   });
 });
@@ -98,7 +96,6 @@ describe('max-over-golds scoring', () => {
   it('bestF1 takes the max across golds', () => {
     const golds = ['Miquette Giraudy', 'Giraudy'];
     expect(bestF1('Giraudy', golds)).toBe(1);
-    // Against only the full name it would be partial credit
     expect(f1Score('Giraudy', golds[0])).toBeLessThan(1);
   });
 

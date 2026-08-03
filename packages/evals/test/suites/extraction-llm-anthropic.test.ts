@@ -34,7 +34,6 @@ describe.skipIf(!optedIn)('extraction efficacy — LLM tier (Anthropic)', () => 
     expect(result.suite).toBe('memory');
     const metrics = new Map(result.deterministicResults.map((d) => [d.metric, d]));
 
-    // Print BEFORE asserting so a floor failure still documents the run.
     // eslint-disable-next-line no-console
     console.log('\nAnthropic extraction efficacy run:');
     for (const d of result.deterministicResults) {
@@ -51,8 +50,6 @@ describe.skipIf(!optedIn)('extraction efficacy — LLM tier (Anthropic)', () => 
     ]) {
       const m = metrics.get(name);
       expect(m, name).toBeDefined();
-      // Ratchet enforcement: floors are set below the 2026-07-23 baseline;
-      // raise them as quality improves, never lower to make this pass.
       expect(m!.passed, `${name} — ${m!.description} (actual ${m!.actual}, expected ${m!.expected})`).toBe(true);
     }
 
@@ -68,7 +65,6 @@ describe.skipIf(!optedIn)('extraction efficacy — LLM tier (Anthropic)', () => 
 
     const result = await runBlindEfficacy(extractor, 'llm', { gate: true });
 
-    // Gated: floors sit under the 2026-07-23 baseline minimum.
     // eslint-disable-next-line no-console
     console.log(`\nBlind corpus (Claude ${DEFAULT_ANTHROPIC_MODEL}) — ${usage.inputTokens} in / ${usage.outputTokens} out tokens:`);
     for (const d of result.deterministicResults) {

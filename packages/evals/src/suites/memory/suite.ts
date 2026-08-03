@@ -100,7 +100,7 @@ function makeFact(
   };
 }
 
-/** Seed a store with a test graph: A → B → C, A → D */
+/** Seed a store with a test graph: Alice and Bob work at Acme, Acme owns the Widget Project, plus an expired Alice-manages-Bob edge. */
 async function seedTestGraph(store: InMemoryMemoryStore) {
   const entities = [
     makeEntity('e-alice', 'Alice', 'person'),
@@ -131,6 +131,7 @@ async function seedTestGraph(store: InMemoryMemoryStore) {
 
 // ─── Deterministic Track ──────────────────────────────────────────
 
+/** Runs deterministic assertions against @cycgraph/memory APIs. No LLM needed. */
 export async function runDeterministic(): Promise<TestCaseResults[]> {
   const results: TestCaseResults[] = [];
 
@@ -338,18 +339,15 @@ async function runEntityRetrievalTest(): Promise<TestCaseResults> {
 async function runThemeFactLinkageTest(): Promise<TestCaseResults> {
   const store = new InMemoryMemoryStore();
 
-  // Create facts
   const facts = [
     makeFact('f-1', 'Alice works at Acme', PAST),
     makeFact('f-2', 'Bob works at Acme', PAST),
   ];
   for (const f of facts) await store.putFact(f);
 
-  // Cluster into themes
   const clusterer = new SimpleThemeClusterer();
   const themes = await clusterer.cluster(facts);
 
-  // Verify theme→fact linkage
   const allFactIds = new Set(themes.flatMap(t => t.fact_ids));
   const expectedFactIds = new Set(facts.map(f => f.id));
 

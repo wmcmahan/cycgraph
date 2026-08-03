@@ -4,6 +4,7 @@ import {
   OUTPUT_QUALITY,
   SAFETY,
   COMPRESSION_FIDELITY,
+  QA_ANSWERABILITY,
   REFERENCE_FREE_METRICS,
 } from '../../src/assertions/reference-free-judge.js';
 import {
@@ -81,8 +82,6 @@ describe('reference-free metrics', () => {
     for (const metric of REFERENCE_FREE_METRICS) {
       const prompt = metric.buildPrompt(contextNoExpected);
       expect(prompt).not.toContain('undefined');
-      // Reference-free metrics should not mention N/A for expected output
-      // since they don't use expected output at all
       expect(prompt).not.toContain('Expected Output');
     }
   });
@@ -93,5 +92,36 @@ describe('reference-free metrics', () => {
     expect(REFERENCE_FREE_METRICS).toContain(OUTPUT_QUALITY);
     expect(REFERENCE_FREE_METRICS).toContain(SAFETY);
     expect(REFERENCE_FREE_METRICS).toContain(COMPRESSION_FIDELITY);
+  });
+});
+
+describe('QA_ANSWERABILITY', () => {
+  const context: SemanticJudgeContext = {
+    input: 'What is the deployment budget?',
+    actualOutput: 'deployment budget $42,000. Alice approved 2026-03-01.',
+    expectedOutput: '$42,000',
+  };
+
+  it('has the qa_answerability metric name', () => {
+    expect(QA_ANSWERABILITY.name).toBe('qa_answerability');
+  });
+
+  it('includes the question, compressed context, and reference answer', () => {
+    const prompt = QA_ANSWERABILITY.buildPrompt(context);
+
+    expect(prompt).toContain(context.input);
+    expect(prompt).toContain(context.actualOutput);
+    expect(prompt).toContain('$42,000');
+    expect(prompt).toContain('Reference Answer:');
+  });
+
+  it('renders an empty reference answer when expectedOutput is absent', () => {
+    const prompt = QA_ANSWERABILITY.buildPrompt({
+      input: context.input,
+      actualOutput: context.actualOutput,
+    });
+
+    expect(prompt).toContain('Reference Answer:');
+    expect(prompt).not.toContain('undefined');
   });
 });

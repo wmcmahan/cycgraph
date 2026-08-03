@@ -22,6 +22,7 @@
 
 import type { PromptSegment, BudgetConfig, PipelinePreset } from '@cycgraph/context-engine';
 
+/** A question/answer probe derived from the original context, judged against the compressed output. */
 export interface QaProbe {
   /** Question answerable from the original context. */
   question: string;
@@ -29,6 +30,7 @@ export interface QaProbe {
   answer: string;
 }
 
+/** One compression-efficacy scenario: a multi-segment context with planted facts that must survive compression. */
 export interface EfficacyScenario {
   name: string;
   description: string;

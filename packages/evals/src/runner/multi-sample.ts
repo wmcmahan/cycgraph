@@ -42,9 +42,9 @@ export interface MultiSampleResult {
    */
   passed: boolean;
   /**
-   * Reasoning from the highest-scoring sample. Surfaces a useful
-   * explanation when the metric passes; less useful when failures are
-   * heterogeneous, but better than nothing.
+   * Reasoning from the sample whose score is closest to the median — the
+   * most representative of the run. Useful when the metric passes; less
+   * useful when failures are heterogeneous, but better than nothing.
    */
   reasoning: string;
 }

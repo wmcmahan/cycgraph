@@ -27,7 +27,6 @@ describe('buildSupervisorGraph', () => {
     const nodeIds = artifacts.graph.nodes.map(n => n.id).sort();
     expect(nodeIds).toEqual(['edit', 'research', 'supervisor', 'write']);
 
-    // Cyclic edges: supervisor ⇄ each specialist
     expect(artifacts.graph.edges).toHaveLength(6);
   });
 
@@ -157,7 +156,6 @@ describe('retry-tool fixtures', () => {
     expect(r3.status).toBe('ok');
     expect(r3.attempt).toBe(3);
 
-    // Further calls continue to succeed
     const r4 = tool({}) as { status: string };
     expect(r4.status).toBe('ok');
   });
@@ -177,7 +175,6 @@ describe('retry-tool fixtures', () => {
   it('createRateLimitedCall inserts 429s every Nth call', () => {
     const tool = createRateLimitedCall({ totalCalls: 5, rateLimitEvery: 2 });
 
-    // Call 1 succeeds, call 2 is rate-limited, call 3 succeeds, etc.
     expect((tool({}) as { status: number }).status).toBe(200);
     expect((tool({}) as { status: number }).status).toBe(429);
     expect((tool({}) as { status: number }).status).toBe(200);
@@ -196,9 +193,7 @@ describe('retry-tool fixtures', () => {
     const a = createFlakyFetch({ failuresBeforeSuccess: 1 });
     const b = createFlakyFetch({ failuresBeforeSuccess: 1 });
 
-    // First call to `a` fails
     expect((a({}) as { status: string }).status).toBe('failed');
-    // First call to `b` should also fail (independent counter)
     expect((b({}) as { status: string }).status).toBe('failed');
   });
 });

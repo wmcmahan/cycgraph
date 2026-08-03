@@ -160,6 +160,7 @@ async function seedTestGraph(store: InMemoryMemoryStore) {
 
 // ─── Deterministic Track ─────────────────────────────────────────
 
+/** Runs the cross-package deterministic track (memory + context-engine + orchestrator). No LLM needed. */
 export async function runDeterministic(): Promise<TestCaseResults[]> {
   const results: TestCaseResults[] = [];
 
@@ -183,14 +184,11 @@ async function runMemoryIngestionPipeline(): Promise<TestCaseResults> {
   const index = new InMemoryMemoryIndex();
   const messages = createTestMessages();
 
-  // Segment into episodes
   const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 30 * 60 * 1000 });
   const episodes = await segmenter.segment(messages);
 
-  // Store episodes
   for (const ep of episodes) await store.putEpisode(ep);
 
-  // Extract facts from episodes
   const extractor = new RuleBasedExtractor();
   let totalFacts = 0;
   for (const ep of episodes) {
@@ -199,7 +197,6 @@ async function runMemoryIngestionPipeline(): Promise<TestCaseResults> {
     totalFacts += result.facts.length;
   }
 
-  // Cluster into themes
   const allFacts = await store.findFacts();
   const clusterer = new SimpleThemeClusterer();
   const themes = await clusterer.cluster(allFacts);
@@ -284,14 +281,12 @@ async function runContextCompression(): Promise<TestCaseResults> {
     includeInvalidated: false,
   });
 
-  // Serialize retrieved memory to JSON
   const memoryJson = JSON.stringify({
     entities: result.entities.map(e => ({ name: e.name, type: e.entity_type })),
     facts: result.facts.map(f => f.content),
     relationships: result.relationships.map(r => ({ type: r.relation_type, from: r.source_id, to: r.target_id })),
   }, null, 2);
 
-  // Create segment and compress
   const segments: PromptSegment[] = [{
     id: 'memory',
     content: memoryJson,
@@ -375,7 +370,6 @@ async function runMemoryRetrieverAdapter(): Promise<TestCaseResults> {
   await seedTestGraph(store);
   await index.rebuild(store);
 
-  // Build a function matching MemoryRetriever type signature
   const retriever: MemoryRetriever = async (query, _options) => {
     const result = await retrieveMemory(store, index, {
       entityIds: query.entityIds,
@@ -422,7 +416,6 @@ async function runConsolidationCascade(): Promise<TestCaseResults> {
   const store = new InMemoryMemoryStore();
   const index = new InMemoryMemoryIndex();
 
-  // Add entities
   await store.putEntity(makeEntity('e-alice', 'Alice', 'person'));
   await store.putEntity(makeEntity('e-acme', 'Acme Corp', 'organization'));
 
@@ -442,7 +435,6 @@ async function runConsolidationCascade(): Promise<TestCaseResults> {
   await store.putFact(fact1);
   await store.putFact(fact2);
 
-  // Create a theme referencing both facts
   await store.putTheme({
     id: 't-1',
     label: 'Employment',
@@ -484,7 +476,6 @@ async function runConflictDetection(): Promise<TestCaseResults> {
   const store = new InMemoryMemoryStore();
   const index = new InMemoryMemoryIndex();
 
-  // Add entity
   await store.putEntity(makeEntity('e-alice', 'Alice', 'person'));
   await store.putEntity(makeEntity('e-acme', 'Acme Corp', 'organization'));
 
@@ -592,25 +583,21 @@ async function runEndToEnd(): Promise<TestCaseResults> {
   const index = new InMemoryMemoryIndex();
   const messages = createTestMessages();
 
-  // Step 1: Segment messages into episodes
   const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 30 * 60 * 1000 });
   const episodes = await segmenter.segment(messages);
   for (const ep of episodes) await store.putEpisode(ep);
 
-  // Step 2: Extract facts
   const extractor = new RuleBasedExtractor();
   for (const ep of episodes) {
     const result = await extractor.extract(ep);
     for (const fact of result.facts) await store.putFact(fact);
   }
 
-  // Step 3: Cluster into themes
   const allFacts = await store.findFacts();
   const clusterer = new SimpleThemeClusterer();
   const themes = await clusterer.cluster(allFacts);
   for (const theme of themes) await store.putTheme(theme);
 
-  // Step 4: Store entities from the graph
   await store.putEntity(makeEntity('e-alice', 'Alice', 'person'));
   await store.putEntity(makeEntity('e-acme', 'Acme Corp', 'organization'));
   const rel = makeRelationship('r-1', 'e-alice', 'e-acme', 'works_at', PAST);
@@ -625,7 +612,6 @@ async function runEndToEnd(): Promise<TestCaseResults> {
 
   await index.rebuild(store);
 
-  // Step 5: Retrieve memory for Alice
   const retrieved = await retrieveMemory(store, index, {
     entityIds: ['e-alice'],
     tags: [],
@@ -635,7 +621,6 @@ async function runEndToEnd(): Promise<TestCaseResults> {
     includeInvalidated: false,
   });
 
-  // Step 6: Compress for context window
   const memoryContent = JSON.stringify({
     entities: retrieved.entities.map(e => e.name),
     facts: retrieved.facts.map(f => f.content),

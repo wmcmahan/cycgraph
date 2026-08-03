@@ -8,9 +8,43 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { extractOutput } from '../../src/sut/orchestrator-sut.js';
+import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import { ProviderRegistry } from '@cycgraph/orchestrator';
+import { extractOutput, runOrchestratorSut } from '../../src/sut/orchestrator-sut.js';
 import { createMockToolResolver } from '../../src/sut/mock-tool-resolver.js';
 import { buildSingleAgentGraph } from '../../src/sut/graphs/single-agent.js';
+
+const SUT_MODEL = 'claude-sonnet-4-6';
+
+function textStreamChunks(text: string) {
+  return [
+    { type: 'stream-start' as const, warnings: [] },
+    { type: 'text-start' as const, id: '0' },
+    { type: 'text-delta' as const, id: '0', delta: text },
+    { type: 'text-end' as const, id: '0' },
+    {
+      type: 'finish' as const,
+      finishReason: 'stop' as const,
+      usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+    },
+  ];
+}
+
+/** A provider registry whose `anthropic` model streams a fixed doStream. */
+function registryFor(doStream: () => Promise<{ stream: ReadableStream }>): ProviderRegistry {
+  const registry = new ProviderRegistry();
+  registry.register('anthropic', () => new MockLanguageModelV3({ doStream }), {
+    models: [SUT_MODEL],
+  });
+  return registry;
+}
+
+/** Streams a single fixed text response and finishes. */
+function textRegistry(text: string): ProviderRegistry {
+  return registryFor(async () => ({
+    stream: simulateReadableStream({ chunks: textStreamChunks(text) }),
+  }));
+}
 
 describe('extractOutput', () => {
   it('returns a string value verbatim', () => {
@@ -41,7 +75,6 @@ describe('extractOutput', () => {
 
   it('ignores undefined values but keeps empty strings', () => {
     const memory = { a: undefined, b: '' };
-    // Undefined skipped; empty string is a valid value and contributes an empty part
     expect(extractOutput(memory, ['a', 'b'])).toBe('');
   });
 });
@@ -163,5 +196,100 @@ describe('buildSingleAgentGraph', () => {
     expect(artifacts.outputKey).toBe('translation');
     const agentNode = artifacts.graph.nodes[0];
     expect(agentNode.write_keys).toEqual(['translation']);
+  });
+});
+
+describe('runOrchestratorSut', () => {
+  it('runs a single-agent graph and extracts the agent output', async () => {
+    const artifacts = buildSingleAgentGraph({ input: 'Summarize TypeScript.' });
+
+    const result = await runOrchestratorSut({
+      graph: artifacts.graph,
+      initialState: artifacts.initialState,
+      agentRegistry: artifacts.agentRegistry,
+      providerRegistry: textRegistry('TypeScript is a typed superset of JavaScript.'),
+      outputKey: artifacts.outputKey,
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.error).toBeUndefined();
+    expect(result.output).toBe('TypeScript is a typed superset of JavaScript.');
+    expect(result.toolCalls).toEqual([]);
+    expect(result.finalMemory).toHaveProperty(artifacts.outputKey);
+  });
+
+  it('captures tool calls in invocation order', async () => {
+    let round = 0;
+    const registry = registryFor(async () => {
+      round++;
+      if (round === 1) {
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              { type: 'tool-call', toolCallId: 'c1', toolName: 'web_search', input: '{"query":"TypeScript"}' },
+              { type: 'finish', finishReason: 'tool-calls', usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } },
+            ],
+          }),
+        };
+      }
+      return { stream: simulateReadableStream({ chunks: textStreamChunks('Answer complete.') }) };
+    });
+
+    const artifacts = buildSingleAgentGraph({
+      input: 'Look up TypeScript.',
+      tools: [{ type: 'mcp', server_id: 'mock', tool_names: ['web_search'] }],
+    });
+
+    const result = await runOrchestratorSut({
+      graph: artifacts.graph,
+      initialState: artifacts.initialState,
+      agentRegistry: artifacts.agentRegistry,
+      providerRegistry: registry,
+      toolResponses: { web_search: (args) => ({ echo: args.query }) },
+      toolDescriptions: { web_search: 'Search the web.' },
+      outputKey: artifacts.outputKey,
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.output).toBe('Answer complete.');
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0].toolName).toBe('web_search');
+    expect(result.toolCalls[0].order).toBe(0);
+    expect(result.toolCalls[0].args).toEqual({ query: 'TypeScript' });
+  });
+
+  it('marks a run that exceeds its timeout as timeout', async () => {
+    const artifacts = buildSingleAgentGraph({ input: 'Never resolves.' });
+
+    const result = await runOrchestratorSut({
+      graph: artifacts.graph,
+      initialState: artifacts.initialState,
+      agentRegistry: artifacts.agentRegistry,
+      providerRegistry: registryFor(() => new Promise(() => {})),
+      outputKey: artifacts.outputKey,
+      timeoutMs: 20,
+    });
+
+    expect(result.status).toBe('timeout');
+    expect(result.error).toContain('20ms');
+  });
+
+  it('reports failed status when the run rejects', async () => {
+    const artifacts = buildSingleAgentGraph({ input: 'Boom.' });
+    artifacts.graph.nodes[0].failure_policy = { max_retries: 0 };
+
+    const result = await runOrchestratorSut({
+      graph: artifacts.graph,
+      initialState: artifacts.initialState,
+      agentRegistry: artifacts.agentRegistry,
+      providerRegistry: registryFor(async () => {
+        throw new Error('provider exploded');
+      }),
+      outputKey: artifacts.outputKey,
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toBeDefined();
   });
 });

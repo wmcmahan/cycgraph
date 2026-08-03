@@ -160,7 +160,26 @@ export default defineConfig({
           label: 'Observability',
           items: [
             { label: 'Tracing', slug: 'docs/observability/tracing' },
-            { label: 'Graph Assertions (runEval)', slug: 'docs/observability/evals' },
+            { label: 'Graph Assertions (in-app runEval)', slug: 'docs/observability/evals' },
+          ],
+        },
+        {
+          label: 'Evals & Quality',
+          items: [
+            { label: 'Eval Harness', slug: 'docs/concepts/eval-harness' },
+            { label: 'Eval Assertions', slug: 'docs/concepts/eval-assertions' },
+            { label: 'Drift & Baselines', slug: 'docs/concepts/drift-and-baselines' },
+            { label: 'Running Evals', slug: 'docs/guides/running-eval-harness' },
+            { label: 'Recording Goldens', slug: 'docs/guides/recording-goldens' },
+            { label: 'Adding an Eval Suite', slug: 'docs/guides/adding-eval-suite' },
+            { label: 'Adding a SUT Handler', slug: 'docs/guides/adding-sut-handler' },
+          ],
+        },
+        {
+          label: 'Operations',
+          items: [
+            { label: 'Configuration', slug: 'docs/operations/configuration' },
+            { label: 'Deployment', slug: 'docs/operations/deployment' },
           ],
         },
         { label: 'Security', slug: 'docs/security' },

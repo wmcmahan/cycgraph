@@ -39,6 +39,7 @@ export interface TestCaseResults {
  * A test case "fails" if:
  * - Any zod structural assertion fails (wrong type, missing param)
  * - Any semantic score falls below the threshold
+ * - Any deterministic assertion fails
  *
  * @param testResults - Results from all test cases across all suites.
  * @param driftCeiling - Maximum allowable drift % (default: 5.0).

@@ -123,6 +123,16 @@ describe('planForTrajectory — orchestrator', () => {
     expect(plan.supported).toBe(false);
     expect(plan.skipReason).toContain('some-future-tag');
   });
+
+  it('treats a trajectory with no tags as unsupported', () => {
+    const plan = planForTrajectory(
+      'orchestrator',
+      makeTrajectory('orchestrator', undefined as unknown as string[]),
+    );
+
+    expect(plan.supported).toBe(false);
+    expect(plan.skipReason).toContain('[]');
+  });
 });
 
 describe('planForTrajectory — memory', () => {
@@ -139,6 +149,16 @@ describe('planForTrajectory — memory', () => {
     );
     expect(unsupported.supported).toBe(false);
   });
+
+  it('reports a skip reason for a tagless unsupported trajectory', () => {
+    const plan = planForTrajectory(
+      'memory',
+      makeTrajectory('memory', undefined as unknown as string[]),
+    );
+
+    expect(plan.supported).toBe(false);
+    expect(plan.skipReason).toContain('No memory handler for tags []');
+  });
 });
 
 describe('planForTrajectory — context-engine', () => {
@@ -148,6 +168,16 @@ describe('planForTrajectory — context-engine', () => {
       makeTrajectory('context-engine', ['format', 'json']),
     );
     expect(supported.supported).toBe(true);
+  });
+
+  it('reports a skip reason for an unsupported context-engine trajectory', () => {
+    const plan = planForTrajectory(
+      'context-engine',
+      makeTrajectory('context-engine', ['some-future-tag']),
+    );
+
+    expect(plan.supported).toBe(false);
+    expect(plan.skipReason).toContain('No context-engine handler for tags [some-future-tag]');
   });
 });
 
@@ -163,8 +193,10 @@ describe('planForTrajectory — integration', () => {
 });
 
 describe('planSuite — real golden coverage', () => {
-  // These tests run against the actual seeded golden trajectories, locking
-  // in the current routing behavior so accidental tag changes get caught.
+  /**
+   * Runs against the actual seeded golden trajectories, locking in the
+   * current routing behavior so accidental tag changes get caught.
+   */
 
   it('classifies all orchestrator trajectories', () => {
     const trajectories = loadGoldenTrajectories('orchestrator');
@@ -182,8 +214,6 @@ describe('planSuite — real golden coverage', () => {
     const plans = planSuite('memory', trajectories);
 
     const supported = plans.filter(p => p.supported);
-    // All 18 trajectories should route now that subgraph/consolidation/conflict
-    // handlers have shipped.
     expect(supported.length).toBe(trajectories.length);
   });
 

@@ -41,6 +41,7 @@ import { EXTRACTION_CORPUS, type ExtractionCase } from './extraction-corpus.js';
 
 const DEFAULT_BASE_URL = process.env['OLLAMA_BASE_URL'] ?? 'http://localhost:11434';
 const DEFAULT_MODEL = process.env['OLLAMA_MODEL'] ?? 'llama3:8b-instruct-q4_K_M';
+/** Default model for the Anthropic extraction backend (override via ANTHROPIC_MODEL env). */
 export const DEFAULT_ANTHROPIC_MODEL = process.env['ANTHROPIC_MODEL'] ?? 'claude-opus-4-8';
 
 export interface LlmEfficacyOptions {

@@ -5,7 +5,6 @@ describe('normalizeAnswer (SQuAD-standard)', () => {
   it('lowercases, strips punctuation and articles, collapses whitespace', () => {
     expect(normalizeAnswer('The  Quick, Brown-Fox!')).toBe('quick brown fox');
     expect(normalizeAnswer('a Denver')).toBe('denver');
-    // SQuAD normalization strips ALL punctuation, including '$'
     expect(normalizeAnswer('$42,000')).toBe('42 000');
   });
 });
@@ -23,8 +22,6 @@ describe('f1Score', () => {
   });
 
   it('computes token-level partial overlap', () => {
-    // prediction {denver, colorado}, reference {denver}:
-    // precision 1/2, recall 1/1 -> F1 = 2/3
     expect(f1Score('Denver Colorado', 'Denver')).toBeCloseTo(2 / 3, 5);
   });
 
@@ -38,7 +35,6 @@ describe('f1Score', () => {
   });
 
   it('respects reference token multiplicity', () => {
-    // reference has one 'very'; prediction spamming it gains no extra overlap
     expect(f1Score('very very very', 'very good')).toBeCloseTo(
       (2 * (1 / 3) * (1 / 2)) / (1 / 3 + 1 / 2),
       5,

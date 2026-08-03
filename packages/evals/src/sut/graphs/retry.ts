@@ -6,8 +6,8 @@
  * families where the golden describes how the agent narrates handling an
  * unreliable resource.
  *
- * Failure mode is driven by the caller via the `flakyTool` factory in
- * `tools/retry-fixtures.ts` so the recording script can produce the same
+ * Failure mode is driven by the caller via the `createFlakyFetch` factory in
+ * `fixtures/retry-tools.ts` so the recording script can produce the same
  * canned failures across all retry trajectories.
  *
  * @module sut/graphs/retry

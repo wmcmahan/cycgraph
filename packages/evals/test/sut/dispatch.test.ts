@@ -1,17 +1,29 @@
 /**
- * Tests for the generic SUT dispatcher.
- *
- * Only the deterministic-suite paths are exercised end-to-end here —
- * those run real library calls in <10ms and don't need a network. The
- * orchestrator path is verified at the level of "dispatch returns
- * something" (a real LLM call would land here) because hitting an
- * actual model in unit tests is out of scope.
+ * Tests for the generic SUT dispatcher: deterministic suites run their real
+ * library-backed SUTs end-to-end; the orchestrator SUT boundary is
+ * module-mocked so graph routing and tool-fixture resolution are testable
+ * without an LLM.
  */
 
-import { describe, it, expect } from 'vitest';
-import { runSutDispatch } from '../../src/sut/dispatch.js';
-import { planForTrajectory } from '../../src/sut/recording-planner.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { RecordingPlan } from '../../src/sut/recording-planner.js';
+import type { SutRunResult } from '../../src/sut/types.js';
 import type { GoldenTrajectory, SuiteName } from '../../src/dataset/types.js';
+
+const runOrchestratorSut = vi.hoisted(() =>
+  vi.fn(async (): Promise<SutRunResult> => ({
+    output: 'mocked',
+    toolCalls: [],
+    durationMs: 1,
+    finalMemory: {},
+    status: 'completed',
+  })),
+);
+
+vi.mock('../../src/sut/orchestrator-sut.js', () => ({ runOrchestratorSut }));
+
+const { runSutDispatch } = await import('../../src/sut/dispatch.js');
+const { planForTrajectory } = await import('../../src/sut/recording-planner.js');
 
 function makeTrajectory(
   suite: SuiteName,
@@ -166,5 +178,125 @@ describe('runSutDispatch — fixture isolation', () => {
     expect(a.status).toBe('completed');
     expect(b.status).toBe('completed');
     expect(a.output).toBe(b.output);
+  });
+});
+
+function makeOrchestratorPlan(overrides: Partial<RecordingPlan> = {}): RecordingPlan {
+  return {
+    trajectory: makeTrajectory('orchestrator', ['single-agent'], 'What is TypeScript?'),
+    supported: true,
+    ...overrides,
+  };
+}
+
+type CapturedSutOptions = {
+  graph: { nodes: Array<{ id: string }> };
+  toolResponses?: Record<string, (args: Record<string, unknown>) => unknown>;
+  toolDescriptions?: Record<string, string>;
+  outputKey: string;
+  timeoutMs?: number;
+};
+
+describe('runSutDispatch — orchestrator graph selection', () => {
+  beforeEach(() => {
+    runOrchestratorSut.mockClear();
+  });
+
+  async function dispatchWith(overrides: Partial<RecordingPlan>): Promise<CapturedSutOptions> {
+    const result = await runSutDispatch({
+      suite: 'orchestrator',
+      plan: makeOrchestratorPlan(overrides),
+      model: 'claude-sonnet-4-6',
+      timeoutMs: 5_000,
+    });
+    expect(result.status).toBe('completed');
+    expect(runOrchestratorSut).toHaveBeenCalledOnce();
+    return runOrchestratorSut.mock.calls[0][0] as unknown as CapturedSutOptions;
+  }
+
+  it('builds the supervisor graph for graphKind supervisor and forwards the timeout', async () => {
+    const opts = await dispatchWith({ graphKind: 'supervisor' });
+
+    expect(opts.graph.nodes.some((n) => n.id.includes('supervisor'))).toBe(true);
+    expect(opts.timeoutMs).toBe(5_000);
+  });
+
+  it('builds the branching graph around its router node', async () => {
+    const opts = await dispatchWith({ graphKind: 'branching' });
+
+    expect(opts.graph.nodes.map((n) => n.id)).toContain('router');
+    expect(opts.outputKey).toBeTruthy();
+  });
+
+  it('builds the retry graph with no fixtures when toolKind is unset', async () => {
+    const opts = await dispatchWith({ graphKind: 'retry' });
+
+    expect(opts.toolResponses).toBeUndefined();
+    expect(opts.graph.nodes.length).toBeGreaterThan(0);
+  });
+
+  it('builds the retry graph around the resolved flaky_fetch fixture', async () => {
+    const opts = await dispatchWith({ graphKind: 'retry', toolKind: 'flaky_fetch' });
+
+    expect(Object.keys(opts.toolResponses ?? {})).toEqual(['flaky_fetch']);
+  });
+
+  it('defaults to the single-agent graph with no tools for an unset graphKind', async () => {
+    const opts = await dispatchWith({});
+
+    expect(opts.toolResponses).toBeUndefined();
+    expect(opts.outputKey).toBeTruthy();
+  });
+});
+
+describe('runSutDispatch — tool fixture resolution', () => {
+  beforeEach(() => {
+    runOrchestratorSut.mockClear();
+  });
+
+  async function fixturesFor(toolKind: RecordingPlan['toolKind']): Promise<CapturedSutOptions> {
+    await runSutDispatch({
+      suite: 'orchestrator',
+      plan: makeOrchestratorPlan({ toolKind }),
+      model: 'claude-sonnet-4-6',
+    });
+    return runOrchestratorSut.mock.calls[0][0] as unknown as CapturedSutOptions;
+  }
+
+  it('resolves the web_search fixture with a canned result payload', async () => {
+    const { toolResponses, toolDescriptions } = await fixturesFor('web_search');
+
+    const payload = toolResponses!.web_search({ query: 'typescript' }) as {
+      query: unknown;
+      results: Array<{ title: string }>;
+    };
+    expect(payload.query).toBe('typescript');
+    expect(payload.results[0].title).toContain('TypeScript');
+    expect(toolDescriptions!.web_search).toContain('Search the web');
+  });
+
+  it('resolves a fresh flaky_fetch closure that fails before succeeding', async () => {
+    const { toolResponses } = await fixturesFor('flaky_fetch');
+    const flaky = toolResponses!.flaky_fetch;
+
+    const first = flaky({}) as { error?: unknown };
+    const second = flaky({}) as { error?: unknown };
+    const third = flaky({}) as { error?: unknown };
+
+    expect(first.error).toBeDefined();
+    expect(second.error).toBeDefined();
+    expect(third.error).toBeUndefined();
+  });
+
+  it('resolves a rate_limited_call closure that rate-limits periodically', async () => {
+    const { toolResponses } = await fixturesFor('rate_limited_call');
+    const call = toolResponses!.rate_limited_call;
+
+    const outcomes = [call({}), call({}), call({}), call({}), call({})] as Array<{
+      error?: unknown;
+    }>;
+
+    expect(outcomes.some((o) => o.error !== undefined)).toBe(true);
+    expect(outcomes.some((o) => o.error === undefined)).toBe(true);
   });
 });

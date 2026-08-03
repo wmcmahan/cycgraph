@@ -90,8 +90,6 @@ describe('runContextEngineSut — dedup', () => {
   });
 
   it('routes fuzzy-tagged trajectories to the fuzzy handler before exact', async () => {
-    // Trajectory carries both 'exact' and 'fuzzy' tags — the fuzzy handler
-    // should win because exactDedupHandler explicitly excludes fuzzy.
     const input = ['a near match string', 'a near match string!'].join('\n');
 
     const result = await runContextEngineSut({
@@ -122,6 +120,26 @@ describe('runContextEngineSut — budget', () => {
     };
     expect(parsed.total_allocated).toBeLessThanOrEqual(parsed.max_available);
     expect(parsed.allocations).toHaveProperty('system');
+  });
+
+  it('roles a tools segment as locked and serializes non-string values', async () => {
+    const input = JSON.stringify({
+      tools: 'search(query)',
+      locked: 'pinned context',
+      memory: { note: 'structured value' },
+    });
+
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(['priority', 'budget'], input),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as {
+      allocations: Record<string, number>;
+      total_allocated: number;
+    };
+    expect(typeof parsed.total_allocated).toBe('number');
+    expect(parsed.allocations).toHaveProperty('tools');
   });
 });
 
@@ -162,6 +180,48 @@ describe('runContextEngineSut — incremental cache', () => {
     };
     expect(parsed.turn2.fresh).toBe(1);
     expect(parsed.turn2.cached).toBe(0);
+  });
+
+  it('defaults non-string turn values to empty strings', async () => {
+    const input = JSON.stringify({ turn1: 123, turn2: false });
+
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(['incremental', 'cache'], input),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as {
+      turn1: { fresh: number };
+      turn2: { cached: number };
+    };
+    expect(parsed.turn1.fresh).toBe(1);
+    expect(parsed.turn2.cached).toBe(1);
+  });
+
+  it('falls back to a blank-line split when the input is not a JSON object', async () => {
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(['incremental', 'cache'], 'first turn\n\nsecond turn'),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as {
+      turn1: { fresh: number };
+      turn2: { fresh: number };
+    };
+    expect(parsed.turn1.fresh).toBe(1);
+    expect(parsed.turn2.fresh).toBe(1);
+  });
+
+  it('reuses the sole segment for turn2 when a non-JSON input has no blank line', async () => {
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(['incremental', 'cache'], 'only one turn'),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as {
+      turn2: { cached: number };
+    };
+    expect(parsed.turn2.cached).toBe(1);
   });
 });
 
@@ -204,6 +264,61 @@ describe('runContextEngineSut — adaptive memory', () => {
     const parsed = JSON.parse(result.output) as { contains_facts: boolean };
     expect(parsed.contains_facts).toBe(true);
   });
+
+  it('routes a bare memory tag to the adaptive handler', async () => {
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(['memory'], JSON.stringify({ themes: [], facts: [], episodes: [] })),
+    });
+
+    expect(result.status).toBe('completed');
+    expect(result.finalMemory.handler).toBe('adaptive-memory');
+  });
+
+  it('coerces malformed fact fields to safe defaults', async () => {
+    const input = JSON.stringify({
+      themes: 'not-an-array',
+      facts: [{ valid_until: '2027-01-01' }],
+      episodes: 'not-an-array',
+    });
+
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(['memory', 'adaptive'], input),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as {
+      contains_themes: boolean;
+      contains_facts: boolean;
+    };
+    expect(parsed.contains_themes).toBe(false);
+    expect(parsed.contains_facts).toBe(true);
+  });
+
+  it('treats a non-array facts field as an empty fact list', async () => {
+    const input = JSON.stringify({ themes: [{ id: 't1', label: 'x', fact_ids: [] }], facts: 'nope' });
+
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(['memory', 'adaptive'], input),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as { contains_facts: boolean };
+    expect(parsed.contains_facts).toBe(false);
+  });
+
+  it('defaults to an empty payload when the input is not a JSON object', async () => {
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(['memory', 'adaptive'], 'plain text payload'),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as {
+      contains_themes: boolean;
+      contains_facts: boolean;
+    };
+    expect(parsed.contains_themes).toBe(false);
+    expect(parsed.contains_facts).toBe(false);
+  });
 });
 
 describe('runContextEngineSut — pipeline', () => {
@@ -226,6 +341,20 @@ describe('runContextEngineSut — pipeline', () => {
     expect(parsed.input_tokens).toBeGreaterThan(0);
     expect(parsed.output_tokens).toBeLessThanOrEqual(parsed.input_tokens);
   });
+
+  it('reports zero reduction when the input has no tokens', async () => {
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(['pipeline', 'multi-stage'], ''),
+    });
+
+    expect(result.status).toBe('completed');
+    const parsed = JSON.parse(result.output) as {
+      input_tokens: number;
+      reduction_percent: number;
+    };
+    expect(parsed.input_tokens).toBe(0);
+    expect(parsed.reduction_percent).toBe(0);
+  });
 });
 
 describe('runContextEngineSut — unsupported tags', () => {
@@ -244,6 +373,15 @@ describe('runContextEngineSut — unsupported tags', () => {
     });
 
     expect(result.status).toBe('failed');
+  });
+
+  it('reports failure when the tags array is absent', async () => {
+    const result = await runContextEngineSut({
+      trajectory: makeTrajectory(undefined as unknown as string[], '{}'),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain('No context-engine handler');
   });
 });
 
@@ -286,5 +424,11 @@ describe('context-engine SUT introspection', () => {
         makeTrajectory(['pipeline', 'multi-stage'], ''),
       ),
     ).toBe(true);
+  });
+
+  it('reports a trajectory with no tags array as unsupported', () => {
+    expect(
+      isContextEngineTrajectorySupported(makeTrajectory(undefined as unknown as string[], '')),
+    ).toBe(false);
   });
 });
