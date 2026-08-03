@@ -17,7 +17,7 @@
  * conservative than the fast `margin` rule the demo pins.
  */
 
-import { describe, test, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import {
   InMemoryMemoryStore,
@@ -68,9 +68,7 @@ async function buildScenario(opts: { goodScore: number; poisonScore: number; tri
   const outcomes: RunOutcome[] = [];
   let n = 0;
   for (let i = 0; i < opts.trials; i++) {
-    // Genuine-lesson run: both good lessons present, no poison → high.
     outcomes.push({ run_id: `good-${n++}`, score: opts.goodScore, fact_ids: [...goodIds] });
-    // Poison run: all three poison present, no good → low.
     outcomes.push({ run_id: `poison-${n++}`, score: opts.poisonScore, fact_ids: [...poisonIds] });
   }
   for (const o of outcomes) await ledger.recordOutcome(o);
@@ -79,7 +77,7 @@ async function buildScenario(opts: { goodScore: number; poisonScore: number; tri
 }
 
 describe('eval-gated-learning gate (deterministic)', () => {
-  test('margin rule evicts every poison lesson and promotes the genuine ones', async () => {
+  it('margin rule evicts every poison lesson and promotes the genuine ones', async () => {
     const { store, ledger, goodIds, poisonIds } = await buildScenario({
       goodScore: 0.9,
       poisonScore: 0.3,
@@ -101,7 +99,6 @@ describe('eval-gated-learning gate (deterministic)', () => {
     expect(promotedIds).toEqual([...goodIds].sort());
     for (const e of report.evicted) expect(e.reason).toMatch(/^eval-gate:/);
 
-    // The store reflects the decisions: poison invalidated, good verified.
     for (const id of poisonIds) {
       expect((await store.getFact(id))?.invalidated_by).toMatch(/^eval-gate:/);
     }
@@ -109,10 +106,7 @@ describe('eval-gated-learning gate (deterministic)', () => {
     expect(verified.map((f) => f.id).sort()).toEqual([...goodIds].sort());
   });
 
-  test('inference rule is strictly more conservative on the SAME limited evidence', async () => {
-    // Modest effect, just 2 trials per cohort — the regime where the
-    // point-estimate margin rule fires but the statistically-controlled
-    // inference rule rightly withholds judgement.
+  it('inference rule is strictly more conservative on the SAME limited evidence', async () => {
     const POLICY_BASE = { minTrials: 2, promoteMargin: 0.05, evictMargin: 0.05, maxTrials: 6 };
     const SCENARIO = { goodScore: 0.62, poisonScore: 0.5, trials: 2 };
 
@@ -122,17 +116,13 @@ describe('eval-gated-learning gate (deterministic)', () => {
     const i = await buildScenario(SCENARIO);
     const inferenceReport = await evaluateRetention(i.store, i.ledger, { ...POLICY_BASE, decisionRule: 'inference' });
 
-    // Margin rushes to judge on this thin evidence: it evicts all 3 poison.
     expect(marginReport.evicted.length).toBe(m.poisonIds.length);
-    // Inference withholds judgement entirely — it holds everything (no
-    // promotion, no eviction) until there's real evidence volume. This is
-    // the README's "under inference this demo holds everything", executable.
     expect(inferenceReport.evicted.length).toBe(0);
     expect(inferenceReport.promoted.length).toBe(0);
     expect(inferenceReport.evicted.length).toBeLessThan(marginReport.evicted.length);
   });
 
-  test('computeVerdict passes on a healthy run and fails when poison survives', () => {
+  it('computeVerdict passes on a healthy run and fails when poison survives', () => {
     const records = [
       { run: 1, fitness: 0.9, injected_fact_ids: ['g1'], poison_injected_count: 0 },
       { run: 2, fitness: 0.4, injected_fact_ids: ['g1', 'p1'], poison_injected_count: 1 },
@@ -150,7 +140,7 @@ describe('eval-gated-learning gate (deterministic)', () => {
     const broken = computeVerdict({
       records,
       poisonIds: ['p1'],
-      poisonEvicted: 0, // poison survived
+      poisonEvicted: 0,
       poisonEvictedAfterRun: null,
       verifiedCount: 2,
     });

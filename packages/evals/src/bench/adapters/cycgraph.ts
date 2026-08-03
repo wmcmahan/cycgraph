@@ -43,6 +43,11 @@ function toSegments(question: BenchQuestion): PromptSegment[] {
   }));
 }
 
+/**
+ * Query-agnostic adapter wrapping one context-engine preset pipeline. The
+ * question is not fed to the pipeline, so these cells measure the presets
+ * exactly as a caller gets them without a query (see the module doc).
+ */
 export function createCycgraphAdapter(preset: PipelinePreset): CompressorAdapter {
   return {
     name: `cycgraph-${preset}`,

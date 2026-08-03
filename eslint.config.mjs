@@ -19,6 +19,7 @@ export default defineConfig(
       'packages/context-engine/**/*.ts',
       'packages/memory/**/*.ts',
       'packages/orchestrator-postgres/**/*.ts',
+      'packages/eval/**/*.ts',
     ],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
@@ -46,6 +47,7 @@ export default defineConfig(
       'packages/context-engine/**/test/**/*.ts',
       'packages/memory/**/test/**/*.ts',
       'packages/orchestrator-postgres/**/test/**/*.ts',
+      'packages/eval/**/test/**/*.ts',
     ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',

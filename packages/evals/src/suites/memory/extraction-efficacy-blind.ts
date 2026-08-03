@@ -156,6 +156,7 @@ function scorePassage(passage: BlindPassage, result: ExtractionResult): BlindSco
  * Run the blind corpus through any extractor and report measured-only
  * metrics prefixed `extraction_blind_{label}_`.
  */
+/** Options for {@link runBlindEfficacy}. */
 export interface BlindEfficacyOptions {
   /**
    * Enforce the Anthropic-tier ratchet floors, set below the measured

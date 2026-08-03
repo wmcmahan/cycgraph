@@ -4,17 +4,16 @@
 
 **Regression-test harness for agent workflows. Deterministic + LLM-as-judge assertions, multi-sample evaluation, baseline drift gates.**
 
-[[![npm](https://img.shields.io/npm/v/@cycgraph/evals?color=cb3837)](https://www.npmjs.com/package/@cycgraph/evals)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 
-[📚 Documentation](https://flattop.io/docs/concepts/eval-harness/) &nbsp;·&nbsp; [📖 Assertions reference](https://flattop.io/docs/concepts/eval-assertions/) &nbsp;·&nbsp; [📐 Drift and baselines](https://flattop.io/docs/concepts/drift-and-baselines/)
+[📚 Documentation](https://flattop.io/docs/concepts/eval-harness/) &nbsp;·&nbsp; [🏃 Running evals](https://flattop.io/docs/guides/running-eval-harness/) &nbsp;·&nbsp; [📖 Assertions reference](https://flattop.io/docs/concepts/eval-assertions/) &nbsp;·&nbsp; [📐 Drift and baselines](https://flattop.io/docs/concepts/drift-and-baselines/)
 
 </div>
 
 ---
 
-Quality-assurance gate for the `@cycgraph/*` packages. Detects when a change in one package silently degrades the reasoning, schema-compliance, or observable behaviour of another — and tells you whether the regression is real or just sample noise.
+Quality-assurance gate for the `@cycgraph/*` packages. Detects when a change in one package silently degrades the reasoning, schema compliance, or observable behavior of another, and tells you whether the regression is real or just sample noise.
 
 This README is the **quick-start + API at-a-glance**. For concepts (drift gates, baseline persistence, sample stability), recording workflows, and extension recipes, see the [Eval Harness section](https://flattop.io/docs/concepts/eval-harness/) of the docs site.
 
@@ -26,8 +25,9 @@ This README is the **quick-start + API at-a-glance**. For concepts (drift gates,
   - **Semantic** — LLM-as-judge with three built-in rubric metrics (`answer_relevancy`, `faithfulness`, `logical_coherence`). Three reference-free metrics (`instruction_following`, `output_quality`, `safety`) are exposed but not yet wired into a default suite.
 - **Multi-sample evaluation** — distinguishes flaky LLM responses from genuine regressions.
 - **Baseline persistence** — compares each run against the prior committed state and flags regressions that hide under the absolute drift ceiling.
-- **Recording infrastructure** — re-record any trajectory by running the input through the real System-Under-Test; goldens become observable behaviour, not hand-authored intent.
+- **Recording infrastructure** — re-record any trajectory by running the input through the real System-Under-Test; goldens become observable behavior, not hand-authored intent.
 - **Tag-routed dispatch** — `branching` / `supervisor` / `retry` / etc. trajectories pick the right SUT graph automatically.
+- **Efficacy + bench runners** — sibling CLIs (`evals:efficacy`, `bench`) that measure absolute extraction/compression quality rather than drift.
 
 ## Quick start
 
@@ -37,7 +37,7 @@ This README is the **quick-start + API at-a-glance**. For concepts (drift gates,
 npm run evals --workspace=packages/evals -- --deterministic-only
 ```
 
-Runs every library-level test across memory + context-engine + integration. Suitable for PR-time gating.
+Runs every library-level test across context-engine and memory. The orchestrator suite is semantic-only, so it doesn't appear in deterministic runs. Suitable for PR-time gating.
 
 ### Run the full semantic gate (CI mode)
 
@@ -55,8 +55,7 @@ npx tsx packages/evals/scripts/record-goldens.ts --suite memory
 npx tsx packages/evals/scripts/record-goldens.ts --suite context-engine
 
 # Orchestrator — requires Anthropic key, real LLM calls
-ANTHROPIC_API_KEY=sk-ant-... \
-  npx tsx packages/evals/scripts/record-goldens.ts --suite orchestrator
+npx tsx packages/evals/scripts/record-goldens.ts --suite orchestrator
 
 # Preview routing without running anything
 npx tsx packages/evals/scripts/record-goldens.ts --suite memory --plan-only
@@ -73,7 +72,7 @@ A dry-run writes `golden/recording-diff-<suite>.json` with old vs new for every 
 npm run evals --workspace=packages/evals -- --deterministic-only --baseline
 ```
 
-The first run with `--baseline` creates `golden/baselines/main-latest.json`. Subsequent runs compare against it and exit with code **2** if any suite regressed by more than the noise floor (default 5 percentage points), even when the absolute drift ceiling hasn't been crossed.
+The first run with `--baseline` creates `golden/baselines/main-latest.json`. Subsequent runs compare against it and exit with code **2** if any suite regressed by more than the noise floor (default 1 percentage point), even when the absolute drift ceiling hasn't been crossed.
 
 ## CLI flags
 
@@ -84,8 +83,9 @@ The first run with `--baseline` creates `golden/baselines/main-latest.json`. Sub
 | `--samples` | int | 1 local, 3 ci | Number of judge samples per semantic test |
 | `--deterministic-only` | flag | false | Skip the semantic track entirely (library checks only) |
 | `--baseline` | flag | false | Compare against persisted baseline; persist on pass |
-| `--baseline-noise-floor` | float | 5.0 | Min pp delta to count as a regression |
+| `--baseline-noise-floor` | float | 1 | Min pp delta to count as a regression |
 | `--sut-model` | string | `claude-sonnet-4-6` | Model for the orchestrator SUT |
+| `--provider` | `anthropic \| openai \| ollama` | (per mode) | Override the judge provider the mode would pick |
 | `--commit` | string | (auto) | Short git SHA stamped onto a new baseline snapshot |
 
 ### Exit codes
@@ -101,11 +101,12 @@ The first run with `--baseline` creates `golden/baselines/main-latest.json`. Sub
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `OPENAI_API_KEY` | CI only | — | GPT-4o judge API key |
-| `ANTHROPIC_API_KEY` | Recording only | — | Claude API key for orchestrator recording |
+| `ANTHROPIC_API_KEY` | Recording, `--provider anthropic` | — | Claude API key for orchestrator recording and the Anthropic judge |
 | `OLLAMA_BASE_URL` | Local only | `http://localhost:11434` | Ollama endpoint |
 | `OLLAMA_MODEL` | Local only | `llama3:8b-instruct-q4_K_M` | Local judge model |
-| `EVAL_MAX_CONCURRENCY` | No | `2` / `8` | Parallel evaluations (local / CI) |
 | `EVAL_DRIFT_CEILING` | No | `5.0` | Drift % gate threshold |
+
+Judge concurrency is a provider option (`maxConcurrency`), not an env var: 2 for Ollama, 8 for OpenAI and Anthropic.
 
 ## API at a glance
 
@@ -155,7 +156,7 @@ console.log(formatBaselineDelta(delta));
 
 ### Recording
 
-Recording runs through the `scripts/record-goldens.ts` script (see [Re-record goldens](#re-record-goldens) above) — it drives each input through the real System-Under-Test and rewrites the golden dataset. The SUT layer it uses (`runOrchestratorSut`, `runMemorySut`, `runContextEngineSut`, the `build*Graph` builders, `planForTrajectory`, the retry-tool fixtures) is **not** part of the package barrel; it lives under `src/sut/` and is consumed by the recording script via relative imports.
+Recording runs through the `scripts/record-goldens.ts` script, which drives each input through the real System-Under-Test and rewrites the golden dataset. See [Re-record goldens](#re-record-goldens) above for usage. The SUT layer it uses (`runOrchestratorSut`, `runMemorySut`, `runContextEngineSut`, the `build*Graph` builders, `planForTrajectory`, the retry-tool fixtures) is **not** part of the package barrel; it lives under `src/sut/` and is consumed by the recording script via relative imports.
 
 ### Dataset
 
@@ -219,12 +220,12 @@ golden/
          formatReport() → stdout + GH annotations
 ```
 
-Both tracks are commit-coupled — the deterministic track runs library code in-process, and the SUT-driven semantic track runs each trajectory through `runSutDispatch` against the real packages, then hands the observed output to the judge. The semantic track also runs N independent judge samples per metric (when `samples > 1`) and flags tests with inconsistent outcomes as **flaky** — distinct from genuine drift.
+Both tracks are commit-coupled: the deterministic track runs library code in-process, and the SUT-driven semantic track runs each trajectory through `runSutDispatch` against the real packages, then hands the observed output to the judge. When `samples > 1`, the semantic track runs N independent judge samples per metric and flags tests with inconsistent outcomes as **flaky**, which is distinct from genuine drift.
 
 ## Development
 
 ```bash
-# Unit tests for the harness itself (338 tests)
+# Unit tests for the harness itself (~590 tests; LLM-backed suites skip without keys)
 npm test --workspace=packages/evals
 
 # Build
@@ -232,6 +233,12 @@ npm run build --workspace=packages/evals
 
 # Type check
 npm run lint --workspace=packages/evals
+
+# Efficacy matrix (extraction/compression quality vs labeled corpora)
+npm run evals:efficacy --workspace=packages/evals
+
+# Compression bench (context engine vs reference compressors; --smoke for a quick pass)
+npm run bench --workspace=packages/evals
 ```
 
 Covers assertions, dataset I/O, schema migration, SUT dispatch, multi-sample evaluation, baseline persistence/comparison, and runner integration.

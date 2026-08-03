@@ -97,6 +97,7 @@ export function extractAnswer(response: string): string {
 
 // ─── Core loop ─────────────────────────────────────────────────────
 
+/** Inputs to {@link runBench}. */
 export interface RunBenchOptions {
   config: BenchConfig;
   questions: BenchQuestion[];
@@ -118,6 +119,13 @@ export interface RunBenchOptions {
   completedCells?: CellResult[];
 }
 
+/**
+ * Run the full frontier sweep: every available adapter over every ratio,
+ * scored against the no-compression ceiling with paired F1 deltas. The
+ * ceiling runs first (paired deltas need per-question uncompressed scores),
+ * then the budget reference (matched mode), then the remaining adapters.
+ * Resumable via `completedCells`; emits each cell through `onCellComplete`.
+ */
 export async function runBench(opts: RunBenchOptions): Promise<BenchReport> {
   const { config, questions, reader } = opts;
   const log = opts.log ?? (() => {});
@@ -295,12 +303,18 @@ function buildCell(
   };
 }
 
+/** SHA-256 of the canonicalized config — pins exactly what a run measured. */
 export function hashConfig(config: BenchConfig): string {
   return createHash('sha256').update(JSON.stringify(config)).digest('hex');
 }
 
 // ─── Report ────────────────────────────────────────────────────────
 
+/**
+ * Render a completed report as a compact Markdown frontier table — the
+ * runner's stdout summary. The publishable document is produced separately
+ * by `generateBenchmarksMarkdown` in report-generator.ts.
+ */
 export function formatMarkdownReport(report: BenchReport): string {
   const lines: string[] = [];
   lines.push(`## Compression Benchmark — ${report.config.dataset}`);

@@ -1,17 +1,17 @@
 /**
- * Tests for the runner's flag-handling and baseline integration.
+ * Tests for the eval runner's flag handling, mode selection, and result
+ * assembly.
  *
- * The deterministic-only path is exercised end-to-end against the real
- * suites — those run in <1s and require no LLM. The baseline path is
- * tested via a temp directory swap so the real baseline file is never
- * touched.
+ * The deterministic-only path runs end-to-end against the real suites —
+ * they complete in <1s and need no LLM. Provider selection is exercised
+ * through the integration suite, whose SUT-driven contract is empty, so
+ * the runner constructs a provider and drives the semantic track without
+ * ever calling the judge (no network). The baseline-persistence and
+ * `main()`/`process.exit` CLI shell are covered elsewhere or documented
+ * as unreachable in-unit (see the group report).
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
 import { runEvals } from '../../src/runner/runner.js';
 
 describe('runEvals — deterministic-only mode', () => {
@@ -33,7 +33,6 @@ describe('runEvals — deterministic-only mode', () => {
       deterministicOnly: true,
     });
 
-    // memory + context-engine + integration deterministic tracks all contribute
     expect(Object.keys(result.drift.perSuite).length).toBeGreaterThan(0);
   });
 
@@ -47,11 +46,12 @@ describe('runEvals — deterministic-only mode', () => {
     expect(result.drift.aggregatePercent).toBeLessThan(5);
   });
 
-  it('reports zero flaky tests with samples=1 (default)', async () => {
+  it('reports no flaky tests at the default sample count', async () => {
     const result = await runEvals({
       mode: 'local',
       deterministicOnly: true,
     });
+
     expect(result.flakyTests).toBeUndefined();
   });
 });
@@ -65,7 +65,6 @@ describe('runEvals — single-suite filter', () => {
     });
 
     expect(result.drift.perSuite).toHaveProperty('memory');
-    // Other suites' deterministic tracks should not have contributed.
     expect(result.drift.perSuite).not.toHaveProperty('context-engine');
   });
 });
@@ -77,49 +76,122 @@ describe('runEvals — drift ceiling override', () => {
       deterministicOnly: true,
       driftCeiling: 100,
     });
+
     expect(result.drift.passed).toBe(true);
   });
 
   it('fails when the override is below current drift', async () => {
-    // -1 % ceiling forces failure even on a zero-drift run.
     const result = await runEvals({
       mode: 'local',
       deterministicOnly: true,
       driftCeiling: -1,
     });
+
+    expect(result.drift.passed).toBe(false);
+  });
+
+  it('emits CI annotations when the gate fails in ci mode', async () => {
+    const result = await runEvals({
+      mode: 'ci',
+      deterministicOnly: true,
+      driftCeiling: -1,
+    });
+
     expect(result.drift.passed).toBe(false);
   });
 });
 
-// Baseline integration tests use a temp `golden/baselines/` location
-// to keep tests hermetic. We achieve this by changing the cwd-relative
-// path via the snapshot/writer/loader's `goldenDir` arg directly when
-// we invoke them, but the runner currently uses the default location.
-// So we limit baseline tests to the library-level snapshot/writer
-// functions, which already have dedicated tests in test/baseline/.
-//
-// The runner's baseline wiring is exercised via the CLI smoke test
-// below and via type-level validation.
+describe('runEvals — empty suite list', () => {
+  it('produces an empty drift report and no semantic results', async () => {
+    const result = await runEvals({
+      mode: 'local',
+      suites: [],
+    });
 
-describe('runEvals — baseline option type-check', () => {
-  it('accepts baseline: false without error', async () => {
+    expect(result.drift.perSuite).toEqual({});
+    expect(result.suiteLoadErrors).toEqual([]);
+    expect(result.flakyTests).toBeUndefined();
+  });
+});
+
+describe('runEvals — baseline option', () => {
+  it('leaves baselineDelta undefined when baseline is not requested', async () => {
     const result = await runEvals({
       mode: 'local',
       deterministicOnly: true,
       baseline: false,
     });
+
     expect(result.baselineDelta).toBeUndefined();
   });
 });
 
-describe('runEvals — deterministicOnly bypasses semantic track', () => {
-  it('produces drift without invoking the SUT semantic track', async () => {
+describe('runEvals — provider selection for the semantic track', () => {
+  const PROVIDER_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'] as const;
+  let savedKeys: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    savedKeys = {};
+    for (const key of PROVIDER_KEYS) savedKeys[key] = process.env[key];
+    process.env['OPENAI_API_KEY'] = 'test-openai-key';
+    process.env['ANTHROPIC_API_KEY'] = 'test-anthropic-key';
+  });
+
+  afterEach(() => {
+    for (const key of PROVIDER_KEYS) {
+      if (savedKeys[key] === undefined) delete process.env[key];
+      else process.env[key] = savedKeys[key];
+    }
+  });
+
+  it('constructs the local Ollama judge by default and runs the empty semantic track', async () => {
     const result = await runEvals({
       mode: 'local',
-      deterministicOnly: true,
+      suites: ['integration'],
     });
+
     expect(result.drift).toBeDefined();
-    expect(result.suiteLoadErrors).toEqual([]);
     expect(result.flakyTests).toBeUndefined();
-  });
+    expect(result.suiteLoadErrors).toEqual([]);
+  }, 20000);
+
+  it('constructs the OpenAI judge in ci mode by default', async () => {
+    const result = await runEvals({
+      mode: 'ci',
+      suites: ['integration'],
+    });
+
+    expect(result.drift).toBeDefined();
+    expect(result.flakyTests).toBeUndefined();
+  }, 20000);
+
+  it('honors an explicit ollama judge override', async () => {
+    const result = await runEvals({
+      mode: 'ci',
+      suites: ['integration'],
+      judgeProvider: 'ollama',
+    });
+
+    expect(result.drift).toBeDefined();
+  }, 20000);
+
+  it('honors an explicit openai judge override', async () => {
+    const result = await runEvals({
+      mode: 'local',
+      suites: ['integration'],
+      judgeProvider: 'openai',
+    });
+
+    expect(result.drift).toBeDefined();
+  }, 20000);
+
+  it('honors an explicit anthropic judge override', async () => {
+    const result = await runEvals({
+      mode: 'local',
+      suites: ['integration'],
+      judgeProvider: 'anthropic',
+    });
+
+    expect(result.drift).toBeDefined();
+  }, 20000);
 });

@@ -56,8 +56,8 @@ export interface SutSemanticOutput {
 
 /**
  * Run the SUT-driven semantic track end-to-end. Returns `TestCaseResults`
- * Returns `TestCaseResults` shaped identically to the deterministic track
- * so `computeDrift()` can aggregate both into one drift report.
+ * shaped identically to the deterministic track so `computeDrift()` can
+ * aggregate both into one drift report.
  */
 export async function runSutSemanticTrack(
   opts: RunSutSemanticOptions,

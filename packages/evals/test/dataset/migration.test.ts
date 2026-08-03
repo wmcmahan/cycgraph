@@ -54,6 +54,69 @@ describe('applyMigrations', () => {
       expect(result.modifiedCount).toBe(0);
       expect(result.trajectories[0].expectedToolCalls![0].args).toEqual({ query: 'test' });
     });
+
+    it('leaves the call unchanged when the matching tool lacks the old param', () => {
+      const trajectory = makeTrajectory({
+        expectedToolCalls: [
+          { toolName: 'web_search', args: { limit: 10 } },
+        ],
+      });
+
+      const transforms: MigrationTransform[] = [
+        { type: 'rename', toolName: 'web_search', oldParam: 'query', newParam: 'search_query' },
+      ];
+
+      const result = applyMigrations([trajectory], transforms);
+
+      expect(result.modifiedCount).toBe(0);
+      expect(result.trajectories[0].expectedToolCalls![0].args).toEqual({ limit: 10 });
+    });
+
+    it('renames the matching key in expectedArgSchema when the arg is renamed', () => {
+      const trajectory = makeTrajectory({
+        expectedToolCalls: [
+          {
+            toolName: 'web_search',
+            args: { query: 'test' },
+            expectedArgSchema: { query: 'string', limit: 'number' },
+          },
+        ],
+      });
+
+      const transforms: MigrationTransform[] = [
+        { type: 'rename', toolName: 'web_search', oldParam: 'query', newParam: 'search_query' },
+      ];
+
+      const result = applyMigrations([trajectory], transforms);
+
+      expect(result.modifiedCount).toBe(1);
+      expect(result.trajectories[0].expectedToolCalls![0].expectedArgSchema).toEqual({
+        search_query: 'string',
+        limit: 'number',
+      });
+    });
+
+    it('renames the arg but leaves expectedArgSchema untouched when it lacks the old param', () => {
+      const trajectory = makeTrajectory({
+        expectedToolCalls: [
+          {
+            toolName: 'web_search',
+            args: { query: 'test' },
+            expectedArgSchema: { limit: 'number' },
+          },
+        ],
+      });
+
+      const transforms: MigrationTransform[] = [
+        { type: 'rename', toolName: 'web_search', oldParam: 'query', newParam: 'search_query' },
+      ];
+
+      const result = applyMigrations([trajectory], transforms);
+
+      expect(result.modifiedCount).toBe(1);
+      expect(result.trajectories[0].expectedToolCalls![0].args).toEqual({ search_query: 'test' });
+      expect(result.trajectories[0].expectedToolCalls![0].expectedArgSchema).toEqual({ limit: 'number' });
+    });
   });
 
   describe('remove transform', () => {
@@ -72,6 +135,44 @@ describe('applyMigrations', () => {
 
       expect(result.modifiedCount).toBe(1);
       expect(result.trajectories[0].expectedToolCalls![0].args).toEqual({ key: 'data' });
+    });
+
+    it('leaves the call unchanged when the matching tool lacks the param', () => {
+      const trajectory = makeTrajectory({
+        expectedToolCalls: [
+          { toolName: 'save_to_memory', args: { key: 'data' } },
+        ],
+      });
+
+      const transforms: MigrationTransform[] = [
+        { type: 'remove', toolName: 'save_to_memory', param: 'deprecated' },
+      ];
+
+      const result = applyMigrations([trajectory], transforms);
+
+      expect(result.modifiedCount).toBe(0);
+      expect(result.trajectories[0].expectedToolCalls![0].args).toEqual({ key: 'data' });
+    });
+
+    it('removes the param from expectedArgSchema when present', () => {
+      const trajectory = makeTrajectory({
+        expectedToolCalls: [
+          {
+            toolName: 'save_to_memory',
+            args: { key: 'data', deprecated: true },
+            expectedArgSchema: { key: 'string', deprecated: 'boolean' },
+          },
+        ],
+      });
+
+      const transforms: MigrationTransform[] = [
+        { type: 'remove', toolName: 'save_to_memory', param: 'deprecated' },
+      ];
+
+      const result = applyMigrations([trajectory], transforms);
+
+      expect(result.modifiedCount).toBe(1);
+      expect(result.trajectories[0].expectedToolCalls![0].expectedArgSchema).toEqual({ key: 'string' });
     });
   });
 
@@ -96,6 +197,27 @@ describe('applyMigrations', () => {
       });
       expect(result.reviewRequired).toHaveLength(1);
       expect(result.reviewRequired[0].transform.param).toBe('timeout_ms');
+    });
+
+    it('leaves expectedArgSchema unchanged when a required param is added', () => {
+      const trajectory = makeTrajectory({
+        expectedToolCalls: [
+          {
+            toolName: 'fetch_url',
+            args: { url: 'https://example.com' },
+            expectedArgSchema: { url: 'string' },
+          },
+        ],
+      });
+
+      const transforms: MigrationTransform[] = [
+        { type: 'add_required', toolName: 'fetch_url', param: 'timeout_ms', stubValue: 5000 },
+      ];
+
+      const result = applyMigrations([trajectory], transforms);
+
+      expect(result.modifiedCount).toBe(1);
+      expect(result.trajectories[0].expectedToolCalls![0].expectedArgSchema).toEqual({ url: 'string' });
     });
 
     it('does not overwrite existing parameter', () => {

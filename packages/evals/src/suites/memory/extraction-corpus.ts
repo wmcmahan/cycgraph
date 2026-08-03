@@ -21,6 +21,7 @@
  * @module suites/memory/extraction-corpus
  */
 
+/** One labeled case: a sentence with expected entities/relationships, or an explicit no-relationship expectation. */
 export interface ExtractionCase {
   id: string;
   text: string;

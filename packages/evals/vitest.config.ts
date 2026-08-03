@@ -4,7 +4,6 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    passWithNoTests: true,
     exclude: [
       '**/node_modules/**',
       '**/dist/**'
@@ -12,6 +11,13 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
+      include: ['src/**'],
+      thresholds: {
+        statements: 91,
+        branches: 82,
+        functions: 93,
+        lines: 91,
+      },
     },
   },
 });

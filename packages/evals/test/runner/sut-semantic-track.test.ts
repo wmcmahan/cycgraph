@@ -13,6 +13,7 @@ import { ANSWER_RELEVANCY, FAITHFULNESS } from '../../src/assertions/semantic-ju
 import { loadGoldenTrajectories } from '../../src/dataset/loader.js';
 import type { EvalProvider } from '../../src/providers/types.js';
 import type { SutSuiteConfig } from '../../src/suites/sut-contract.js';
+import type { SuiteName } from '../../src/dataset/types.js';
 
 function stubProvider(scoreSequence: number[]): EvalProvider {
   let i = 0;
@@ -82,7 +83,6 @@ describe('runSutSemanticTrack — memory suite (deterministic SUT)', () => {
 
     expect(output.results[0].semanticResults[0].passed).toBe(false);
     expect(output.results[0].semanticResults[0].score).toBeLessThan(0.5);
-    // Stable low scores are NOT flaky — they're regressed.
     expect(output.flakyTests).toBeUndefined();
   });
 
@@ -142,11 +142,6 @@ describe('runSutSemanticTrack — memory suite (deterministic SUT)', () => {
 });
 
 describe('every suite exposes buildSutSuite()', () => {
-  // Locks down the migration: every suite must now return a non-null
-  // SutSuiteConfig from buildSutSuite(). Future suites added to
-  // SuiteNameSchema should fail this test until they implement the
-  // contract, keeping the runner's dispatcher honest.
-
   it('memory suite returns a SUT config', async () => {
     const mod = await import('../../src/suites/memory/suite.js') as {
       buildSutSuite?: () => Promise<{ name: string; tests: unknown[] }>;
@@ -184,7 +179,6 @@ describe('every suite exposes buildSutSuite()', () => {
     expect(mod.buildSutSuite).toBeDefined();
     const config = await mod.buildSutSuite!();
     expect(config.name).toBe('integration');
-    // Integration intentionally has no goldens — empty tests is correct.
     expect(config.tests).toEqual([]);
   });
 });
@@ -210,16 +204,48 @@ describe('runSutSemanticTrack — error paths', () => {
     expect(output.results[0].semanticResults[0].passed).toBe(false);
   });
 
-  it('records a sut_dispatch failure when the SUT itself errors', async () => {
-    const trajectories = loadGoldenTrajectories('memory');
-    // Mutate input to invalid JSON so the segmentation handler throws.
-    const broken = { ...trajectories[0], input: 'not valid json' };
+  it('treats an unloadable suite as zero trajectories and records a lookup failure', async () => {
+    const config: SutSuiteConfig = {
+      name: 'bogus',
+      tests: [{
+        trajectoryId: '00000000-0000-0000-0000-000000000001',
+        metrics: [{ metric: ANSWER_RELEVANCY }],
+      }],
+    };
 
-    // We can't easily inject a broken trajectory into the real loader.
-    // Instead, register a stub config pointing at a real ID — but we
-    // can't force the dispatch to fail through the public API without
-    // a custom hook. Skip this expectation; the dispatch tests already
-    // cover the SUT-fails-then-failed-status path.
-    expect(broken.id).toBeDefined();
+    const output = await runSutSemanticTrack({
+      provider: stubProvider([1]),
+      suiteConfigs: [{ suite: 'bogus' as SuiteName, config }],
+      samples: 1,
+      model: 'x',
+    });
+
+    expect(output.results).toHaveLength(1);
+    expect(output.results[0].semanticResults[0].metric).toBe('sut_lookup');
+  });
+
+  it('emits a synthetic no-op result when a test declares no metrics', async () => {
+    const trajectories = loadGoldenTrajectories('memory');
+    const target = trajectories[0];
+
+    const config: SutSuiteConfig = {
+      name: 'memory',
+      tests: [{
+        trajectoryId: target.id,
+        metrics: [],
+        structuralAssertions: false,
+      }],
+    };
+
+    const output = await runSutSemanticTrack({
+      provider: stubProvider([1]),
+      suiteConfigs: [{ suite: 'memory', config }],
+      samples: 1,
+      model: 'x',
+    });
+
+    expect(output.results[0].semanticResults).toHaveLength(1);
+    expect(output.results[0].semanticResults[0].metric).toBe('no-op');
+    expect(output.results[0].semanticResults[0].passed).toBe(true);
   });
 });

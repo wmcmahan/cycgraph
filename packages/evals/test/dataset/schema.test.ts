@@ -114,8 +114,6 @@ describe('GoldenTrajectorySchema', () => {
   });
 
   it('accepts a recorded trajectory with partial provenance', () => {
-    // All three recording fields are independently optional so older datasets
-    // that record only commit, or only model, still validate.
     const result = GoldenTrajectorySchema.safeParse({
       ...validTrajectory,
       source: 'recorded',

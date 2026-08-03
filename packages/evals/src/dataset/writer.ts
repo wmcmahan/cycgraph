@@ -77,9 +77,9 @@ export function writeGoldenDataset(
   const sha256 = createHash('sha256').update(compressed).digest('hex');
 
   // Write compressed file. The filename encodes the schema MAJOR version so
-  // datasets of different versions coexist — previously this was hardcoded to
-  // `-v1`, so seeding v2 silently overwrote the v1 bytes in place (no rollback,
-  // migrations mutated goldens irreversibly).
+  // datasets of different major versions coexist on disk instead of
+  // overwriting each other in place, which would make a migration
+  // irreversible with no way to roll back to the prior goldens.
   const dataDir = resolve(goldenDir, 'data');
   mkdirSync(dataDir, { recursive: true });
 

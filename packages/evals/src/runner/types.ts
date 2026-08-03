@@ -66,7 +66,8 @@ export interface EvalRunConfig {
 
   /**
    * Override the noise floor for baseline comparison (percentage points).
-   * Smaller deltas are ignored. Defaults to 5.0.
+   * Smaller deltas are ignored. Defaults to 1 percentage point (see
+   * `compareBaseline`).
    */
   baselineNoiseFloor?: number;
 

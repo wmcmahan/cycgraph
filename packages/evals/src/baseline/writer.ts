@@ -21,6 +21,7 @@ import type { BaselineSnapshot } from './types.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_GOLDEN_DIR = resolve(__dirname, '../../golden');
 
+/** Paths written by {@link writeBaseline}. */
 export interface WriteBaselineResult {
   /** Absolute path to the always-current `main-latest.json`. */
   latestPath: string;

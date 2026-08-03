@@ -60,8 +60,7 @@ describe('computeStdDev', () => {
     expect(computeStdDev([0.5])).toBe(0);
   });
 
-  it('returns ~0 for identical values', () => {
-    // Floating-point arithmetic produces a vanishing residual; tolerate it.
+  it('returns a vanishing residual for identical values', () => {
     expect(computeStdDev([0.8, 0.8, 0.8])).toBeCloseTo(0, 10);
   });
 
@@ -124,8 +123,8 @@ describe('evaluateMetricMultiSample', () => {
   });
 
   it('honors a custom threshold', async () => {
-    const judge = programmableJudge([0.6, 0.62, 0.58]);
-    // Stable median = 0.6. Default threshold (0.8) would fail; lower threshold passes.
+    const STABLE_AT_060 = [0.6, 0.62, 0.58];
+    const judge = programmableJudge(STABLE_AT_060);
     const withLowerThreshold = await evaluateMetricMultiSample(
       CONTEXT,
       ANSWER_RELEVANCY,
@@ -136,9 +135,8 @@ describe('evaluateMetricMultiSample', () => {
   });
 
   it('honors a custom stability ceiling', async () => {
-    // Samples [0.95, 0.5, 0.95] → stdDev ≈ 0.212; default ceiling (0.1)
-    // marks as flaky, but a loose ceiling (0.3) treats them as stable.
-    const judge = programmableJudge([0.95, 0.5, 0.95]);
+    const STDDEV_ABOVE_DEFAULT_CEILING = [0.95, 0.5, 0.95];
+    const judge = programmableJudge(STDDEV_ABOVE_DEFAULT_CEILING);
     const strict = await evaluateMetricMultiSample(
       CONTEXT,
       ANSWER_RELEVANCY,
@@ -147,7 +145,7 @@ describe('evaluateMetricMultiSample', () => {
     );
     expect(strict.stable).toBe(false);
 
-    const judge2 = programmableJudge([0.95, 0.5, 0.95]);
+    const judge2 = programmableJudge(STDDEV_ABOVE_DEFAULT_CEILING);
     const loose = await evaluateMetricMultiSample(
       CONTEXT,
       ANSWER_RELEVANCY,
@@ -158,11 +156,10 @@ describe('evaluateMetricMultiSample', () => {
   });
 
   it('picks reasoning from the sample closest to the median', async () => {
-    // The third sample (score 0.5) is closest to the median of [0.1, 0.5, 0.9].
     let i = 0;
-    const scores = [0.1, 0.9, 0.5];
+    const SCORES_MEDIAN_AT_INDEX_2 = [0.1, 0.9, 0.5];
     const judge = async () => {
-      const s = scores[i];
+      const s = SCORES_MEDIAN_AT_INDEX_2[i];
       const reasoning = `reasoning-${i++}`;
       return JSON.stringify({ score: s, reasoning });
     };
@@ -174,6 +171,21 @@ describe('evaluateMetricMultiSample', () => {
     );
 
     expect(result.reasoning).toBe('reasoning-2');
+  });
+
+  it('returns empty reasoning for a zero-sample run', async () => {
+    const judge = programmableJudge([0.9]);
+
+    const result = await evaluateMetricMultiSample(
+      CONTEXT,
+      ANSWER_RELEVANCY,
+      judge,
+      { samples: 0 },
+    );
+
+    expect(result.samples).toEqual([]);
+    expect(result.median).toBe(0);
+    expect(result.reasoning).toBe('');
   });
 
   it('a single-sample run is a no-variance trivial pass when score is high', async () => {

@@ -49,6 +49,7 @@ export interface SemanticJudgeOptions {
 
 // ─── Calibration ──────────────────────────────────────────────────
 
+/** A pre-scored example used to measure judge bias against ground truth. */
 export interface CalibrationExample {
   input: string;
   expectedOutput: string;
@@ -56,6 +57,7 @@ export interface CalibrationExample {
   groundTruthScore: number;
 }
 
+/** Outcome of calibrating a judge against a set of pre-scored examples. */
 export interface CalibrationResult {
   /** Average absolute deviation between judge scores and ground truth. */
   deviation: number;
@@ -255,7 +257,6 @@ export function parseJudgeResponse(raw: string): JudgeResponse {
   const codeBlockMatch = raw.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
   const jsonStr = codeBlockMatch ? codeBlockMatch[1] : raw.trim();
 
-  // Find the first JSON object in the string
   const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     return { score: 0, reasoning: `Failed to parse judge response: ${raw.slice(0, 200)}` };

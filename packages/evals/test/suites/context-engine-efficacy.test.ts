@@ -11,8 +11,10 @@ import {
 } from '../../src/assertions/reference-free-judge.js';
 
 describe('efficacy fixtures integrity', () => {
-  // Guards against fixture drift: a planted fact that never existed in the
-  // original would make survival assertions vacuous or unpassable.
+  /**
+   * Guards against fixture drift: a planted fact that never existed in the
+   * original would make survival assertions vacuous or unpassable.
+   */
   it('every critical fact is present in the original segments', () => {
     for (const scenario of EFFICACY_SCENARIOS) {
       const original = joinSegments(scenario.segments);
@@ -41,7 +43,6 @@ describe('efficacy frontier (deterministic track)', () => {
       (r.deterministicResults ?? []).filter(d => d.metric.startsWith('efficacy_')),
     );
 
-    // 6 gated cells x (reduction + fact survival) + 3 negation checks
     expect(efficacyResults.length).toBeGreaterThanOrEqual(15);
     for (const det of efficacyResults) {
       expect(det.passed, `Failed: ${det.metric} — ${det.description}`).toBe(true);
@@ -49,10 +50,11 @@ describe('efficacy frontier (deterministic track)', () => {
   });
 
   it('fast preserves trailing prose facts (importance-aware allocator truncation)', () => {
-    // Historical regression guard: before the allocator's importance-aware
-    // truncation, `fast` (no CoT distillation, no pruning) lost 3/5 trailing
-    // facts to tail truncation at budgets up to 320. The allocator now
-    // enforces budgets by token importance, so `fast` is gated like the rest.
+    /**
+     * `fast` is gated like the heavier presets: the allocator enforces
+     * budgets by token importance, so trailing facts survive even without
+     * CoT distillation or pruning stages.
+     */
     const scenario = EFFICACY_SCENARIOS.find(s => s.name === 'research_session')!;
     expect(scenario.gatePresets).toContain('fast');
 

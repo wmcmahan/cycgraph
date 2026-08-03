@@ -151,6 +151,32 @@ describe('createOpenAIProvider — callJudge', () => {
     await expect(provider.callJudge('x')).rejects.toThrow(/unexpected response shape/);
   });
 
+  it('omits the detail suffix when the error body is empty', async () => {
+    globalThis.fetch = mockFetchError(503, 'Service Unavailable', '') as typeof fetch;
+    const provider = createOpenAIProvider({ apiKey: 'sk' });
+
+    await expect(provider.callJudge('x')).rejects.toThrow(
+      /OpenAI callJudge failed: HTTP 503 Service Unavailable$/,
+    );
+  });
+
+  it('swallows a failure to read the error body and still reports the status', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      json: async () => ({}),
+      text: async () => {
+        throw new Error('body stream errored');
+      },
+    } as Response) as typeof fetch;
+    const provider = createOpenAIProvider({ apiKey: 'sk' });
+
+    await expect(provider.callJudge('x')).rejects.toThrow(
+      /OpenAI callJudge failed: HTTP 502 Bad Gateway$/,
+    );
+  });
+
   it('throws with a timeout message when the request aborts', async () => {
     globalThis.fetch = vi.fn().mockImplementation((_url, init: RequestInit) => {
       return new Promise((_resolve, reject) => {

@@ -34,8 +34,6 @@ describe('integration deterministic suite', () => {
 
   it('result count matches expected test case count', async () => {
     const results = await runDeterministic();
-    // 10 test cases: ingestion, retrieval, compression, budget, adapter,
-    // consolidation, conflict, incremental, temporal, end-to-end
     expect(results.length).toBe(10);
   });
 });

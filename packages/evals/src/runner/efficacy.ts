@@ -39,6 +39,7 @@ const PRESETS: PipelinePreset[] = ['fast', 'balanced', 'maximum'];
 const FIDELITY_THRESHOLD = 0.8;
 const ANSWERABILITY_THRESHOLD = 0.8;
 
+/** One scenario × preset cell of the efficacy frontier report. */
 export interface EfficacyCell {
   scenario: string;
   preset: PipelinePreset;

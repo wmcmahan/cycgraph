@@ -200,9 +200,6 @@ describe('compareBaseline', () => {
   });
 
   it('catches a sub-ceiling regression the drift ceiling would miss', () => {
-    // 0% → 3% is below a typical 5% drift ceiling, so the absolute gate never
-    // fires — but it IS a real regression. With the noise floor now well below
-    // the ceiling, the baseline comparison flags it.
     const baseline = makeSnapshot({
       aggregateDrift: 0,
       suites: { orchestrator: makeSuiteEntry(0) },
@@ -218,8 +215,7 @@ describe('compareBaseline', () => {
     expect(delta.regressions[0].deltaPercent).toBe(3);
   });
 
-  it('ignores changes smaller than the noise floor', () => {
-    // Default noise floor is 1pp; a 0.5pp change is jitter, not a regression.
+  it('ignores a sub-noise-floor change as jitter', () => {
     const baseline = makeSnapshot({
       aggregateDrift: 1,
       suites: { orchestrator: makeSuiteEntry(1) },
@@ -323,7 +319,38 @@ describe('formatBaselineDelta', () => {
     expect(text).toContain('+8.0pp');
   });
 
-  it('reports unchanged when nothing crosses the noise floor', () => {
+  it('lists improvements with pp deltas', () => {
+    const text = formatBaselineDelta({
+      hasBaseline: true,
+      aggregateDriftDelta: -9,
+      regressions: [],
+      improvements: [{ suite: 'memory', before: 10, after: 1, deltaPercent: -9 }],
+      newSuites: [],
+      droppedSuites: [],
+      hasRegression: false,
+    });
+
+    expect(text).toContain('Improvements:');
+    expect(text).toContain('memory');
+    expect(text).toContain('-9.0pp');
+  });
+
+  it('lists new and dropped suites', () => {
+    const text = formatBaselineDelta({
+      hasBaseline: true,
+      aggregateDriftDelta: 0,
+      regressions: [],
+      improvements: [],
+      newSuites: ['context-engine'],
+      droppedSuites: ['memory'],
+      hasRegression: false,
+    });
+
+    expect(text).toContain('New suites: context-engine');
+    expect(text).toContain('Dropped suites: memory');
+  });
+
+  it('reports unchanged with a signed positive aggregate delta', () => {
     const text = formatBaselineDelta({
       hasBaseline: true,
       aggregateDriftDelta: 0.5,
@@ -333,7 +360,24 @@ describe('formatBaselineDelta', () => {
       droppedSuites: [],
       hasRegression: false,
     });
+
     expect(text).toContain('unchanged');
+    expect(text).toContain('+0.50pp');
+  });
+
+  it('reports unchanged with an unsigned negative aggregate delta', () => {
+    const text = formatBaselineDelta({
+      hasBaseline: true,
+      aggregateDriftDelta: -0.4,
+      regressions: [],
+      improvements: [],
+      newSuites: [],
+      droppedSuites: [],
+      hasRegression: false,
+    });
+
+    expect(text).toContain('unchanged');
+    expect(text).toContain('-0.40pp');
   });
 });
 

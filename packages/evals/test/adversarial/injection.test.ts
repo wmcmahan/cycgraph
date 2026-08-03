@@ -37,7 +37,6 @@ describe('injection safety tests', () => {
       budget: defaultBudget,
     });
 
-    // Content passes through unchanged — pipeline treats it as data, not instructions
     expect(result.segments).toHaveLength(1);
     expect(result.segments[0].content).toBe(injection);
   });
@@ -87,8 +86,6 @@ describe('injection safety tests', () => {
   it('JSON injection (extra closing braces) in segment content is handled by format detection', () => {
     const malformedJson = '{"key": "value"}}}}';
 
-    // detectShape should handle non-parseable content gracefully
-    // since it receives parsed data, let's test with an object that has odd values
     const shape = detectShape({ key: 'value}}}}' });
     expect(shape).toBe('flat-object');
   });
@@ -99,7 +96,6 @@ describe('injection safety tests', () => {
       nested = { [`k${i}`]: nested };
     }
 
-    // Should not throw a stack overflow
     const shape = detectShape(nested);
     expect(shape).toBe('nested');
   });
@@ -139,7 +135,6 @@ describe('injection safety tests', () => {
       budget: { maxTokens: 100, outputReserve: 0 },
     });
 
-    // Pipeline treats the content as data, not configuration
     expect(result.segments).toHaveLength(1);
     expect(result.segments[0].content).toBe(fakeInstructions);
     expect(result.segments[0].priority).toBe(1);
@@ -150,7 +145,6 @@ describe('injection safety tests', () => {
     const specialRegex = 'test.entity[0]+*(foo)?bar{1,2}|baz\\d^$';
 
     const extractor = new RuleBasedExtractor();
-    // Create an episode with content containing special regex chars
     const episode = {
       id: '00000000-0000-0000-0000-000000000001',
       topic: 'test',
@@ -167,7 +161,6 @@ describe('injection safety tests', () => {
       provenance: { source: 'system' as const, created_at: new Date() },
     };
 
-    // Should not throw
     const result = await extractor.extract(episode);
     expect(Array.isArray(result.facts)).toBe(true);
   });

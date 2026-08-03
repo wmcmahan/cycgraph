@@ -287,7 +287,8 @@ async function prepareConsolidationStore(
   const store = new InMemoryMemoryStore();
   const index = new InMemoryMemoryIndex();
 
-  // Inline facts get UUIDs synthesized to keep schemas happy when used elsewhere
+  // Inline facts get synthetic sequential IDs (the fact type requires an id);
+  // dedup keys off content/embedding, not the id, so these stay deterministic.
   if (seed.facts && seed.facts.length > 0) {
     let counter = 0;
     for (const f of seed.facts) {

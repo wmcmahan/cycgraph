@@ -11,8 +11,6 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      // Measure the source tree only — not the built dist/, scripts, examples,
-      // or barrel/type files that have no testable logic.
       include: ['src/**'],
       exclude: [
         'src/index.ts',
@@ -21,9 +19,6 @@ export default defineConfig({
         'src/**/*.d.ts',
         'src/types/**',
       ],
-      // Regression ratchet: thresholds sit a few points below measured coverage
-      // so a meaningful drop fails CI, but normal churn doesn't. Raise these as
-      // coverage improves; never lower them to make a red build pass.
       thresholds: {
         statements: 97,
         functions: 96,

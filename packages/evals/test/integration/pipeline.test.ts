@@ -25,15 +25,13 @@ import type { SemanticJudgeContext } from '../../src/assertions/semantic-judge.j
 describe('Full Pipeline Integration', () => {
   describe('golden dataset → assertions → drift → report', () => {
     it('loads orchestrator trajectories and produces a valid drift report', () => {
-      // 1. Load real golden data
       const trajectories = loadGoldenTrajectories('orchestrator');
       expect(trajectories.length).toBeGreaterThan(0);
 
-      // 2. Run structural assertions against matching tool calls
       const testResults: TestCaseResults[] = trajectories.map(trajectory => {
         const zodResults = trajectory.expectedToolCalls
           ? assertTrajectoryStructure(
-              trajectory.expectedToolCalls, // actual = expected (self-test)
+              trajectory.expectedToolCalls,
               trajectory.expectedToolCalls,
             )
           : [];
@@ -50,7 +48,6 @@ describe('Full Pipeline Integration', () => {
         };
       });
 
-      // 3. Compute drift
       const drift = computeDrift(testResults);
 
       expect(drift.aggregatePercent).toBe(0);
@@ -58,7 +55,6 @@ describe('Full Pipeline Integration', () => {
       expect(drift.perSuite['orchestrator']).toBeDefined();
       expect(drift.perSuite['orchestrator'].totalTests).toBe(trajectories.length);
 
-      // 4. Format report
       const localReport = formatReport(drift, 'local');
       expect(localReport.text).toContain('PASS');
       expect(localReport.text).toContain('orchestrator');
@@ -75,7 +71,6 @@ describe('Full Pipeline Integration', () => {
       );
       expect(withToolCalls.length).toBeGreaterThan(0);
 
-      // Simulate wrong tool being called
       const testResults: TestCaseResults[] = withToolCalls.map(trajectory => {
         const wrongToolCalls: ToolCall[] = trajectory.expectedToolCalls!.map(tc => ({
           ...tc,
