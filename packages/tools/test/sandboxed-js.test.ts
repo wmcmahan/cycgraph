@@ -88,12 +88,16 @@ describe('createSandboxedJsTool', () => {
     });
 
     it('errors at the memory limit on allocation bombs', async () => {
-      const small = createSandboxedJsTool({ memoryLimitBytes: 8 * 1024 * 1024, deadlineMs: 5_000 });
+      const small = createSandboxedJsTool({
+        memoryLimitBytes: 4 * 1024 * 1024,
+        deadlineMs: 2_000,
+        terminateMarginMs: 1_000,
+      });
 
       await expect(
-        small.execute({ code: 'const a = []; for (let i = 0; i < 1e6; i++) a.push(new Array(1000).fill(i)); a.length' }),
+        small.execute({ code: 'const a = []; for (;;) a.push(new Array(100000).fill(0));' }),
       ).rejects.toThrow();
-    });
+    }, 15_000);
 
     it('rejects oversized code before spawning a worker', async () => {
       const capped = createSandboxedJsTool({ maxCodeBytes: 10 });
