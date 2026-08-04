@@ -14,7 +14,7 @@ docker-compose.override.yml
 .agents/
 .claude/
 apps/docs/.astro
-sandbox/
+/sandbox/
 app/docs/.vercel
 bench-data/
 bench-results/
