@@ -225,7 +225,7 @@ Both tracks are commit-coupled: the deterministic track runs library code in-pro
 ## Development
 
 ```bash
-# Unit tests for the harness itself (~590 tests; LLM-backed suites skip without keys)
+# Unit tests for the harness itself
 npm test --workspace=packages/evals
 
 # Build

@@ -184,6 +184,13 @@ export { SUPERVISOR_DONE } from './agent/supervisor-executor/constants.js';
 export { SupervisorConfigError, SupervisorRoutingError } from './agent/supervisor-executor/errors.js';
 export type { SupervisorDecision } from './agent/supervisor-executor/executor.js';
 
+// ─── Custom Tools ───────────────────────────────────────────────────
+
+export { defineTool, ToolDefinitionError, DEFAULT_CUSTOM_TOOL_TIMEOUT_MS } from './tools/define-tool.js';
+export type { DefinedTool, DefinedToolSpec } from './tools/define-tool.js';
+export { ToolNotRegisteredError } from './tools/registry.js';
+export type { ToolsOption } from './tools/registry.js';
+
 // ─── MCP Integration ────────────────────────────────────────────────
 
 export { jsonSchemaToZod } from './mcp/json-schema-converter.js';

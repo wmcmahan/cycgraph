@@ -28,6 +28,7 @@ import { Semaphore } from './semaphore.js';
 import type { MCPServerRegistry } from '../persistence/interfaces.js';
 import type { ToolSource, MCPServerEntry } from '../types/tools.js';
 import { isStdioMcpDisabled } from '../types/tools.js';
+import { resolveBuiltinTools } from '../tools/builtin/index.js';
 import { assertHostResolvesPublic, scrubStdioEnv } from './transport-security.js';
 import type { TaintMetadata } from '../types/state.js';
 
@@ -110,52 +111,6 @@ async function getStdioTransport(): Promise<typeof _StdioTransport> {
     _StdioTransport = (mod as Record<string, unknown>).Experimental_StdioMCPTransport as typeof _StdioTransport;
   }
   return _StdioTransport;
-}
-
-// ─── Built-in Tools ─────────────────────────────────────────────────
-
-/**
- * Registry of built-in tool factories.
- *
- * Returns raw tool definitions (description + parameters + execute).
- * These are NOT pre-formed AI SDK tools — they use the `parameters` key
- * with plain JSON schema objects. The executor's `buildToolSet()` wraps
- * them with `tool()` + `jsonSchema()` for AI SDK compatibility.
- *
- * IMPORTANT: Do NOT use `inputSchema` or `jsonSchema()` here. That would
- * cause `isAISDKTool()` to falsely classify them as pre-formed tools and
- * skip the `tool()` wrapping, breaking LLM tool presentation.
- */
-function createBuiltinTool(name: string): Record<string, unknown> | null {
-  switch (name) {
-    case 'save_to_memory':
-      // The actual persistence is handled by the reducer, not the tool.
-      // The tool just captures the key/value pair from the LLM.
-      return {
-        save_to_memory: {
-          description: 'Save data to workflow memory for later use',
-          parameters: {
-            type: 'object',
-            properties: {
-              key: { type: 'string', description: 'Memory key to store the value under' },
-              value: { description: 'Value to save (can be any type)' },
-            },
-            required: ['key', 'value'],
-          },
-          execute: async (args: Record<string, unknown>) => {
-            return { key: args.key, value: args.value, saved: true };
-          },
-        },
-      };
-    // Architect tools are handled separately by the agent executor
-    // since they need special dependencies (persistence, etc.)
-    case 'architect_draft_workflow':
-    case 'architect_publish_workflow':
-    case 'architect_get_workflow':
-      return null; // Handled by architect tool system
-    default:
-      return null;
-  }
 }
 
 // ─── MCPConnectionManager ───────────────────────────────────────────
@@ -277,17 +232,15 @@ export class MCPConnectionManager implements ToolResolver {
     const collector = new Map<string, TaintMetadata>();
     const mcpToolSets: Array<{ serverId: string; toolSet: Record<string, unknown>; filter?: string[]; toolTimeoutMs: number; semaphore?: Semaphore }> = [];
 
-    // Separate built-in and MCP sources
+    // Separate built-in and MCP sources. Custom sources are the composed
+    // resolution's job (tools/registry.ts) — a standalone manager receiving
+    // them resolves what it can and leaves the rest, matching its historical
+    // builtin-plus-mcp scope.
     const mcpSources = sources.filter(s => s.type === 'mcp');
     const builtinSources = sources.filter(s => s.type === 'builtin');
 
-    // Resolve built-ins synchronously
-    for (const source of builtinSources) {
-      const builtinTools = createBuiltinTool(source.name);
-      if (builtinTools) {
-        Object.assign(tools, builtinTools);
-      }
-    }
+    // Resolve built-ins synchronously from the shared catalog
+    Object.assign(tools, resolveBuiltinTools(builtinSources));
 
     // Resolve MCP tools in parallel (with access control + caching)
     if (mcpSources.length > 0) {

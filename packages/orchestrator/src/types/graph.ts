@@ -12,7 +12,7 @@
  */
 
 import { z } from 'zod';
-import { ToolSourceSchema } from './tools.js';
+import { ToolSourceInputSchema } from './tools.js';
 import { type Camelize, camelToSnakeDeep } from './case-mapping.js';
 
 // ─── camelCase authoring layer ──────────────────────────────────────
@@ -693,7 +693,7 @@ export const GraphNodeSchema = z.object({
   /** Agent ID (for `agent` nodes). */
   agent_id: z.string().optional(),
   /** Tool sources for this node. Overrides agent config tools when set. */
-  tools: z.array(ToolSourceSchema).optional(),
+  tools: z.array(ToolSourceInputSchema).optional(),
   /** Tool ID (for `tool` nodes). */
   tool_id: z.string().optional(),
   /** Subgraph ID (for `subgraph` nodes). */

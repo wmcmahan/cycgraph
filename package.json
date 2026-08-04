@@ -12,7 +12,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=packages/orchestrator && npm run build --workspace=packages/memory && npm run build --workspace=packages/context-engine && npm run build --workspace=packages/orchestrator-postgres && npm run build --workspace=packages/evals",
+    "build": "npm run build --workspace=packages/orchestrator && npm run build --workspace=packages/memory && npm run build --workspace=packages/context-engine && npm run build --workspace=packages/tools && npm run build --workspace=packages/orchestrator-postgres && npm run build --workspace=packages/evals",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "lint:eslint": "eslint packages",

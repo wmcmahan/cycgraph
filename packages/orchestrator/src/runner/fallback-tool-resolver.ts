@@ -1,29 +1,31 @@
 /**
  * Fallback Tool Resolver
  *
- * Lightweight tool resolver used when no `ToolResolver` (typically an
- * `MCPConnectionManager`) is configured on a runner. Resolves built-in tools
- * (currently just `save_to_memory`), warns when MCP sources are encountered
- * (since they can't be fulfilled without a real resolver), and returns an
- * echo proxy so unknown tool names still produce something callable in
- * test/dev environments.
+ * Lightweight tool resolver used when `GraphRunnerOptions.tools` is absent
+ * entirely. Resolves built-in tools from the shared catalog, warns when MCP
+ * or custom sources are encountered (they can't be fulfilled without a
+ * registration), and returns an echo proxy so unknown tool names still
+ * produce something callable in test/dev environments.
  *
- * Production deployments should configure a real `ToolResolver` — this exists
- * so examples and tests can run without MCP infrastructure.
+ * Production deployments should configure `GraphRunnerOptions.tools` — this
+ * exists so examples and tests can run without tool infrastructure. The
+ * echo proxy never engages once `tools` is configured: the composed
+ * resolution fails fast on unregistered names instead of masking them.
  *
  * @module runner/fallback-tool-resolver
  */
 
 import type { ToolSource } from '../types/tools.js';
+import { resolveBuiltinTools } from '../tools/builtin/index.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('runner.fallback-tool-resolver');
 
 /**
- * Resolve a list of tool sources without any MCP infrastructure.
+ * Resolve a list of tool sources without any tool infrastructure.
  *
- * - `builtin: save_to_memory` is resolved to its standard description+execute.
- * - `mcp: *` sources are skipped with a warning.
+ * - `builtin` sources resolve from the shared catalog.
+ * - `mcp` and `custom` sources are skipped with a warning.
  * - Unknown tool names returned via the proxy resolve to an echo tool whose
  *   `execute(args)` returns `args`. This keeps test fixtures green even when
  *   tool resolution isn't wired.
@@ -32,27 +34,19 @@ export async function resolveBuiltinsOnly(
   sources: ToolSource[],
   _agentId?: string,
 ): Promise<Record<string, unknown>> {
-  const tools: Record<string, unknown> = {};
+  const tools: Record<string, unknown> = resolveBuiltinTools(
+    sources.filter((s) => s.type === 'builtin'),
+  );
   for (const source of sources) {
-    if (source.type === 'builtin' && source.name === 'save_to_memory') {
-      tools.save_to_memory = {
-        description: 'Save data to workflow memory for later use',
-        parameters: {
-          type: 'object',
-          properties: {
-            key: { type: 'string', description: 'Memory key to store the value under' },
-            value: { description: 'Value to save (can be any type)' },
-          },
-          required: ['key', 'value'],
-        },
-        execute: async (args: Record<string, unknown>) => {
-          return { key: args.key, value: args.value, saved: true };
-        },
-      };
-    } else if (source.type === 'mcp') {
+    if (source.type === 'mcp') {
       logger.warn('mcp_source_skipped_no_resolver', {
         server_id: source.server_id,
-        hint: 'Configure a ToolResolver (MCPConnectionManager) to resolve MCP tool sources',
+        hint: 'Add a ToolResolver (MCPConnectionManager) to GraphRunnerOptions.tools to resolve MCP tool sources',
+      });
+    } else if (source.type === 'custom') {
+      logger.warn('custom_source_skipped_no_registration', {
+        tool_name: source.name,
+        hint: 'Add the defineTool() result to GraphRunnerOptions.tools to resolve custom tool sources',
       });
     }
   }

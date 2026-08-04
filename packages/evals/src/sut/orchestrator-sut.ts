@@ -90,7 +90,7 @@ export async function runOrchestratorSut(
     : undefined;
 
   const runner = new GraphRunner(opts.graph, opts.initialState, {
-    toolResolver,
+    tools: toolResolver ? [toolResolver] : undefined,
   });
 
   const toolCalls: RecordedToolCall[] = [];

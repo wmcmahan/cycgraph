@@ -12,7 +12,7 @@
 
 import type { Graph } from '../types/graph.js';
 import type { WorkflowState } from '../types/state.js';
-import type { MCPServerEntry, MCPServerConfig, ToolSource } from '../types/tools.js';
+import type { MCPServerEntry, MCPServerConfig, ToolSource, ToolSourceInput } from '../types/tools.js';
 import type { Camelize } from '../types/case-mapping.js';
 import type { ModelTier } from '../agent/model-resolver.js';
 
@@ -288,8 +288,14 @@ export type AgentRegistryInput = Omit<
  * documented way to register an agent (`systemPrompt`, `maxSteps`,
  * `permissions.readKeys`, …). Stored entries and `loadAgent` results remain
  * snake_case.
+ *
+ * `tools` additionally accepts the authoring sugar (a bare tool name, an
+ * `{ mcp: id }` server ref) alongside the structured form; registries
+ * normalize to the wire union before storing.
  */
-export type AgentRegistryConfig = Camelize<AgentRegistryInput>;
+export type AgentRegistryConfig = Omit<Camelize<AgentRegistryInput>, 'tools'> & {
+  tools: ToolSourceInput[];
+};
 
 /**
  * Registry for loading agent configurations.

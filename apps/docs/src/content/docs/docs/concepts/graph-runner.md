@@ -176,7 +176,7 @@ Constructor options. Every field is optional; the defaults give an in-memory, si
 | `eventLog` | [`EventLogWriter`](/docs/concepts/persistence/#eventlogwriter) for durable, replayable execution. Defaults to an in-memory no-op. |
 | `compactionInterval` | Events between automatic event-log compactions. Default `1000`; `0` disables. |
 | `loadGraphFn` | Load subgraph definitions by ID for subgraph nodes. |
-| `toolResolver` | Resolve MCP [tool sources](/docs/concepts/tools-and-mcp/). Typically an `MCPConnectionManager`. |
+| `tools` | Provide tools: `defineTool()` results and MCP resolvers, in one array. See [Tools & MCP](/docs/concepts/tools-and-mcp/). |
 | `modelResolver` | Budget-aware model selection for agents with a `model_preference`. |
 | `contextCompressor` | Compress memory before prompt injection ([Context Engine](/docs/concepts/context-engine/)). |
 | `memoryRetriever` | Inject facts from the [memory graph](/docs/concepts/memory/) for nodes declaring a `memory_query`. |

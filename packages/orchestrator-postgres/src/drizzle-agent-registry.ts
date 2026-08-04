@@ -9,7 +9,7 @@ import { agents } from './schema.js';
 import { eq, and, desc, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { withTenant, type Tx, type TenantContext } from './tenancy.js';
-import { camelToSnakeDeep } from '@cycgraph/orchestrator';
+import { camelToSnakeDeep, normalizeToolSources } from '@cycgraph/orchestrator';
 import type {
   AgentRegistry,
   AgentRegistryEntry,
@@ -105,7 +105,9 @@ export class DrizzleAgentRegistry implements AgentRegistry {
         system_prompt: wire.system_prompt,
         temperature: wire.temperature ?? 0.7,
         max_steps: wire.max_steps ?? 10,
-        tools: wire.tools,
+        // Normalize tool-source sugar (bare names, `{ mcp: id }`) so stored
+        // rows always carry the structured wire form.
+        tools: normalizeToolSources(wire.tools),
         permissions: {
           sandbox: wire.permissions?.sandbox ?? false,
           read_keys: wire.permissions?.read_keys ?? [],
@@ -131,7 +133,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
     if (wire.system_prompt !== undefined) set.system_prompt = wire.system_prompt;
     if (wire.temperature !== undefined) set.temperature = wire.temperature;
     if (wire.max_steps !== undefined) set.max_steps = wire.max_steps;
-    if (wire.tools !== undefined) set.tools = wire.tools;
+    if (wire.tools !== undefined) set.tools = normalizeToolSources(wire.tools);
     if (wire.permissions !== undefined) set.permissions = wire.permissions;
     if (wire.provider_options !== undefined) set.provider_options = wire.provider_options;
     if (wire.model_preference !== undefined) set.model_preference = wire.model_preference;

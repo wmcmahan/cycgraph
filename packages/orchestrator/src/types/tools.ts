@@ -47,17 +47,103 @@ export const MCPToolSourceSchema = z.object({
 });
 
 /**
+ * A host-registered custom tool, referenced by name.
+ *
+ * The implementation is injected at runtime via `GraphRunnerOptions.tools`
+ * (a `defineTool()` result); the graph carries only this serializable
+ * reference. Unresolvable names fail the runner's preflight wiring check.
+ */
+export const CustomToolSourceSchema = z.object({
+  type: z.literal('custom'),
+  name: z.string().min(1).regex(/^[a-z0-9_-]+$/i, 'custom tool name must be alphanumeric, hyphens, or underscores'),
+});
+
+/**
  * Discriminated union of tool source types.
  *
  * Agents declare their tool requirements as `ToolSource[]`.
- * Resolution happens at execution time via MCPConnectionManager.
+ * Resolution happens at execution time via the runner's composed tool
+ * resolution (built-ins, `defineTool()` registrations, and MCP resolvers).
  */
 export const ToolSourceSchema = z.discriminatedUnion('type', [
   BuiltinToolSourceSchema,
   MCPToolSourceSchema,
+  CustomToolSourceSchema,
 ]);
 
 export type ToolSource = z.infer<typeof ToolSourceSchema>;
+
+// ─── Authoring Sugar ───────────────────────────────────────────────
+
+/**
+ * Lightweight authoring shorthand for an MCP tool source: `mcp` is the
+ * registered server id, `tools` the optional tool-name allowlist.
+ * (`tool_names` is accepted because camelCase authoring of `toolNames`
+ * arrives in that form after the case remap.)
+ */
+const MCPShorthandSchema = z.object({
+  mcp: z.string().min(1),
+  tools: z.array(z.string()).optional(),
+  tool_names: z.array(z.string()).optional(),
+});
+
+/**
+ * Normalize an authoring-sugar tool source to the structured wire form.
+ * Strings resolve locally: names in {@link BUILTIN_TOOL_NAMES} become
+ * `builtin` sources, everything else `custom`. `{ mcp: id }` objects become
+ * `mcp` sources. Already-structured objects pass through for the piped
+ * {@link ToolSourceSchema} to validate.
+ */
+function normalizeToolSourceInput(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return (BUILTIN_TOOL_NAMES as readonly string[]).includes(value)
+      ? { type: 'builtin', name: value }
+      : { type: 'custom', name: value };
+  }
+  if (value !== null && typeof value === 'object' && 'mcp' in value && !('type' in value)) {
+    const shorthand = value as z.infer<typeof MCPShorthandSchema>;
+    const filter = shorthand.tools ?? shorthand.tool_names;
+    return {
+      type: 'mcp',
+      server_id: shorthand.mcp,
+      ...(filter ? { tool_names: filter } : {}),
+    };
+  }
+  return value;
+}
+
+/**
+ * Tool-source schema for authoring boundaries (`createGraph`, agent config
+ * parsing). Accepts the sugar forms — a bare tool name, an `{ mcp: id }`
+ * server ref — alongside the structured wire form, and always OUTPUTS the
+ * structured {@link ToolSource}, so everything stored or persisted stays in
+ * wire format regardless of how it was authored.
+ */
+export const ToolSourceInputSchema = z
+  .union([z.string().min(1), MCPShorthandSchema, ToolSourceSchema])
+  .transform(normalizeToolSourceInput)
+  .pipe(ToolSourceSchema);
+
+/**
+ * What authors may write wherever a tool source is expected: a local tool
+ * name, an MCP server shorthand, or the structured form in either casing
+ * (the camelCase variant is remapped by the authoring-boundary constructors
+ * before the schema parses it).
+ */
+export type ToolSourceInput =
+  | string
+  | { mcp: string; tools?: string[]; toolNames?: string[] }
+  | ToolSource
+  | ToolSourceConfig;
+
+/**
+ * Normalize an array of authored tool sources to wire format. Used by agent
+ * registries at the write boundary so persisted configs always store the
+ * structured form, never the sugar.
+ */
+export function normalizeToolSources(tools: unknown): ToolSource[] {
+  return z.array(ToolSourceInputSchema).parse(tools);
+}
 
 /**
  * camelCase authoring type for tool sources (`serverId`, `toolNames`), derived
@@ -67,6 +153,7 @@ export type ToolSource = z.infer<typeof ToolSourceSchema>;
 export type ToolSourceConfig = Camelize<ToolSource>;
 export type BuiltinToolSource = z.infer<typeof BuiltinToolSourceSchema>;
 export type MCPToolSource = z.infer<typeof MCPToolSourceSchema>;
+export type CustomToolSource = z.infer<typeof CustomToolSourceSchema>;
 
 // ─── MCP Transport Configs (Registry Level) ────────────────────────
 

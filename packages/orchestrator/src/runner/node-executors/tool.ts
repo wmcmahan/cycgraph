@@ -81,7 +81,7 @@ export async function executeToolNode(
     if (drained && drained.size > 0) {
       const [, firstEntry] = drained.entries().next().value as [string, TaintMetadata];
       taint = {
-        source: 'mcp_tool',
+        source: firstEntry.source,
         tool_name: [...new Set([...drained.values()].map((e) => e.tool_name).filter(Boolean))].join(',') || toolId,
         server_id: firstEntry.server_id,
         created_at: new Date().toISOString(),

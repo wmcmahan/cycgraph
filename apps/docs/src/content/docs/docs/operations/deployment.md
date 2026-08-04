@@ -54,7 +54,7 @@ const worker = new WorkflowWorker({
   // Per-job fenced writers carry the job's claim epoch (see below).
   runnerOptionsFactory: (job) => ({
     ...createFencedRunnerOptions(job),
-    toolResolver: new MCPConnectionManager(mcpRegistry),
+    tools: [new MCPConnectionManager(mcpRegistry)],
   }),
 });
 
@@ -68,7 +68,7 @@ const persistence = new DrizzlePersistenceProvider();
 const runner = new GraphRunner(graph, state, {
   persistStateFn: (s) => persistence.saveWorkflowSnapshot(s),
   eventLog: new DrizzleEventLogWriter({ retain_checkpoints: 3 }),
-  toolResolver: new MCPConnectionManager(mcpRegistry),
+  tools: [new MCPConnectionManager(mcpRegistry)],
 });
 ```
 

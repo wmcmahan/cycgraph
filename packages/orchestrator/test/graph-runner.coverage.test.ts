@@ -83,11 +83,11 @@ function singleNodeGraph(overrides: Partial<Graph['nodes'][number]> = {}): Graph
 }
 
 describe('GraphRunner preflight wiring', () => {
-  it('fails the run when a node declares MCP tools but no toolResolver is wired', async () => {
+  it('fails the run when a node declares MCP tools but no resolver is wired', async () => {
     const graph = singleNodeGraph({ tools: [{ type: 'mcp', server_id: 'web' }] as any });
     const runner = new GraphRunner(graph, createTestState());
 
-    await expect(runner.run()).rejects.toThrow(/declares MCP tool sources but no toolResolver/);
+    await expect(runner.run()).rejects.toThrow(/declares MCP tool sources but no ToolResolver/);
   });
 
   it('emits a workflow:failed stream event on a wiring error', async () => {

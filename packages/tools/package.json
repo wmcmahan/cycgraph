@@ -1,0 +1,76 @@
+{
+  "name": "@cycgraph/tools",
+  "version": "0.0.0",
+  "description": "Curated, plug-in tools for @cycgraph/orchestrator: SSRF-guarded web access and pure data utilities, built on defineTool.",
+  "keywords": [
+    "cycgraph",
+    "orchestrator",
+    "tools",
+    "agents",
+    "llm"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./web": {
+      "types": "./dist/web/index.d.ts",
+      "import": "./dist/web/index.js",
+      "default": "./dist/web/index.js"
+    },
+    "./data": {
+      "types": "./dist/data/index.d.ts",
+      "import": "./dist/data/index.js",
+      "default": "./dist/data/index.js"
+    },
+    "./memory": {
+      "types": "./dist/memory/index.d.ts",
+      "import": "./dist/memory/index.js",
+      "default": "./dist/memory/index.js"
+    },
+    "./sandbox": {
+      "types": "./dist/sandbox/index.d.ts",
+      "import": "./dist/sandbox/index.js",
+      "default": "./dist/sandbox/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@cycgraph/orchestrator": ">=0.9.0 <1",
+    "@cycgraph/memory": ">=0.6.0 <1"
+  },
+  "peerDependenciesMeta": {
+    "@cycgraph/memory": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "htmlparser2": "^10.0.0",
+    "quickjs-emscripten": "^0.32.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cycgraph/orchestrator": "^0.9.0",
+    "@cycgraph/memory": "^0.6.0",
+    "typescript": "7.0.2",
+    "vitest": "^4.0.18"
+  }
+}

@@ -3,14 +3,17 @@ title: Tools & MCP
 description: How agents interact with external systems via tool sources and the Model Context Protocol.
 ---
 
-Agents need tools to interact with the world. Agents use structured **tool sources** and the **Model Context Protocol (MCP)** for secure, standardized tool integration. This decouples the agent definition from the underlying transport configuration and connection secrets.
+Agents need tools to interact with the world. The orchestrator provides three tool layers behind one declaration format:
 
-## Tool source types
+1. **Built-in tools**: Shipped with the engine. Pure and dependency-free, like `save_to_memory`.
+2. **Custom tools**: Your own functions, defined with `defineTool()` and registered on the runner. The graph references them by name; the implementation is never serialized.
+3. **MCP tools**: Provided by a registered MCP server via the **Model Context Protocol**. The graph references the server by ID; transport config and secrets stay in the trusted registry.
 
-Agents declare their tools using a `ToolSource[]` array with two possible types:
+This decouples workflow definitions from implementations: graphs stay serializable, and the same graph runs anywhere the referenced tools are available.
 
-1. **Built-in tools**: Provided by the orchestrator itself. No external connection needed.
-2. **MCP tools**: Provided by a registered MCP server. References the server by ID.
+## Declaring tools
+
+Agents and nodes declare tools in a `tools` array. Authoring is lightweight — a bare name for anything that resolves locally, an `{ mcp }` ref for servers:
 
 ```typescript
 import { InMemoryAgentRegistry } from '@cycgraph/orchestrator';
@@ -23,21 +26,14 @@ const RESEARCH_AGENT = agentRegistry.register({
   provider: 'anthropic',
   systemPrompt: 'You are a research specialist...',
   tools: [
-    { type: 'builtin', name: 'save_to_memory' },
-    { type: 'mcp', serverId: 'web-search' }
+    'save_to_memory',                              // built-in
+    'lookup_order',                                // custom, registered on the runner
+    { mcp: 'web-search', tools: ['search'] },      // MCP server ref with a tool filter
   ],
 });
 ```
 
-Optionally, you can filter to specific tools from an MCP server by providing `toolNames`:
-
-```typescript
-{
-  type: 'mcp',
-  serverId: 'web-search',
-  toolNames: ['search', 'fetch']
-}
-```
+Whatever form you author, storage is always the structured wire union: a bare name becomes `{ type: 'builtin', name }` when it names a built-in and `{ type: 'custom', name }` otherwise, and `{ mcp: id, tools }` becomes `{ type: 'mcp', server_id, tool_names }`. The structured form is accepted directly wherever you prefer to be explicit. The `tools` filter on a server ref is worth the keystrokes: without it the agent receives every tool the server advertises, including ones a compromised server injects later.
 
 ### Node-level tool overrides
 
@@ -48,11 +44,7 @@ Graph nodes can override an agent's configured tools for a specific execution st
   id: 'initial-research',
   type: 'agent',
   agentId: RESEARCH_AGENT,
-  tools: [
-    { type: 'builtin', name: 'save_to_memory' },
-    { type: 'mcp', serverId: 'web-search' },
-    { type: 'mcp', serverId: 'twitter-search' }
-  ],
+  tools: ['save_to_memory', { mcp: 'web-search' }, { mcp: 'twitter-search' }],
   readKeys: ['goal'],
   writeKeys: ['initial_notes'],
 }
@@ -61,9 +53,47 @@ Graph nodes can override an agent's configured tools for a specific execution st
 In this example, `save_to_memory` is included because the node may need to write structured data to multiple keys. For nodes that write to a single key, you can omit it, and the orchestrator captures text output automatically.
 
 **Refs:**
-- [ToolSource](#toolsource): Discriminated union of the two tool declaration shapes.
+- [ToolSource](#toolsource): Discriminated union of the three tool declaration shapes.
+- [ToolSourceInput](#toolsourceinput): What authors may write — sugar or structured.
 - [BuiltinToolSource](#builtintoolsource): A tool the orchestrator provides directly.
+- [CustomToolSource](#customtoolsource): A host-registered tool, referenced by name.
 - [MCPToolSource](#mcptoolsource): A tool provided by a registered MCP server, referenced by ID.
+
+## Custom tools
+
+`defineTool()` turns a function into a schema-validated tool. Register the result on `GraphRunnerOptions.tools`, and any agent or node can declare it by name:
+
+```typescript
+import { defineTool, GraphRunner } from '@cycgraph/orchestrator';
+import { z } from 'zod';
+
+const lookupOrder = defineTool({
+  name: 'lookup_order',
+  description: 'Fetch an order by ID from the host system',
+  parameters: z.object({ orderId: z.string() }),
+  execute: async ({ orderId }) => db.orders.find(orderId),
+});
+
+const runner = new GraphRunner(graph, state, {
+  tools: [lookupOrder, mcpManager],  // defined tools and MCP resolvers, one option
+});
+```
+
+The `tools` option takes everything that provides tools: `defineTool()` results and `ToolResolver` implementations such as `MCPConnectionManager`, discriminated by shape. Resolution precedence is built-ins, then defined tools, then resolvers; a name collision between a local tool and an MCP tool keeps the local one and exposes the MCP tool under an `mcp__` prefix.
+
+Three guarantees come with the wrapper:
+
+- **Validated input**: the LLM's arguments are parsed through your Zod `parameters` schema on every call; invalid arguments surface to the model as a normal tool failure.
+- **Timeout**: each call races a per-tool timeout (30s default, `timeoutMs` to change, `0` to disable), so a hung tool cannot stall the node.
+- **Fail-at-start wiring**: a node declaring a custom tool that has no matching registration fails the runner's preflight check before any tokens are spent, exactly like MCP sources without a resolver.
+
+By default custom tools are treated as first-party code and their output is not taint-tracked. Declare `taints: true` on tools that ingest external content — network fetches, user documents — and their results land in `state.taint_registry` with source `custom_tool`, feeding the same downstream taint gates as MCP output.
+
+A curated set of pre-built tools ships as [`@cycgraph/tools`](/docs/guides/tool-library/): SSRF-guarded web access and pure data utilities, all `defineTool()` factories that register exactly like your own.
+
+**Refs:**
+- [`defineTool`](#definetool): The definition helper and its wrapper guarantees.
+- [DefinedToolSpec](#definedtoolspec): The spec shape `defineTool` accepts.
 
 ## MCP Server Registry
 
@@ -202,7 +232,7 @@ Set to `0` to disable caching.
 
 ## Taint tracking
 
-All results returned from MCP tools are automatically taint-tracked. The raw tool result is returned directly to the LLM (no wrapper), while taint metadata is accumulated and tracked internally. After agent execution completes, taint entries are drained and applied to any memory keys that received MCP tool results.
+All results returned from MCP tools are automatically taint-tracked, and custom tools declared `taints: true` participate identically with source `custom_tool`. The raw tool result is returned directly to the LLM (no wrapper), while taint metadata is accumulated and tracked internally. After agent execution completes, taint entries are drained and applied to any memory keys that received external tool results.
 
 This design ensures:
 
@@ -213,6 +243,16 @@ This design ensures:
 See [Taint Tracking](/docs/concepts/taint-tracking/) for the full taint propagation model and API reference.
 
 ## API
+
+### `defineTool`
+
+Define a custom tool for registration on `GraphRunnerOptions.tools`. Validates the spec eagerly — an invalid name, a collision with a built-in name, or a missing description throws `ToolDefinitionError` at definition time, not mid-run. The returned tool's `execute` parses arguments through the Zod schema and enforces the per-call timeout.
+
+```typescript
+defineTool(spec: DefinedToolSpec): DefinedTool
+```
+
+The result carries the JSON-schema projection of your Zod `parameters` (what the LLM sees) alongside `name`, `description`, and `taints`. Duplicate names across the `tools` array throw at runner construction.
 
 ### `InMemoryMCPServerRegistry`
 
@@ -256,11 +296,35 @@ MCPServerEntrySchema.parse(entry): MCPServerEntry
 
 ### ToolSource
 
-Discriminated union on `type` of the two tool declaration shapes an agent or node lists in its `tools` array. Authored in camelCase, then resolved at execution time by [`MCPConnectionManager`](#mcpconnectionmanager).
+Discriminated union on `type` of the three tool declaration shapes an agent or node lists in its `tools` array. This is the stored wire form; authoring usually goes through the lighter [ToolSourceInput](#toolsourceinput) sugar.
 
 ```typescript
-type ToolSource = BuiltinToolSource | MCPToolSource
+type ToolSource = BuiltinToolSource | CustomToolSource | MCPToolSource
 ```
+
+### ToolSourceInput
+
+What authors may write wherever a tool source is expected. Every form normalizes to the structured [ToolSource](#toolsource) at the authoring boundary (`createGraph`, agent registration), so stored configs never carry the sugar.
+
+| Form | Normalizes to |
+|------|---------------|
+| `'save_to_memory'` (a built-in name) | `{ type: 'builtin', name }` |
+| `'lookup_order'` (any other name) | `{ type: 'custom', name }` |
+| `{ mcp: 'web-search', tools: ['search'] }` | `{ type: 'mcp', server_id, tool_names }` |
+| A structured `ToolSource` (either casing) | Passes through |
+
+### DefinedToolSpec
+
+The spec accepted by [`defineTool`](#definetool).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `string` | required | Referenced from graph/agent config. Alphanumeric, hyphens, underscores; must not collide with a built-in name. |
+| `description` | `string` | required | Surfaced to the LLM. |
+| `parameters` | `z.ZodType` | required | Argument schema, parsed on every call. |
+| `execute` | `(args) => unknown` | required | The implementation. Receives parsed arguments. |
+| `taints` | `boolean` | `false` | Taint-track results as external data (`custom_tool` source). |
+| `timeoutMs` | `number` | `30000` | Per-call timeout. `0` disables. |
 
 ### BuiltinToolSource
 
@@ -270,6 +334,15 @@ A tool the orchestrator provides directly, with no external connection.
 |-------|------|-------------|
 | `type` | `'builtin'` | Discriminant. |
 | `name` | `'save_to_memory'` \| `'architect_draft_workflow'` \| `'architect_publish_workflow'` \| `'architect_get_workflow'` | Built-in tool name. |
+
+### CustomToolSource
+
+A host-registered custom tool, referenced by name. The implementation is a [`defineTool`](#definetool) result on `GraphRunnerOptions.tools`; an unmatched name fails the runner preflight.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `'custom'` | Discriminant. |
+| `name` | `string` | Registered tool name. Alphanumeric, hyphens, and underscores. |
 
 ### MCPToolSource
 

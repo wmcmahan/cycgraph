@@ -42,7 +42,7 @@ These fail **before any node runs** (a pre-flight check at the start of `run()`)
 - `SupervisorConfigError`: a supervisor node is missing its `supervisor_config`.
 - `UnsupportedNodeTypeError`: the graph references a node type the runner doesn't support.
 - **Missing `memoryWriter`**: the graph has a `reflection` node but no `memoryWriter` was injected. A node with `memory_query` but no `memoryRetriever` is a warning, not a failure.
-- **Missing `toolResolver`**: a node declares MCP tool sources but no `toolResolver` was injected, so it would otherwise silently run tool-less and "succeed".
+- **Missing tool wiring**: a node declares MCP tool sources with no resolver on `tools`, or a custom tool source with no matching `defineTool()` registration, so it would otherwise silently run tool-less and "succeed".
 - `AgentNotFoundError`: a node references an `agent_id` not found in the configured registry. It **fails closed** by default, so a typo'd or deleted agent surfaces here rather than silently running a generic deny-all assistant. Opt into the legacy fallback with `configureAgentFactory(registry, { allowDefaultFallback: true })` for tests/dev.
 
 ### Routing errors: dead-end detection

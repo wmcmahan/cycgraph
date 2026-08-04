@@ -267,7 +267,7 @@ Constructor options for [`WorkflowWorker`](#workflowworker).
 | `persistence` | `PersistenceProvider` | required | Loads graphs and saves state snapshots. |
 | `eventLog` | `EventLogWriter` | required | Durable event log for replay-based crash recovery. |
 | `workerId` | `string` | `crypto.randomUUID()` | Unique worker identifier. |
-| `runnerOptionsFactory` | `(job: WorkflowJob) => Partial<GraphRunnerOptions>` | — | Per-job `GraphRunnerOptions` such as `toolResolver`, `modelResolver`, and middleware. Factory results **override** the worker defaults, which is how per-job fenced `persistStateFn`/`eventLog` writers are wired in. See [Run fencing](#run-fencing). |
+| `runnerOptionsFactory` | `(job: WorkflowJob) => Partial<GraphRunnerOptions>` | — | Per-job `GraphRunnerOptions` such as `tools`, `modelResolver`, and middleware. Factory results **override** the worker defaults, which is how per-job fenced `persistStateFn`/`eventLog` writers are wired in. See [Run fencing](#run-fencing). |
 | `concurrency` | `number` | `1` | Maximum concurrent jobs per worker. |
 | `pollIntervalMs` | `number` | `1000` | Polling interval in milliseconds. |
 | `heartbeatIntervalMs` | `number` | `60000` | Heartbeat interval in milliseconds. |

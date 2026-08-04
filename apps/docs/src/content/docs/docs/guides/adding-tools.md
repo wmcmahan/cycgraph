@@ -21,7 +21,7 @@ const mcpRegistry = new InMemoryMCPServerRegistry();
 await registerDefaultMCPServers(mcpRegistry);
 
 const mcpManager = new MCPConnectionManager(mcpRegistry);
-const runner = new GraphRunner(graph, state, { toolResolver: mcpManager });
+const runner = new GraphRunner(graph, state, { tools: [mcpManager] });
 
 try {
   const result = await runner.run();
@@ -41,12 +41,12 @@ import { GraphRunner, MCPConnectionManager } from '@cycgraph/orchestrator';
 
 async function runWorkflow(state) {
   // 1. Create the resolver with your configured registry
-  const toolResolver = new MCPConnectionManager(mcpRegistry);
+  const mcpManager = new MCPConnectionManager(mcpRegistry);
 
-  // 2. Inject it into the runner. The agent registry is wired globally
+  // 2. Add it to the runner's tools. The agent registry is wired globally
   //    via configureAgentFactory(registry) once at startup — not per-run.
   const runner = new GraphRunner(graph, state, {
-    toolResolver,
+    tools: [mcpManager],
     persistStateFn: async (s) => { /* persist state hook */ },
   });
 
@@ -55,7 +55,7 @@ async function runWorkflow(state) {
     return result;
   } finally {
     // 3. Always clean up connections!
-    await toolResolver.closeAll();
+    await mcpManager.closeAll();
   }
 }
 ```

@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 import type { JSONValue } from 'ai';
-import { ToolSourceSchema } from '../types/tools.js';
+import { ToolSourceInputSchema } from '../types/tools.js';
 import { ModelTierSchema } from './model-resolver.js';
 
 /**
@@ -100,8 +100,8 @@ export const AgentConfigSchema = z.object({
 
   // ── Capabilities ──
 
-  /** Structured tool source declarations. References built-in tools and registered MCP servers by ID. */
-  tools: z.array(ToolSourceSchema).default([]),
+  /** Structured tool source declarations. References built-in tools, host-registered custom tools, and registered MCP servers by ID. Accepts authoring sugar (bare names, `{ mcp: id }`); always parses to the structured wire form. */
+  tools: z.array(ToolSourceInputSchema).default([]),
 
   // ── Permission CEILING (optional — ADR 001) ──
   //
