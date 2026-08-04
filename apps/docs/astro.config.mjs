@@ -149,6 +149,8 @@ export default defineConfig({
           items: [
             { label: 'Your First Workflow', slug: 'docs/guides/first-workflow' },
             { label: 'Custom LLM Providers', slug: 'docs/guides/custom-providers' },
+            { label: 'Custom Tools', slug: 'docs/guides/custom-tools' },
+            { label: 'Tool Library', slug: 'docs/guides/tool-library' },
             { label: 'Adding MCP Tools', slug: 'docs/guides/adding-tools' },
             { label: 'Budget-Aware Model Selection', slug: 'docs/guides/model-selection' },
             { label: 'Context Engine', slug: 'docs/guides/context-engine' },

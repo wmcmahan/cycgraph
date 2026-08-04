@@ -14,7 +14,7 @@ import type { Graph } from '../types/graph.js';
 import type { WorkflowState } from '../types/state.js';
 import { hydrateWorkflowState } from '../types/state.js';
 import type { MCPServerEntry, MCPServerConfig } from '../types/tools.js';
-import { MCPServerEntrySchema } from '../types/tools.js';
+import { MCPServerEntrySchema, normalizeToolSources } from '../types/tools.js';
 import { camelToSnakeDeep } from '../types/case-mapping.js';
 import type {
   PersistenceProvider,
@@ -296,6 +296,9 @@ export class InMemoryAgentRegistry implements AgentRegistry {
     // Remap camelCase authoring input to the snake_case wire shape. The remap
     // is idempotent, so snake_case callers keep working.
     const wire = camelToSnakeDeep(entry) as AgentRegistryInput & { id?: string };
+    // Normalize tool-source sugar (bare names, `{ mcp: id }`) at the write
+    // boundary so stored entries always carry the structured wire form.
+    if (wire.tools) wire.tools = normalizeToolSources(wire.tools);
     const id = wire.id ?? crypto.randomUUID();
     const full: AgentRegistryEntry = {
       description: null,
@@ -313,6 +316,7 @@ export class InMemoryAgentRegistry implements AgentRegistry {
     const existing = this.agents.get(id);
     if (!existing) throw new Error(`Agent not found: ${id}`);
     const wire = camelToSnakeDeep(updates) as Partial<AgentRegistryInput>;
+    if (wire.tools) wire.tools = normalizeToolSources(wire.tools);
     this.agents.set(id, { ...existing, ...wire, id });
   }
 

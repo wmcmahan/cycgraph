@@ -43,7 +43,7 @@ Passed to `new GraphRunner(graph, state, options)`. Source: `runner/graph-runner
 | `persistStateFn` | `(state: WorkflowState) => Promise<void>` | none | Persist a state snapshot after each step (wire to a `PersistenceProvider`) |
 | `loadGraphFn` | `(graphId: string) => Promise<Graph \| null>` | none | Load subgraph definitions by ID |
 | `eventLog` | `EventLogWriter` | in-memory (noop) | Append-only event log + checkpoints |
-| `toolResolver` | `ToolResolver` | none | MCP tool resolution (`MCPConnectionManager` recommended) |
+| `tools` | `Array<DefinedTool \| ToolResolver>` | none | Everything that provides tools: `defineTool()` results and MCP resolvers (`MCPConnectionManager` recommended) |
 | `contextCompressor` | `ContextCompressor` | none | Compress memory before prompt injection |
 | `memoryRetriever` | `MemoryRetriever` | none | Pull facts from the hierarchical memory graph. Only fires for nodes that declare a `memory_query` directive. |
 | `memoryWriter` | `MemoryWriter` | none | Persist facts produced by `reflection` nodes. Required for reflection nodes to function. |
@@ -55,7 +55,7 @@ Passed to `new GraphRunner(graph, state, options)`. Source: `runner/graph-runner
 | `middleware` | `GraphRunnerMiddleware[]` | `[]` | `beforeNodeExecute` / `afterReduce` hooks |
 | `allowImplicitCompletion` | `boolean` | `false` | When a non-end node has no outgoing edge whose condition matches, the runner fails the run with `NoMatchingEdgeError` (a dead-end is almost always a routing bug). Set `true` to restore the legacy behavior of silently completing the workflow at that node. |
 
-A pre-flight wiring check runs at the start of every `run()`: a graph containing a `reflection` node with no `memoryWriter`, or a node declaring MCP tool sources with no `toolResolver`, fails immediately (before any node executes) instead of mid-run. A `memory_query` directive with no `memoryRetriever` logs a warning.
+A pre-flight wiring check runs at the start of every `run()`: a graph containing a `reflection` node with no `memoryWriter`, a node declaring MCP tool sources with no resolver on `tools`, or a custom tool source with no matching `defineTool()` registration, fails immediately (before any node executes) instead of mid-run. A `memory_query` directive with no `memoryRetriever` logs a warning.
 
 The agent factory **fails closed** on an unknown `agent_id` (throws `AgentNotFoundError`). Opt into the legacy default-agent fallback with `configureAgentFactory(registry, { allowDefaultFallback: true })`. See [Agents](/docs/concepts/agents/#runtime-execution).
 

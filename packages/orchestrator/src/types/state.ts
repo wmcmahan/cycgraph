@@ -66,7 +66,7 @@ export type WaitingReason = z.infer<typeof WaitingReasonSchema>;
  */
 export const TaintMetadataSchema = z.object({
   /** Origin of the data. */
-  source: z.enum(['mcp_tool', 'tool_node', 'agent_response', 'derived', 'retrieval']),
+  source: z.enum(['mcp_tool', 'custom_tool', 'tool_node', 'agent_response', 'derived', 'retrieval']),
   /** Tool that produced the data (if `source` is tool-related). */
   tool_name: z.string().optional(),
   /** MCP server that provided the tool (if `source` is `"mcp_tool"`). */

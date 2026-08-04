@@ -312,7 +312,7 @@ describe('GraphRunner — reflection dispatch', () => {
     await expect(runner.run()).rejects.toThrow(/memoryWriter/);
   });
 
-  it('fails pre-flight when a node declares MCP tools but no toolResolver is wired', async () => {
+  it('fails pre-flight when a node declares MCP tools but no resolver is wired', async () => {
     const graph: Graph = {
       id: uuidv4(),
       name: 'mcp-graph',
@@ -334,7 +334,7 @@ describe('GraphRunner — reflection dispatch', () => {
       strict_taint: false,
     };
     const runner = new GraphRunner(graph, createTestState({ memory: { goal: 'x' } }));
-    await expect(runner.run()).rejects.toThrow(/toolResolver/);
+    await expect(runner.run()).rejects.toThrow(/ToolResolver/);
   });
 });
 

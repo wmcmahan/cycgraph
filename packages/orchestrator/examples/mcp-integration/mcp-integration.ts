@@ -176,7 +176,7 @@ async function main() {
   });
 
   const runner = new GraphRunner(graph, state, {
-    toolResolver: mcpManager,
+    tools: [mcpManager],
   });
 
   // ─── Tool call streaming: real-time visibility into MCP tool activity ──

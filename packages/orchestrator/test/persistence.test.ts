@@ -383,7 +383,7 @@ describe('InMemoryAgentRegistry', () => {
     expect(agent).not.toBeNull();
     expect(agent!.name).toBe('Test Agent');
     expect(agent!.model).toBe('gpt-4');
-    expect(agent!.tools).toEqual(['web_search']);
+    expect(agent!.tools).toEqual([{ type: 'custom', name: 'web_search' }]);
   });
 
   it('clears all registered agents', async () => {

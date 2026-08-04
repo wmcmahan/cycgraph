@@ -372,15 +372,17 @@ export async function executeAgent(
         agentId,
       );
 
-      // Merge MCP direct taint: when MCP tools were called and taint entries exist,
-      // apply mcp_tool taint to all output keys (we can't trace which specific
-      // MCP result ended up in which key, so taint conservatively)
+      // Merge external-tool direct taint: when tainting tools (MCP, or
+      // custom tools declared `taints: true`) were called this execution,
+      // apply their taint to all output keys (we can't trace which specific
+      // tool result ended up in which key, so taint conservatively). The
+      // first drained entry is the representative — its `source` carries
+      // through so custom-tool taint is attributed as `custom_tool`.
       if (mcpToolCalls.length > 0 && mcpTaintEntries && mcpTaintEntries.size > 0) {
         for (const key of outputKeys) {
-          // Use the first taint entry as representative (all originated from MCP tools in this execution)
           const [, firstEntry] = mcpTaintEntries.entries().next().value as [string, TaintMetadata];
           taintUpdates[key] = {
-            source: 'mcp_tool',
+            source: firstEntry.source,
             tool_name: [...new Set(mcpToolCalls.map((c) => c.toolName))].join(','),
             server_id: firstEntry.server_id,
             agent_id: agentId,

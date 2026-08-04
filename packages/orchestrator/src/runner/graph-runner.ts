@@ -48,7 +48,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type { GraphRunnerMiddleware, MiddlewareContext } from './middleware.js';
 
 // External runtime types — kept for the runner's public option types
-import type { ToolResolver } from '../mcp/connection-manager.js';
+import type { ToolsOption, ComposedToolResolution } from '../tools/registry.js';
+import { composeToolResolution } from '../tools/registry.js';
 import type { ModelResolver } from '../agent/model-resolver.js';
 import type { ContextCompressor } from '../agent/context-compressor.js';
 import type { MemoryRetriever } from '../agent/memory-retriever.js';
@@ -162,12 +163,17 @@ export interface GraphRunnerOptions {
   /** Middleware hooks for extending runner behavior */
   middleware?: GraphRunnerMiddleware[];
   /**
-   * Tool resolver for structured ToolSource declarations.
-   * When provided, resolves MCP server tools via `@ai-sdk/mcp` clients.
-   * Without it, only built-in tools are resolved.
-   * Typically an MCPConnectionManager instance.
+   * Everything that provides tools to this run: `defineTool()` results and
+   * `ToolResolver` implementations (typically an MCPConnectionManager), in
+   * one array. Entries are discriminated by shape — an `execute` function
+   * marks a defined tool, a `resolveTools` function marks a resolver.
+   *
+   * Resolution precedence is built-ins, then defined tools, then resolvers.
+   * Duplicate defined-tool names throw at construction. Without this option,
+   * only built-in tools are resolved (with an echo proxy for unknown names,
+   * preserved for example/test ergonomics).
    */
-  toolResolver?: ToolResolver;
+  tools?: ToolsOption[];
   /**
    * When true, automatically execute compensation actions (saga rollback)
    * before marking the workflow as failed. If rollback succeeds, the
@@ -336,8 +342,10 @@ export class GraphRunner extends EventEmitter {
   // Middleware hooks
   private readonly middleware: GraphRunnerMiddleware[];
 
-  // Tool resolver for structured ToolSource declarations (MCPConnectionManager)
-  private readonly toolResolver?: ToolResolver;
+  // Composed tool resolution built from options.tools (built-ins → defined
+  // tools → resolver legs). Undefined when no tools were configured, which
+  // routes executors to the builtins-only fallback resolver.
+  private readonly toolResolver?: ComposedToolResolution;
 
   // Auto-rollback on failure (saga compensation)
   private readonly autoRollback: boolean;
@@ -427,7 +435,7 @@ export class GraphRunner extends EventEmitter {
     });
     this.onToken = options?.onToken;
     this.middleware = options?.middleware ?? [];
-    this.toolResolver = options?.toolResolver;
+    this.toolResolver = options?.tools ? composeToolResolution(options.tools) : undefined;
     this.modelResolver = options?.modelResolver;
     this.contextCompressor = options?.contextCompressor;
     this.memoryRetriever = options?.memoryRetriever;
@@ -1549,12 +1557,26 @@ export class GraphRunner extends EventEmitter {
       );
     }
 
-    if (!this.toolResolver) {
+    if (!this.toolResolver?.hasResolver) {
       for (const node of this.graph.nodes) {
         const declaresMcp = (node.tools ?? []).some((t) => t.type === 'mcp');
         if (declaresMcp) {
           errors.push(
-            `node '${node.id}' declares MCP tool sources but no toolResolver was provided on GraphRunnerOptions`,
+            `node '${node.id}' declares MCP tool sources but no ToolResolver was provided on GraphRunnerOptions.tools`,
+          );
+        }
+      }
+    }
+
+    // A custom source naming a tool that was never registered would throw
+    // ToolNotRegisteredError mid-run — surface it as a preflight error with
+    // the same fail-at-start semantics as the MCP check above.
+    const definedNames = this.toolResolver?.definedToolNames ?? new Set<string>();
+    for (const node of this.graph.nodes) {
+      for (const source of node.tools ?? []) {
+        if (source.type === 'custom' && !definedNames.has(source.name)) {
+          errors.push(
+            `node '${node.id}' declares custom tool "${source.name}" but no matching defineTool() registration was provided on GraphRunnerOptions.tools`,
           );
         }
       }
