@@ -3,11 +3,10 @@ title: Middleware
 description: Extension points for observing, transforming, or short-circuiting node execution.
 ---
 
-Middleware provides hooks into the [`GraphRunner`](/docs/concepts/graph-runner/) execution loop. Use it to add caching, logging, metrics, request transformation, or custom routing without modifying the runner or the node executors. A middleware is a plain object with one or more optional hook methods, so there is nothing to instantiate. You implement the hooks you need and pass the object to the runner.
+Middleware provides hooks into the [runner](/docs/concepts/graph-runner/) execution loop. Use it to add caching, logging, metrics, request transformation, or custom routing without modifying the runner or the node executors. A middleware is a plain object with one or more optional hook methods, so there is nothing to instantiate. You implement the hooks you need and pass the object to the runner.
 
 ```typescript
 import { GraphRunner } from '@cycgraph/orchestrator';
-import type { GraphRunnerMiddleware } from '@cycgraph/orchestrator';
 
 const runner = new GraphRunner(graph, state, {
   middleware: [loggingMiddleware, cachingMiddleware],
@@ -16,17 +15,22 @@ const runner = new GraphRunner(graph, state, {
 
 ## How middleware runs
 
-The runner invokes hooks at four points in each node's lifecycle. `beforeNodeExecute` runs first, before the node executes. `afterNodeExecute` runs once the node produces an action, before the reducer applies it. `afterReduce` runs after the action has merged into state. `beforeAdvance` runs last, before the runner picks the next node.
+The runner invokes hooks at four points in each node's lifecycle.
+
+- **beforeNodeExecute**: runs first, before the node executes.
+- **afterNodeExecute**: runs once the node produces an action, before the reducer applies it.
+- **afterReduce**: runs after the action has merged into state.
+- **beforeAdvance**: runs last, before the runner picks the next node.
 
 Hooks run synchronously in registration order. If you pass `[a, b]`, then `a`'s hook completes before `b`'s hook for the same point in the lifecycle. Each hook is `async`, so the runner awaits it before moving on.
 
 **Refs:**
-- [`GraphRunnerMiddleware`](#graphrunnermiddleware): the four hooks and their signatures.
-- [`MiddlewareContext`](#middlewarecontext): the read-only context every hook receives.
+- [GraphRunnerMiddleware](#graphrunnermiddleware): the four hooks and their signatures.
+- [MiddlewareContext](#middlewarecontext): the read-only context every hook receives.
 
 ## Registering middleware
 
-Pass an array of middleware to the runner through the `middleware` option on [`GraphRunnerOptions`](/docs/concepts/graph-runner/#graphrunneroptions). The array order is the run order.
+Pass an array of middleware to the runner through the `middleware` option on [GraphRunnerOptions](/docs/concepts/graph-runner/#graphrunneroptions). The array order is the run order.
 
 ```typescript
 const runner = new GraphRunner(graph, state, {
@@ -36,7 +40,7 @@ const runner = new GraphRunner(graph, state, {
 
 ## Hooks
 
-All hooks are optional. Implement only the ones you need. Every hook receives a [`MiddlewareContext`](#middlewarecontext) as its first argument.
+All hooks are optional. Implement only the ones you need. Every hook receives a [MiddlewareContext](#middlewarecontext) as its first argument.
 
 ### beforeNodeExecute
 
@@ -52,7 +56,6 @@ const cache = new Map<string, Action>();
 
 const cachingMiddleware: GraphRunnerMiddleware = {
   async beforeNodeExecute(ctx) {
-    // Cache key combines node id with any inputs that influence the action.
     const key = `${ctx.node.id}:${JSON.stringify(ctx.state.memory.goal ?? '')}`;
     const cached = cache.get(key);
     if (cached) {

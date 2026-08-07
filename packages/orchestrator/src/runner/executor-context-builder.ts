@@ -28,11 +28,15 @@ import type { FactSanitizer } from '../agent/fact-sanitizer.js';
 import type { FitnessFunction } from '../agent/fitness-function.js';
 import type { RateLimiter } from '../agent/rate-limiter.js';
 import { createStateView } from './state-view.js';
+import { withEffectiveReads } from '../validation/effective-permissions.js';
 import { executeAgent } from '../agent/agent-executor/executor.js';
 import { executeSupervisor } from '../agent/supervisor-executor/executor.js';
 import { evaluateQualityExecutor } from '../agent/evaluator-executor/executor.js';
 import { extractFactsExecutor } from '../agent/extractor-executor/executor.js';
-import { agentFactory } from '../agent/agent-factory/index.js';
+import type { AgentFactory } from '../agent/agent-factory/index.js';
+import type { AgentRegistry } from '../persistence/interfaces.js';
+import type { ProviderRegistry } from '../agent/provider-registry.js';
+import type { ToolsOption } from '../tools/registry.js';
 import { resolveBuiltinsOnly } from './fallback-tool-resolver.js';
 
 /**
@@ -62,6 +66,12 @@ export interface ExecutorContextRunner {
   rateLimiter?: RateLimiter;
   toolResolver?: ToolResolver;
   securityPolicy?: SecurityPolicy;
+  /** Run-scoped agent factory. The executors use this instead of the global. */
+  agentFactory: AgentFactory;
+  /** Original registry/providers/tools options, for subgraph child scoping. */
+  registry?: AgentRegistry;
+  providers?: ProviderRegistry;
+  tools?: ToolsOption[];
 
   emit(event: string, payload: unknown): boolean;
   listenerCount(event: string | symbol): number;
@@ -156,7 +166,13 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     graph: runner.graph,
     loadGraphFn: runner.loadGraphFn,
     toolResolver: runner.toolResolver,
-    createStateView: (node: GraphNode) => createStateView(runner.state, node),
+    registry: runner.registry,
+    providers: runner.providers,
+    tools: runner.tools,
+    createStateView: (node: GraphNode) =>
+      // Same derived-grants resolution as the execution driver's view build,
+      // via the shared helper, so the two paths can never disagree.
+      createStateView(runner.state, withEffectiveReads(node, runner.graph)),
     abortSignal: runner.abortSignal,
     modelResolver: runner.modelResolver,
     contextCompressor: runner.contextCompressor,
@@ -219,33 +235,43 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
       }
     },
     deps: {
-      // Wrap the LLM-call deps so an injected rate limiter is awaited before
-      // every agent/supervisor/evaluator call — one chokepoint instead of
-      // threading the limiter through all seven call sites. No-op (zero wrap
-      // overhead) when no limiter is configured.
-      executeAgent: rateLimiter
-        ? (agentId, stateView, tools, attempt, options) =>
-            rateLimiter(
+      // Every LLM-call dep is wrapped to (a) inject the run-scoped agent
+      // factory — so concurrent runs never share the global's registry /
+      // provider state — and (b) await an optional rate limiter before the
+      // call. One chokepoint instead of threading both through every call site.
+      executeAgent: (agentId, stateView, tools, attempt, options) => {
+        const scoped = { ...options, agentFactory: runner.agentFactory };
+        const call = () => executeAgent(agentId, stateView, tools, attempt, scoped);
+        return rateLimiter
+          ? rateLimiter(
               { agentId, kind: 'agent', ...(options?.nodeId ? { nodeId: options.nodeId } : {}) },
               { abortSignal: runner.abortSignal },
-            ).then(() => executeAgent(agentId, stateView, tools, attempt, options))
-        : executeAgent,
-      executeSupervisor: rateLimiter
-        ? (node, stateView, history, attempt, options) =>
-            rateLimiter(
+            ).then(call)
+          : call();
+      },
+      executeSupervisor: (node, stateView, history, attempt, options) => {
+        const scoped = { ...options, agentFactory: runner.agentFactory };
+        const call = () => executeSupervisor(node, stateView, history, attempt, scoped);
+        return rateLimiter
+          ? rateLimiter(
               { agentId: node.agent_id ?? node.id, kind: 'supervisor', nodeId: node.id },
               { abortSignal: runner.abortSignal },
-            ).then(() => executeSupervisor(node, stateView, history, attempt, options))
-        : executeSupervisor,
-      evaluateQualityExecutor: rateLimiter
-        ? (evaluatorAgentId, goal, data, instruction) =>
-            rateLimiter(
+            ).then(call)
+          : call();
+      },
+      evaluateQualityExecutor: (evaluatorAgentId, goal, data, instruction) => {
+        const call = () =>
+          evaluateQualityExecutor(evaluatorAgentId, goal, data, instruction, runner.agentFactory);
+        return rateLimiter
+          ? rateLimiter(
               { agentId: evaluatorAgentId, kind: 'evaluator' },
               { abortSignal: runner.abortSignal },
-            ).then(() => evaluateQualityExecutor(evaluatorAgentId, goal, data, instruction))
-        : evaluateQualityExecutor,
-      extractFactsExecutor,
-      loadAgent: (agentId: string) => agentFactory.loadAgent(agentId),
+            ).then(call)
+          : call();
+      },
+      extractFactsExecutor: (extractorAgentId, source, maxFacts, instruction) =>
+        extractFactsExecutor(extractorAgentId, source, maxFacts, instruction, runner.agentFactory),
+      loadAgent: (agentId: string) => runner.agentFactory.loadAgent(agentId),
       resolveTools: runner.toolResolver
         ? (sources, agentId) => runner.toolResolver!.resolveTools(sources, agentId)
         : resolveBuiltinsOnly,

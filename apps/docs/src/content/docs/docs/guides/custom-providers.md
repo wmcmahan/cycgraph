@@ -7,19 +7,17 @@ cycgraph ships with **OpenAI** and **Anthropic** pre-registered. To use a differ
 
 ## Quick start
 
-Two steps: create a provider registry and wire it into the engine. The built-in providers are included automatically.
+Create a provider registry and scope it into the run. The built-in providers are included automatically.
 
 ```typescript
-import {
-  createProviderRegistry,
-  configureProviderRegistry,
-} from '@cycgraph/orchestrator';
+import { createProviderRegistry, GraphRunner } from '@cycgraph/orchestrator';
 
 const providers = createProviderRegistry(); // includes openai + anthropic
-configureProviderRegistry(providers);
+
+const runner = new GraphRunner(graph, state, { providers });
 ```
 
-That's it for the defaults. Agents using `provider: 'openai'` or `provider: 'anthropic'` will resolve correctly as long as the corresponding `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` environment variable is set.
+That's it for the defaults. Agents using `provider: 'openai'` or `provider: 'anthropic'` will resolve correctly as long as the corresponding `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` environment variable is set. (The older `configureProviderRegistry(providers)` global is deprecated in favor of the `providers` option.)
 
 ## Adding a custom provider
 

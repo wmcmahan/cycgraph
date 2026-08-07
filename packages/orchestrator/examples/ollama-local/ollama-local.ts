@@ -33,9 +33,7 @@ import {
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   registerOllamaProvider,
   createLogger,
   createGraph,
@@ -121,8 +119,6 @@ const WRITER_ID = registry.register({
   },
 });
 
-configureAgentFactory(registry);
-
 // ─── 2. Configure providers ─────────────────────────────────────────────
 
 const providers = createProviderRegistry();
@@ -149,8 +145,6 @@ registerOllamaProvider(
     return (modelId) => provider.chat(modelId);
   },
 );
-
-configureProviderRegistry(providers);
 
 // ─── 3. Define the graph ────────────────────────────────────────────────
 
@@ -203,7 +197,9 @@ async function main() {
 
   const persistence = new InMemoryPersistenceProvider();
   const runner = new GraphRunner(graph, initialState, {
-    persistStateFn: async (state) => {
+    registry,
+    providers,
+    persistState: async (state) => {
       await persistence.saveWorkflowState(state);
       await persistence.saveWorkflowRun(state);
     },

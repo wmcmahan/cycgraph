@@ -41,47 +41,45 @@ You only need to include the tiers and providers your workflow uses. If a tier/p
 
 ## Configuring agents
 
-Set `modelPreference` on the agent config. The `model` field still serves as the fallback when no resolver is configured or the tier can't be resolved:
+Set `modelPreference` on the agent. The `model` field still serves as the fallback when no resolver is configured or the tier can't be resolved:
 
 ```typescript
-const researcherId = registry.register({
-  name: 'Researcher',
-  model: 'claude-sonnet-4-6',      // fallback
-  modelPreference: 'high',                 // prefers high-tier when budget allows
-  provider: 'anthropic',
-  systemPrompt: 'You are a research specialist...',
-  tools: [{ type: 'mcp', serverId: 'web-search' }],
-  permissions: { readKeys: ['topic'], writeKeys: ['notes'] },
+import { agent } from '@cycgraph/orchestrator';
+
+const researcher = agent({
+  model: 'claude-sonnet-4-6',           // fallback
+  modelPreference: 'high',              // prefers high-tier when budget allows
+  instructions: 'You are a research specialist...',
+  tools: [{ mcp: 'web-search' }],
 });
 
-const formatterId = registry.register({
-  name: 'Formatter',
-  model: 'claude-haiku-4-5-20251001',      // fallback
-  modelPreference: 'low',                   // always use cheapest tier
-  provider: 'anthropic',
-  systemPrompt: 'You format text into clean markdown...',
-  tools: [],
-  permissions: { readKeys: ['draft'], writeKeys: ['formatted'] },
+const formatter = agent({
+  model: 'claude-haiku-4-5-20251001',   // fallback
+  modelPreference: 'low',               // always use cheapest tier
+  instructions: 'You format text into clean markdown...',
 });
 ```
 
-## Wiring the resolver into GraphRunner
+## Wiring the resolver
 
-Wire the registries globally once at startup, then pass `modelResolver` via `GraphRunnerOptions`:
+With the facade, pass `modelResolver` through `RunOptions.runner`, which forwards extra `GraphRunnerOptions` to the runner `run()` creates:
 
 ```typescript
-import {
-  GraphRunner,
-  configureAgentFactory,
-  configureProviderRegistry,
-} from '@cycgraph/orchestrator';
+import { run } from '@cycgraph/orchestrator';
 
-// Once at startup:
-configureProviderRegistry(providers);
-configureAgentFactory(registry);
+const result = await run(workflow, { goal: '...', budgetUsd: 0.50 }, {
+  runner: { modelResolver },   // ← budget-aware resolution
+});
+```
 
-// Per run:
+On the raw API, pass it via `GraphRunnerOptions` alongside the run-scoped registry and providers:
+
+```typescript
+import { GraphRunner } from '@cycgraph/orchestrator';
+
 const runner = new GraphRunner(graph, initialState, {
+  registry,                    // scope agents to this run
+  providers,                   // scope providers to this run
   modelResolver,               // ← budget-aware resolution
 });
 
@@ -165,91 +163,54 @@ const myResolver: ModelResolver = (preference, provider, remainingBudgetUsd) => 
 ## Complete example
 
 ```typescript
-import {
-  GraphRunner,
-  InMemoryAgentRegistry,
-  InMemoryPersistenceProvider,
-  createProviderRegistry,
-  configureProviderRegistry,
-  configureAgentFactory,
-  defaultModelResolver,
-  createGraph,
-  createWorkflowState,
-} from '@cycgraph/orchestrator';
+import { agent, node, graph, run, defaultModelResolver } from '@cycgraph/orchestrator';
 import type { ModelTierMap } from '@cycgraph/orchestrator';
 
-// 1. Set up providers (wired globally)
-const providers = createProviderRegistry();
-configureProviderRegistry(providers);
-
-// 2. Define the tier map
+// 1. Define the tier map
 const tierMap: ModelTierMap = {
   high:   { anthropic: 'claude-opus-4-8' },
   medium: { anthropic: 'claude-sonnet-4-6' },
   low:    { anthropic: 'claude-haiku-4-5-20251001' },
 };
 
-// 3. Register agents (wire registry globally)
-const registry = new InMemoryAgentRegistry();
-
-const researcherId = registry.register({
-  name: 'Researcher',
+// 2. Define agents with tier preferences
+const researcher = agent({
   model: 'claude-sonnet-4-6',
   modelPreference: 'high',
-  provider: 'anthropic',
-  systemPrompt: 'You research topics thoroughly.',
-  tools: [],
-  permissions: { readKeys: ['goal'], writeKeys: ['research'] },
+  instructions: 'You research topics thoroughly.',
 });
 
-const writerId = registry.register({
-  name: 'Writer',
+const writer = agent({
   model: 'claude-sonnet-4-6',
   modelPreference: 'medium',
-  provider: 'anthropic',
-  systemPrompt: 'You write clear, concise summaries.',
-  tools: [],
-  permissions: { readKeys: ['research'], writeKeys: ['summary'] },
+  instructions: 'You write clear, concise summaries.',
 });
 
-configureAgentFactory(registry);
+// 3. Build the graph
+const research = node({ id: 'research', agent: researcher, reads: ['goal'], writes: 'research' });
+const write    = node({ id: 'write',    agent: writer,     reads: ['research'], writes: 'summary' });
 
-// 4. Build the graph
-const graph = createGraph({
+const workflow = graph({
   name: 'Budget-Aware Research',
   description: 'Research a topic, then summarize it under a budget.',
-  nodes: [
-    { id: 'research', type: 'agent', agentId: researcherId, readKeys: ['goal'], writeKeys: ['research'] },
-    { id: 'write',    type: 'agent', agentId: writerId,     readKeys: ['research'], writeKeys: ['summary'] },
-  ],
-  edges: [{ source: 'research', target: 'write' }],
-  startNode: 'research',
-  endNodes: ['write'],
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
 });
 
-// 5. Build state and run with the resolver
-const persistence = new InMemoryPersistenceProvider();
-const state = createWorkflowState({
-  workflowId: graph.id,
+// 4. Run under a budget with the resolver
+const { summary } = await run(workflow, {
   goal: 'Research and summarize quantum computing',
   budgetUsd: 0.50,
+}, {
+  runner: { modelResolver: defaultModelResolver(tierMap) },
 });
-
-const runner = new GraphRunner(graph, state, {
-  modelResolver: defaultModelResolver(tierMap),
-  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
-});
-
-for await (const event of runner.stream()) {
-  if (event.type === 'model:resolved') {
-    console.log(`${event.node_id}: ${event.reason} → ${event.resolved_model}`);
-  }
-}
 ```
+
+To observe each `model:resolved` decision as it happens, use the raw runner variant from the wiring section above and consume `runner.stream()`.
 
 ## Limitations
 
-- **Architect unaware.** The Workflow Architect does not yet generate graphs with `modelPreference` set, so you must configure it via the registry.
+- **Architect unaware.** The Workflow Architect does not yet generate graphs with `modelPreference` set, so you must set it on your agent definitions yourself.
 - **Single-step lookahead.** The resolver estimates cost for one call at a time, not the remaining workflow.
 
 ## Security

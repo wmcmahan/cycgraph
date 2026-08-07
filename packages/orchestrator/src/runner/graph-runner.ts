@@ -20,7 +20,7 @@ import { StreamChannel } from './stream-channel.js';
 import { BudgetMonitor } from './budget-monitor.js';
 import { PersistenceCoordinator } from './persistence-coordinator.js';
 import { validateGraph } from '../validation/graph-validator.js';
-import { effectiveWriteKeys } from '../validation/effective-permissions.js';
+import { effectiveWriteKeys, withEffectiveReads } from '../validation/effective-permissions.js';
 import { ActionSchema } from '../types/state.js';
 import { createLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/context.js';
@@ -36,6 +36,9 @@ import {
 } from '../utils/metrics.js';
 import type { EventLogWriter } from '../db/event-log.js';
 import { NoopEventLogWriter } from '../db/event-log.js';
+import type { AgentRegistry } from '../persistence/interfaces.js';
+import type { ProviderRegistry } from '../agent/provider-registry.js';
+import { AgentFactory, agentFactory as globalAgentFactory } from '../agent/agent-factory/index.js';
 import { EventLogCoordinator } from './event-log-coordinator.js';
 import type { StreamEvent } from './stream-events.js';
 import { computeMemoryDiff } from './memory-differ.js';
@@ -148,13 +151,56 @@ export interface GraphRunnerEvents {
 export const DEFAULT_COMPACTION_INTERVAL = 1000;
 
 /**
+ * Build the agent factory for a run. With a registry or providers, a fresh
+ * run-scoped factory is created so concurrent runs never share state; the
+ * half that ISN'T provided is inherited from the process-global factory, so
+ * scoping only `providers` doesn't silently drop a globally-configured
+ * registry (which would degrade every agent to the deny-all default while
+ * spending real tokens), and scoping only `registry` keeps globally
+ * registered providers (e.g. Ollama). Without either option, the global
+ * factory itself is used (the deprecated `configure*` path).
+ *
+ * A scoped factory always fails closed on unknown agent ids — the global's
+ * `allowDefaultFallback` dev-mode toggle is deliberately not inherited.
+ */
+function buildRunAgentFactory(
+  registry?: AgentRegistry,
+  providers?: ProviderRegistry,
+): AgentFactory {
+  if (!registry && !providers) return globalAgentFactory;
+  const factory = new AgentFactory();
+  const effectiveRegistry = registry ?? globalAgentFactory.getRegistry();
+  if (effectiveRegistry) factory.setRegistry(effectiveRegistry);
+  factory.setProviderRegistry(providers ?? globalAgentFactory.getProviderRegistry());
+  return factory;
+}
+
+/**
  * Options for constructing a GraphRunner.
  * Preferred over positional constructor args.
  */
 export interface GraphRunnerOptions {
-  /** Optional function to persist state snapshots after each step */
+  /**
+   * Agent config source for this run. When provided (with or without
+   * `providers`), the runner builds a run-scoped agent factory, so
+   * concurrent runs never share registry/provider state. Without it, the
+   * runner falls back to the process-global factory configured via the
+   * deprecated `configureAgentFactory` — the multi-tenant footgun this
+   * option exists to remove.
+   */
+  registry?: AgentRegistry;
+  /**
+   * Provider registry for this run (built-in Anthropic + OpenAI plus any
+   * you register). Scopes providers to the run alongside `registry`.
+   */
+  providers?: ProviderRegistry;
+  /** Persist a state snapshot after each step (wire to a `PersistenceProvider`). */
+  persistState?: (state: WorkflowState) => Promise<void>;
+  /** Load subgraph definitions by id. */
+  loadGraph?: (graphId: string) => Promise<Graph | null>;
+  /** @deprecated Renamed to `persistState`; this alias will be removed. */
   persistStateFn?: (state: WorkflowState) => Promise<void>;
-  /** Optional function to load subgraph definitions */
+  /** @deprecated Renamed to `loadGraph`; this alias will be removed. */
   loadGraphFn?: (graphId: string) => Promise<Graph | null>;
   /** Optional event log writer for durable execution (event sourcing) */
   eventLog?: EventLogWriter;
@@ -276,17 +322,19 @@ export interface GraphRunnerOptions {
   /**
    * Optional callback for persisting state deltas (patches).
    *
-   * When provided alongside `persistStateFn`, the runner uses a
+   * When provided alongside `persistState`, the runner uses a
    * {@link StateDeltaTracker} to compute diffs between state snapshots.
-   * Deltas are sent to this callback; full snapshots go to `persistStateFn`.
+   * Deltas are sent to this callback; full snapshots go to `persistState`.
    * This reduces I/O for long-running workflows with large memory.
    *
-   * If omitted, all persists use `persistStateFn` (full snapshots only).
+   * If omitted, all persists use `persistState` (full snapshots only).
    */
+  persistDelta?: (patch: StatePatch) => Promise<void>;
+  /** @deprecated Renamed to `persistDelta`; this alias will be removed. */
   persistDeltaFn?: (patch: StatePatch) => Promise<void>;
   /**
    * Options for the delta tracker (snapshot interval, max patch size).
-   * Only used when `persistDeltaFn` is provided.
+   * Only used when `persistDelta` is provided.
    */
   deltaTrackerOptions?: { fullSnapshotInterval?: number; maxPatchBytes?: number };
   /**
@@ -346,6 +394,17 @@ export class GraphRunner extends EventEmitter {
   // tools → resolver legs). Undefined when no tools were configured, which
   // routes executors to the builtins-only fallback resolver.
   private readonly toolResolver?: ComposedToolResolution;
+
+  // Run-scoped agent factory (from options.registry/providers), or the
+  // process-global singleton when neither is provided (deprecated path).
+  private readonly agentFactory: AgentFactory;
+  // The ORIGINAL registry/providers/tools options, retained so subgraph
+  // children can be scoped identically. The BUILT artifacts (agentFactory,
+  // composed toolResolver) are not decomposable: re-wrapping the parent's
+  // composed resolution as a child leg would misroute custom-tool sources.
+  private readonly registry?: AgentRegistry;
+  private readonly providers?: ProviderRegistry;
+  private readonly toolsOption?: ToolsOption[];
 
   // Auto-rollback on failure (saga compensation)
   private readonly autoRollback: boolean;
@@ -426,8 +485,9 @@ export class GraphRunner extends EventEmitter {
     this.graph = graph;
     this.state = initialState;
 
-    this.persistStateFn = options?.persistStateFn;
-    this.loadGraphFn = options?.loadGraphFn;
+    // Primary names win over the deprecated *Fn aliases.
+    this.persistStateFn = options?.persistState ?? options?.persistStateFn;
+    this.loadGraphFn = options?.loadGraph ?? options?.loadGraphFn;
     this.eventLog = options?.eventLog ?? new NoopEventLogWriter();
     this.events = new EventLogCoordinator({
       eventLog: this.eventLog,
@@ -436,6 +496,10 @@ export class GraphRunner extends EventEmitter {
     this.onToken = options?.onToken;
     this.middleware = options?.middleware ?? [];
     this.toolResolver = options?.tools ? composeToolResolution(options.tools) : undefined;
+    this.registry = options?.registry;
+    this.providers = options?.providers;
+    this.toolsOption = options?.tools;
+    this.agentFactory = buildRunAgentFactory(options?.registry, options?.providers);
     this.modelResolver = options?.modelResolver;
     this.contextCompressor = options?.contextCompressor;
     this.memoryRetriever = options?.memoryRetriever;
@@ -448,7 +512,7 @@ export class GraphRunner extends EventEmitter {
     this.autoRollback = options?.autoRollback ?? false;
     this.allowImplicitCompletion = options?.allowImplicitCompletion ?? false;
     this.compactionInterval = options?.compactionInterval ?? DEFAULT_COMPACTION_INTERVAL;
-    this.persistDeltaFn = options?.persistDeltaFn;
+    this.persistDeltaFn = options?.persistDelta ?? options?.persistDeltaFn;
     if (this.persistDeltaFn) {
       this.deltaTracker = new StateDeltaTracker(options?.deltaTrackerOptions);
     }
@@ -592,6 +656,10 @@ export class GraphRunner extends EventEmitter {
       get fitnessFunction() { return self.fitnessFunction; },
       get rateLimiter() { return self.rateLimiter; },
       get toolResolver() { return self.toolResolver; },
+      get agentFactory() { return self.agentFactory; },
+      get registry() { return self.registry; },
+      get providers() { return self.providers; },
+      get tools() { return self.toolsOption; },
       emit: (event, payload) => self.emit(event, payload),
       listenerCount: (event) => self.listenerCount(event),
     };
@@ -913,8 +981,11 @@ export class GraphRunner extends EventEmitter {
         // handled by the run's failure path (fail-closed).
         let policyInjected = false;
         if (!action && this.securityPolicy && currentNode.type !== 'approval') {
+          // Gate on the node's EFFECTIVE reads: a supervisor's derived
+          // visibility (managed-node outputs) must be taint-gated exactly
+          // like declared reads, or derivation becomes a policy bypass.
           const gate = evaluateSecurityPolicy({
-            node: currentNode,
+            node: withEffectiveReads(currentNode, this.graph),
             state: this.state,
             policy: this.securityPolicy,
             emitPolicyEvent: (payload) => this.emit('security:policy', payload),

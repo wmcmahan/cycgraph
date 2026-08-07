@@ -26,7 +26,7 @@
  *     { fencing: { run_id: job.run_id, epoch: job.claim_epoch! } },
  *   );
  *   const runner = new GraphRunner(graph, state, {
- *     persistStateFn: (s) => scope.persistence.saveWorkflowSnapshot(s),
+ *     persistState: (s) => scope.persistence.saveWorkflowSnapshot(s),
  *     eventLog: scope.eventLog,
  *     // …memoryRetriever/memoryWriter built over scope.memoryStore/Index/outcomeLedger
  *   });

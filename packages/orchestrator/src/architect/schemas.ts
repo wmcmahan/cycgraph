@@ -14,8 +14,8 @@ import { ToolSourceSchema } from '../types/tools.js';
 
 /** Edge condition — determines when an edge is traversed. */
 const LLMEdgeConditionSchema = z.object({
-  /** Condition type: `always`, `conditional`, or `map`. */
-  type: z.enum(['always', 'conditional', 'map']),
+  /** Condition type: `always` or `conditional`. */
+  type: z.enum(['always', 'conditional']),
   /** Expression evaluated at runtime (required for `conditional` type). */
   condition: z.string().optional(),
 });

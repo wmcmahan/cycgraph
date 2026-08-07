@@ -40,7 +40,6 @@ The `verifierConfig` is a discriminated union on `type`:
   id: 'check_quality',
   type: 'verifier',
   readKeys: ['draft'],
-  writeKeys: ['quality_verification', 'quality_verification_passed'],
   verifierConfig: {
     type: 'llm_judge',
     targetKey: 'draft',
@@ -81,7 +80,7 @@ verifierConfig: {
 
 ## Outputs
 
-The node writes two keys, both of which must appear in `writeKeys`:
+The node writes two keys. Both are implied write grants, so neither needs to appear in `writeKeys`:
 
 - `{resultKey}` (defaults to `{nodeId}_verification`) is the structured `VerificationResult`: `{ type, passed, reasoning, score?, threshold?, extracted_value?, evaluated_at }`.
 - `{resultKey}_passed` is a flat boolean, for ergonomic edge conditions.

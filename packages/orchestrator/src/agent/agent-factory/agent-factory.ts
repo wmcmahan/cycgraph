@@ -26,7 +26,6 @@ import {
   MAX_AGENT_CONFIG_CACHE_SIZE,
   FALLBACK_CONFIG_CACHE_TTL_MS,
 } from '../constants.js';
-import { isValidUUID } from './validation.js';
 import { AgentNotFoundError, AgentLoadError, UnsupportedProviderError } from './errors.js';
 import type { AgentRegistry } from '../../persistence/interfaces.js';
 import { ProviderRegistry, createProviderRegistry } from '../provider-registry.js';
@@ -100,6 +99,21 @@ export class AgentFactory {
   }
 
   /**
+   * The configured registry, or `null` in lightweight (no-persistence) mode.
+   * Exposed so a partially-scoped run (`GraphRunnerOptions.providers` without
+   * `registry`, or vice versa) can inherit the global factory's other half
+   * instead of silently dropping it.
+   */
+  getRegistry(): AgentRegistry | null {
+    return this.registry;
+  }
+
+  /** The configured provider registry (built-ins by default). See {@link getRegistry}. */
+  getProviderRegistry(): ProviderRegistry {
+    return this.providerRegistry;
+  }
+
+  /**
    * Build a default agent config with a deny-all permission CEILING.
    *
    * Used as a fallback when the agent is not in the registry or the
@@ -164,12 +178,10 @@ export class AgentFactory {
         return this.cacheAndReturn(agent_id, this.getDefaultConfig(agent_id), true);
       }
 
-      // A non-UUID id can never be in the registry — treat as not found.
-      if (!isValidUUID(agent_id)) {
-        throw new AgentNotFoundError(agent_id);
-      }
-
-      // Load from registry
+      // Load from registry. The registry owns any store-specific id-shape
+      // constraints (a UUID-typed store's adapter returns null for a
+      // malformed id) — the factory does not assume ids are UUIDs, so
+      // human-readable ids (e.g. from the authoring facade) resolve here.
       const dbAgent = await this.registry.loadAgent(agent_id);
 
       if (!dbAgent) {

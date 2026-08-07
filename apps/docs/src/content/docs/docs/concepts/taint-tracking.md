@@ -7,15 +7,13 @@ Any data that enters a workflow from an external source (MCP tools, web searches
 
 ## How it works
 
-Taint metadata lives in the first-class `state.taint_registry` field, structurally separate from the `memory` blackboard. That separation is the protection: the registry is never part of any node's state view, so agents cannot read or overwrite it through memory at all. Inside action payloads, new taint entries travel under the wire key `_taint_registry`. The reducers route that key to the state field and merge it **append-only**, so a crafted `update_memory: { _taint_registry: {} }` cannot clear or weaken taint. Any other `_`-prefixed key in a memory update is dropped fail-closed and recorded in `memory_drops` with reason `reserved_key`.
+Taint metadata lives in the first-class taint registry, structurally separate from the memory blackboard. That separation is the protection: the registry is never part of any node's state view, so agents cannot read or overwrite it through memory at all.
 
-When an MCP tool returns a result, the `MCPConnectionManager` accumulates taint metadata in a **per-resolution collector** (one per `resolveTools()` call, keyed by `serverId:toolName`). After execution completes, the executor drains that specific collector via `drainTaintEntries(tools)` and calls `markTainted()` on any memory keys that received MCP tool results. The per-resolution collector means concurrent executions (voting, evolution, map) never cross-attribute taint. Both **agent** nodes and standalone **tool** nodes drain and apply taint, so external data is never written to memory untainted. The raw tool result is returned directly to the LLM, so no taint wrapper is visible to the model. When an agent reads tainted inputs and produces outputs, `propagateDerivedTaint()` marks those outputs as `derived`-tainted.
-
-All of these helpers are pure. They take a `TaintRegistry` value and return a new one, never mutating in place, because state changes only happen through reducers.
+For example, when an MCP tool returns a result, the `MCPConnectionManager` accumulates taint metadata in a per-resolution collector. After execution completes, the executor drains that specific collector and marks tainted on any memory keys that received MCP tool results. The per-resolution collector means concurrent executions (voting, evolution, map) never cross-attribute taint. Both agent nodes and standalone tool nodes drain and apply taint, so external data is never written to memory untainted. The raw tool result is returned directly to the LLM, so no taint wrapper is visible to the model. When an agent reads tainted inputs and produces outputs, the outputs are marked as derived-tainted.
 
 **Refs:**
-- [`markTainted`](#marktainted): Return a new registry with a key marked tainted.
-- [`propagateDerivedTaint`](#propagatederivedtaint): Mark an agent's outputs `derived`-tainted when any input was tainted.
+- [markTainted](#marktainted): Return a new registry with a key marked tainted.
+- [propagateDerivedTaint](#propagatederivedtaint): Mark an agent's outputs derived-tainted when any input was tainted.
 - [TaintRegistry](#taintregistry): Maps each tainted memory key to its provenance.
 
 ## Taint sources
@@ -23,7 +21,8 @@ All of these helpers are pure. They take a `TaintRegistry` value and return a ne
 | Source | When it's applied |
 |--------|------------------|
 | `mcp_tool` | Result returned from an MCP server tool |
-| `tool_node` | Result from a `tool`-type node execution |
+| `custom_tool` | Result from a custom tool declared `taints: true` |
+| `tool_node` | Result from a tool-type node execution |
 | `agent_response` | Agent output when explicitly marked |
 | `derived` | Agent output when any of its inputs were tainted |
 | `retrieval` | Fact injected into a prompt by memory retrieval |
@@ -47,7 +46,7 @@ Agent "writer" reads summary, writes draft
 Once data is tainted, the taint follows it through every agent that processes it. This creates an auditable chain of provenance from the original external source through every transformation.
 
 **Refs:**
-- [`propagateDerivedTaint`](#propagatederivedtaint): The helper that extends the chain from inputs to outputs.
+- [propagateDerivedTaint](#propagatederivedtaint): The helper that extends the chain from inputs to outputs.
 
 ## Taint enforcement at decision points
 
@@ -62,7 +61,7 @@ When a conditional edge expression references a tainted memory key, the engine l
 Setting `strict_taint: true` on the graph upgrades warnings to hard rejections. When enabled, `evaluateCondition()` returns `false` for any condition that references a tainted key, forcing the workflow to take the fallback path instead of trusting external data:
 
 ```typescript
-const graph = createGraph({
+const graph = graph({
   name: 'Strict Taint Example',
   description: 'Routes to a fallback agent when external (tainted) data would otherwise drive the decision.',
   strictTaint: true, // reject tainted data in routing
@@ -106,7 +105,6 @@ function getTaintRegistry(
 ): TaintRegistry;
 
 const registry = getTaintRegistry(state);
-// { search_results: { source: 'mcp_tool', ... }, summary: { source: 'derived', ... } }
 ```
 
 ### `markTainted`
@@ -201,7 +199,7 @@ Provenance of the untrusted data behind one memory key. Keyed by memory key insi
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | `'mcp_tool'` \| `'tool_node'` \| `'agent_response'` \| `'derived'` \| `'retrieval'` | Origin of the data. |
+| `source` | `'mcp_tool'` \| `'custom_tool'` \| `'tool_node'` \| `'agent_response'` \| `'derived'` \| `'retrieval'` | Origin of the data. |
 | `tool_name` | `string?` | Tool that produced the data, for tool sources. |
 | `server_id` | `string?` | MCP server that provided the tool, for `'mcp_tool'`. |
 | `agent_id` | `string?` | Agent that produced the data, for `'agent_response'` or `'derived'`. |

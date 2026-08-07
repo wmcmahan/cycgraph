@@ -24,6 +24,9 @@ import type { MemoryWriter } from '../../agent/memory-writer.js';
 import type { FactSanitizer } from '../../agent/fact-sanitizer.js';
 import type { FitnessFunction } from '../../agent/fitness-function.js';
 import type { RateLimiter } from '../../agent/rate-limiter.js';
+import type { AgentRegistry } from '../../persistence/interfaces.js';
+import type { ProviderRegistry } from '../../agent/provider-registry.js';
+import type { ToolsOption } from '../../tools/registry.js';
 
 /**
  * Raw tool definition — description + parameters without an execute function.
@@ -202,6 +205,22 @@ export interface NodeExecutorContext {
    * subgraph would silently run with built-in tools only.
    */
   toolResolver?: ToolResolver;
+  /**
+   * The run's agent registry / provider registry (from GraphRunnerOptions).
+   * Exposed for the same reason as `toolResolver`: the subgraph executor
+   * must propagate them into the child runner, or a scoped run's subgraphs
+   * would silently fall back to the process-global agent factory — a
+   * cross-tenant contamination hole under multi-tenant workers.
+   */
+  registry?: AgentRegistry;
+  providers?: ProviderRegistry;
+  /**
+   * The ORIGINAL `GraphRunnerOptions.tools` array, for subgraph child
+   * scoping. Not the composed resolution: re-wrapping the parent's composed
+   * resolver as a child leg would misroute custom-tool sources (the child
+   * composition would see them as unregistered).
+   */
+  tools?: ToolsOption[];
   /** Create a filtered state view for a node. */
   createStateView: (node: GraphNode) => StateView;
   /** Injected runtime dependencies. */

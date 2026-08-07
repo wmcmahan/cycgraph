@@ -11,11 +11,11 @@ npm install @cycgraph/orchestrator-postgres
 
 ## Wiring persistence into the runner
 
-The [`GraphRunner`](/docs/concepts/graph-runner/) writes state through injected callbacks rather than a storage object, which is what keeps the core package free of any database dependency. Pass `persistStateFn` to persist a snapshot after every state mutation:
+The [`GraphRunner`](/docs/concepts/graph-runner/) writes state through injected callbacks rather than a storage object, which is what keeps the core package free of any database dependency. Pass `persistState` to persist a snapshot after every state mutation:
 
 ```typescript
 const runner = new GraphRunner(graph, state, {
-  persistStateFn: async (state) => {
+  persistState: async (state) => {
     await persistence.saveWorkflowSnapshot(state);
   },
 });
@@ -25,11 +25,11 @@ See the [Graph Runner](/docs/concepts/graph-runner/) page for the runner's full 
 
 ### Persistence failure escalation
 
-The GraphRunner tracks consecutive persistence failures. If `persistStateFn` fails 3 times in a row, the runner throws a `PersistenceUnavailableError` rather than silently continuing with divergent in-memory and storage state. The counter resets on any successful persist call.
+The GraphRunner tracks consecutive persistence failures. If `persistState` fails 3 times in a row, the runner throws a `PersistenceUnavailableError` rather than silently continuing with divergent in-memory and storage state. The counter resets on any successful persist call.
 
 ### Event-log write barrier
 
-Event appends overlap with node execution (no per-event latency), but every `persistStateFn` call is preceded by a **flush barrier**: the runner awaits all outstanding event appends *before* the state snapshot commits. The event log is the snapshot's history. A snapshot must never exist whose events were silently lost, or event-log recovery would reconstruct an older state and re-execute nodes whose side effects already happened.
+Event appends overlap with node execution (no per-event latency), but every `persistState` call is preceded by a **flush barrier**: the runner awaits all outstanding event appends *before* the state snapshot commits. The event log is the snapshot's history. A snapshot must never exist whose events were silently lost, or event-log recovery would reconstruct an older state and re-execute nodes whose side effects already happened.
 
 Failure semantics mirror snapshots: a flush containing failures counts one strike, and three consecutive failed flushes halt the workflow. Two errors are **immediately fatal**, bypassing the strike budget, because both mean another writer is executing the same run:
 
@@ -48,9 +48,9 @@ State snapshots round-trip through JSON/jsonb, which turns every `Date` into a s
 If you implement a custom `PersistenceProvider` or `EventLogWriter`, call `hydrateWorkflowState()` (exported from `@cycgraph/orchestrator`) on every state you load from storage. Handing the runner a raw JSON clone leaves date comparisons silently broken, such as approval-gate timeouts that never fire.
 
 **Refs:**
-- [PersistenceProvider](#persistenceprovider): The primary storage contract behind `persistStateFn`.
+- [PersistenceProvider](#persistenceprovider): The primary storage contract behind `persistState`.
 - [EventLogWriter](#eventlogwriter): The durable event log the write barrier flushes.
-- [`hydrateWorkflowState`](#hydrateworkflowstate): Parse and migrate loaded state at the boundary.
+- [hydrateWorkflowState](#hydrateworkflowstate): Parse and migrate loaded state at the boundary.
 
 ## Replaying the event log
 
@@ -99,11 +99,11 @@ For long-running workflows with large memory, persisting the full `WorkflowState
 import { GraphRunner, StateDeltaTracker } from '@cycgraph/orchestrator';
 
 const runner = new GraphRunner(graph, state, {
-  persistStateFn: async (state) => {
+  persistState: async (state) => {
     // Full snapshots go here
     await persistence.saveWorkflowSnapshot(state);
   },
-  persistDeltaFn: async (patch) => {
+  persistDelta: async (patch) => {
     // Compact patches go here
     await persistence.saveDelta(patch);
   },
@@ -127,11 +127,11 @@ This ensures recovery never requires replaying a long chain of patches.
 
 ### Without delta tracking
 
-When `persistDeltaFn` is not provided, all persists use `persistStateFn` (full snapshots). Delta tracking is entirely opt-in.
+When `persistDelta` is not provided, all persists use `persistState` (full snapshots). Delta tracking is entirely opt-in.
 
 **Refs:**
 - [`StateDeltaTracker`](#statedeltatracker): Computes the diffs and decides full-vs-patch.
-- [StatePatch](#statepatch): The compact diff shape handed to `persistDeltaFn`.
+- [StatePatch](#statepatch): The compact diff shape handed to `persistDelta`.
 
 ## Event log compaction
 
@@ -337,7 +337,7 @@ Manages workflow data lifecycle across Hot / Warm / Cold tiers.
 
 ### StatePatch
 
-A compact diff between two consecutive state snapshots, emitted by [`StateDeltaTracker`](#statedeltatracker) and handed to `persistDeltaFn`.
+A compact diff between two consecutive state snapshots, emitted by [`StateDeltaTracker`](#statedeltatracker) and handed to `persistDelta`.
 
 | Field | Type | Description |
 |-------|------|-------------|

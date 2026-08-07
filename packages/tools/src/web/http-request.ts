@@ -71,11 +71,23 @@ export function createHttpRequestTool(options: HttpRequestToolOptions): DefinedT
         throw new Error(`Method "${effectiveMethod}" is not allowed for this tool`);
       }
 
+      // Lowercase-normalize before merging: header names are case-insensitive
+      // on the wire but object spread is case-sensitive, so an LLM-supplied
+      // `Authorization` would SURVIVE alongside the operator's `authorization`
+      // default and fetch would join them into one corrupt header value.
+      const merged: Record<string, string> = {};
+      for (const [name, value] of Object.entries(headers ?? {})) {
+        merged[name.toLowerCase()] = value;
+      }
+      for (const [name, value] of Object.entries(options.defaultHeaders ?? {})) {
+        merged[name.toLowerCase()] = value;
+      }
+
       const { response, finalUrl } = await guardedFetch(
         url,
         {
           method: effectiveMethod,
-          headers: { ...headers, ...options.defaultHeaders },
+          headers: merged,
           ...(body !== undefined && effectiveMethod !== 'GET' ? { body } : {}),
         },
         options.allowPrivateHosts,

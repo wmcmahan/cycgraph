@@ -16,92 +16,115 @@ flowchart TB
     Researcher --> |"Returns results"| Sup
     Sup --> |"Delegates"| Writer["Writer Agent"]
     Writer --> |"Returns draft"| Sup
-    Sup --> |"Goal complete"| Done(["✓ __done__"])
+    Sup --> |"Goal complete"| Done(["✓"])
 ```
 
 1. **Initial Goal**: The workflow receives an open-ended goal (e.g., "Write a comprehensive report").
 2. **First Routing Decision**: The Supervisor assigns the first step to the most appropriate specialist node in its `managedNodes` list (e.g., `research`).
 3. **Execution & Return**: The `research` node executes, and control returns directly to the Supervisor via a cyclic return edge.
 4. **Subsequent Routing**: The Supervisor reviews the new state of the memory, decides what is missing, and delegates again (e.g., to `write`).
-5. **Completion**: Once the goal is met, the Supervisor routes the final execution to the `__done__` sentinel, terminating the graph.
+5. **Completion**: Once the goal is met, the Supervisor routes the final execution, terminating the graph.
 
 ## Implementation example
 
 This example demonstrates a supervisor routing between three specialists: a researcher, a writer, and an editor. See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/supervisor-routing/supervisor-routing.ts).
 
-### 1. The Supervisor prompt
+### 1. The Supervisor brain
 
 The agent powering the supervisor should be instructed to act as a manager. It evaluates the current state and identifies the single best next worker to delegate to.
 
 ```typescript
-const SUPERVISOR_ID = registry.register({
-  name: 'Supervisor Agent',
+import { agent } from '@cycgraph/orchestrator';
+
+const brain = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
-    'You are a project supervisor coordinating a team of specialists to produce a high-quality article.',
-    'You have three team members: "research" (gathers facts), "write" (produces drafts), and "edit" (polishes prose).',
-    'Review the current state and decide which specialist should work next.',
-    'Typical flow: research → write → edit, but you may loop back if quality is insufficient.',
-    'When the final_draft is polished and ready, route to "__done__" to complete the workflow.',
-  ].join(' '),
-  // We keep the temperature low so routing decisions are deterministic
+  instructions: [
+    `You are a project supervisor coordinating a team of specialists to produce a high-quality article.
+    You have three team members: "research" (gathers facts), "write" (produces drafts), and "edit" (polishes prose).
+    Review the current state and decide which specialist should work next.
+    Typical flow: research → write → edit, but you may loop back if quality is insufficient.
+    When the final_draft is polished and ready, route to "__done__" to complete the workflow.`,
+  ],
+  // Keep the temperature low so routing decisions are deterministic
   temperature: 0.3,
-  tools: [],
-  permissions: {
-    readKeys: ['*'], // The supervisor needs to see everything to make good routing decisions
-    writeKeys: ['*'],
-  },
 });
 ```
 
 ### 2. The Supervisor node
 
-The `supervisor` node type requires a `supervisorConfig` block defining which node IDs it is permitted to route work to.
+Each specialist is an `agent()` capability placed at a `node()`. The `supervisor` node type requires a `supervisorConfig` block listing which nodes it is permitted to route work to. Pass the node values themselves in `managedNodes`.
 
 ```typescript
-import { createGraph } from '@cycgraph/orchestrator';
+import { agent, node } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
-  name: 'Supervisor Routing',
-  nodes: [
-    {
-      id: 'supervisor',
-      type: 'supervisor',
-      agentId: SUPERVISOR_ID,
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      supervisorConfig: {
-        managedNodes: ['research', 'write', 'edit'],
-        maxIterations: 10,
-      },
-    },
-    // ... define the 'research', 'write', and 'edit' agent nodes ...
-  ],
-  // ...
+const researcher = agent({
+  model: 'claude-sonnet-4-6', 
+  instructions: 'Gather facts on the topic and save concise research notes.' 
+});
+const writer = agent({
+  model: 'claude-sonnet-4-6', 
+  instructions: 'Turn the research notes into a full draft.' 
+});
+const editor = agent({
+  model: 'claude-sonnet-4-6', 
+  instructions: 'Polish the draft into a publishable final_draft.' 
+});
+
+const research = node({
+  id: 'research', 
+  agent: researcher, 
+  reads: ['goal'], 
+  writes: 'research_notes' 
+});
+const write = node({
+  id: 'write',    
+  agent: writer,     
+  reads: ['goal', 'research_notes'], 
+  writes: 'draft' 
+});
+const edit = node({
+  id: 'edit',     
+  agent: editor,     
+  reads: ['draft'], 
+  writes: 'final_draft' 
+});
+
+const supervisor = node({
+  id: 'supervisor',
+  type: 'supervisor',
+  agent: brain,
+  supervisorConfig: {
+    managedNodes: [research, write, edit],
+    maxIterations: 10,
+  },
 });
 ```
+
+The supervisor declares no grants at all. They derive from its role. Its routing (`handoff`) and completion (`set_status`) permissions are implied by the `supervisor` node type, and its reads derive from its team: with no declared `reads`, it sees `goal`, `constraints`, and everything its `managedNodes` write (here `research_notes`, `draft`, and `final_draft`), nothing else. That keeps routing informed while staying least-privilege, tainted memory outside the team's outputs never reaches the routing prompt. Declare `reads` explicitly only when the supervisor needs more or less than its team's work.
 
 ### 3. The Cyclic edges
 
 Supervisors require a **hub-and-spoke topology**. You must define unconditional edges from the supervisor to every managed node, and from every managed node securely back to the supervisor.
 
 ```typescript
-const graph = createGraph({
-  // ... nodes ...
+import { graph } from '@cycgraph/orchestrator';
+
+const workflow = graph({
+  name: 'Supervisor Routing',
+  nodes: [supervisor, research, write, edit],
   edges: [
     // Supervisor → specialists (outbound)
-    { source: 'supervisor', target: 'research' },
-    { source: 'supervisor', target: 'write' },
-    { source: 'supervisor', target: 'edit' },
+    { from: supervisor, to: research },
+    { from: supervisor, to: write },
+    { from: supervisor, to: edit },
 
     // Specialists → supervisor (cyclic return)
-    { source: 'research', target: 'supervisor' },
-    { source: 'write', target: 'supervisor' },
-    { source: 'edit', target: 'supervisor' },
+    { from: research, to: supervisor },
+    { from: write, to: supervisor },
+    { from: edit, to: supervisor },
   ],
-  startNode: 'supervisor',
-  endNodes: [],  // Termination is handled dynamically by routing to __done__
+  startNode: supervisor,
+  endNodes: [], // Termination is handled dynamically
 });
 ```
 

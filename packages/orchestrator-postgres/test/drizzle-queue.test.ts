@@ -318,8 +318,8 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleWorkflowQueue', () => {
 
       const state = createWorkflowState({ workflow_id: graphId, run_id: runId, goal: 'fencing test' });
 
-      await expect(freshOptions.persistStateFn!(state)).resolves.toBeUndefined();
-      await expect(staleOptions.persistStateFn!(state)).rejects.toBeInstanceOf(StaleClaimError);
+      await expect(freshOptions.persistState!(state)).resolves.toBeUndefined();
+      await expect(staleOptions.persistState!(state)).rejects.toBeInstanceOf(StaleClaimError);
 
       await expect(
         freshOptions.eventLog!.append({ run_id: runId, sequence_id: 0, event_type: 'workflow_started' }),

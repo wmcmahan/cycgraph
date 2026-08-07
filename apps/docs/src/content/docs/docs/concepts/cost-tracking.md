@@ -7,7 +7,7 @@ Every workflow run tracks token consumption and estimated cost in USD. Budgets c
 
 ## How costs are tracked
 
-Each time a node completes an LLM call, the action metadata includes a `token_usage` breakdown (`inputTokens`, `outputTokens`, `totalTokens`). The reducer accumulates these into two fields on `WorkflowState`:
+Each time a node completes an LLM call, the action metadata includes a token usage breakdown, as `inputTokens`, `outputTokens`, and `totalTokens`. The reducer accumulates these into two fields on the [workflow state](/docs/concepts/workflow-state/#cost-and-token-tracking):
 
 - **`total_tokens_used`**: cumulative tokens across all LLM calls in the run
 - **`total_cost_usd`**: cumulative estimated cost, calculated using the pricing table
@@ -18,20 +18,17 @@ Every LLM call is accounted for, not just successful agent nodes:
 - **Failed attempts** are counted too. The agent executor attaches best-effort `partialUsage` to its errors, and the runner records it, so a node that retries N times cannot hide the tokens it burned on the failed tries.
 - **Composite nodes** (evolution, voting, map, annealing) aggregate the token usage of every internal call into their returned action.
 
-Cost is calculated per-model using `calculateCost()`:
+Calculating costs:
 
 ```typescript
-import { calculateCost, MODEL_PRICING } from '@cycgraph/orchestrator';
+import { calculateCost } from '@cycgraph/orchestrator';
 
 const cost = calculateCost('claude-sonnet-4-6', inputTokens, outputTokens);
-// Uses: ($3.00 / 1M input) + ($15.00 / 1M output)
 ```
 
-Unknown models return `$0` (graceful degradation) and log a warning once. Token counts are sanitized first: a `NaN` from malformed provider usage would otherwise produce a `NaN` cost, and because every `NaN > budget` comparison is `false`, that single bad value would permanently stop the USD budget from enforcing again.
-
 **Refs:**
-- [`calculateCost`](#calculatecost): Estimate USD cost for a model and token counts.
-- [`MODEL_PRICING`](#model_pricing): The static per-model pricing table.
+- [calculateCost](#calculatecost): Estimate USD cost for a model and token counts.
+- [MODEL_PRICING](#model_pricing): The static per-model pricing table.
 - [Workflow State](/docs/concepts/workflow-state/#cost-and-token-tracking): where `total_tokens_used` and `total_cost_usd` accumulate.
 
 ## Setting budgets
@@ -41,9 +38,8 @@ Unknown models return `$0` (graceful degradation) and log a warning once. Token 
 Set `maxTokenBudget` on the initial workflow state. The runner throws `BudgetExceededError` when cumulative tokens exceed the limit:
 
 ```typescript
-const state = createWorkflowState({
-  workflowId: graph.id,
-  goal: 'Summarize quarterly reports',
+state({
+  // ...
   maxTokenBudget: 100_000,
 });
 ```
@@ -53,9 +49,8 @@ const state = createWorkflowState({
 Set `budgetUsd` on the initial workflow state. The runner enforces this with threshold alerts and a hard stop at 100%:
 
 ```typescript
-const state = createWorkflowState({
-  workflowId: graph.id,
-  goal: 'Research and write an article',
+state({
+  // ...
   budgetUsd: 0.50,
 });
 ```
@@ -65,13 +60,9 @@ const state = createWorkflowState({
 Individual agents can have their own cost cap via `permissions.budgetUsd`:
 
 ```typescript
-registry.register({
-  name: 'Expensive Agent',
-  model: 'claude-opus-4-8',
+agent({
   // ...
   permissions: {
-    readKeys: ['*'],
-    writeKeys: ['*'],
     budgetUsd: 0.10,
   },
 });
@@ -79,9 +70,9 @@ registry.register({
 
 ### Per-node budget
 
-Any node can carry its own `budget: { maxTokens?, maxCostUsd? }`. The runner enforces it after the node completes, and breaching either cap throws `NodeBudgetExceededError` with no retry.
+Any node can carry its own budget. The runner enforces it after the node completes, and breaching either cap throws `NodeBudgetExceededError` with no retry.
 
-For **composite nodes** that loop internally (evolution generations, annealing iterations), the post-completion check alone would let the whole population times generations spend happen before the cap is consulted. These nodes also run an incremental budget guard between iterations: once accumulated token or cost spend crosses the node's `budget` or the remaining workflow budget, the loop stops early instead of running every remaining generation. Evolution surfaces a `{nodeId}_budget_stopped` flag in its output envelope. The runner's hard `NodeBudgetExceededError` still fires if the aggregate exceeded the cap, so the guard bounds the overspend rather than suppressing the error.
+For composite nodes that loop internally (evolution generations, annealing iterations), the post-completion check alone would let the whole population times generations spend happen before the cap is consulted. These nodes also run an incremental budget guard between iterations: once accumulated token or cost spend crosses the node's budget or the remaining workflow budget, the loop stops early instead of running every remaining generation. Evolution surfaces a `{nodeId}_budget_stopped` flag in its output envelope. The runner's hard `NodeBudgetExceededError` still fires if the aggregate exceeded the cap, so the guard bounds the overspend rather than suppressing the error.
 
 **Refs:**
 - [Workflow State](/docs/concepts/workflow-state/#cost-and-token-tracking): the `maxTokenBudget` and `budgetUsd` run-level ceilings.

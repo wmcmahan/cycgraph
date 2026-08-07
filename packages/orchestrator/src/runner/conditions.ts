@@ -8,7 +8,6 @@
  * Supported condition types:
  * - `always`: unconditionally true
  * - `conditional`: filtrex expression evaluated against workflow state
- * - `map`: syntactic sugar that delegates to `conditional`
  *
  * @module runner/conditions
  */
@@ -150,14 +149,6 @@ export function evaluateCondition(
         return false;
       }
     }
-
-    case 'map':
-      if (!condition.condition) return true;
-      return evaluateCondition(
-        { type: 'conditional', condition: condition.condition, value: condition.value },
-        state,
-        options,
-      );
 
     default:
       return false;

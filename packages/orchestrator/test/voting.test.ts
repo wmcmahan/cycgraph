@@ -480,6 +480,7 @@ describe('executeVotingNode', () => {
         'Voting test',
         expect.any(Array),
         expect.any(String),
+        expect.anything(),
       );
     });
 

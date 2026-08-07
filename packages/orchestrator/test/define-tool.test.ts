@@ -26,6 +26,12 @@ afterEach(() => {
 });
 
 describe('defineTool', () => {
+  it('exposes tool() as the same function (terse vocabulary alias)', async () => {
+    const { tool, defineTool: verbose } = await import('../src/tools/define-tool.js');
+
+    expect(tool).toBe(verbose);
+  });
+
   it('returns a tool carrying name, description, and defaults', () => {
     const tool = echoTool();
 

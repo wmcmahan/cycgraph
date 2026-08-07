@@ -17,6 +17,9 @@ import type {
   AgentRegistryConfig,
 } from '@cycgraph/orchestrator';
 
+/** Canonical UUID shape guard for the uuid-typed `agents.id` column. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
 type Queryer = typeof db | Tx;
 
@@ -50,6 +53,12 @@ export class DrizzleAgentRegistry implements AgentRegistry {
   }
 
   async loadAgent(id: string): Promise<AgentRegistryEntry | null> {
+    // `agents.id` is a uuid column; a non-uuid id (e.g. a human-readable
+    // authoring-facade id) can't match and would make Postgres raise a type
+    // error, so treat it as a clean not-found. The orchestrator's factory no
+    // longer pre-filters by id shape — the store owns that constraint.
+    if (!UUID_RE.test(id)) return null;
+
     const result = await this.read((q) => q
       .select()
       .from(agents)
@@ -122,8 +131,12 @@ export class DrizzleAgentRegistry implements AgentRegistry {
     return result[0].id;
   }
 
-  /** Update an existing agent's configuration. */
+  /** Update an existing agent's configuration. No-op when the agent doesn't exist. */
   async updateAgent(id: string, updates: Partial<AgentRegistryConfig>): Promise<void> {
+    // Same guard as loadAgent: a non-uuid id can't match the uuid column and
+    // would raise a Postgres type error instead of behaving like not-found.
+    if (!UUID_RE.test(id)) return;
+
     const wire = camelToSnakeDeep(updates) as Partial<AgentRegistryInput>;
     const set: Record<string, unknown> = { updated_at: new Date() };
     if (wire.name !== undefined) set.name = wire.name;
@@ -170,6 +183,8 @@ export class DrizzleAgentRegistry implements AgentRegistry {
 
   /** Delete an agent by ID. Returns `true` if it existed. */
   async deleteAgent(id: string): Promise<boolean> {
+    if (!UUID_RE.test(id)) return false;
+
     const result = await this.read((q) => q
       .delete(agents)
       .where(and(eq(agents.id, id), this.tenantEq(agents.tenant_id)))

@@ -3,9 +3,9 @@ title: Distributed Execution
 description: Scale workflow execution across multiple processes with per-workflow worker assignment.
 ---
 
-cycgraph's `GraphRunner` runs entirely within a single Node.js process. For production deployments with concurrent workflows, the **WorkflowWorker** distributes execution across multiple processes. Each workflow runs on one worker for its entire lifetime, using the existing `GraphRunner` unmodified.
+The [Runner](/docs/concepts/graph-runner/) runs entirely within a single process. For production deployments with concurrent workflows, the Workflow Worker distributes execution across multiple processes. Each workflow runs on one worker for its entire lifetime, using the existing runner unmodified.
 
-Workers poll the queue, claim jobs atomically, and execute workflows. Crashed workers are detected via **visibility timeouts**: if a worker stops heartbeating, the job is reclaimed and re-executed on another worker using event log replay.
+Workers poll the queue, claim jobs atomically, and execute workflows. Crashed workers are detected via visibility timeouts. If a worker stops heartbeating, the job is reclaimed and re-executed on another worker using event log replay.
 
 ## Enqueuing work
 
@@ -72,16 +72,15 @@ const worker = new WorkflowWorker({
   queue,
   persistence: new InMemoryPersistenceProvider(),
   eventLog: new InMemoryEventLogWriter(),
-  concurrency: 2,           // Run up to 2 workflows simultaneously
-  pollIntervalMs: 1000,     // Check for new jobs every second
-  heartbeatIntervalMs: 60_000,  // Heartbeat every minute
-  reclaimIntervalMs: 30_000,    // Check for crashed jobs every 30s
+  concurrency: 2,                // Run up to 2 workflows simultaneously
+  pollIntervalMs: 1000,          // Check for new jobs every second
+  heartbeatIntervalMs: 60_000,   // Heartbeat every minute
+  reclaimIntervalMs: 30_000,     // Check for crashed jobs every 30s
   shutdownGracePeriodMs: 30_000, // Wait 30s for in-flight work on stop
 });
 
 await worker.start();
 
-// Later...
 await worker.stop();  // Graceful shutdown
 ```
 
@@ -94,14 +93,14 @@ await worker.stop();  // Graceful shutdown
 
 When a worker crashes (or its process is killed), its in-flight jobs eventually expire via the visibility timeout. The reclaim timer on any running worker detects these expired jobs and returns them to `waiting`.
 
-When another worker picks up the job, it reconciles **both** recovery artifacts, the event log and the latest state snapshot. Either can be ahead of the other, because an event append can fail while the snapshot commits, and vice versa:
+When another worker picks up the job, it reconciles both recovery artifacts: the event log and the latest state snapshot. Either can be ahead of the other, because an event append can fail while the snapshot commits, and vice versa:
 
 1. If events exist for the run → `GraphRunner.recover()` replays them to reconstruct state
-2. If the latest snapshot reflects **more progress** than the replayed state (lost appends) → the worker resumes from the snapshot instead, avoiding re-execution of nodes whose side effects already happened
+2. If the latest snapshot reflects more progress than the replayed state (lost appends) → the worker resumes from the snapshot instead, avoiding re-execution of nodes whose side effects already happened
 3. If no events but a snapshot exists → resume from the snapshot
 4. If neither → fresh start with the job's `initial_state`
 
-Replay also validates that the event log is **gap-free** (contiguous sequence ids); a gap means an append was lost, and recovery refuses with `EventLogCorruptionError` rather than silently dropping a state transition. Resumed runs use the unified idempotency keys (`node_id:iteration`, anchored by the snapshot's event-log high-water mark) to skip re-executing a node whose action was already applied before the crash.
+Replay also validates that the event log is gap-free (contiguous sequence ids). A gap means an append was lost, and recovery refuses with `EventLogCorruptionError` rather than silently dropping a state transition. Resumed runs use the unified idempotency keys (`node_id:iteration`, anchored by the snapshot's event-log high-water mark) to skip re-executing a node whose action was already applied before the crash.
 
 This means even `start` jobs are safely recoverable. If a worker crashes mid-execution, the next worker seamlessly continues from the most advanced consistent state.
 
@@ -131,7 +130,6 @@ const worker = new WorkflowWorker({
   queue: new DrizzleWorkflowQueue(),
   persistence: new DrizzlePersistenceProvider(),
   eventLog: new DrizzleEventLogWriter(),
-  // Per-job fenced writers. Factory results override the worker defaults.
   runnerOptionsFactory: (job) => createFencedRunnerOptions(job),
 });
 ```
@@ -267,7 +265,7 @@ Constructor options for [`WorkflowWorker`](#workflowworker).
 | `persistence` | `PersistenceProvider` | required | Loads graphs and saves state snapshots. |
 | `eventLog` | `EventLogWriter` | required | Durable event log for replay-based crash recovery. |
 | `workerId` | `string` | `crypto.randomUUID()` | Unique worker identifier. |
-| `runnerOptionsFactory` | `(job: WorkflowJob) => Partial<GraphRunnerOptions>` | — | Per-job `GraphRunnerOptions` such as `tools`, `modelResolver`, and middleware. Factory results **override** the worker defaults, which is how per-job fenced `persistStateFn`/`eventLog` writers are wired in. See [Run fencing](#run-fencing). |
+| `runnerOptionsFactory` | `(job: WorkflowJob) => Partial<GraphRunnerOptions>` | — | Per-job `GraphRunnerOptions` such as `tools`, `modelResolver`, and middleware. Factory results **override** the worker defaults, which is how per-job fenced `persistState`/`eventLog` writers are wired in. See [Run fencing](#run-fencing). |
 | `concurrency` | `number` | `1` | Maximum concurrent jobs per worker. |
 | `pollIntervalMs` | `number` | `1000` | Polling interval in milliseconds. |
 | `heartbeatIntervalMs` | `number` | `60000` | Heartbeat interval in milliseconds. |
@@ -276,7 +274,7 @@ Constructor options for [`WorkflowWorker`](#workflowworker).
 
 ### WorkflowWorkerEvents
 
-The event map the worker emits. It extends `EventEmitter`. Payload fields are camelCase.
+The event map the worker emits. It extends `EventEmitter`.
 
 | Event | Payload | Description |
 |-------|---------|-------------|

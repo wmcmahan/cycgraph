@@ -101,7 +101,7 @@ Extends `EventEmitter`. The single public entry point for executing a workflow g
 
 ```typescript
 const runner = new GraphRunner(graph, initialState, {
-  persistStateFn?,
+  persistState?,
   loadGraphFn?,
   eventLog?,       // EventLogWriter for durable execution
 });
@@ -111,7 +111,7 @@ const runner = new GraphRunner(graph, initialState, {
 |-----------|------|---------|
 | `graph` | `Graph` | The graph definition (nodes, edges, start/end nodes) |
 | `initialState` | `WorkflowState` | Starting state (goal, constraints, memory, limits) |
-| `options.persistStateFn` | `(state) => Promise<void>` | Optional — called after every step for resumability |
+| `options.persistState` | `(state) => Promise<void>` | Optional — called after every step for resumability |
 | `options.loadGraphFn` | `(graphId) => Promise<Graph \| null>` | Optional — required for subgraph nodes |
 | `options.eventLog` | `EventLogWriter` | Optional — enables event sourcing for durable execution |
 
@@ -153,7 +153,7 @@ sequenceDiagram
     participant V as validateGraph()
     participant NE as NodeExecutor
     participant R as Reducer
-    participant P as persistStateFn
+    participant P as persistState
 
     C->>GR: run()
     GR->>V: validateGraph(graph)
@@ -197,7 +197,7 @@ sequenceDiagram
 | **Reduce** | `rootReducer(state, action)`, then `idempotency.add()` | Reducer errors propagate up |
 | **Budget Check** | Compare `total_tokens_used` against `max_token_budget` | Throws `BudgetExceededError` |
 | **Advance** | `getNextNode()` evaluates edge conditions | No matching edge → workflow completes |
-| **Persist** | Flush event-log appends, then `persistStateFn(state)` | 3 consecutive failures → halt (`PersistenceUnavailableError`); conflict/stale-claim → immediately fatal |
+| **Persist** | Flush event-log appends, then `persistState(state)` | 3 consecutive failures → halt (`PersistenceUnavailableError`); conflict/stale-claim → immediately fatal |
 
 ### State Transitions (via `dispatchInternal`)
 
@@ -469,7 +469,7 @@ On resume from a snapshot, `IdempotencyTracker.rebuildFromEventLog()` decides wh
 
 ### Persistence
 
-`persistStateFn` is called after every step (init, action apply, advance, complete, fail), preceded by an **event-log flush barrier** — outstanding appends are awaited before the snapshot commits. Both paths follow a **3-strike rule**: a single transient failure is logged and tolerated, but three consecutive failures throw (`PersistenceUnavailableError` for snapshots) to halt the workflow rather than diverge silently. `EventSequenceConflictError` and `StaleClaimError` are immediately fatal (another writer owns the run) and bypass the strike budget.
+`persistState` is called after every step (init, action apply, advance, complete, fail), preceded by an **event-log flush barrier** — outstanding appends are awaited before the snapshot commits. Both paths follow a **3-strike rule**: a single transient failure is logged and tolerated, but three consecutive failures throw (`PersistenceUnavailableError` for snapshots) to halt the workflow rather than diverge silently. `EventSequenceConflictError` and `StaleClaimError` are immediately fatal (another writer owns the run) and bypass the strike budget.
 
 ---
 

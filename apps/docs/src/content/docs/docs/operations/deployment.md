@@ -26,7 +26,7 @@ This guide is for operators running cycgraph in production. If you're still on `
 Required:
 
 - **Postgres 16** with the `vector` extension installed (`init.sql` in `@cycgraph/orchestrator-postgres` handles this)
-- **Migrations applied.** Run `npm run db:migrate` (or `drizzle-kit migrate`) before first boot and on every upgrade. The durable job queue (`workflow_jobs`) and the run `claim_epoch` fencing column ship in migration `0014`.
+- **Migrations applied.** Run `npm run migrate --workspace=packages/orchestrator-postgres` before first boot and on every upgrade. The durable job queue (`workflow_jobs`) and the run `claim_epoch` fencing column ship in migration `0014`.
 - **MCP servers** running in isolated containers, never on the host
 
 Optional but recommended:
@@ -36,7 +36,7 @@ Optional but recommended:
 
 ## Wiring the postgres adapter
 
-The `GraphRunner` consumes persistence through injected callbacks (`persistStateFn`, `eventLog`), not provider objects directly, so you adapt the Drizzle providers into the runner's options. In production you usually drive runs through a `WorkflowWorker` rather than constructing `GraphRunner` by hand:
+The `GraphRunner` consumes persistence through injected callbacks (`persistState`, `eventLog`), not provider objects directly, so you adapt the Drizzle providers into the runner's options. In production you usually drive runs through a `WorkflowWorker` rather than constructing `GraphRunner` by hand:
 
 ```typescript
 import { WorkflowWorker } from '@cycgraph/orchestrator';
@@ -61,12 +61,12 @@ const worker = new WorkflowWorker({
 await worker.start();
 ```
 
-To drive a single run directly instead, adapt the provider into a `persistStateFn`:
+To drive a single run directly instead, adapt the provider into a `persistState`:
 
 ```typescript
 const persistence = new DrizzlePersistenceProvider();
 const runner = new GraphRunner(graph, state, {
-  persistStateFn: (s) => persistence.saveWorkflowSnapshot(s),
+  persistState: (s) => persistence.saveWorkflowSnapshot(s),
   eventLog: new DrizzleEventLogWriter({ retain_checkpoints: 3 }),
   tools: [new MCPConnectionManager(mcpRegistry)],
 });

@@ -113,28 +113,26 @@ initArchitectTools({
 The draft tool works without initialization, because it only generates graphs in memory. The publish and get tools will throw `ArchitectError` if called before `initArchitectTools()`. A graph that fails schema or referential validation is returned as an error result (not persisted), and a `canPublish` denial returns an error result too.
 :::
 
-### Step 2: Register an agent with Architect tools
+### Step 2: Define an agent with Architect tools
+
+The Architect tools are built-ins, so a bare name in the `tools` array is enough. Grant the node that places this agent broad state access (`reads: ['*']`, `writes: ['*']`) so it can see the workflow context it is designing for.
 
 ```typescript
-import { InMemoryAgentRegistry } from '@cycgraph/orchestrator';
+import { agent } from '@cycgraph/orchestrator';
 
-const registry = new InMemoryAgentRegistry();
-
-const ARCHITECT_AGENT_ID = registry.register({
+const designer = agent({
   name: 'Workflow Designer',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt:
+  instructions:
     'You design and manage automation workflows. ' +
     'Use architect_draft_workflow to create or modify graphs, ' +
     'architect_publish_workflow to save them, ' +
     'and architect_get_workflow to inspect existing ones.',
   tools: [
-    { type: 'builtin', name: 'architect_draft_workflow' },
-    { type: 'builtin', name: 'architect_publish_workflow' },
-    { type: 'builtin', name: 'architect_get_workflow' },
+    'architect_draft_workflow',
+    'architect_publish_workflow',
+    'architect_get_workflow',
   ],
-  permissions: { readKeys: ['*'], writeKeys: ['*'] },
 });
 ```
 

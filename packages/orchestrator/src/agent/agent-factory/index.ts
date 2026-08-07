@@ -18,11 +18,15 @@ export { AgentNotFoundError, AgentLoadError } from './errors.js';
 export const agentFactory = new AgentFactory();
 
 /**
- * Configure the global agent factory with a registry backend.
+ * Configure the PROCESS-GLOBAL agent factory with a registry backend.
  *
- * Call this once at startup to enable database-backed agent loading.
- * Without a registry, all agents use the default config with deny-all
- * permissions.
+ * @deprecated Prefer scoping the registry into the run via
+ *   `GraphRunnerOptions.registry` (and `providers`). The global factory is
+ *   shared across every run in the process, so two concurrent runs with
+ *   different registries contaminate each other — the multi-tenant footgun
+ *   `GraphRunnerOptions.registry` removes. This helper remains for
+ *   single-process, single-tenant setups and will be removed once consumers
+ *   (including mc-ai-api) have migrated.
  *
  * @param registry - The persistence backend for agent configs.
  * @param options - Optional behavior flags.
@@ -43,10 +47,12 @@ export function configureAgentFactory(
 }
 
 /**
- * Configure the global agent factory with a custom provider registry.
+ * Configure the PROCESS-GLOBAL agent factory with a custom provider registry.
  *
- * Call this at startup to register additional LLM providers (Groq,
- * Ollama, etc.) beyond the built-in OpenAI and Anthropic.
+ * @deprecated Prefer scoping providers into the run via
+ *   `GraphRunnerOptions.providers`. Like {@link configureAgentFactory}, this
+ *   mutates process-global state shared across concurrent runs. Kept for
+ *   single-tenant setups until consumers migrate.
  *
  * @param registry - The provider registry to use.
  */

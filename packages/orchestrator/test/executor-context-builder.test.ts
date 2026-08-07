@@ -63,6 +63,7 @@ function makeRunner(overrides: Partial<ExecutorContextRunner> = {}, state?: Work
     listenerCount(event: string | symbol) {
       return listeners[event as string] ?? 0;
     },
+    agentFactory: { loadAgent: vi.fn(async () => 'loaded-agent') } as never,
     emitted,
     ...overrides,
   };
@@ -355,15 +356,41 @@ describe('buildExecutorContext', () => {
 
       expect(view.goal).toBe('do the thing');
     });
+
+    it('derives a read-less supervisor’s view from its managed nodes', () => {
+      const graph = {
+        ...createSimpleGraph(),
+        nodes: [
+          makeNode({
+            id: 'supervisor',
+            type: 'supervisor',
+            read_keys: [],
+            supervisor_config: { managed_nodes: ['worker'], max_iterations: 5 },
+          }),
+          makeNode({ id: 'worker', write_keys: ['notes'] }),
+        ],
+      };
+      const state = createTestState({
+        memory: { notes: 'worker output', secret: 'unrelated' },
+      });
+      const ctx = buildExecutorContext(makeRunner({ graph }, state));
+
+      const view = ctx.createStateView(graph.nodes[0]);
+
+      expect(view.memory.notes).toBe('worker output');
+      expect(view.memory.secret).toBeUndefined();
+    });
   });
 
   describe('deps without a rate limiter', () => {
-    it('exposes the raw executor functions directly', () => {
-      const ctx = buildExecutorContext(makeRunner());
+    it('wraps executors and injects the run-scoped agent factory', async () => {
+      const factory = { loadAgent: vi.fn() } as never;
+      const ctx = buildExecutorContext(makeRunner({ agentFactory: factory }));
 
-      expect(ctx.deps.executeAgent).toBe(executeAgent);
-      expect(ctx.deps.executeSupervisor).toBe(executeSupervisor);
-      expect(ctx.deps.evaluateQualityExecutor).toBe(evaluateQualityExecutor);
+      await ctx.deps.executeAgent('a1', {} as never, {}, 1, { nodeId: 'n' });
+
+      const opts = (executeAgent as ReturnType<typeof vi.fn>).mock.calls[0][4] as { agentFactory: unknown };
+      expect(opts.agentFactory).toBe(factory);
     });
 
     it('delegates loadAgent to the agent factory', async () => {
@@ -455,7 +482,7 @@ describe('buildExecutorContext', () => {
       await ctx.deps.evaluateQualityExecutor('critic', 'goal', 'data', 'instr');
 
       expect(rateLimiter).toHaveBeenCalledWith({ agentId: 'critic', kind: 'evaluator' }, expect.anything());
-      expect(evaluateQualityExecutor).toHaveBeenCalledWith('critic', 'goal', 'data', 'instr');
+      expect(evaluateQualityExecutor).toHaveBeenCalledWith('critic', 'goal', 'data', 'instr', expect.anything());
     });
   });
 });

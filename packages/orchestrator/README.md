@@ -14,7 +14,7 @@
 
 Define multi-step agent workflows declaratively, run them with durable execution, and let them **distill what they learned** into a persistent knowledge store that future runs retrieve automatically. Cyclic loops, dynamic supervisors, population-based evolution, and human-in-the-loop gates ship as first-class node types, not framework extensions.
 
-- **[Quick Start](https://flattop.io/docs/getting-started/quick-start/)** — your first workflow in 5 minutes
+- **[Quickstart](https://flattop.io/docs/getting-started/quickstart/)** — your first workflow in a handful of lines
 - **[Core Concepts](https://flattop.io/docs/concepts/overview/)** — graphs, nodes, agents, state, memory
 - **[Patterns](https://flattop.io/docs/patterns/supervisor/)** — runnable guides for each built-in pattern
 - **[Troubleshooting](https://flattop.io/docs/getting-started/troubleshooting/)** — common errors, fixes, and the gotchas that fail silently
@@ -22,11 +22,40 @@ Define multi-step agent workflows declaratively, run them with durable execution
 
 ## Install
 
-See the [Quick Start guide](https://flattop.io/docs/getting-started/quick-start/) for a complete walkthrough.
-
 ```bash
 npm install @cycgraph/orchestrator
 ```
+
+## Quick start
+
+Author a workflow with the facade vocabulary — `agent` (a capability) · `node` (a placement) · `graph` (the compiler) · `run` (the executor). It compiles to the same graph the raw API produces; the topology stays explicit.
+
+```typescript
+import { agent, node, graph, run } from '@cycgraph/orchestrator';
+
+const researcher = agent({
+  model: 'claude-sonnet-4-6',            // provider inferred from the model name
+  instructions: 'You are a research specialist. Produce concise, factual notes.',
+});
+
+const writer = agent({
+  model: 'claude-sonnet-4-6',
+  instructions: 'Turn the research notes into a clear summary under 300 words.',
+});
+
+const research = node({ id: 'research', agent: researcher, reads: ['goal'], writes: 'notes' });
+const write    = node({ id: 'write',    agent: writer,     reads: ['goal', 'notes'], writes: 'draft' });
+
+const workflow = graph({
+  name: 'research-write',
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
+});
+
+const { draft } = await run(workflow, { goal: 'Explain how LLMs work' });
+```
+
+Set `ANTHROPIC_API_KEY` and that's the whole program. See the [Quickstart guide](https://flattop.io/docs/getting-started/quickstart/) for the full walkthrough, and [Graphs](https://flattop.io/docs/concepts/graphs/) for the raw `createGraph` / `GraphRunner` API used by the cyclic and multi-agent patterns below.
 
 **Optional packages**
 

@@ -3,22 +3,39 @@ title: Graphs
 description: How to define workflow graphs with edges and conditional routing.
 ---
 
-A **Graph** defines the deterministic structure of a workflow: which nodes exist, how they connect, and the conditions under which edges are traversed. A graph can be cyclic or acyclic, depending on what the workflow needs.
+The **Graph** defines the deterministic structure of a workflow prescribing where nodes exist, how they connect, and the conditions under which edges are traversed. A graph can be cyclic or acyclic, depending on what the workflow needs.
 
 ```typescript
-import { createGraph } from '@cycgraph/orchestrator';
+import { agent, node, graph, run } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
-  name: "Research Pipeline",
-  description: "Searches the web and writes a summary",
-  startNode: "researcher",
-  endNodes: ["writer"],
-  nodes: [/* ... */],
-  edges: [/* ... */]
+const research = node({
+  id: 'research',
+  agent: agent({
+    model: 'claude-sonnet-4-6',
+    instructions: 'You are a research specialist. Produce concise, factual notes.',
+  }),
+  reads: ['goal'],
+  writes: 'notes',
 });
-```
 
-Author graphs with [`createGraph`](#creategraph), which takes camelCase input and fills defaults. The [`GraphRunner`](/docs/concepts/graph-runner/) executes the result: it runs the `startNode`, then follows edges from node to node until it reaches one of the `endNodes`.
+const write = node({
+  id: 'write',
+  agent: agent({
+    model: 'claude-sonnet-4-6',
+    instructions: 'Turn the research notes into a clear summary under 300 words.',
+  }),
+  reads: ['goal', 'notes'],
+  writes: 'draft'
+});
+
+const workflow = graph({
+  name: 'research-write',
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
+});
+
+const { draft } = await run(workflow, { goal: 'Explain how LLMs work' });
+```
 
 ## Edges
 
@@ -26,17 +43,24 @@ An **Edge** is a directed connection between a source node and a target node.
 
 When a node completes, the orchestrator evaluates all outgoing edges from that node. The edge's condition determines whether it is traversed.
 
-If the node is **not** a declared end node and **no** outgoing edge's condition matches, that's a dead-end. The runner fails the run with `NoMatchingEdgeError` rather than silently treating it as completion. Make sure every non-terminal node has at least one edge whose condition can match (an `always` edge is the simplest fallback), or list genuinely-terminal nodes in `endNodes`. Set `allowImplicitCompletion: true` on [`GraphRunnerOptions`](/docs/concepts/graph-runner/#graphrunneroptions) for the legacy silent-completion behavior.
+If the node is not a declared end node and no outgoing edge's condition matches, that's a dead-end. The runner fails the run with `NoMatchingEdgeError` rather than silently treating it as completion. Make sure every non-terminal node has at least one edge whose condition can match, or list genuinely-terminal nodes in end nodes.
 
-### Edge conditions
+### Edge definitions
 
-An edge's `condition` selects one of three routing strategies.
+| Type | Description |
+|------|-------------|  
+| `from` | Node reference to "from" node. |
+| `to`   | Node reference to "to" node. |
+| `when` | Optional conditional string |
 
-| Type | Description | Required fields |
-|------|-------------|-----------------|
-| `always` | Unconditional routing. The edge is always traversed. | — |
-| `conditional` | Dynamic routing. Evaluates a filtrex expression against the workflow's `memory` state. | `condition: string` |
-| `map` | Specialized edge used exclusively by map-reduce fan-out nodes. | — |
+```typescript
+edges: [
+  // always follow this edge
+  { from: research, to: review },                            
+  // conditionally follow this edge 
+  { from: review, to: research, when: 'memory.score < 0.7' },
+],
+```
 
 **Refs:**
 - [GraphEdge](#graphedge): The edge shape and its fields.
@@ -44,17 +68,35 @@ An edge's `condition` selects one of three routing strategies.
 
 ## Validation
 
-A graph is validated before it runs. [`validateGraph`](#validategraph) checks structure: that `startNode` and every `endNode` exist, that edges reference real nodes, that end nodes are reachable, and that `conditional` edge expressions compile. It returns errors (which block execution) and warnings (suspicious but valid, such as a node with wildcard `read_keys`). The `GraphRunner` runs this at load time, and the architect runs it before persisting a generated graph.
+Graph structure is checked at two gates.
+
+[graph](#graph) is the first. At compile time it rejects duplicate node ids, conflicting agent or tool definitions, and endpoints it cannot infer, throwing a GraphSpecError while the mistake is still in your editor. A graph it returns always has real, existing endpoints by construction.
+
+[validateGraph](#validategraph) is the second, and it runs on every graph before execution no matter how the graph was authored. The graph runner invokes it when a run starts, and the architect invokes it before persisting a generated graph. It is the trust boundary for graphs that never went through the graph at all: definitions loaded from the database, generated by an LLM, or hand-built as raw JSON.
+
+The validator checks referential integrity, meaning edges, endpoints, and config references such as a map node's worker must all name real nodes. It compiles every conditional edge expression so a syntax error fails at load instead of silently misrouting mid-run. It walks the graph for unreachable nodes and dead ends, and it verifies each node type carries the config block its executor needs. The result separates errors, which block execution, from warnings for suspicious-but-valid shapes such as wildcard read keys or a declared read key that no node produces.
 
 **Refs:**
-- [`validateGraph`](#validategraph): Structural validation pass.
+- [validateGraph](#validategraph): Structural validation pass.
 - [ValidationResult](#validationresult): The errors-and-warnings result shape.
 
 ## API
 
-### `createGraph`
+### `graph`
 
-Build a `Graph` from camelCase authoring input. Auto-generates `id` when omitted, applies defaults (edge `condition` defaults to `always`, `strictTaint` to `false`), and validates structure through `GraphSchema`. To build from the snake_case wire format instead (a graph loaded from the database or produced by the architect), use `GraphSchema.parse` directly.
+Compile authoring values into a wire the Graph. This is the facade counterpart of [createGraph](#creategraph) and emits exactly the same serializable result; it adds the authoring conveniences on top:
+
+```typescript
+graph(spec: GraphSpec): Graph
+```
+
+Throws GraphSpecError instead of guessing: duplicate node ids, distinct agent definitions pinned to one id, distinct tool definitions sharing a name, or a start/end that can't be inferred.
+
+##### Options
+
+The input is a [GraphSpec](#graphspec).
+
+### `createGraph`
 
 ```typescript
 createGraph(input: GraphConfig): Graph
@@ -62,11 +104,11 @@ createGraph(input: GraphConfig): Graph
 
 ##### Options
 
-The input is a [`GraphConfig`](#graph): the [`Graph`](#graph) fields in camelCase, with `id` and `strictTaint` optional.
+The input is a [GraphConfig](#graph).
 
 ### `validateGraph`
 
-Run the structural validation pass on a built graph. `O(N + E)` over nodes and edges. A graph is safe to execute only when the returned `errors` array is empty.
+Run the structural validation pass on a built graph.
 
 ```typescript
 validateGraph(graph: Graph): ValidationResult
@@ -74,9 +116,23 @@ validateGraph(graph: Graph): ValidationResult
 
 ## Interfaces
 
+### GraphSpec
+
+The authoring input to [graph](#graph).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `string` | *required* | Human-readable name. |
+| `description` | `string` | `''` | What this graph does. |
+| `nodes` | `(NodeValue \| NodeConfig)[]` | *required* | `node` values. |
+| `edges` | `EdgeInput[]` | `[]` | `{ from, to, when? }` sugar or structured edges, mixed freely. `from`/`to` accept node values or id strings. |
+| `startNode` | `string \| NodeValue` | inferred | First node to execute. Required when more than one node has no inbound edge. |
+| `endNodes` | `(string \| NodeValue)[]` | inferred | Terminal nodes. Required when every node has an outbound edge. Pass `[]` for graphs that end by supervisor completion. |
+| `strictTaint` | `boolean` | `false` | Reject routing decisions that reference tainted memory keys. See [Taint Tracking](/docs/concepts/taint-tracking/). |
+
 ### Graph
 
-A workflow definition. Authored in camelCase via [`createGraph`](#creategraph); the stored and runtime form is snake_case.
+A workflow definition.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -103,17 +159,17 @@ A directed connection between two nodes.
 
 ### EdgeCondition
 
-The routing condition on an edge. See [Edge conditions](#edge-conditions) for what each `type` does.
+The routing condition on an edge. See [Edge conditions](#edge-conditions) for what each type does.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | `'always'` \| `'conditional'` \| `'map'` | Routing strategy. |
+| `type` | `'always'` \| `'conditional'` | Routing strategy. |
 | `condition` | `string?` | Filtrex expression, such as `"memory.decision == 'A'"`. Required for `conditional`. |
 | `value` | `unknown?` | Expected value for simple equality checks. |
 
 ### ValidationResult
 
-The result of a [`validateGraph`](#validategraph) pass.
+The result of a [validateGraph](#validategraph) pass.
 
 | Field | Type | Description |
 |-------|------|-------------|

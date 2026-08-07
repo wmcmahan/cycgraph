@@ -168,22 +168,15 @@ describe('evaluateCondition', () => {
     });
   });
 
-  describe('map condition', () => {
-    it('delegates to conditional evaluation when a condition string is present', () => {
-      const condition: EdgeCondition = { type: 'map', condition: 'memory.score > 10' };
-
-      expect(evaluateCondition(condition, stateWith({ score: 20 }))).toBe(true);
-      expect(evaluateCondition(condition, stateWith({ score: 5 }))).toBe(false);
-    });
-
-    it('returns true when the condition string is missing', () => {
-      expect(evaluateCondition({ type: 'map' }, stateWith({}))).toBe(true);
-    });
-  });
-
   describe('unknown condition type', () => {
     it('returns false for a type outside the known set', () => {
       const condition = { type: 'bogus' } as unknown as EdgeCondition;
+
+      expect(evaluateCondition(condition, stateWith({}))).toBe(false);
+    });
+
+    it('returns false for the removed map type', () => {
+      const condition = { type: 'map' } as unknown as EdgeCondition;
 
       expect(evaluateCondition(condition, stateWith({}))).toBe(false);
     });

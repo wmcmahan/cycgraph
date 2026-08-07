@@ -54,11 +54,13 @@ export type NodeType = z.infer<typeof NodeTypeSchema>;
  *
  * - `always`      — unconditional (default)
  * - `conditional` — evaluated via a filtrex expression against workflow memory
- * - `map`         — used by map-reduce fan-out nodes
+ *
+ * Map-reduce fan-out is config-driven (`map_reduce_config.worker_node_id`),
+ * not edge-driven — a map node's worker needs no inbound edge at all.
  */
 export const EdgeConditionSchema = z.object({
   /** Routing strategy. */
-  type: z.enum(['always', 'conditional', 'map']),
+  type: z.enum(['always', 'conditional']),
   /** Filtrex expression (e.g. `"memory.decision == 'A'"`). Required for `conditional`. */
   condition: z.string().optional(),
   /** Expected value for simple equality checks. */

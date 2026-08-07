@@ -77,7 +77,7 @@ When you execute the workflow, it will automatically pause when it reaches the `
 
 ```typescript
 const runner1 = new GraphRunner(graph, initialState, {
-  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
+  persistState: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // The run() promise resolves early with a 'waiting' status
@@ -104,7 +104,7 @@ const stateFromDB = await persistence.loadLatestWorkflowState(runId);
 
 // 2. Create a fresh runner
 const runner2 = new GraphRunner(graph, stateFromDB, {
-  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
+  persistState: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // 3. Inject the human's decision

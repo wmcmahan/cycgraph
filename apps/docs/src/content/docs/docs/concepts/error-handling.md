@@ -135,7 +135,7 @@ For workflows with side effects (e.g. API calls, database writes), nodes can dec
 Nodes with `requires_compensation: true` push an entry onto the `compensation_stack` in state after successful execution. On failure, if `autoRollback: true` is set on the `GraphRunner` options, the engine executes compensation entries in LIFO order and transitions the workflow to `cancelled` status.
 
 ```typescript
-const graph = createGraph({
+const graph = graph({
   name: 'Saga Example',
   nodes: [
     {
@@ -178,7 +178,7 @@ When `autoRollback` is `false` (the default), the compensation stack is preserve
 
 ```typescript
 const runner = new GraphRunner(graph, state, {
-  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
+  persistState: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // Start the workflow

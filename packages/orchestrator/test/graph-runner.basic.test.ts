@@ -184,13 +184,34 @@ describe('GraphRunner — State Persistence', () => {
   it('should call persistState function', async () => {
     const initialState = createTestState();
     const persistSpy = vi.fn().mockResolvedValue(undefined);
-    const runner = new GraphRunner(createLinearGraph(), initialState, { persistStateFn: persistSpy });
+    const runner = new GraphRunner(createLinearGraph(), initialState, { persistState: persistSpy });
     await runner.run();
 
     expect(persistSpy).toHaveBeenCalled();
     expect(persistSpy).toHaveBeenCalledWith(
       expect.objectContaining({ workflow_id: initialState.workflow_id, run_id: initialState.run_id })
     );
+  });
+
+  it('still honors the deprecated persistStateFn alias', async () => {
+    const persistSpy = vi.fn().mockResolvedValue(undefined);
+    const runner = new GraphRunner(createLinearGraph(), createTestState(), { persistStateFn: persistSpy });
+    await runner.run();
+
+    expect(persistSpy).toHaveBeenCalled();
+  });
+
+  it('prefers persistState over the deprecated alias when both are given', async () => {
+    const primary = vi.fn().mockResolvedValue(undefined);
+    const alias = vi.fn().mockResolvedValue(undefined);
+    const runner = new GraphRunner(createLinearGraph(), createTestState(), {
+      persistState: primary,
+      persistStateFn: alias,
+    });
+    await runner.run();
+
+    expect(primary).toHaveBeenCalled();
+    expect(alias).not.toHaveBeenCalled();
   });
 
   it('should emit state:persisted events', async () => {

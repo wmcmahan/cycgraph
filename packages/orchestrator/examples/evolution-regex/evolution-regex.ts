@@ -30,9 +30,7 @@
 import {
   GraphRunner,
   InMemoryAgentRegistry,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   createGraph,
   createWorkflowState,
   createLogger,
@@ -162,8 +160,7 @@ const CANDIDATE_ID = registry.register({
   },
 });
 
-configureAgentFactory(registry);
-configureProviderRegistry(createProviderRegistry());
+const providers = createProviderRegistry();
 
 // ─── 4. Define the graph ────────────────────────────────────────────────
 
@@ -233,7 +230,7 @@ async function main() {
     maxExecutionTimeMs: 180_000,
   });
 
-  const runner = new GraphRunner(graph, state, { fitnessFunction });
+  const runner = new GraphRunner(graph, state, { registry, providers, fitnessFunction });
 
   try {
     const finalState = await runner.run();

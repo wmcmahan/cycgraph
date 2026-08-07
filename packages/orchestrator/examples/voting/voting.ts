@@ -17,9 +17,7 @@
 import {
   GraphRunner,
   InMemoryAgentRegistry,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   createGraph,
   createWorkflowState,
   createLogger,
@@ -98,9 +96,7 @@ const ARCHITECTURE_VOTER_ID = registry.register({
   },
 });
 
-configureAgentFactory(registry);
 const providers = createProviderRegistry();
-configureProviderRegistry(providers);
 
 // ─── 2. Define the graph ────────────────────────────────────────────────
 // A single voting node handles parallel execution and aggregation internally.
@@ -151,7 +147,7 @@ async function main() {
     maxExecutionTimeMs: 120_000,
   });
 
-  const runner = new GraphRunner(graph, state);
+  const runner = new GraphRunner(graph, state, { registry, providers });
 
   try {
     const finalState = await runner.run();

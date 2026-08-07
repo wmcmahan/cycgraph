@@ -1,17 +1,17 @@
 ---
 title: Custom Tools
-description: Define your own tools with defineTool and register them on the runner.
+description: Define your own tools with tool() and register them on the runner.
 ---
 
-MCP is the right tool layer for third-party integrations, but it's heavy machinery for a ten-line function you already have in your codebase. The custom tool layer covers that case: define a tool with `defineTool()`, register it on the runner, and reference it by name from any agent or node. The graph stays serializable because it only ever carries the name.
+MCP is the right tool layer for third-party integrations, but it's heavy machinery for a ten-line function you already have in your codebase. The custom tool layer covers that case: define a tool with `tool()` (part of the authoring vocabulary; `defineTool` is the same function under its verbose name) and reference the value from any agent or node — `run()` wires the implementation onto the runner for you. The graph stays serializable because it only ever carries the tool's name; the reference collapses at compile time.
 
 ## Define
 
 ```typescript
-import { defineTool } from '@cycgraph/orchestrator';
+import { tool } from '@cycgraph/orchestrator';
 import { z } from 'zod';
 
-const lookupOrder = defineTool({
+const lookupOrder = tool({
   name: 'lookup_order',
   description: 'Fetch an order by ID from the host system',
   parameters: z.object({ orderId: z.string() }),
@@ -23,7 +23,32 @@ const lookupOrder = defineTool({
 
 Validation is eager. A bad name, a collision with a built-in tool name, or a missing description throws `ToolDefinitionError` at definition time.
 
-## Register
+## Reference
+
+In a facade workflow, referencing the value is the whole setup:
+
+```typescript
+import { agent, node, graph, run } from '@cycgraph/orchestrator';
+
+const support = node({
+  id: 'support',
+  agent: agent({
+    model: 'claude-sonnet-4-6',
+    instructions: 'Handle the support request.',
+    tools: [lookupOrder],          // by reference — nothing else to wire
+  }),
+  reads: ['goal'],
+  writes: 'reply',
+});
+
+await run(graph({ name: 'support', nodes: [support], edges: [] }), { goal: '...' });
+```
+
+`graph()` collapses the reference to `{ type: 'custom', name: 'lookup_order' }` in the wire graph and `run()` registers the implementation on the runner, exactly how inline `agent()` values are collected and registered. One tool value referenced from several agents or nodes registers once; two distinct tools sharing a name fail at compile time.
+
+## Register (raw API and serialized graphs)
+
+A tool referenced by *name* — from a raw `createGraph` workflow, or a graph that was serialized and reloaded, where the implementation can't travel with it — is registered on the runner explicitly:
 
 ```typescript
 const runner = new GraphRunner(graph, state, {
@@ -31,11 +56,11 @@ const runner = new GraphRunner(graph, state, {
 });
 ```
 
-The `tools` option takes everything that provides tools in one array: `defineTool()` results and `ToolResolver` implementations like `MCPConnectionManager`, discriminated by shape. Duplicate custom names throw at construction.
+The `tools` option takes everything that provides tools in one array: `tool()` results and `ToolResolver` implementations like `MCPConnectionManager`, discriminated by shape. Duplicate custom names throw at construction. MCP resolvers always go here, facade or not — a connection manager is per-run infrastructure, not part of a graph.
 
-## Declare
+## Declare by name
 
-Agents and nodes reference the tool by bare name:
+Where the value isn't in scope, agents and nodes reference the tool by bare name:
 
 ```typescript
 const AGENT = agentRegistry.register({
@@ -68,7 +93,7 @@ The result lands in `memory.fetch_order_result`.
 Custom tools default to untainted output because they are your own code. When a tool ingests external content — a network fetch, a user-uploaded document — declare it:
 
 ```typescript
-const fetchPage = defineTool({
+const fetchPage = tool({
   name: 'fetch_page',
   description: 'Fetch a web page as text',
   parameters: z.object({ url: z.string().url() }),

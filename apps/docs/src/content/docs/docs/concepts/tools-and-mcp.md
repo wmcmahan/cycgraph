@@ -5,52 +5,51 @@ description: How agents interact with external systems via tool sources and the 
 
 Agents need tools to interact with the world. The orchestrator provides three tool layers behind one declaration format:
 
-1. **Built-in tools**: Shipped with the engine. Pure and dependency-free, like `save_to_memory`.
-2. **Custom tools**: Your own functions, defined with `defineTool()` and registered on the runner. The graph references them by name; the implementation is never serialized.
+1. **Built-in tools**: Shipped with the engine. Pure and dependency-free.
+2. **Custom tools**: Your own functions, defined with `tool` and registered on the run. The graph references them by name; the implementation is never serialized.
 3. **MCP tools**: Provided by a registered MCP server via the **Model Context Protocol**. The graph references the server by ID; transport config and secrets stay in the trusted registry.
 
 This decouples workflow definitions from implementations: graphs stay serializable, and the same graph runs anywhere the referenced tools are available.
 
 ## Declaring tools
 
-Agents and nodes declare tools in a `tools` array. Authoring is lightweight — a bare name for anything that resolves locally, an `{ mcp }` ref for servers:
-
 ```typescript
-import { InMemoryAgentRegistry } from '@cycgraph/orchestrator';
+import { agent, tool } from '@cycgraph/orchestrator';
+import { z } from 'zod';
 
-const agentRegistry = new InMemoryAgentRegistry();
+const lookupOrder = tool({
+  name: 'lookup_order',
+  description: 'Fetch an order by ID from the host system',
+  parameters: z.object({ orderId: z.string() }),
+  execute: async ({ orderId }) => db.orders.find(orderId),
+});
 
-const RESEARCH_AGENT = agentRegistry.register({
-  name: 'Research Specialist',
+const researchAgent = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: 'You are a research specialist...',
+  instructions: 'You are a research specialist...',
   tools: [
-    'save_to_memory',                              // built-in
-    'lookup_order',                                // custom, registered on the runner
-    { mcp: 'web-search', tools: ['search'] },      // MCP server ref with a tool filter
+    lookupOrder,
+    { mcp: 'web-search', tools: ['search'] },
   ],
 });
 ```
-
-Whatever form you author, storage is always the structured wire union: a bare name becomes `{ type: 'builtin', name }` when it names a built-in and `{ type: 'custom', name }` otherwise, and `{ mcp: id, tools }` becomes `{ type: 'mcp', server_id, tool_names }`. The structured form is accepted directly wherever you prefer to be explicit. The `tools` filter on a server ref is worth the keystrokes: without it the agent receives every tool the server advertises, including ones a compromised server injects later.
 
 ### Node-level tool overrides
 
 Graph nodes can override an agent's configured tools for a specific execution step. This lets you reuse the same general-purpose agent with different contextual tool sets throughout a graph.
 
 ```typescript
-{
+const initialResearch = node({
   id: 'initial-research',
-  type: 'agent',
-  agentId: RESEARCH_AGENT,
-  tools: ['save_to_memory', { mcp: 'web-search' }, { mcp: 'twitter-search' }],
-  readKeys: ['goal'],
-  writeKeys: ['initial_notes'],
-}
+  agent: researchAgent,
+  tools: [
+    { mcp: 'web-search' },
+    { mcp: 'twitter-search' }
+  ],
+  reads: ['goal'],
+  writes: 'initial_notes',
+});
 ```
-
-In this example, `save_to_memory` is included because the node may need to write structured data to multiple keys. For nodes that write to a single key, you can omit it, and the orchestrator captures text output automatically.
 
 **Refs:**
 - [ToolSource](#toolsource): Discriminated union of the three tool declaration shapes.
@@ -61,33 +60,28 @@ In this example, `save_to_memory` is included because the node may need to write
 
 ## Custom tools
 
-`defineTool()` turns a function into a schema-validated tool. Register the result on `GraphRunnerOptions.tools`, and any agent or node can declare it by name:
+`tool` turns a function into a schema-validated tool. Referencing the value from an agent or node `tools` array, as in the example above, is all a facade workflow needs. The run registers the implementation automatically.
+
+The `tools` option on the run is where implementations land, and you use it directly in two cases: MCP resolvers (an `MCPConnectionManager` is per-run infrastructure, not part of a graph), and any tool a graph references by *name* rather than by value — a serialized graph, or a raw-API workflow:
 
 ```typescript
-import { defineTool, GraphRunner } from '@cycgraph/orchestrator';
-import { z } from 'zod';
-
-const lookupOrder = defineTool({
-  name: 'lookup_order',
-  description: 'Fetch an order by ID from the host system',
-  parameters: z.object({ orderId: z.string() }),
-  execute: async ({ orderId }) => db.orders.find(orderId),
-});
-
-const runner = new GraphRunner(graph, state, {
-  tools: [lookupOrder, mcpManager],  // defined tools and MCP resolvers, one option
+await run(workflow, { goal: 'Look up order 1234' }, {
+  // inline tool() refs are added automatically
+  runner: { tools: [mcpManager] },
 });
 ```
 
-The `tools` option takes everything that provides tools: `defineTool()` results and `ToolResolver` implementations such as `MCPConnectionManager`, discriminated by shape. Resolution precedence is built-ins, then defined tools, then resolvers; a name collision between a local tool and an MCP tool keeps the local one and exposes the MCP tool under an `mcp__` prefix.
+On the raw API the same option sits directly on the runner: `new GraphRunner(graph, state, { tools: [lookupOrder, mcpManager] })`. Passing a tool there that a facade graph also references inline is a no-op, not a duplicate.
+
+The `tools` option takes everything that provides tools: `tool()` results and `ToolResolver` implementations such as `MCPConnectionManager`, discriminated by shape. Resolution precedence is built-ins, then defined tools, then resolvers.
 
 Three guarantees come with the wrapper:
 
-- **Validated input**: the LLM's arguments are parsed through your Zod `parameters` schema on every call; invalid arguments surface to the model as a normal tool failure.
+- **Validated input**: the LLM's arguments are parsed through your `parameters` schema on every call; invalid arguments surface to the model as a normal tool failure.
 - **Timeout**: each call races a per-tool timeout (30s default, `timeoutMs` to change, `0` to disable), so a hung tool cannot stall the node.
 - **Fail-at-start wiring**: a node declaring a custom tool that has no matching registration fails the runner's preflight check before any tokens are spent, exactly like MCP sources without a resolver.
 
-By default custom tools are treated as first-party code and their output is not taint-tracked. Declare `taints: true` on tools that ingest external content — network fetches, user documents — and their results land in `state.taint_registry` with source `custom_tool`, feeding the same downstream taint gates as MCP output.
+By default custom tools are treated as first-party code and their output is not taint-tracked. Declare `taints: true` on tools that ingest external content, network fetches, user documents and their results land in the taint registry with a source  of `custom_tool`, feeding the same downstream taint gates as MCP output.
 
 A curated set of pre-built tools ships as [`@cycgraph/tools`](/docs/guides/tool-library/): SSRF-guarded web access and pure data utilities, all `defineTool()` factories that register exactly like your own.
 
@@ -144,7 +138,30 @@ mcpRegistry.register({
 });
 ```
 
-*(Note: For production environments, use `DrizzleMCPServerRegistry` from `@cycgraph/orchestrator-postgres` to store server configurations durably in the database.)*
+For production environments, use `DrizzleMCPServerRegistry` from `@cycgraph/orchestrator-postgres` to store server configurations durably in the database.
+
+To skip the manual wiring, `registerDefaultMCPServers(registry)` registers a set of common stdio servers (web fetch and search) in one call:
+
+```typescript
+import { registerDefaultMCPServers } from '@cycgraph/orchestrator';
+
+const registered = await registerDefaultMCPServers(mcpRegistry);
+```
+
+### Wiring MCP into a run
+
+An `MCPConnectionManager` resolves the registered servers at execution time. Create one, pass it through the same `tools` option that carries custom tools, and close it when the run finishes:
+
+```typescript
+import { MCPConnectionManager, run } from '@cycgraph/orchestrator';
+
+const mcpManager = new MCPConnectionManager(mcpRegistry);
+try {
+  await run(workflow, { goal: '...' }, { runner: { tools: [mcpManager] } });
+} finally {
+  await mcpManager.closeAll();
+}
+```
 
 ### Transport types
 
@@ -246,9 +263,10 @@ See [Taint Tracking](/docs/concepts/taint-tracking/) for the full taint propagat
 
 ### `defineTool`
 
-Define a custom tool for registration on `GraphRunnerOptions.tools`. Validates the spec eagerly — an invalid name, a collision with a built-in name, or a missing description throws `ToolDefinitionError` at definition time, not mid-run. The returned tool's `execute` parses arguments through the Zod schema and enforces the per-call timeout.
+Define a custom tool for registration on the `tools` option. `tool` is the terse alias in the authoring vocabulary and the same function under a shorter name. Validates the spec eagerly. An invalid name, a collision with a built-in name, or a missing description throws `ToolDefinitionError` at definition time, not mid-run. The returned tool's `execute` parses arguments through the Zod schema and enforces the per-call timeout.
 
 ```typescript
+tool(spec: DefinedToolSpec): DefinedTool        // alias of defineTool
 defineTool(spec: DefinedToolSpec): DefinedTool
 ```
 
@@ -262,7 +280,7 @@ Zero-dependency [`MCPServerRegistry`](#mcpserverregistry) backed by a Map. Suita
 new InMemoryMCPServerRegistry()
 ```
 
-It accepts the camelCase [`MCPServerConfig`](#mcpserverconfig) authoring shape on write. Stored entries and `loadServer` results come back in the snake_case `MCPServerEntry` wire shape. `register(entry)` is a synchronous convenience alias for `saveServer`, handy in tests and setup code.
+It accepts the [`MCPServerConfig`](#mcpserverconfig) authoring shape on write. Stored entries and `loadServer` results come back in the `MCPServerEntry` wire shape. `register(entry)` is a synchronous convenience alias for `saveServer`, handy in tests and setup code.
 
 For production durability, use `DrizzleMCPServerRegistry` from `@cycgraph/orchestrator-postgres`. It implements the same interface against Postgres so server configs survive restarts.
 
@@ -308,6 +326,7 @@ What authors may write wherever a tool source is expected. Every form normalizes
 
 | Form | Normalizes to |
 |------|---------------|
+| A `tool()` / `defineTool()` value | `{ type: 'custom', name }` — the implementation is stashed for `run()` in facade graphs, never serialized |
 | `'save_to_memory'` (a built-in name) | `{ type: 'builtin', name }` |
 | `'lookup_order'` (any other name) | `{ type: 'custom', name }` |
 | `{ mcp: 'web-search', tools: ['search'] }` | `{ type: 'mcp', server_id, tool_names }` |
@@ -356,7 +375,7 @@ A tool provided by a registered MCP server, referenced by ID. It never contains 
 
 ### MCPServerConfig
 
-The camelCase authoring shape for a registry entry, accepted by `saveServer` and `register`. The stored and `loadServer`-returned form is the equivalent snake_case `MCPServerEntry`.
+The authoring shape for a registry entry, accepted by `saveServer` and `register`. The stored and `loadServer`-returned form is the equivalent `MCPServerEntry`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -386,7 +405,7 @@ The trusted store of transport configs and the security boundary between agent c
 
 | Method | Description |
 |--------|-------------|
-| `saveServer(entry)` | Register or update a server from the camelCase [`MCPServerConfig`](#mcpserverconfig) shape. Re-validates through the schema. |
+| `saveServer(entry)` | Register or update a server from the [`MCPServerConfig`](#mcpserverconfig) shape. Re-validates through the schema. |
 | `loadServer(id)` | Load a server by ID, or `null` if absent. Re-validates on read. |
 | `listServers()` | List all registered servers. |
 | `deleteServer(id)` | Remove a server by ID. Returns `true` if it existed. |

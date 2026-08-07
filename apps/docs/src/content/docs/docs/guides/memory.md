@@ -23,7 +23,7 @@ const store = new InMemoryMemoryStore();
 const index = new InMemoryMemoryIndex();
 
 // 1. Ingest messages into the hierarchy
-const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 5 * 60 * 1000 });
+const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 5 * 60 * 1000 });
 const extractor = new RuleBasedExtractor();
 const clusterer = new ConsolidatingThemeClusterer();
 
@@ -49,7 +49,7 @@ await index.rebuild(store);
 const result = await retrieveMemory(store, index, {
   embedding: queryVector,
   limit: 20,
-  min_similarity: 0.5,
+  minSimilarity: 0.5,
 });
 ```
 
@@ -86,7 +86,7 @@ import { retrieveMemory } from '@cycgraph/memory';
 
 const memoryRetriever = async (query, options) => {
   const result = await retrieveMemory(store, index, {
-    entity_ids: query.entityIds,
+    entityIds: query.entityIds,
     tags: query.tags ?? [],
     embedding: query.text ? await embed(query.text) : undefined,
     limit: options?.maxFacts ?? 20,
@@ -300,10 +300,10 @@ const ledger = new InMemoryOutcomeLedger();
 // The `id` passthrough on each fact is what makes attribution work.
 const facts = await retrieveGatedLessons(store, {
   tags: ['lesson', 'graph:my-graph-v1'],
-  max_facts: 10,
-  candidate_slots: 4,
-  rest_after_trials: 5,  // bench fully-trialled candidates: frees slots AND creates baseline runs
-  ledger,                // in-progress-first — trial cohorts graduate instead of churning
+  maxFacts: 10,
+  candidateSlots: 4,
+  restAfterTrials: 5,  // bench fully-trialled candidates: frees slots AND creates baseline runs
+  ledger,              // in-progress-first — trial cohorts graduate instead of churning
 });
 
 // After each scored run:
@@ -315,14 +315,14 @@ await ledger.recordOutcome({
 
 // Periodically (e.g. every N runs):
 const gate = await evaluateRetention(store, ledger, {
-  min_trials: 3,
-  decision_rule: 'inference', // default — statistically-controlled Welch test ('margin' is the legacy point-estimate rule)
-  promote_margin: 0.05,   // → tag rewritten candidate → verified
-  evict_margin: 0.05,     // → invalidated_by: 'eval-gate:harmful'
-  promote_confidence: 0.9, // required P(lift > promote_margin) to promote (default 0.9)
-  evict_confidence: 0.9,   // required P(lift < −evict_margin) to evict (default 0.9)
-  noise_floor_sd: 0.1,     // set to your judge's per-run SD (default 0.1)
-  max_baseline_runs: 40,  // undecided by then → 'eval-gate:no_lift'
+  minTrials: 3,
+  decisionRule: 'inference', // default — statistically-controlled Welch test ('margin' is the legacy point-estimate rule)
+  promoteMargin: 0.05,   // → tag rewritten candidate → verified
+  evictMargin: 0.05,     // → invalidated_by: 'eval-gate:harmful'
+  promoteConfidence: 0.9, // required P(lift > promoteMargin) to promote (default 0.9)
+  evictConfidence: 0.9,   // required P(lift < −evictMargin) to evict (default 0.9)
+  noiseFloorSd: 0.1,     // set to your judge's per-run SD (default 0.1)
+  maxBaselineRuns: 40,  // undecided by then → 'eval-gate:no_lift'
 });
 ```
 

@@ -74,6 +74,18 @@ export interface DefinedTool {
 }
 
 /**
+ * Whether a value is a {@link DefinedTool}. Shape-based (a named object
+ * carrying an `execute` function) rather than branded, so it also recognizes
+ * tools that crossed a structural boundary — a deep clone, a case remap, or
+ * a `@cycgraph/tools` factory result.
+ */
+export function isDefinedTool(value: unknown): value is DefinedTool {
+  if (value === null || typeof value !== 'object') return false;
+  const tool = value as Partial<DefinedTool>;
+  return typeof tool.name === 'string' && typeof tool.execute === 'function';
+}
+
+/**
  * Race a tool invocation against its timeout. Mirrors the MCP connection
  * manager's per-tool timeout so custom and MCP tools fail the same way.
  */
@@ -139,3 +151,10 @@ export function defineTool<TArgs extends z.ZodType>(spec: DefinedToolSpec<TArgs>
     },
   };
 }
+
+/**
+ * Terse alias of {@link defineTool} — the tool member of the authoring
+ * vocabulary (`agent` · `node` · `graph` · `state` · `run` · `tool`).
+ * `defineTool` remains as the verbose form; both are the same function.
+ */
+export const tool = defineTool;

@@ -60,74 +60,64 @@ The pattern requires you to pair a "candidate" generator agent with an "evaluato
 
 ### 1. The Agents
 
-Register the candidate agent that will generate variations, and the evaluator agent that will score their fitness.
+Define the candidate agent that will generate variations, and the evaluator agent that will score their fitness. Neither is placed as its own node; both are referenced from the evolution node's config.
 
 ```typescript
-import { InMemoryAgentRegistry } from '@cycgraph/orchestrator';
+import { agent } from '@cycgraph/orchestrator';
 
-const registry = new InMemoryAgentRegistry();
-
-const WRITER_ID = registry.register({
-  name: 'Candidate Writer',
+const writer = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
-    'You are a creative writer.',
-    'Write a poem based on the prompt.',
-    'If `parent` is provided in the Task Context section, use it as a starting point. The parent scored `parent_fitness` — aim to do better.',
-    'Current generation: `generation` in the Task Context.',
-  ].join(' '),
+  instructions: [
+    `You are a creative writer
+    Write a poem based on the prompt.
+    If `parent` is provided in the Task Context section, use it as a starting point. The parent scored `parent_fitness` — aim to do better.
+    Current generation: `generation` in the Task Context.`,
+  ],
   // Temperature is overridden by the evolution node dynamically
-  temperature: 1.0, 
-  tools: [],
-  permissions: { readKeys: ['prompt'], writeKeys: ['poem'] },
+  temperature: 1.0,
 });
 
-const EVALUATOR_ID = registry.register({
-  name: 'Fitness Evaluator',
+const evaluator = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
-    'Evaluate the poem strictly on its metrical structure and emotional impact.',
-    'Return a single number between 0.0 and 1.0 representing the quality score.',
-  ].join(' '),
+  instructions: [
+    `Evaluate the poem strictly on its metrical structure and emotional impact
+    Return a single number between 0.0 and 1.0 representing the quality score`,
+  ],
   temperature: 0.1,
-  tools: [],
-  permissions: { readKeys: ['poem'], writeKeys: ['score'] },
 });
 ```
 
 ### 2. The Evolution Node
 
-The `evolution` node type requires an `evolutionConfig` block that dictates the population size, selection strategy, and stopping conditions.
+The `evolution` node type requires an `evolutionConfig` block that dictates the population size, selection strategy, and stopping conditions. The `candidateAgentId` and `evaluatorAgentId` fields accept the agent values directly; `graph()` resolves them to registry ids at compile time.
 
 ```typescript
-import { createGraph } from '@cycgraph/orchestrator';
+import { node, graph } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
+const evolve = node({
+  id: 'evolve-poem',
+  type: 'evolution',
+  reads: ['*'],
+  writes: ['*'],
+  evolutionConfig: {
+    candidateAgentId: writer,
+    evaluatorAgentId: evaluator,
+    populationSize: 5,         // Parallel candidates per generation
+    maxGenerations: 10,        // Hard limit
+    fitnessThreshold: 0.9,     // Early exit score
+    stagnationGenerations: 3,  // Exit if no improvement
+    selectionStrategy: 'rank', // Always select the top scorer
+    initialTemperature: 1.0,   // Exploration (Generation 0)
+    finalTemperature: 0.3,     // Exploitation (Final Generation)
+  },
+});
+
+const workflow = graph({
   name: 'Poem Evolution',
-  nodes: [
-    {
-      id: 'evolve-poem',
-      type: 'evolution',
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      evolutionConfig: {
-        candidateAgentId: WRITER_ID,
-        evaluatorAgentId: EVALUATOR_ID,
-        populationSize: 5,         // Parallel candidates per generation
-        maxGenerations: 10,        // Hard limit
-        fitnessThreshold: 0.9,     // Early exit score
-        stagnationGenerations: 3,  // Exit if no improvement
-        selectionStrategy: 'rank', // Always select the top scorer
-        initialTemperature: 1.0,   // Exploration (Generation 0)
-        finalTemperature: 0.3,     // Exploitation (Final Generation)
-      },
-    },
-  ],
+  nodes: [evolve],
   edges: [],
-  startNode: 'evolve-poem',
-  endNodes: ['evolve-poem'],
+  startNode: evolve,
+  endNodes: [evolve],
 });
 ```
 
@@ -137,7 +127,7 @@ const graph = createGraph({
 
 Each candidate receives the previous generation's winner automatically in its state view. Your candidate agent's system prompt must explicitly address these variables to "mutate" successfully:
 
-> "If `parent` is provided in the Task Context section, use it as a starting point. The parent scored `parent_fitness` — aim to do better. Current generation: `generation`."
+> "If `parent` is provided in the Task Context section, use it as a starting point. The parent scored `parent_fitness` aim to do better. Current generation: `generation`."
 
 The evaluator's critique of the parent is also injected as `parent_reasoning` in the Task Context, so each generation can fix the *specific* gaps the judge named rather than mutating blindly.
 
