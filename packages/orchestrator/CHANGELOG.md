@@ -1,5 +1,40 @@
 # @cycgraph/orchestrator
 
+## 0.11.0
+
+### Minor Changes
+
+- c069711: Authoring facade: a small vocabulary for building workflows with far less boilerplate, while keeping the graph topology explicit. Each word means one thing, forming a pipeline:
+
+  - `agent(spec)` — a **capability**: model, instructions, tools. No registry call, no id to manage (`graph()` mints one; pin `id` only for deterministic graph JSON). One value referenced in many places is registered once.
+  - `node(spec)` — a **placement**: topology `id`, state grants (`reads`/`writes`, the engine's authoritative permission), and which agent runs there (`agent:`). The value exposes its properties, so references go by value: `edges: [{ from: research, to: write }]`, `startNode`, `endNodes`, and `managedNodes` all accept node values or id strings.
+  - `graph({ nodes, edges })` — the **compiler**: resolves agent references anywhere in node configs (`agent:`, `candidateAgentId`, `evaluatorAgentId`, `voterAgentIds`, …) to minted registry ids, expands `{ from, to, when }` edge sugar, infers start/end when unambiguous, and emits the exact same wire as `createGraph` (verified by test). Reference resolution preserves `Date` and other non-plain values in node configs, a node given a raw `agentId` defaults to `type: 'agent'` just like the `agent:` field, and two distinct `agent()` definitions pinned to the same id are rejected at compile time.
+  - `state(input)` / `run(graph, input)` — `run` registers the graph's agents into a run-scoped registry, wires providers/state/persistence, executes, and returns the final memory. The run registry is only created when the graph actually carries inline `agent()` definitions; a raw graph resolves agents from whatever the caller configured, and passing `runner.registry` alongside inline agents is a loud error instead of a silent shadow. Providers are scoped only when given, so a globally-registered provider (e.g. Ollama) keeps working through `run()`.
+  - `tool(spec)` — terse alias of `defineTool`, completing the vocabulary (`agent` · `node` · `graph` · `state` · `run` · `tool`). `defineTool` and `createWorkflowState` remain as the verbose forms. Tool values ride the same reference pipeline as agents: pass a `tool()` result directly in any agent or node `tools` array and `graph()` collapses it to its serializable `{ type: 'custom', name }` source while `run()` registers the implementation on the runner automatically (`toolsForGraph` exposes the stash). Name strings still work everywhere and remain the form serialized graphs carry; raw-API callers keep passing implementations via the runner's `tools` option, and every authoring boundary (`createGraph`, `registry.register`) now also accepts a `defineTool()` result, collapsing it to its name reference.
+
+  Additive — the raw `createGraph`/`GraphRunner`/registry API is unchanged. The `research-and-write` example is rewritten with the facade (~110 lines of setup → ~20).
+
+- c069711: Rename the `*Fn` runner options to noun-verb names: `persistState`, `loadGraph`, and `persistDelta` are now the primary `GraphRunnerOptions` fields. The former `persistStateFn` / `loadGraphFn` / `persistDeltaFn` remain as deprecated aliases (the primary name wins when both are given) and will be removed in a later release. `createFencedRunnerOptions` in `@cycgraph/orchestrator-postgres` now returns `persistState`; the worker accepts either spelling from `runnerOptionsFactory` results, so existing factories keep working.
+- c069711: Remove the vestigial `map` edge-condition type. Map-reduce fan-out was never edge-driven: a `map` node names its worker in `map_reduce_config.worker_node_id` and invokes it directly, the worker needs no inbound edge, and the validator already treats config-referenced workers as reachable. A `map` edge merely evaluated like `always` (or like `conditional` when given an expression), so the type was a misleading synonym with no behavior of its own.
+
+  `EdgeConditionSchema.type` is now `'always' | 'conditional'`. The condition evaluator, graph validator, and architect schema no longer accept `map`.
+
+  **Migration:** replace `condition: { type: 'map' }` with `{ type: 'always' }` (or simply omit `condition` — `always` is the default), and `{ type: 'map', condition: expr }` with `{ type: 'conditional', condition: expr }`. Behavior is identical. A persisted graph carrying a `map` edge now fails schema validation on load with a clear error naming the edge, rather than routing under an alias.
+
+- c069711: Run-scoped agent factory: the agent registry and provider registry can now be scoped into a run via `GraphRunnerOptions`, removing the process-global multi-tenant footgun.
+
+  - New `GraphRunnerOptions.registry` and `GraphRunnerOptions.providers`. When either is set, the runner builds a run-scoped agent factory, so two concurrent runs with different registries (even reusing an agent id) never contaminate each other. Without them, the runner falls back to the process-global factory (unchanged behavior). When only one is set, the other half is inherited from the global factory, so scoping providers alone doesn't drop a globally-configured registry. A scoped factory always fails closed on unknown agent ids.
+  - Subgraph child runners inherit the parent's scoped `registry`/`providers` and its `tools` option, so a scoped run stays scoped through nested graphs (and subgraph agents keep their tool resolution).
+  - The authoring facade's `run()` now uses the scoped path — no process-global mutation — so concurrent facade runs are isolated by construction.
+  - `configureAgentFactory` and `configureProviderRegistry` are **deprecated** (still functional). They mutate process-global state shared across every run in the process. Prefer scoping via `GraphRunnerOptions`. They will be removed once consumers have migrated.
+  - The agent factory no longer rejects non-UUID agent ids up front; the registry owns id-shape constraints. The Postgres adapter treats a non-UUID id as clean not-found across the board (the `agents.id` column is `uuid`): `loadAgent` returns `null`, `updateAgent` no-ops, and `deleteAgent` returns `false`, instead of surfacing a Postgres type error. This lets human-readable ids (e.g. from the authoring facade) resolve against an in-memory registry.
+
+  **Migration (mc-ai-api and other consumers):** replace startup `configureAgentFactory(registry)` / `configureProviderRegistry(providers)` with per-run options: `new GraphRunner(graph, state, { registry, providers, ... })` (or, for the worker, add them to the `runnerOptionsFactory` result). The global helpers keep working during the transition, so this can be done incrementally. Scoping per run is what makes a multi-tenant worker safe — a process-global factory shared across tenants is the contamination risk this change removes.
+
+- c069711: Supervisors derive their read grants from their team. A `supervisor` node with no declared `read_keys` now sees `goal`, `constraints`, and everything its `managed_nodes` write (their `write_keys` plus each node's `${id}_output` fallback) — instead of routing blind on `goal`/`constraints` alone. This removes the `reads: ['*']` boilerplate every supervisor example hand-wrote, and it is least-privilege where the wildcard was not: tainted memory outside the team's outputs never reaches the routing prompt. Explicit `read_keys` on a supervisor override the derivation entirely, and non-supervisor nodes are unchanged. Together with the already-implied `handoff`/`set_status` write permissions, a typical supervisor now declares no grants at all.
+
+  The security policy gate evaluates the same derived grants: a `securityPolicy` sees a grant-less supervisor's derived reads in `tainted_read_keys`, so tainted managed-node output cannot reach the routing prompt unexamined.
+
 ## 0.10.0
 
 ### Minor Changes
