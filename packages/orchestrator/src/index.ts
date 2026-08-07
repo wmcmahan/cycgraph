@@ -184,9 +184,39 @@ export { SUPERVISOR_DONE } from './agent/supervisor-executor/constants.js';
 export { SupervisorConfigError, SupervisorRoutingError } from './agent/supervisor-executor/errors.js';
 export type { SupervisorDecision } from './agent/supervisor-executor/executor.js';
 
+// ─── Authoring Facade ───────────────────────────────────────────────
+// Terse vocabulary (agent · node · graph · state · run) that compiles to
+// the same wire as the raw graph API. See docs/plans/authoring-facade.md.
+
+export {
+  agent,
+  isAgentValue,
+  inferProvider,
+  AgentSpecError,
+  node,
+  isNodeValue,
+  graph,
+  agentsForGraph,
+  toolsForGraph,
+  GraphSpecError,
+  run,
+  state,
+} from './authoring/index.js';
+export type {
+  AgentSpec,
+  AgentValue,
+  NodeValue,
+  NodeSpec,
+  NodeRef,
+  GraphSpec,
+  EdgeSugar,
+  RunInput,
+  RunOptions,
+} from './authoring/index.js';
+
 // ─── Custom Tools ───────────────────────────────────────────────────
 
-export { defineTool, ToolDefinitionError, DEFAULT_CUSTOM_TOOL_TIMEOUT_MS } from './tools/define-tool.js';
+export { defineTool, tool, isDefinedTool, ToolDefinitionError, DEFAULT_CUSTOM_TOOL_TIMEOUT_MS } from './tools/define-tool.js';
 export type { DefinedTool, DefinedToolSpec } from './tools/define-tool.js';
 export { ToolNotRegisteredError } from './tools/registry.js';
 export type { ToolsOption } from './tools/registry.js';

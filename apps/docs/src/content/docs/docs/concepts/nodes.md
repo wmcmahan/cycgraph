@@ -3,63 +3,64 @@ title: Nodes
 description: Node types, configuration, state slicing, failure policies, and subgraphs.
 ---
 
-A **Node** is a unit of work the graph executes. It can be a single agent, a tool call, a router, a human-approval gate, or any of the other [node types](#node-types). Nodes are plain data: you author them inline in the `nodes` array passed to [`createGraph`](/docs/concepts/graphs/#creategraph), and the [`GraphRunner`](/docs/concepts/graph-runner/) executes them.
+A **Node** is a unit of work the graph executes. It can be a single agent, a tool call, a router, a human-approval gate, or any of the other node types.
 
 ```typescript
-const graph = createGraph({
-  name: 'Research Pipeline',
-  startNode: 'researcher',
-  endNodes: ['writer'],
-  nodes: [
-    {
-      id: 'researcher',
-      type: 'agent',
-      agentId: RESEARCH_AGENT,
-      readKeys: ['goal'],
-      writeKeys: ['notes'],
-    },
-    // ... more nodes
-  ],
-  edges: [/* ... */],
+import { agent, node } from '@cycgraph/orchestrator';
+
+const researchNode = node({
+  id: 'research',
+  agent: agent({
+    model: 'claude-sonnet-4-6',
+    instructions: 'You are a research specialist. Produce concise, factual notes.',
+  }),
+  reads: ['goal'],
+  writes: 'notes',
 });
 ```
 
-Every node shares a common set of fields (`id`, `type`, `readKeys`, `writeKeys`, `failurePolicy`, and so on). Each type then reads its own optional config block, such as `supervisorConfig` on a `supervisor` node. The full field reference is in [Interfaces](#interfaces) below.
+The full field reference is in [Interfaces](#nodespec) below.
 
 ## Node types
 
-The `type` field selects a node's executor.
-
 | Type | Description |
 |------|-------------|
-| `agent` | Runs an LLM with tools via `streamText`. The workhorse of the system. |
-| `tool` | Executes a specific MCP tool directly, without an LLM. |
+| `agent` | Runs an LLM with tools. The workhorse of the system. |
+| `tool` | Executes a specific tool or MCP. |
 | `router` | Evaluates a state expression and routes to the matching target node. |
 | `supervisor` | LLM-powered dynamic routing. Delegates to managed nodes iteratively. |
 | `approval` | Pauses the workflow for human review. Resumes when approved or rejected. |
-| `map` | Fans out work to parallel workers (one per item). |
+| `map` | Fans out work to parallel workers. |
 | `synthesizer` | Merges parallel outputs into a single result using an LLM agent. |
 | `voting` | Multiple agents vote on a decision to reach consensus. |
 | `subgraph` | Delegates to a nested graph with isolated state and input/output mapping. |
 | `evolution` | Population-based selection: runs N candidates, scores fitness, breeds the next generation. |
 | `verifier` | Gates a target memory key against a verification predicate. |
-| `reflection` | Distills source memory keys into atomic facts and persists them via `memoryWriter`. |
+| `reflection` | Distills source memory keys into atomic facts and persists them via a memory writer. |
 
 Each type's config block is documented under [Interfaces](#interfaces).
 
 ## State slicing
 
-Nodes declare which state keys they can read and write. Both `readKeys` and `writeKeys` **default to `[]` (least privilege)**: a node that omits `readKeys` sees only `goal` and `constraints`, and one that omits `writeKeys` can write nothing. Opt into exactly what each node needs:
+Nodes declare which state keys they can read and write with `reads` and `writes`.
 
-- `readKeys: ['goal', 'notes']`: the node sees only these keys from memory, plus `goal` and `constraints`, which are always available.
-- `writeKeys: ['draft']`: the node can only write to these keys.
-- `readKeys: ['*']` or `writeKeys: ['*']`: allow all memory access. `validateGraph` warns for any node using `['*']` reads, since it defeats state slicing. Reserve it for nodes that genuinely need every prior output, such as a final summarizer.
+```typescript
+const write = node({
+  // ...
+  reads: ['goal', 'notes'],
+  writes: 'draft',
+});
+```
 
-This enforces the **principle of least privilege**: a writer agent can't read database credentials, and a researcher can't overwrite the final draft. Because the default is `[]`, a node that consumes an upstream node's output **must declare it**. A writer reading research notes needs `readKeys: ['notes']`, not the implicit full access of earlier versions.
+Both `read` and `write` fields default to an empty list, least privilege, and a node that omits `reads` sees only `goal` and `constraints`, which are always available, and one that omits `writes` can write nothing. Because of that default, a node that consumes an upstream node's output must declare it. A writer reading research notes needs `reads: ['notes']`.
 
-Two families of write grants are **implied** and never need declaring. The first is control-flow permissions that follow from the node's type: a supervisor may route and complete, approval and subgraph nodes may pause, and a swarm agent may hand off. The second is the result keys a node's own executor writes: a verifier's result pair, a reflection envelope, a tool node's `${id}_result`, and fan-out aggregate keys. `writeKeys` is for what the node's *agent* writes.
+`reads: ['*']` allows full memory access. `validateGraph` warns on wildcard reads because they defeat state slicing; reserve them for nodes that genuinely need every prior output, such as a final summarizer.
 
-`validateGraph` also warns when a `readKeys` entry is not produced by any node in the graph, whether declared, implied, or a default write key. This is usually a typo that would otherwise surface as a silently empty value at runtime. Keys seeded through initial workflow memory are the legitimate exception, which is why this is a warning rather than an error.
+This enforces the principle of least privilege, as a writer agent can't read database credentials, and a researcher can't overwrite the final draft.
+
+Several grants are derived and never need declaring. Control-flow permissions follow from the node's type: a supervisor may route and complete, approval and subgraph nodes may pause, and a swarm agent may hand off. The result keys a node's own executor writes are implied by its config: a verifier's result pair, a reflection envelope, a tool node's `${id}_result`, and fan-out aggregate keys. And a supervisor with no declared `reads` derives them from its team, `goal`, `constraints`, and everything its `managedNodes` write. `writes` is for what the node's *agent* writes.
+
+`validateGraph` also warns when a declared read key is not produced by any node in the graph, whether declared, implied, or a default write key. This is usually a typo that would otherwise surface as a silently empty value at runtime. Keys seeded through initial workflow memory are the legitimate exception, which is why this is a warning rather than an error.
 
 ## Compensation (saga)
 
@@ -67,52 +68,78 @@ Nodes can opt into compensation for rollback support by setting `requiresCompens
 
 ## Resilience
 
-Every node carries a `failurePolicy` that controls how the runner handles a failure. On a retryable error, the runner retries up to `maxRetries` times with backoff (exponential by default). An optional per-node circuit breaker trips after repeated failures and auto-recovers through half-open probes, which prevents hammering a failing external service.
+Every node carries a failure policy that controls how the runner handles a failure. On a retryable error, the runner retries up to max retries times with backoff (exponential by default). An optional per-node circuit breaker trips after repeated failures and auto-recovers through half-open probes, which prevents hammering a failing external service.
 
-A node can also declare a `budget` that caps the tokens or USD a single execution may spend. This guards against a runaway annealing loop or an oversized reflection extraction eating the whole workflow budget. Breaching either cap throws `NodeBudgetExceededError` and stops the workflow immediately with **no retry**, since a retry would just compound the spend. Workflow-level budgets (`WorkflowState.budgetUsd`, `maxTokenBudget`) remain enforced independently.
+A node can also declare a budget that caps the tokens or USD a single execution may spend. This guards against a runaway annealing loop or an oversized reflection extraction eating the whole workflow budget. Breaching either cap throws `NodeBudgetExceededError` and stops the workflow immediately with no retry, since a retry would just compound the spend. Workflow-level budgets (`WorkflowState.budgetUsd`, `maxTokenBudget`) remain enforced independently.
 
 ```typescript
-{
+const reflect = node({
   id: 'reflect',
   type: 'reflection',
-  readKeys: ['notes'],
-  writeKeys: ['reflect_reflection'],
+  reads: ['notes'],
   reflectionConfig: { /* … */ },
   budget: {
     maxTokens: 20_000,
     maxCostUsd: 0.10,
   },
-}
+});
 ```
 
 **Refs:**
 - [FailurePolicy](#failurepolicy): Retry, backoff, timeout, and circuit-breaker fields.
 - [NodeBudget](#nodebudget): Per-node token and cost caps.
 
+## API
+
+### `node`
+
+Author a graph node as a placement value: a topology id, state grants, and which agent runs there. It is the facade counterpart of a raw node config and compiles to the same [GraphNode](#graphnode) wire shape when [graph](/docs/concepts/graphs/#graph) builds the graph.
+
+```typescript
+node(spec: NodeSpec): NodeValue
+```
+
+##### Options
+
+The input is a [NodeSpec](#nodespec).
+
 ## Interfaces
+
+### NodeSpec
+
+The authoring input to [node](#node).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `string` | *required* | Unique node identifier. |
+| `agent` | `AgentValue \| string` | — | The agent to run. |
+| `type` | [`NodeType`](#nodetype) | Selects the node's executor. Required for non-agent nodes. |
+| `reads` | `string[]` | `[]` | Memory keys this node may read. |
+| `writes` | `string \| string[]` | `[]` | Memory key(s) this node may write. |
+
 
 ### GraphNode
 
-The common shape shared by every node. Type-specific behavior comes from the optional config block that matches the node's `type`.
+The common shape shared by every node. Type-specific behavior comes from the optional config block that matches the node's type.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `id` | `string` | *required* | Unique node identifier. |
 | `type` | [`NodeType`](#nodetype) | *required* | Selects the node's executor. |
-| `agentId` | `string` | — | Agent to run (`agent` nodes, and the routing LLM on `supervisor`). |
-| `toolId` | `string` | — | Tool to execute (`tool` nodes). |
+| `agentId` | `string` | — | Agent to run. |
+| `toolId` | `string` | — | Tool to execute. |
 | `tools` | [`ToolSource[]`](/docs/concepts/tools-and-mcp/) | — | Tool sources for this node. Overrides the agent's configured tools when set. |
-| `subgraphId` | `string` | — | Graph to embed (`subgraph` nodes). |
-| `subgraphConfig` | [`SubgraphConfig`](#subgraphconfig) | — | Input/output mapping and iteration limits (`subgraph` nodes). |
-| `supervisorConfig` | [`SupervisorConfig`](#supervisorconfig) | — | Managed nodes and iteration limits (`supervisor` nodes). |
-| `approvalConfig` | [`ApprovalGateConfig`](#approvalgateconfig) | — | Approval type, review keys, and timeout (`approval` nodes). |
-| `mapReduceConfig` | [`MapReduceConfig`](#mapreduceconfig) | — | Worker node, items path, concurrency, and error strategy (`map` nodes). |
-| `votingConfig` | [`VotingConfig`](#votingconfig) | — | Voter agents, aggregation strategy, and quorum (`voting` nodes). |
-| `annealingConfig` | [`AnnealingConfig`](#annealingconfig) | — | Iterative self-refinement (`agent` nodes). |
-| `swarmConfig` | [`SwarmConfig`](#swarmconfig) | — | Peer delegation (`agent` nodes in swarm mode). |
+| `subgraphId` | `string` | — | Graph to embed as a subgraph. |
+| `subgraphConfig` | [`SubgraphConfig`](#subgraphconfig) | — | Input/output mapping and iteration limits for the subgraph. |
+| `supervisorConfig` | [`SupervisorConfig`](#supervisorconfig) | — | Managed nodes and iteration limits for supervisor nodes. |
+| `approvalConfig` | [`ApprovalGateConfig`](#approvalgateconfig) | — | Approval type, review keys, and timeout for approval nodes. |
+| `mapReduceConfig` | [`MapReduceConfig`](#mapreduceconfig) | — | Worker node, items path, concurrency, and error strategy for map nodes. |
+| `votingConfig` | [`VotingConfig`](#votingconfig) | — | Voter agents, aggregation strategy, and quorum for voting nodes. |
+| `annealingConfig` | [`AnnealingConfig`](#annealingconfig) | — | Iterative self-refinement for agent nodes. |
+| `swarmConfig` | [`SwarmConfig`](#swarmconfig) | — | Peer delegation for agent` nodes in swarm mode. |
 | `evolutionConfig` | [`EvolutionConfig`](#evolutionconfig) | — | Population size, fitness evaluation, and selection strategy (`evolution` nodes). |
-| `verifierConfig` | [`VerifierConfig`](#verifierconfig) | — | Verification predicate (`verifier` nodes). |
-| `reflectionConfig` | [`ReflectionConfig`](#reflectionconfig) | — | Source keys, extractor variant, and tags (`reflection` nodes). |
+| `verifierConfig` | [`VerifierConfig`](#verifierconfig) | — | Verification predicate for verifier nodes. |
+| `reflectionConfig` | [`ReflectionConfig`](#reflectionconfig) | — | Source keys, extractor variant, and tags for reflection nodes. |
 | `memoryQuery` | [`MemoryQuery`](#memoryquery) | — | Per-node retrieval directive. |
 | `readKeys` | `string[]` | `[]` | Memory keys this node may read. See [State slicing](#state-slicing). |
 | `writeKeys` | `string[]` | `[]` | Memory keys this node may write. |
@@ -161,7 +188,7 @@ Per-node resource caps. Breaching either throws `NodeBudgetExceededError` and st
 
 ### SupervisorConfig
 
-Used by `supervisor` nodes. The supervisor LLM dynamically routes work between managed sub-nodes until it decides the goal is met (routing to `__done__`) or the iteration limit is reached.
+Used by `supervisor` nodes. The supervisor LLM dynamically routes work between managed sub-nodes until it decides the goal is met or the iteration limit is reached.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -171,16 +198,16 @@ Used by `supervisor` nodes. The supervisor LLM dynamically routes work between m
 
 ### SubgraphConfig
 
-Used by `subgraph` nodes. Executes an entire nested workflow as a single step, with isolated state and explicit memory mapping.
+Used by subgraph nodes. Executes an entire nested workflow as a single step, with isolated state and explicit memory mapping.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `subgraphId` | `string` | *required* | ID of the graph to embed (loaded via `loadGraphFn`). |
+| `subgraphId` | `string` | *required* | ID of the graph to embed (loaded via `loadGraph`). |
 | `inputMapping` | `Record<string, string>` | `{}` | Maps parent memory keys to child memory keys. |
 | `outputMapping` | `Record<string, string>` | `{}` | Maps child memory keys to parent memory keys. |
 | `maxIterations` | `number` | `50` | Iteration cap for the child workflow. |
 
-The child gets a **fresh, isolated** `WorkflowState`. Only mapped keys cross the boundary. The child inherits the parent's remaining token budget. The `subgraphStack` state field prevents cyclic nesting, so `A → B → A` throws immediately.
+The child gets a fresh, isolated `WorkflowState`. Only mapped keys cross the boundary. The child inherits the parent's remaining token budget. The `subgraphStack` state field prevents cyclic nesting, so `A → B → A` throws immediately.
 
 ### ApprovalGateConfig
 
@@ -202,7 +229,7 @@ Used by `map` nodes. Fans out work to parallel workers, then optionally fans in 
 |-------|------|---------|-------------|
 | `workerNodeId` | `string` | *required* | Node ID of the worker to fan out to. |
 | `itemsPath` | `string` | — | JSONPath to extract the items array from memory. |
-| `staticItems` | `unknown[]` | — | Static items array (alternative to `itemsPath`). |
+| `staticItems` | `unknown[]` | — | Static items array. |
 | `synthesizerNodeId` | `string` | — | Node ID of the synthesizer to fan results into. |
 | `errorStrategy` | `'fail_fast' \| 'best_effort'` | `'best_effort'` | How to handle worker errors. |
 | `maxConcurrency` | `number` | `5` | Maximum concurrent workers. |

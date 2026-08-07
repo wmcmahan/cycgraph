@@ -45,7 +45,7 @@ export function llmGraphToGraph(llm: LLMGraph, existingId?: string): Graph {
     edges: llm.edges.map(e => ({
       ...e,
       condition: {
-        type: e.condition.type as 'always' | 'conditional' | 'map',
+        type: e.condition.type as 'always' | 'conditional',
         condition: e.condition.condition,
       },
     })),

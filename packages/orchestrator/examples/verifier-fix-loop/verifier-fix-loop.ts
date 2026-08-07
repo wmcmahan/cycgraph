@@ -25,9 +25,7 @@ import {
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   createLogger,
   createGraph,
   createWorkflowState,
@@ -92,10 +90,7 @@ const FIXER_ID = registry.register({
   },
 });
 
-configureAgentFactory(registry);
-
 const providers = createProviderRegistry();
-configureProviderRegistry(providers);
 
 // ─── 2. Define the graph ─────────────────────────────────────────────────
 
@@ -196,7 +191,9 @@ const initialState = createWorkflowState({
 const persistence = new InMemoryPersistenceProvider();
 
 const runner = new GraphRunner(graph, initialState, {
-  persistStateFn: async (state) => {
+  registry,
+  providers,
+  persistState: async (state) => {
     await persistence.saveWorkflowState(state);
     await persistence.saveWorkflowRun(state);
   },

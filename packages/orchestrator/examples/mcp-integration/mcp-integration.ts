@@ -24,9 +24,7 @@ import {
   GraphRunner,
   InMemoryAgentRegistry,
   InMemoryMCPServerRegistry,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   MCPConnectionManager,
   registerDefaultMCPServers,
   createGraph,
@@ -62,8 +60,8 @@ logger.info(`Registered MCP servers: ${registered.join(', ')}`);
 
 // You can also register selectively or with overrides:
 //   registerDefaultMCPServers(mcpRegistry, { only: ['fetch'] });
-//   registerDefaultMCPServers(mcpRegistry, { brave_api_key: 'BSA-...' });
-//   registerDefaultMCPServers(mcpRegistry, { allowed_agents: [RESEARCHER_ID] });
+//   registerDefaultMCPServers(mcpRegistry, { braveApiKey: 'BSA-...' });
+//   registerDefaultMCPServers(mcpRegistry, { allowedAgents: [RESEARCHER_ID] });
 
 // ─── 2. Register agents with MCP tool references ────────────────────────
 // Tools are declared as ToolSource[] — the MCPConnectionManager resolves
@@ -86,7 +84,7 @@ const RESEARCHER_ID = agentRegistry.register({
   temperature: 0.5,
   maxSteps: 8, // More steps to allow search → fetch → summarize chains
   tools: [
-    // { type: 'mcp', serverId: 'web-search' },  // Brave web search
+    { type: 'mcp', serverId: 'web-search' },  // Brave web search
     { type: 'mcp', serverId: 'fetch' },       // URL content fetching
   ] satisfies ToolSourceConfig[],
   permissions: {
@@ -114,9 +112,7 @@ const WRITER_ID = agentRegistry.register({
   },
 });
 
-configureAgentFactory(agentRegistry);
 const providers = createProviderRegistry();
-configureProviderRegistry(providers);
 
 // ─── 3. Create the MCPConnectionManager ─────────────────────────────────
 // Connects to MCP servers lazily on first tool use.
@@ -170,12 +166,14 @@ async function main() {
 
   const state = createWorkflowState({
     workflowId: graph.id,
-    goal: 'Research the Gitlab website (https://github.com/wmcmahan/cycgraph) and give me summary of the site.',
+    goal: 'Research the Model Context Protocol (MCP): what it is, who introduced it, and how it lets tools connect to LLMs. Summarize the key facts.',
     constraints: ['Keep the summary under 300 words', 'Include specific facts and sources'],
     maxExecutionTimeMs: 120_000,
   });
 
   const runner = new GraphRunner(graph, state, {
+    registry: agentRegistry,
+    providers,
     tools: [mcpManager],
   });
 

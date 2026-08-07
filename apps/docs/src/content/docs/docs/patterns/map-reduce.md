@@ -44,90 +44,84 @@ See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/pack
 
 ### 1. The Worker and Synthesizer Agents
 
-First, define the agent that will process individual items, and the agent that will merge the results. Notice the specific variables injected into their prompts and read keys.
+First, define the agent that will process individual items, and the agent that will merge the results. Notice the specific variables their prompts address.
 
 ```typescript
-import { InMemoryAgentRegistry } from '@cycgraph/orchestrator';
+import { agent } from '@cycgraph/orchestrator';
 
-const registry = new InMemoryAgentRegistry();
-
-const RESEARCHER_ID = registry.register({
-  name: 'Researcher Agent',
+const researcher = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a research specialist focused on a single sub-topic.',
     'Your assigned sub-topic is provided as map_item in the Task Context section of your prompt.',
     'Produce concise, factual research notes about your specific sub-topic.',
   ].join(' '),
   temperature: 0.5,
-  tools: [],
-  // The map item arrives via Task Context, so no read key is needed for it.
-  permissions: { readKeys: ['goal'], writeKeys: ['research'] },
 });
 
-const SYNTHESIZER_ID = registry.register({
-  name: 'Synthesizer Agent',
+const synthesizer = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a synthesis specialist.',
     'You receive parallel research results in mapper_results (an array of objects).',
     'Combine all research into a single, coherent summary that covers every sub-topic.',
   ].join(' '),
   temperature: 0.4,
-  tools: [],
-  // We explicitly grant access to the array of mapped outputs
-  permissions: { readKeys: ['goal', 'mapper_results'], writeKeys: ['summary'] },
 });
 ```
 
 ### 2. The Map-Reduce Graph
 
-Next, configure the graph combining the `map` and `synthesizer` node types. 
+Next, place the agents and configure the graph combining the `map` and `synthesizer` node types.
 
 ```typescript
-import { createGraph } from '@cycgraph/orchestrator';
+import { node, graph } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
+const mapper = node({
+  id: 'mapper',
+  type: 'map',
+  reads: ['*'],
+  writes: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
+  mapReduceConfig: {
+    workerNodeId: 'researcher',         // The ID of the node to fan out to
+    itemsPath: '$.memory.topics',       // JSONPath to the input array
+    maxConcurrency: 5,                  // Parallel execution limit
+    errorStrategy: 'best_effort',       // Continue to synthesis even if some fail
+  },
+});
+
+// The worker node (targeted by workerNodeId). The map item arrives via
+// Task Context, so no read key is needed for it.
+const worker = node({
+  id: 'researcher',
+  agent: researcher,
+  reads: ['goal'],
+  writes: 'research',
+});
+
+// The synthesizer node — explicitly granted access to the mapped outputs
+const reduce = node({
+  id: 'synthesizer',
+  type: 'synthesizer',
+  agent: synthesizer,
+  reads: ['goal', 'mapper_results'],
+  writes: 'summary',
+});
+
+const workflow = graph({
   name: 'Fan-Out Map-Reduce',
   nodes: [
     // ... splitter agent node that outputs a JSON array to memory.topics ...
-    {
-      id: 'mapper',
-      type: 'map',
-      readKeys: ['*'],
-      writeKeys: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
-      mapReduceConfig: {
-        workerNodeId: 'researcher',         // The ID of the node to fan out to
-        itemsPath: '$.memory.topics',       // JSONPath to the input array
-        maxConcurrency: 5,                  // Parallel execution limit
-        errorStrategy: 'best_effort',       // Continue to synthesis even if some fail
-      },
-    },
-    // The worker node definition (targeted by workerNodeId)
-    {
-      id: 'researcher',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal'],
-      writeKeys: ['research'],
-    },
-    // The synthesizer node definition
-    {
-      id: 'synthesizer',
-      type: 'synthesizer',
-      agentId: SYNTHESIZER_ID,
-      readKeys: ['goal', 'mapper_results'],
-      writeKeys: ['summary'],
-    },
+    mapper,
+    worker,
+    reduce,
   ],
   edges: [
-    { source: 'splitter', target: 'mapper' },
-    { source: 'mapper', target: 'synthesizer' },
+    { from: 'splitter', to: mapper },
+    { from: mapper, to: reduce },
   ],
   startNode: 'splitter',
-  endNodes: ['synthesizer'],
+  endNodes: [reduce],
 });
 ```
 

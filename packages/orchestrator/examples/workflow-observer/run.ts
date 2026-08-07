@@ -26,9 +26,7 @@ import {
   InMemoryEventLogWriter,
   InMemoryWorkflowQueue,
   WorkflowWorker,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   createGraph,
   createWorkflowState,
   createLogger,
@@ -240,10 +238,7 @@ const REPORT_WRITER_ID = agentRegistry.register({
   },
 });
 
-configureAgentFactory(agentRegistry);
-
 const providers = createProviderRegistry();
-configureProviderRegistry(providers);
 
 // ─── 4. Define the target workflow graph ────────────────────────────────
 
@@ -385,7 +380,7 @@ async function runTargetWorkflow(): Promise<WorkflowState> {
     heartbeatIntervalMs: 30_000,
     reclaimIntervalMs: 15_000,
     shutdownGracePeriodMs: 10_000,
-    runnerOptionsFactory: () => ({}),
+    runnerOptionsFactory: () => ({ registry: agentRegistry, providers }),
   });
 
   worker.on('job:completed', ({ jobId }) => {
@@ -441,7 +436,9 @@ async function runObserverWorkflow(targetRunId: string): Promise<WorkflowState> 
   // it reads from the shared eventLog and persistence but never writes
   // to the target's state.
   const runner = new GraphRunner(observerGraph, observerState, {
-    persistStateFn: async (s) => { await persistence.saveWorkflowSnapshot(s); },
+    registry: agentRegistry,
+    providers,
+    persistState: async (s) => { await persistence.saveWorkflowSnapshot(s); },
     eventLog,
     middleware: [{
       beforeNodeExecute: async ({ node, state }) => {

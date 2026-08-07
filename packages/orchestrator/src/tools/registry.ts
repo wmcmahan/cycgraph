@@ -27,7 +27,7 @@ import type { ToolSource, MCPToolSource } from '../types/tools.js';
 import type { ToolResolver } from '../mcp/connection-manager.js';
 import type { DefinedTool } from './define-tool.js';
 import { resolveBuiltinTools } from './builtin/index.js';
-import { ToolDefinitionError } from './define-tool.js';
+import { ToolDefinitionError, isDefinedTool } from './define-tool.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('tools.registry');
@@ -48,11 +48,6 @@ export class ToolNotRegisteredError extends Error {
 /** Runtime shape discrimination for the `tools` option array. */
 function isToolResolver(entry: ToolsOption): entry is ToolResolver {
   return typeof (entry as ToolResolver).resolveTools === 'function';
-}
-
-function isDefinedTool(entry: ToolsOption): entry is DefinedTool {
-  const tool = entry as DefinedTool;
-  return typeof tool.execute === 'function' && typeof tool.name === 'string';
 }
 
 /** Per-merged-toolset drain bookkeeping (see drainTaintEntries). */

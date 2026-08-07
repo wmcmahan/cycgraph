@@ -44,6 +44,24 @@ describe('createGraph camelCase authoring', () => {
     expect(node).not.toHaveProperty('readKeys');
   });
 
+  it('rejects the removed map edge-condition type', () => {
+    expect(() =>
+      createGraph({
+        name: 'Map Edge',
+        description: 'removed condition type',
+        startNode: 'a',
+        endNodes: ['b'],
+        nodes: [
+          { id: 'a', type: 'agent', agentId: 'agent-1' },
+          { id: 'b', type: 'agent', agentId: 'agent-2' },
+        ],
+        edges: [
+          { source: 'a', target: 'b', condition: { type: 'map' } as never },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it('maps nested config blocks (supervisorConfig)', () => {
     const graph = createGraph({
       name: 'Supervised',

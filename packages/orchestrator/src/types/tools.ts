@@ -11,6 +11,7 @@
 
 import { z } from 'zod';
 import type { Camelize } from './case-mapping.js';
+import type { DefinedTool } from '../tools/define-tool.js';
 
 // ─── Tool Source (Agent Config Level) ──────────────────────────────
 
@@ -88,17 +89,35 @@ const MCPShorthandSchema = z.object({
 });
 
 /**
+ * Structural check for a `defineTool()` result: a named object carrying an
+ * `execute` function. Inlined (rather than imported from `tools/define-tool`)
+ * because that module value-imports {@link BUILTIN_TOOL_NAMES} from here — a
+ * value import back would create a runtime cycle.
+ */
+function isDefinedToolShape(value: unknown): value is DefinedTool {
+  if (value === null || typeof value !== 'object') return false;
+  const tool = value as Partial<DefinedTool>;
+  return typeof tool.name === 'string' && typeof tool.execute === 'function';
+}
+
+/**
  * Normalize an authoring-sugar tool source to the structured wire form.
  * Strings resolve locally: names in {@link BUILTIN_TOOL_NAMES} become
  * `builtin` sources, everything else `custom`. `{ mcp: id }` objects become
- * `mcp` sources. Already-structured objects pass through for the piped
- * {@link ToolSourceSchema} to validate.
+ * `mcp` sources. A `defineTool()` result collapses to its serializable
+ * `{ type: 'custom', name }` reference — the implementation itself is never
+ * stored; the authoring facade stashes it for `run()`, and raw-API callers
+ * pass it to `GraphRunnerOptions.tools`. Already-structured objects pass
+ * through for the piped {@link ToolSourceSchema} to validate.
  */
 function normalizeToolSourceInput(value: unknown): unknown {
   if (typeof value === 'string') {
     return (BUILTIN_TOOL_NAMES as readonly string[]).includes(value)
       ? { type: 'builtin', name: value }
       : { type: 'custom', name: value };
+  }
+  if (isDefinedToolShape(value)) {
+    return { type: 'custom', name: value.name };
   }
   if (value !== null && typeof value === 'object' && 'mcp' in value && !('type' in value)) {
     const shorthand = value as z.infer<typeof MCPShorthandSchema>;
@@ -120,18 +139,25 @@ function normalizeToolSourceInput(value: unknown): unknown {
  * wire format regardless of how it was authored.
  */
 export const ToolSourceInputSchema = z
-  .union([z.string().min(1), MCPShorthandSchema, ToolSourceSchema])
+  .union([
+    z.string().min(1),
+    z.custom<DefinedTool>(isDefinedToolShape),
+    MCPShorthandSchema,
+    ToolSourceSchema,
+  ])
   .transform(normalizeToolSourceInput)
   .pipe(ToolSourceSchema);
 
 /**
  * What authors may write wherever a tool source is expected: a local tool
- * name, an MCP server shorthand, or the structured form in either casing
- * (the camelCase variant is remapped by the authoring-boundary constructors
- * before the schema parses it).
+ * name, a `defineTool()` result (collapsed to its `{ type: 'custom', name }`
+ * reference), an MCP server shorthand, or the structured form in either
+ * casing (the camelCase variant is remapped by the authoring-boundary
+ * constructors before the schema parses it).
  */
 export type ToolSourceInput =
   | string
+  | DefinedTool
   | { mcp: string; tools?: string[]; toolNames?: string[] }
   | ToolSource
   | ToolSourceConfig;

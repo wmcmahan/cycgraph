@@ -37,7 +37,7 @@ export const MAX_PERSIST_FAILURES = 3;
 
 /** Constructor dependencies. */
 export interface PersistenceCoordinatorDeps {
-  /** Full-snapshot persistence callback (from `GraphRunnerOptions.persistStateFn`). */
+  /** Full-snapshot persistence callback (from `GraphRunnerOptions.persistState`). */
   persistStateFn?: (state: WorkflowState) => Promise<void>;
   /** Differential-persistence callback (from `GraphRunnerOptions.persistDeltaFn`). */
   persistDeltaFn?: (patch: StatePatch) => Promise<void>;

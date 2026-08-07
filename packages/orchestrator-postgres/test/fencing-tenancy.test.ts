@@ -52,7 +52,7 @@ describe('createFencedRunnerOptions', () => {
 
     const opts = createFencedRunnerOptions(job);
 
-    expect(opts.persistStateFn).toBeDefined();
+    expect(opts.persistState).toBeDefined();
     expect(opts.eventLog).toBeDefined();
   });
 
@@ -68,7 +68,7 @@ describe('createFencedRunnerOptions', () => {
 
     const opts = createFencedRunnerOptions(job);
 
-    expect(opts.persistStateFn).toBeDefined();
+    expect(opts.persistState).toBeDefined();
     expect(opts.eventLog).toBeDefined();
   });
 });
@@ -118,10 +118,10 @@ describe.skipIf(!isDatabaseAvailable())('Fenced worker tenancy', () => {
     const { job, runId, graphId } = await claimTenantJob();
 
     const opts = createFencedRunnerOptions(job);
-    expect(opts.persistStateFn).toBeDefined();
+    expect(opts.persistState).toBeDefined();
 
     const state = createWorkflowState({ workflow_id: graphId, goal: 'fenced tenancy', run_id: runId });
-    await opts.persistStateFn!(state);
+    await opts.persistState!(state);
 
     const rows = await db.select().from(workflow_states).where(eq(workflow_states.run_id, runId));
     expect(rows.length).toBeGreaterThan(0);
@@ -159,6 +159,6 @@ describe.skipIf(!isDatabaseAvailable())('Fenced worker tenancy', () => {
     const staleOpts = createFencedRunnerOptions(job);
     const state = createWorkflowState({ workflow_id: graphId, goal: 'stale', run_id: runId });
 
-    await expect(staleOpts.persistStateFn!(state)).rejects.toThrow();
+    await expect(staleOpts.persistState!(state)).rejects.toThrow();
   });
 });

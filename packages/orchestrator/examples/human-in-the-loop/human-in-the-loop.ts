@@ -17,10 +17,8 @@ import {
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  configureAgentFactory,
   ProviderRegistry,
   registerBuiltInProviders,
-  configureProviderRegistry,
   createLogger,
   createGraph,
   createWorkflowState,
@@ -81,13 +79,11 @@ const PUBLISHER_ID = registry.register({
     writeKeys: ['published'],
   },
 });
-configureAgentFactory(registry);
 
 // Configure LLM providers — built-in OpenAI + Anthropic are pre-registered.
 // Add custom providers here (e.g., Groq, Ollama) via providers.register().
 const providers = new ProviderRegistry();
 registerBuiltInProviders(providers);
-configureProviderRegistry(providers);
 
 // ─── 2. Define the graph ─────────────────────────────────────────────────
 // Linear: write → review (approval gate) → publish
@@ -156,7 +152,9 @@ const persistence = new InMemoryPersistenceProvider();
 
 function createRunner(state: WorkflowState): GraphRunner {
   const runner = new GraphRunner(graph, state, {
-    persistStateFn: async (s) => {
+    registry,
+    providers,
+    persistState: async (s) => {
       await persistence.saveWorkflowState(s);
       await persistence.saveWorkflowRun(s);
     },

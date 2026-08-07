@@ -35,9 +35,7 @@
 import {
   GraphRunner,
   InMemoryAgentRegistry,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   createGraph,
   createWorkflowState,
   createLogger,
@@ -140,9 +138,7 @@ const CANDIDATE_ID = registry.register({
   },
 });
 
-configureAgentFactory(registry);
 const providers = createProviderRegistry();
-configureProviderRegistry(providers);
 
 // ─── 3. Define the graph ─────────────────────────────────────────────────
 // A single evolution node handles the full generational loop internally.
@@ -215,7 +211,7 @@ async function main() {
 
   // The deterministic scorer is injected here, the same way you'd inject an
   // LLM-judge-backed scorer or any other fitness implementation.
-  const runner = new GraphRunner(graph, state, { fitnessFunction });
+  const runner = new GraphRunner(graph, state, { registry, providers, fitnessFunction });
 
   try {
     const finalState = await runner.run();

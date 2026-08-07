@@ -44,7 +44,7 @@ import { DrizzleEventLogWriter } from './drizzle-event-log.js';
  * tenant's run history together.
  */
 export function createFencedRunnerOptions(job: WorkflowJob): {
-  persistStateFn?: (state: WorkflowState) => Promise<void>;
+  persistState?: (state: WorkflowState) => Promise<void>;
   eventLog?: EventLogWriter;
 } {
   if (job.claim_epoch === undefined) return {};
@@ -53,7 +53,7 @@ export function createFencedRunnerOptions(job: WorkflowJob): {
   const tenant = job.tenant_id ? { tenant_id: job.tenant_id } : undefined;
   const provider = new DrizzlePersistenceProvider({ fencing, tenant });
   return {
-    persistStateFn: (state: WorkflowState) => provider.saveWorkflowSnapshot(state),
+    persistState: (state: WorkflowState) => provider.saveWorkflowSnapshot(state),
     eventLog: new DrizzleEventLogWriter({ fencing, tenant }),
   };
 }

@@ -18,7 +18,7 @@
 
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
-import { agentFactory } from '../agent-factory/index.js';
+import { agentFactory, AgentFactory } from '../agent-factory/index.js';
 import type { GraphNode } from '../../types/graph.js';
 import type { StateView, Action, WorkflowState, LessonProvenanceRegistry } from '../../types/state.js';
 import { createLogger } from '../../utils/logger.js';
@@ -71,6 +71,8 @@ export async function executeSupervisor(
   supervisorHistory: WorkflowState['supervisor_history'],
   attempt: number,
   options?: {
+    /** Run-scoped agent factory; defaults to the process-global singleton. */
+    agentFactory?: AgentFactory;
     abortSignal?: AbortSignal;
     modelOverride?: string;
     contextCompressor?: import('../context-compressor.js').ContextCompressor;
@@ -116,13 +118,14 @@ export async function executeSupervisor(
     }
 
     // Load agent config for the supervisor LLM (cached)
-    const agentConfig = await agentFactory.loadAgent(supervisorAgentId);
+    const factory = options?.agentFactory ?? agentFactory;
+    const agentConfig = await factory.loadAgent(supervisorAgentId);
     // Budget-aware model resolution: use override if provided
     const effectiveConfig = resolveEffectiveModelConfig(agentConfig, options?.modelOverride, {
       agentId: supervisorAgentId,
       nodeId: node.id,
     });
-    const model = agentFactory.getModel(effectiveConfig);
+    const model = factory.getModel(effectiveConfig);
 
     // Resolve memory retrieval (best-effort — failures must never block
     // routing; the supervisor still gets the workflow-state memory below).

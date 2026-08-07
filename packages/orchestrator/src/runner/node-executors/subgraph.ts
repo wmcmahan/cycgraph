@@ -182,7 +182,14 @@ export async function executeSubgraphNode(
   const childOptions = {
     loadGraphFn: ctx.loadGraphFn,
     onToken: ctx.onToken,
-    toolResolver: ctx.toolResolver,
+    // Scope the child exactly like the parent: `tools` (the ORIGINAL
+    // GraphRunnerOptions array — the child builds its own composition, since
+    // the parent's composed resolver would misroute custom-tool sources) and
+    // `registry`/`providers` (without them a scoped run's subgraphs would
+    // resolve agents from the PROCESS-GLOBAL factory — cross-tenant risk).
+    tools: ctx.tools,
+    registry: ctx.registry,
+    providers: ctx.providers,
     modelResolver: ctx.modelResolver,
     contextCompressor: ctx.contextCompressor,
     memoryRetriever: ctx.memoryRetriever,

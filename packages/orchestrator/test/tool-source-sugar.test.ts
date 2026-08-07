@@ -5,12 +5,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import {
   ToolSourceInputSchema,
   normalizeToolSources,
 } from '../src/types/tools.js';
 import { createGraph } from '../src/types/graph.js';
 import { InMemoryAgentRegistry } from '../src/persistence/in-memory.js';
+import { defineTool } from '../src/tools/define-tool.js';
 
 describe('ToolSourceInputSchema', () => {
   it('normalizes a builtin name string to a builtin source', () => {
@@ -69,6 +71,19 @@ describe('normalizeToolSources', () => {
       { type: 'builtin', name: 'save_to_memory' },
       { type: 'custom', name: 'lookup_order' },
       { type: 'mcp', server_id: 'web-search' },
+    ]);
+  });
+
+  it('collapses a defineTool result to its custom source reference', () => {
+    const lookupOrder = defineTool({
+      name: 'lookup_order',
+      description: 'Fetch an order by id',
+      parameters: z.object({ orderId: z.string() }),
+      execute: () => 'order',
+    });
+
+    expect(normalizeToolSources([lookupOrder])).toEqual([
+      { type: 'custom', name: 'lookup_order' },
     ]);
   });
 });

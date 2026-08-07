@@ -122,6 +122,23 @@ describe('createHttpRequestTool', () => {
     expect(init.body).toBe('{"sku":"a"}');
   });
 
+  it('overrides case-varied LLM headers with lowercase-normalized defaults', async () => {
+    const fetchStub = vi.fn(async () => new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', fetchStub);
+    const tool = createHttpRequestTool({
+      allowedHosts: ['api.example.com'],
+      defaultHeaders: { Authorization: 'Bearer config-secret' },
+    });
+
+    await tool.execute({
+      url: 'https://api.example.com/x',
+      headers: { AUTHORIZATION: 'Bearer llm-attempt' },
+    });
+
+    const sent = (fetchStub.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(sent).toEqual({ authorization: 'Bearer config-secret' });
+  });
+
   it('rejects hosts outside the allowlist', async () => {
     const tool = createHttpRequestTool({ allowedHosts: ['api.example.com'] });
 

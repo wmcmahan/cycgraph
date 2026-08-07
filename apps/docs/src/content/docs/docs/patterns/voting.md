@@ -42,7 +42,6 @@ The `voting` node type requires a `votingConfig` block listing the voters and th
   id: 'classify',
   type: 'voting',
   readKeys: ['ticket_text'],
-  writeKeys: ['classify_consensus', 'classify_votes'],
   votingConfig: {
     voterAgentIds: [CLASSIFIER_A, CLASSIFIER_B, CLASSIFIER_C],
     strategy: 'majority_vote',
@@ -74,7 +73,7 @@ The node writes two keys into `WorkflowState.memory`:
 - `{nodeId}_consensus`: the aggregated answer.
 - `{nodeId}_votes`: the full array of individual votes (for auditing and traceability).
 
-Both must be declared in the node's `writeKeys`.
+Both are implied write grants, so neither needs to be declared in the node's `writeKeys`.
 
 ## When to use it
 

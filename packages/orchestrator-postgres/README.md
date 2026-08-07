@@ -47,7 +47,7 @@ const persistence = new DrizzlePersistenceProvider();
 
 const runner = new GraphRunner(graph, state, {
   eventLog,
-  persistStateFn: async (s) => {
+  persistState: async (s) => {
     await persistence.saveWorkflowSnapshot(s);
   },
 });
@@ -64,7 +64,7 @@ const eventLog = new DrizzleEventLogWriter({
 
 const runner = new GraphRunner(graph, state, {
   eventLog,
-  persistStateFn: async (s) => {
+  persistState: async (s) => {
     await persistence.saveWorkflowSnapshot(s);
   },
 });

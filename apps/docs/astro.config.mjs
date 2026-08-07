@@ -108,6 +108,7 @@ export default defineConfig({
           label: 'Getting Started',
           items: [
             { label: 'Introduction', slug: 'docs/getting-started/introduction' },
+            { label: 'Quickstart', slug: 'docs/getting-started/quickstart' },
           ],
         },
         {
@@ -116,7 +117,7 @@ export default defineConfig({
             { label: 'Graphs', slug: 'docs/concepts/graphs' },
             { label: 'Nodes', slug: 'docs/concepts/nodes' },
             { label: 'Agents', slug: 'docs/concepts/agents' },
-            { label: 'Workflow State', slug: 'docs/concepts/workflow-state' },
+            { label: 'State', slug: 'docs/concepts/workflow-state' },
             { label: 'Graph Runner', slug: 'docs/concepts/graph-runner' },
             { label: 'Tools & MCP', slug: 'docs/concepts/tools-and-mcp' },
             { label: 'Streaming', slug: 'docs/concepts/streaming' },

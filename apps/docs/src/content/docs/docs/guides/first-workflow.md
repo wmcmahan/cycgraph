@@ -3,19 +3,14 @@ title: Your First Workflow
 description: Build a complete workflow step-by-step using the research-and-write pattern.
 ---
 
-This guide walks you through building a **linear 2-node workflow**: a Researcher agent gathers notes, then a Writer agent produces a polished summary. We'll build this programmatically, exactly as it's done in the [research-and-write example](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/research-and-write).
+This guide walks you through building a **linear 2-node workflow** with the raw graph API: a Researcher agent gathers notes, then a Writer agent produces a polished summary. It's the explicit version of the same workflow the [Quickstart](/docs/getting-started/quickstart/) builds with the terse `agent` / `graph` / `run` facade — reach for this level when you need custom persistence, event listeners, or advanced wiring.
 
 ## Step 1: Register agents
 
-We start by defining our agents and registering them with the `AgentRegistry`.
+We start by defining our agents and registering them with an `AgentRegistry`.
 
 ```typescript
-import {
-  InMemoryAgentRegistry,
-  configureAgentFactory,
-  createProviderRegistry,
-  configureProviderRegistry,
-} from '@cycgraph/orchestrator';
+import { InMemoryAgentRegistry, createProviderRegistry } from '@cycgraph/orchestrator';
 
 const registry = new InMemoryAgentRegistry();
 
@@ -41,13 +36,10 @@ const WRITER_ID = registry.register({
   permissions: { readKeys: ['goal', 'research_notes'], writeKeys: ['draft'] },
 });
 
-// Wire the registry into the global factory
-configureAgentFactory(registry);
-
-// Configure LLM providers
-const providers = createProviderRegistry();
-configureProviderRegistry(providers);
+const providers = createProviderRegistry(); // built-in Anthropic + OpenAI
 ```
+
+The registry and providers are scoped into the run in Step 3 (via `GraphRunnerOptions`), so nothing here mutates process-global state.
 
 ## Step 2: Define the graph
 
@@ -114,7 +106,9 @@ import { GraphRunner, InMemoryPersistenceProvider } from '@cycgraph/orchestrator
 
 const persistence = new InMemoryPersistenceProvider();
 const runner = new GraphRunner(graph, initialState, {
-  persistStateFn: async (state) => {
+  registry,   // scope agents to this run
+  providers,  // scope providers to this run
+  persistState: async (state) => {
     await persistence.saveWorkflowSnapshot(state);
   },
 });

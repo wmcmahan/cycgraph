@@ -119,6 +119,12 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleAgentRegistry', () => {
 
       expect(entry).toBeNull();
     });
+
+    it('returns null for a non-uuid id instead of a Postgres type error', async () => {
+      const entry = await registry.loadAgent('research-brain');
+
+      expect(entry).toBeNull();
+    });
   });
 
   describe('updateAgent', () => {
@@ -140,6 +146,10 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleAgentRegistry', () => {
       const entry = await registry.loadAgent(id);
       expect(entry!.system_prompt).toBe('Updated prompt.');
       expect(entry!.max_steps).toBe(12);
+    });
+
+    it('no-ops for a non-uuid id instead of a Postgres type error', async () => {
+      await expect(registry.updateAgent('research-brain', { model: 'new-model' })).resolves.toBeUndefined();
     });
   });
 
@@ -180,6 +190,12 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleAgentRegistry', () => {
 
     it('returns false for an unknown id', async () => {
       const deleted = await registry.deleteAgent(randomUUID());
+
+      expect(deleted).toBe(false);
+    });
+
+    it('returns false for a non-uuid id instead of a Postgres type error', async () => {
+      const deleted = await registry.deleteAgent('research-brain');
 
       expect(deleted).toBe(false);
     });

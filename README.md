@@ -35,6 +35,40 @@ npm install @cycgraph/orchestrator
 - [@cycgraph/orchestrator-postgres](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator-postgres) - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
 - [@cycgraph/evals](https://github.com/wmcmahan/cycgraph/blob/main/packages/evals) - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
 
+## Quickstart
+
+```typescript
+import { agent, node, graph, run } from '@cycgraph/orchestrator';
+
+const research = node({
+  id: 'research',
+  agent: agent({
+    model: 'claude-sonnet-4-6',
+    instructions: 'You are a research specialist. Produce concise, factual notes.',
+  }),
+  reads: ['goal'],
+  writes: 'notes',
+});
+
+const write = node({
+  id: 'write',
+  agent: agent({
+    model: 'claude-sonnet-4-6',
+    instructions: 'Turn the research notes into a clear summary under 300 words.',
+  }),
+  reads: ['goal', 'notes'],
+  writes: 'draft'
+});
+
+const workflow = graph({
+  name: 'research-write',
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
+});
+
+run(workflow, { goal: 'Explain how LLMs work' });
+```
+
 ## Built-in Patterns
 
 Each pattern is a node type. Declarative, composable, and traced through OpenTelemetry.

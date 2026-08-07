@@ -293,16 +293,22 @@ export class WorkflowWorker extends EventEmitter {
 
       // 2. Build runner options. Factory-provided options WIN over the
       // worker defaults — this is how per-job fenced persistence/event-log
-      // writers (carrying the job's claim_epoch) are wired in.
-      const persistStateFn = (state: WorkflowState) =>
+      // writers (carrying the job's claim_epoch) are wired in. Coalesce
+      // explicitly so a factory returning EITHER spelling (`persistState`
+      // or the deprecated `persistStateFn`) still overrides the default.
+      const defaultPersistState = (state: WorkflowState) =>
         this.persistence.saveWorkflowSnapshot(state);
 
       const extraOptions = this.runnerOptionsFactory?.(job) ?? {};
       const runnerOptions: GraphRunnerOptions = {
-        persistStateFn,
         eventLog: this.eventLog,
-        loadGraphFn: (graphId: string) => this.persistence.loadGraph(graphId),
         ...extraOptions,
+        persistState:
+          extraOptions.persistState ?? extraOptions.persistStateFn ?? defaultPersistState,
+        loadGraph:
+          extraOptions.loadGraph ??
+          extraOptions.loadGraphFn ??
+          ((graphId: string) => this.persistence.loadGraph(graphId)),
       };
 
       // 3. Determine if recovery is needed

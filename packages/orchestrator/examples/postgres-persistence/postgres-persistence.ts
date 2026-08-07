@@ -20,9 +20,7 @@
 
 import {
   GraphRunner,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   createGraph,
   createWorkflowState,
   createLogger,
@@ -128,10 +126,7 @@ async function main() {
 
   const { RESEARCHER_ID, WRITER_ID } = await ensureAgentsRegistered();
 
-  // Configure the agent factory to use the Postgres-backed registry
-  configureAgentFactory(agentRegistry);
   const providers = createProviderRegistry();
-  configureProviderRegistry(providers);
 
   // Define graph
   const graph = createGraph({
@@ -176,8 +171,11 @@ async function main() {
 
   // Create runner with Postgres persistence + event log
   const runner = new GraphRunner(graph, state, {
+    // Scope the Postgres-backed agent registry + providers to this run
+    registry: agentRegistry,
+    providers,
     // State is persisted to Postgres after every step (enables crash recovery)
-    persistStateFn: async (s) => {
+    persistState: async (s) => {
       await persistence.saveWorkflowState(s);
       await persistence.saveWorkflowRun(s);
     },

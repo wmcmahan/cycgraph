@@ -11,7 +11,7 @@
 
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
-import { agentFactory } from '../agent-factory/index.js';
+import { agentFactory, AgentFactory } from '../agent-factory/index.js';
 import { AgentExecutionError } from '../agent-executor/errors.js';
 import { classifyRetryable } from '../agent-executor/error-classification.js';
 import { createEvaluatorPrompt, createEvaluatorSystemPrompt } from './prompts.js';
@@ -59,12 +59,13 @@ export async function evaluateQualityExecutor(
   goal: string,
   output: unknown,
   criteria?: string,
+  factory: AgentFactory = agentFactory,
 ): Promise<EvaluationResult> {
   return withSpan(tracer, 'evaluator.evaluate', async (span) => {
     span.setAttribute('evaluator.agent_id', evaluatorAgentId);
 
-    const agentConfig = await agentFactory.loadAgent(evaluatorAgentId);
-    const model = agentFactory.getModel(agentConfig);
+    const agentConfig = await factory.loadAgent(evaluatorAgentId);
+    const model = factory.getModel(agentConfig);
 
     const systemPrompt = createEvaluatorSystemPrompt(agentConfig, criteria);
     const prompt = createEvaluatorPrompt(goal, output);

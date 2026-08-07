@@ -13,19 +13,14 @@ Every layer of the engine enforces these assumptions through concrete mechanisms
 
 ## State slicing (least privilege)
 
-Agents never see the full `WorkflowState`. Each agent and node declares explicit permissions:
+Agents never see the full `WorkflowState`. Each node declares explicit grants:
 
 ```typescript
-const WRITER_ID = registry.register({
-  name: 'Writer',
-  model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: '...',
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'research_notes'],   // can only read these
-    writeKeys: ['draft'],                    // can only write this
-  },
+const write = node({
+  id: 'write',
+  agent: writer,
+  reads: ['goal', 'research_notes'],   // can only read these
+  writes: 'draft',                      // can only write this
 });
 ```
 
@@ -37,19 +32,14 @@ The wildcard `read_keys: ['*']` grants access to all memory keys; `validateGraph
 
 ### Dot-notation nested key filtering
 
-State slicing supports **dot-notation paths** for fine-grained access to nested objects. Instead of granting access to an entire top-level key, you can restrict an agent to specific nested paths:
+State slicing supports **dot-notation paths** for fine-grained access to nested objects. Instead of granting access to an entire top-level key, you can restrict a node to specific nested paths:
 
 ```typescript
-const WRITER_ID = registry.register({
-  name: 'Writer',
-  model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: '...',
-  tools: [],
-  permissions: {
-    readKeys: ['user.name', 'user.email'],  // only these nested paths
-    writeKeys: ['draft'],
-  },
+const write = node({
+  id: 'write',
+  agent: writer,
+  reads: ['user.name', 'user.email'],  // only these nested paths
+  writes: 'draft',
 });
 ```
 
@@ -112,13 +102,11 @@ Taint metadata is stored in the first-class `state.taint_registry` field. It is 
 By default, tainted data in routing decisions produces a warning. Set `strict_taint: true` at the graph level to reject tainted data in routing decisions entirely:
 
 ```typescript
-const graph = createGraph({
+const workflow = graph({
   name: 'High Security Workflow',
   strictTaint: true,  // reject tainted data in routing decisions
   nodes: [ /* ... */ ],
   edges: [ /* ... */ ],
-  startNode: 'start',
-  endNodes: ['end'],
 });
 ```
 

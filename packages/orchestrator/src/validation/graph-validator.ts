@@ -132,10 +132,7 @@ export function validateGraph(graph: Graph): ValidationResult {
     // misrouting execution. The validator uses the same compile options as
     // the runtime evaluator (extra functions, dot-access), so any expression
     // that passes here will also compile at evaluation time.
-    if (
-      (edge.condition?.type === 'conditional' || edge.condition?.type === 'map') &&
-      edge.condition.condition
-    ) {
+    if (edge.condition?.type === 'conditional' && edge.condition.condition) {
       try {
         compileExpression(
           normalizeConditionExpression(edge.condition.condition),

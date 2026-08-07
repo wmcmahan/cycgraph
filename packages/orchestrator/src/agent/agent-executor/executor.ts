@@ -25,7 +25,7 @@
 import { streamText, tool, stepCountIs, jsonSchema } from 'ai';
 import { classifyRetryable } from './error-classification.js';
 import type { ToolSet } from 'ai';
-import { agentFactory } from '../agent-factory/index.js';
+import { agentFactory, AgentFactory } from '../agent-factory/index.js';
 import type { StateView, Action } from '../../types/state.js';
 import { createLogger } from '../../utils/logger.js';
 import { getTracer, withSpan } from '../../utils/tracing.js';
@@ -94,6 +94,12 @@ export async function executeAgent(
   rawTools: Record<string, unknown>,
   attempt: number,
   options?: {
+    /**
+     * Agent factory to load configs / resolve models from. Defaults to the
+     * process-global singleton; the runner injects a run-scoped factory so
+     * concurrent runs never share registry/provider state.
+     */
+    agentFactory?: AgentFactory;
     /** Override the agent's configured temperature. */
     temperatureOverride?: number;
     /** The graph node ID, used to derive the fallback memory key. */
@@ -159,14 +165,15 @@ export async function executeAgent(
     const startTime = Date.now();
 
     // Load agent config (cached)
-    const config = await agentFactory.loadAgent(agentId);
+    const factory = options?.agentFactory ?? agentFactory;
+    const config = await factory.loadAgent(agentId);
 
     // Budget-aware model resolution: use override if provided, else config.model
     const effectiveConfig = resolveEffectiveModelConfig(config, options?.modelOverride, {
       agentId,
       nodeId: options?.nodeId,
     });
-    const model = agentFactory.getModel(effectiveConfig);
+    const model = factory.getModel(effectiveConfig);
 
     const tools = buildToolSet(rawTools, agentId);
     const hasSaveToMemoryTool = 'save_to_memory' in tools;

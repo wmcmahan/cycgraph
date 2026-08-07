@@ -22,6 +22,7 @@ import type { NodeExecutorContext } from './node-executors/context.js';
 import type { StreamEvent } from './stream-events.js';
 import { CircuitBreakerManager } from './circuit-breaker.js';
 import { createStateView } from './state-view.js';
+import { withEffectiveReads } from '../validation/effective-permissions.js';
 import { getNodeExecutor } from './node-executors/index.js';
 import { calculateBackoff, sleep } from './helpers.js';
 import { WorkflowTimeoutError, UnsupportedNodeTypeError } from './errors.js';
@@ -337,8 +338,11 @@ export class NodeExecutionDriver {
    * Execute node logic based on type — dispatches to extracted executor functions.
    */
   private async executeNodeLogic(node: GraphNode, attempt: number): Promise<Action> {
-    // Create state view (security boundary)
-    const stateView = createStateView(this.deps.getState(), node);
+    // Create state view (security boundary). Derived grants (a supervisor
+    // with no declared reads sees its managed nodes' outputs) are applied
+    // HERE — this is the production path every executor's view comes from.
+    const resolved = withEffectiveReads(node, this.deps.getGraph());
+    const stateView = createStateView(this.deps.getState(), resolved);
     const ctx = this.deps.buildExecutorContext();
 
     // Dispatch via the node-executor registry (a compiler-exhaustive
@@ -347,6 +351,6 @@ export class NodeExecutionDriver {
     if (!executor) {
       throw new UnsupportedNodeTypeError(node.type);
     }
-    return await executor(node, stateView, attempt, ctx);
+    return await executor(resolved, stateView, attempt, ctx);
   }
 }

@@ -42,45 +42,34 @@ A swarm node is just an `agent` node with `swarmConfig` attached. There is no se
 ### 1. The specialist agents
 
 ```typescript
-import { InMemoryAgentRegistry } from '@cycgraph/orchestrator';
+import { agent } from '@cycgraph/orchestrator';
 
-const registry = new InMemoryAgentRegistry();
-
-const RESEARCHER_ID = registry.register({
-  name: 'Research Expert',
+const researchExpert = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You specialize in fetching information and summarizing facts.',
     'When the goal requires calculation, hand off to the Math Expert by saving',
     '`peer_delegation: { peer_node_id: "math_wiz", reason: "..." }` to memory.',
     'When code execution is needed, hand off to the Python Writer.',
   ].join(' '),
   temperature: 0.3,
-  tools: [{ type: 'mcp', serverId: 'web-search' }],
-  permissions: { readKeys: ['*'], writeKeys: ['*'] },
+  tools: [{ mcp: 'web-search' }],
 });
 
-const MATH_ID = registry.register({
-  name: 'Math Expert',
+const mathExpert = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt:
+  instructions:
     'You specialize in arithmetic and logic. Receive data, calculate the result, and hand off to the Python Writer if scripting is needed.',
   temperature: 0.0,
-  tools: [{ type: 'mcp', serverId: 'calculator' }],
-  permissions: { readKeys: ['*'], writeKeys: ['*'] },
+  tools: [{ mcp: 'calculator' }],
 });
 
-const PYTHON_WRITER_ID = registry.register({
-  name: 'Python Writer',
+const pythonWriter = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt:
+  instructions:
     'You write and execute Python scripts to process data. You do not search the web.',
   temperature: 0.1,
-  tools: [{ type: 'mcp', serverId: 'code-sandbox' }],
-  permissions: { readKeys: ['*'], writeKeys: ['*'] },
+  tools: [{ mcp: 'code-sandbox' }],
 });
 ```
 
@@ -89,57 +78,56 @@ const PYTHON_WRITER_ID = registry.register({
 Each peer is a standard `agent` node with `swarmConfig` listing the other peers it can hand off to. Edges define what happens when no handoff is requested, typically a default forward path or a route to a terminal node.
 
 ```typescript
-import { createGraph } from '@cycgraph/orchestrator';
+import { node, graph } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
+const researcher = node({
+  id: 'researcher',
+  agent: researchExpert,
+  swarmConfig: {
+    peerNodes: ['math_wiz', 'python_dev'],
+    maxHandoffs: 10,
+    handoffMode: 'agent_choice',
+  },
+  reads: ['*'],
+  writes: ['*'],
+});
+
+const mathWiz = node({
+  id: 'math_wiz',
+  agent: mathExpert,
+  swarmConfig: {
+    peerNodes: ['researcher', 'python_dev'],
+    maxHandoffs: 10,
+    handoffMode: 'agent_choice',
+  },
+  reads: ['*'],
+  writes: ['*'],
+});
+
+const pythonDev = node({
+  id: 'python_dev',
+  agent: pythonWriter,
+  swarmConfig: {
+    peerNodes: ['researcher', 'math_wiz'],
+    maxHandoffs: 10,
+    handoffMode: 'agent_choice',
+  },
+  reads: ['*'],
+  writes: ['*'],
+});
+
+const workflow = graph({
   name: 'Data Analysis Swarm',
   description: 'Peer-to-peer agents collaborating on data questions.',
-  nodes: [
-    {
-      id: 'researcher',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      swarmConfig: {
-        peerNodes: ['math_wiz', 'python_dev'],
-        maxHandoffs: 10,
-        handoffMode: 'agent_choice',
-      },
-      readKeys: ['*'],
-      writeKeys: ['*'],
-    },
-    {
-      id: 'math_wiz',
-      type: 'agent',
-      agentId: MATH_ID,
-      swarmConfig: {
-        peerNodes: ['researcher', 'python_dev'],
-        maxHandoffs: 10,
-        handoffMode: 'agent_choice',
-      },
-      readKeys: ['*'],
-      writeKeys: ['*'],
-    },
-    {
-      id: 'python_dev',
-      type: 'agent',
-      agentId: PYTHON_WRITER_ID,
-      swarmConfig: {
-        peerNodes: ['researcher', 'math_wiz'],
-        maxHandoffs: 10,
-        handoffMode: 'agent_choice',
-      },
-      readKeys: ['*'],
-      writeKeys: ['*'],
-    },
-  ],
+  nodes: [researcher, mathWiz, pythonDev],
   // Edges fire when an agent does NOT delegate. Use them to define a
   // default forward path or a route to a terminal node.
   edges: [
-    { source: 'researcher', target: 'python_dev' },
-    { source: 'math_wiz', target: 'python_dev' },
+    { from: researcher, to: pythonDev },
+    { from: mathWiz, to: pythonDev },
   ],
-  startNode: 'researcher',
-  endNodes: ['python_dev'],
+  startNode: researcher,
+  endNodes: [pythonDev],
 });
 ```
 

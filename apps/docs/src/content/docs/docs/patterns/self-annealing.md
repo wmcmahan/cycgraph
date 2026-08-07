@@ -36,19 +36,20 @@ flowchart TB
 For the common case, refining a **single agent's** output by dropping its temperature each pass, the engine ships a built-in primitive. Attach an `annealingConfig` block to an `agent` node and the runner runs the generate → score → refine loop internally, with no extra nodes or edges to wire.
 
 ```typescript
-{
+import { node } from '@cycgraph/orchestrator';
+
+const refine = node({
   id: 'refine',
-  type: 'agent',
-  agentId: WRITER_ID,
-  readKeys: ['goal', 'constraints'],
-  writeKeys: ['draft'],
+  agent: writer,                    // an agent() value; type defaults to 'agent'
+  reads: ['goal', 'constraints'],
+  writes: 'draft',
   annealingConfig: {
     // Option A: an evaluator agent scores each pass's memory updates
     // against the workflow goal.
-    evaluatorAgentId: EVALUATOR_ID,
+    evaluatorAgentId: evaluator,
     // Option B: omit the evaluator and let the agent score itself — a
     // `save_to_memory('score', …)` write lands at `updates.score`
-    // (add 'score' to the node's writeKeys):
+    // (add 'score' to the node's writes):
     // scorePath: '$.updates.score',
     threshold: 0.8,                 // stop once the best score reaches this
     maxIterations: 5,               // hard cap on passes
@@ -56,7 +57,7 @@ For the common case, refining a **single agent's** output by dropping its temper
     finalTemperature: 0.2,          // last pass — focused refinement
     diminishingReturnsDelta: 0.02,  // stop early if a pass improves < this
   },
-}
+});
 ```
 
 Each iteration runs the agent at a temperature interpolated linearly from `initialTemperature` down to `finalTemperature`, scores the result, and keeps the best-scoring attempt. With `evaluatorAgentId` set, an evaluator agent scores the pass's memory updates against the workflow goal. Without it, the `scorePath` JSONPath is evaluated against the pass's action payload. Agent memory writes land under `updates`, so a self-scoring agent that calls `save_to_memory('score', …)` pairs with `scorePath: '$.updates.score'` (the schema default `'$.score'` reads the payload root, above where memory writes land, so set `scorePath` explicitly when self-scoring).
@@ -86,33 +87,22 @@ Two runnable examples demonstrate this explicit-edge shape. [`eval-loop`](https:
 The pattern relies on pairing two complementing agents: one instructed to listen to feedback, and the other instructed to provide ruthless, structured feedback.
 
 ```typescript
-import { InMemoryAgentRegistry } from '@cycgraph/orchestrator';
+import { agent } from '@cycgraph/orchestrator';
 
-const registry = new InMemoryAgentRegistry();
-
-const WRITER_ID = registry.register({
-  name: 'Writer Agent',
+const writerAgent = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a skilled writer.',
     'Your task: write a concise, engaging explanation of the given topic for a general audience.',
     'If memory.feedback and memory.suggestions are present, you are revising a previous draft — use that feedback to improve.',
     'If no feedback exists, write from scratch.',
   ].join(' '),
   temperature: 0.7,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
-    writeKeys: ['draft'],
-  },
 });
 
-const EVALUATOR_ID = registry.register({
-  name: 'Evaluator Agent',
+const evaluatorAgent = agent({
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a writing evaluator.',
     'Read the draft and score it on clarity, accuracy, engagement, and conciseness.',
     'You MUST call save_to_memory THREE times:',
@@ -123,65 +113,47 @@ const EVALUATOR_ID = registry.register({
   ].join(' '),
   // Keep temperature low for deterministic evaluating
   temperature: 0.3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints', 'draft'],
-    writeKeys: ['score', 'feedback', 'suggestions'],
-  },
 });
 ```
 
 ### 2. The Routing Logic
 
-The magic happens in the graph edges. By using `conditional` edges based on the `memory.score` value produced by the Evaluator, we can dynamically loop backward or break out of the cycle.
+The magic happens in the graph edges. Conditional edges on the `memory.score` value produced by the Evaluator, written as `when` expressions, dynamically loop backward or break out of the cycle.
 
 ```typescript
-import { createGraph } from '@cycgraph/orchestrator';
+import { node, graph } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
+const writer = node({
+  id: 'writer',
+  agent: writerAgent,
+  reads: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
+  writes: 'draft',
+});
+
+const evaluator = node({
+  id: 'evaluator',
+  agent: evaluatorAgent,
+  reads: ['goal', 'constraints', 'draft'],
+  writes: ['score', 'feedback', 'suggestions'],
+});
+
+const workflow = graph({
   name: 'Eval Loop',
   description: 'Cyclic write-evaluate-revise loop with conditional quality gate',
   nodes: [
-    {
-      id: 'writer',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
-      writeKeys: ['draft'],
-    },
-    {
-      id: 'evaluator',
-      type: 'agent',
-      agentId: EVALUATOR_ID,
-      readKeys: ['goal', 'constraints', 'draft'],
-      writeKeys: ['score', 'feedback', 'suggestions'],
-    },
-    // ... define 'publisher' node ...
+    writer,
+    evaluator,
+    // ... define the 'publisher' node ...
   ],
   edges: [
     // writer always goes to evaluator
-    {
-      id: 'writer-to-evaluator',
-      source: 'writer',
-      target: 'evaluator',
-      condition: { type: 'always' },
-    },
+    { from: writer, to: evaluator },
     // Loop back: evaluator → writer when score < 0.8
-    {
-      id: 'evaluator-to-writer',
-      source: 'evaluator',
-      target: 'writer',
-      condition: { type: 'conditional', condition: 'number(memory.score) < 0.8' },
-    },
+    { from: evaluator, to: writer, when: 'number(memory.score) < 0.8' },
     // Quality gate: evaluator → publisher when score >= 0.8
-    {
-      id: 'evaluator-to-publisher',
-      source: 'evaluator',
-      target: 'publisher',
-      condition: { type: 'conditional', condition: 'number(memory.score) >= 0.8' },
-    },
+    { from: evaluator, to: 'publisher', when: 'number(memory.score) >= 0.8' },
   ],
-  startNode: 'writer',
+  startNode: writer,
   endNodes: ['publisher'],
 });
 ```

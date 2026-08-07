@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  effectiveReadKeys,
   effectiveWriteKeys,
   impliedActionPermissions,
   impliedResultKeys,
@@ -185,5 +186,66 @@ describe('intersectWriteGrant (ceiling-and-grant — ADR 001)', () => {
     const effective = intersectWriteGrant(['draft'], ['notes', 'draft']);
     const updates = extractMemoryUpdates('the written draft', [], effective, 'node_output');
     expect(updates.draft).toBe('the written draft');
+  });
+});
+
+describe('effectiveReadKeys', () => {
+  const teamGraph = () => createGraph({
+    name: 'team',
+    description: 'supervisor over two workers',
+    nodes: [
+      {
+        id: 'supervisor',
+        type: 'supervisor',
+        agentId: uuidv4(),
+        supervisorConfig: { managedNodes: ['research', 'write'], maxIterations: 5 },
+      },
+      { id: 'research', type: 'agent', agentId: uuidv4(), readKeys: ['goal'], writeKeys: ['notes'] },
+      { id: 'write', type: 'agent', agentId: uuidv4(), readKeys: ['notes'], writeKeys: ['draft'] },
+    ],
+    edges: [
+      { source: 'supervisor', target: 'research' },
+      { source: 'supervisor', target: 'write' },
+      { source: 'research', target: 'supervisor' },
+      { source: 'write', target: 'supervisor' },
+    ],
+    startNode: 'supervisor',
+    endNodes: [],
+  });
+
+  it('derives supervisor reads from managed nodes when none are declared', () => {
+    const graph = teamGraph();
+    const supervisor = graph.nodes.find((n) => n.id === 'supervisor')!;
+
+    const keys = effectiveReadKeys(supervisor, graph);
+
+    expect([...keys].sort()).toEqual(
+      ['draft', 'notes', 'research_output', 'write_output'].sort(),
+    );
+  });
+
+  it('honors explicit supervisor reads over the derivation', () => {
+    const graph = teamGraph();
+    const supervisor = { ...graph.nodes.find((n) => n.id === 'supervisor')!, read_keys: ['notes'] };
+
+    expect(effectiveReadKeys(supervisor, graph)).toEqual(['notes']);
+  });
+
+  it('returns declared reads unchanged for non-supervisor nodes', () => {
+    const graph = teamGraph();
+    const research = graph.nodes.find((n) => n.id === 'research')!;
+
+    expect(effectiveReadKeys(research, graph)).toBe(research.read_keys);
+  });
+
+  it('propagates a managed wildcard writer into the derivation', () => {
+    const graph = teamGraph();
+    const wildcardWrite = {
+      ...graph,
+      nodes: graph.nodes.map((n) => (n.id === 'write' ? { ...n, write_keys: ['*'] } : n)),
+    };
+    const supervisor = wildcardWrite.nodes.find((n) => n.id === 'supervisor')!;
+
+    expect(effectiveReadKeys(supervisor, wildcardWrite)).toContain('*');
   });
 });

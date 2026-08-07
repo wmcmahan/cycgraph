@@ -40,8 +40,10 @@ Passed to `new GraphRunner(graph, state, options)`. Source: `runner/graph-runner
 
 | Option | Type | Default | Purpose |
 | --- | --- | --- | --- |
-| `persistStateFn` | `(state: WorkflowState) => Promise<void>` | none | Persist a state snapshot after each step (wire to a `PersistenceProvider`) |
-| `loadGraphFn` | `(graphId: string) => Promise<Graph \| null>` | none | Load subgraph definitions by ID |
+| `registry` | `AgentRegistry` | process-global | Agent config source for this run. Scopes agents to the run so concurrent runs never share registry state. See the note below. |
+| `providers` | `ProviderRegistry` | built-ins (Anthropic + OpenAI) | Provider registry for this run. Scopes providers alongside `registry`. |
+| `persistState` | `(state: WorkflowState) => Promise<void>` | none | Persist a state snapshot after each step (wire to a `PersistenceProvider`) |
+| `loadGraph` | `(graphId: string) => Promise<Graph \| null>` | none | Load subgraph definitions by ID |
 | `eventLog` | `EventLogWriter` | in-memory (noop) | Append-only event log + checkpoints |
 | `tools` | `Array<DefinedTool \| ToolResolver>` | none | Everything that provides tools: `defineTool()` results and MCP resolvers (`MCPConnectionManager` recommended) |
 | `contextCompressor` | `ContextCompressor` | none | Compress memory before prompt injection |
@@ -51,11 +53,15 @@ Passed to `new GraphRunner(graph, state, options)`. Source: `runner/graph-runner
 | `factSanitizerFailMode` | `'drop' \| 'pass'` | `'drop'` | What to do when `factSanitizer` throws. `'drop'` (default) discards the fact so unredacted PII is never persisted; `'pass'` writes the original fact (fail open). |
 | `rateLimiter` | `RateLimiter` | none | Awaited before every LLM call (agent / supervisor / evaluator) to pace a run inside a provider's budget. The implementation may delay (throttle) or throw (a hard ceiling that surfaces as the node's error and follows its `failure_policy`). Abortable; propagated into subgraphs. |
 | `compactionInterval` | `number` | `1000` | Events between automatic event-log compactions (checkpoint + delete-behind, recovery-safe) when an `eventLog` is wired. **Defaults on** so a long run can't grow the log unbounded; set `0` to retain full history and compact manually via `compactEvents()`. |
-| `persistDeltaFn` | `(patch: StatePatch) => Promise<void>` | none | Differential persistence. When set with `persistStateFn`, the runner sends patches here and full snapshots to `persistStateFn`. A failed write rolls back the delta baseline so no patch is lost. |
+| `persistDelta` | `(patch: StatePatch) => Promise<void>` | none | Differential persistence. When set with `persistState`, the runner sends patches here and full snapshots to `persistState`. A failed write rolls back the delta baseline so no patch is lost. |
 | `middleware` | `GraphRunnerMiddleware[]` | `[]` | `beforeNodeExecute` / `afterReduce` hooks |
 | `allowImplicitCompletion` | `boolean` | `false` | When a non-end node has no outgoing edge whose condition matches, the runner fails the run with `NoMatchingEdgeError` (a dead-end is almost always a routing bug). Set `true` to restore the legacy behavior of silently completing the workflow at that node. |
 
+The former names `persistStateFn`, `loadGraphFn`, and `persistDeltaFn` remain as **deprecated aliases** of `persistState`, `loadGraph`, and `persistDelta`; the primary name wins when both are given, and the aliases will be removed in a later release.
+
 A pre-flight wiring check runs at the start of every `run()`: a graph containing a `reflection` node with no `memoryWriter`, a node declaring MCP tool sources with no resolver on `tools`, or a custom tool source with no matching `defineTool()` registration, fails immediately (before any node executes) instead of mid-run. A `memory_query` directive with no `memoryRetriever` logs a warning.
+
+Scope the agent registry and providers into the run via `registry` / `providers` so concurrent runs in one process never contaminate each other. The older process-global helpers `configureAgentFactory` / `configureProviderRegistry` are **deprecated** in favor of these options; they still work for single-tenant setups but mutate global state shared across every run.
 
 The agent factory **fails closed** on an unknown `agent_id` (throws `AgentNotFoundError`). Opt into the legacy default-agent fallback with `configureAgentFactory(registry, { allowDefaultFallback: true })`. See [Agents](/docs/concepts/agents/#runtime-execution).
 

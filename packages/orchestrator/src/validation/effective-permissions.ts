@@ -31,7 +31,7 @@
  * @module validation/effective-permissions
  */
 
-import type { GraphNode } from '../types/graph.js';
+import type { Graph, GraphNode } from '../types/graph.js';
 
 /**
  * Action-permission pseudo-keys implied by the node's type/config.
@@ -112,6 +112,49 @@ export function impliedResultKeys(node: GraphNode): string[] {
       break;
   }
   return keys;
+}
+
+/**
+ * The read keys a node's state view is sliced by. For most nodes this is
+ * exactly the declared `read_keys`. A SUPERVISOR that declares none derives
+ * its reads from topology: a supervisor's structural job is routing over
+ * its team's outputs, so it sees the union of its `managed_nodes`' write
+ * keys plus each managed node's auto-output fallback (`${id}_output`) —
+ * least privilege without the `['*']` boilerplate every supervisor
+ * otherwise hand-writes (and the validator warns about). `goal` and
+ * `constraints` are always visible to every node regardless.
+ *
+ * Explicit `read_keys` on a supervisor override the derivation entirely.
+ * Derivation is one level deep: a managed supervisor contributes nothing
+ * itself (supervisors write no memory); declare reads explicitly for
+ * nested-delegation visibility.
+ */
+export function effectiveReadKeys(node: GraphNode, graph: Graph): string[] {
+  if (node.type !== 'supervisor' || node.read_keys.length > 0) {
+    return node.read_keys;
+  }
+
+  const managed = node.supervisor_config?.managed_nodes ?? [];
+  const derived = new Set<string>();
+  for (const managedId of managed) {
+    const managedNode = graph.nodes.find((n) => n.id === managedId);
+    for (const key of managedNode?.write_keys ?? []) derived.add(key);
+    derived.add(`${managedId}_output`);
+  }
+  return [...derived];
+}
+
+/**
+ * A node with its {@link effectiveReadKeys} applied — the SINGLE way derived
+ * reads enter execution. Used by the node-execution driver (state-view
+ * slicing), the security-policy gate (tainted-readable computation), and the
+ * executor context's view builder, so visibility and its taint gating can
+ * never disagree. Returns the same object when nothing is derived, so
+ * identity checks stay valid.
+ */
+export function withEffectiveReads(node: GraphNode, graph: Graph): GraphNode {
+  const readKeys = effectiveReadKeys(node, graph);
+  return readKeys === node.read_keys ? node : { ...node, read_keys: readKeys };
 }
 
 /**

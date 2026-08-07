@@ -3,7 +3,7 @@ title: Graph Runner
 description: The execution engine that runs a graph, drives the state loop, and handles persistence, streaming, and recovery.
 ---
 
-The **`GraphRunner`** is the execution engine. You hand it a [graph](/docs/concepts/graphs/) and an initial [workflow state](/docs/concepts/workflow-state/), and it runs the graph node by node, merging each result back into state through the reducers and routing along the edges until it reaches an end node. Everything else in the orchestrator is either an input to a run agents, tools, memory or a place a run writes to, such as persistence, event log, streams.
+The **Graph Runner** is the execution engine. You hand it a [graph](/docs/concepts/graphs/) and an initial [workflow state](/docs/concepts/workflow-state/), and it runs the graph node by node, merging each result back into state through the reducers and routing along the edges until it reaches an end node. Everything else in the orchestrator is either an input to a run agents, tools, memory or a place a run writes to, such as persistence, event log, streams.
 
 ## How it works
 
@@ -11,7 +11,7 @@ Each run is a loop over nodes. The runner executes the start node, drives it to 
 
 State is the only thing that moves between nodes, so the runner can persist a complete snapshot after every step. And every state transition is recorded in the event log, so a crashed run can be rebuilt by replaying those actions through the same reducers. The [durable execution](#durable-execution) section covers both.
 
-A run is single-writer: one runner owns one run at a time. In production you don't construct runners by hand for each request. A [`workflow worker`](/docs/concepts/distributed-execution/) pulls jobs from a queue and runs each one for its whole lifetime, with run fencing to keep two workers off the same run.
+A run is single-writer: one runner owns one run at a time. In production you don't construct runners by hand for each request. A [workflow worker](/docs/concepts/distributed-execution/) pulls jobs from a queue and runs each one for its whole lifetime, with run fencing to keep two workers off the same run.
 
 ## Running a graph
 
@@ -19,7 +19,7 @@ Two entry points execute a run. Both drive the same loop; they differ only in wh
 
 ### run
 
-Executes to completion and resolves with the final [`workflow state`](/docs/concepts/workflow-state/). Use it for fire-and-forget execution and worker processes.
+Executes to completion and resolves with the final [state](/docs/concepts/workflow-state/). Use it for fire-and-forget execution and worker processes.
 
 ```typescript
 const finalState = await runner.run();
@@ -27,7 +27,7 @@ const finalState = await runner.run();
 
 ### stream
 
-Yields a [`stream event`](/docs/concepts/streaming/) at each step: token deltas, node transitions, memory diffs, and a terminal event carrying the full final state.
+Yields a [stream event](/docs/concepts/streaming/) at each step: token deltas, node transitions, memory diffs, and a terminal event carrying the full final state.
 
 ```typescript
 for await (const event of runner.stream()) {
@@ -63,12 +63,12 @@ const pausedState = await resultPromise;
 
 ## Durable execution
 
-Wire an [`EventLogWriter`](/docs/concepts/persistence/#eventlogwriter) and the runner records every action as it runs, so a crashed run can be rebuilt exactly.
+Wire an [EventLogWriter](/docs/concepts/persistence/#eventlogwriter) and the runner records every action as it runs, so a crashed run can be rebuilt exactly.
 
 ```typescript
 const runner = new GraphRunner(graph, state, {
   eventLog: myEventLog,
-  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
+  persistState: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 ```
 
@@ -76,7 +76,7 @@ The `GraphRunner.recover` rebuilds a ready-to-continue runner from a run's event
 
 ```typescript
 const runner = await GraphRunner.recover(graph, runId, eventLog, {
-  persistStateFn: async (s) => persistence.saveWorkflowSnapshot(s),
+  persistState: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 const finalState = await runner.run(); // continues from where it left off
 ```
@@ -85,7 +85,7 @@ const finalState = await runner.run(); // continues from where it left off
 
 ## Persistence
 
-The runner writes state through callbacks rather than a storage object, so it stays free of any database dependency. Pass `persistStateFn` to persist a full snapshot after every step, and optionally `persistDeltaFn` to send compact patches for the steps in between. See [Persistence](/docs/concepts/persistence/#wiring-persistence-into-the-runner) for the wiring, failure escalation, the event-log write barrier, and differential persistence.
+The runner writes state through callbacks rather than a storage object, so it stays free of any database dependency. Pass `persistState` to persist a full snapshot after every step, and optionally `persistDelta` to send compact patches for the steps in between. See [Persistence](/docs/concepts/persistence/#wiring-persistence-into-the-runner) for the wiring, failure escalation, the event-log write barrier, and differential persistence.
 
 ## API
 
@@ -170,13 +170,13 @@ Constructor options. Every field is optional; the defaults give an in-memory, si
 
 | Field | Purpose |
 |-------|---------|
-| `persistStateFn` | Persist a full state snapshot after each step. Wire to a [`PersistenceProvider`](/docs/concepts/persistence/#persistenceprovider). |
-| `persistDeltaFn` | Persist compact [`StatePatch`](/docs/concepts/persistence/#statepatch) diffs between full snapshots. |
+| `persistState` | Persist a full state snapshot after each step. Wire to a [`PersistenceProvider`](/docs/concepts/persistence/#persistenceprovider). |
+| `persistDelta` | Persist compact [`StatePatch`](/docs/concepts/persistence/#statepatch) diffs between full snapshots. |
 | `deltaTrackerOptions` | Tune the delta tracker: `fullSnapshotInterval`, `maxPatchBytes`. |
 | `eventLog` | [`EventLogWriter`](/docs/concepts/persistence/#eventlogwriter) for durable, replayable execution. Defaults to an in-memory no-op. |
 | `compactionInterval` | Events between automatic event-log compactions. Default `1000`; `0` disables. |
-| `loadGraphFn` | Load subgraph definitions by ID for subgraph nodes. |
-| `tools` | Provide tools: `defineTool()` results and MCP resolvers, in one array. See [Tools & MCP](/docs/concepts/tools-and-mcp/). |
+| `loadGraph` | Load subgraph definitions by ID for subgraph nodes. |
+| `tools` | Provide tools. See [Tools & MCP](/docs/concepts/tools-and-mcp/). |
 | `modelResolver` | Budget-aware model selection for agents with a `model_preference`. |
 | `contextCompressor` | Compress memory before prompt injection ([Context Engine](/docs/concepts/context-engine/)). |
 | `memoryRetriever` | Inject facts from the [memory graph](/docs/concepts/memory/) for nodes declaring a `memory_query`. |

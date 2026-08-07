@@ -3,7 +3,7 @@ title: Streaming
 description: Real-time event streaming for workflow monitoring, token output, and reactive UIs.
 ---
 
-The [`GraphRunner`](/docs/concepts/graph-runner/) runs in two modes. `run()` executes to completion and returns the final state. `stream()` yields typed events as they occur, which enables real-time monitoring, token-by-token output, and reactive UIs without polling. Both modes emit the same events, so the difference is only how you consume them.
+The [Runner](/docs/concepts/graph-runner/) runs in two modes. Run executes to completion and returns the final state. Stream yields typed events as they occur, which enables real-time monitoring, token-by-token output, and reactive UIs without polling. Both modes emit the same events, so the difference is only how you consume them.
 
 ```typescript
 import { GraphRunner, isTerminalEvent } from '@cycgraph/orchestrator';
@@ -26,7 +26,7 @@ for await (const event of runner.stream()) {
 }
 ```
 
-Events are a discriminated union on the `type` field, split into two categories. **Non-terminal** events are lightweight and carry no state copy. **Terminal** events carry the full `WorkflowState`. The full field reference is in [Interfaces](#interfaces); the sections below cover the events you reach for most often.
+Events are a discriminated union on the type field, split into two categories. Non-terminal events are lightweight and carry no state copy. Terminal events carry the full Workflow State. The full field reference is in [Interfaces](#interfaces); the sections below cover the events you reach for most often.
 
 ## Token streaming
 
@@ -40,11 +40,9 @@ for await (const event of runner.stream()) {
 }
 ```
 
-Token deltas are only emitted for agent nodes that use `streamText`, the default execution mode.
-
 ## Tool call streaming
 
-The `tool:call_start` and `tool:call_finish` events fire in real time as tools execute within an agent node. They are powered by the AI SDK's `experimental_onToolCallStart` and `experimental_onToolCallFinish` callbacks, so they fire *during* the LLM interaction rather than post-hoc.
+The `tool:call_start` and `tool:call_finish` events fire in real time as tools execute within an agent node. They fire during the LLM interaction rather than post-hoc.
 
 ```typescript
 for await (const event of runner.stream()) {
@@ -77,7 +75,7 @@ When no memory keys changed, such as a `goto_node` or `set_status` action, `memo
 
 ## Forwarding events over SSE
 
-`stream()` returns an async iterable, which maps directly to a Server-Sent Events handler. Below is a minimal Express endpoint that streams every workflow event to a connected client.
+Streaming returns an async iterable, which maps directly to a Server-Sent Events handler. Below is a minimal Express endpoint that streams every workflow event to a connected client.
 
 ```typescript
 import express from 'express';
@@ -108,7 +106,7 @@ WebSocket transports follow the same shape. Replace `res.write` with `socket.sen
 
 ## Event listeners (non-streaming)
 
-When using `run()` instead of `stream()`, you can still observe events through the `EventEmitter`-style API. The runner extends `EventEmitter`, so `.on(type, handler)` receives the same event objects.
+When using run instead of stream, you can still observe events through the EventEmitter style API. The runner extends EventEmitter, so on(type, handler) receives the same event objects.
 
 ```typescript
 const runner = new GraphRunner(graph, state, options);
@@ -124,11 +122,11 @@ runner.on('budget:threshold_reached', ({ threshold_pct }) => {
 const finalState = await runner.run();
 ```
 
-Use `stream()` when you need events as an async iterable, such as forwarding to a client over SSE or WebSocket. Use `run()` with `.on()` when you just need side-effect logging.
+Use stream when you need events as an async iterable, such as forwarding to a client over SSE or WebSocket. Use run with .on when you just need side-effect logging.
 
 ## API
 
-### `stream`
+### stream
 
 Execute the graph, yielding a [`StreamEvent`](#streamevent) at each step. Pass an `AbortSignal` to cancel mid-run. Documented in full on the [Graph Runner](/docs/concepts/graph-runner/#stream) page.
 
@@ -146,7 +144,7 @@ isTerminalEvent(event: StreamEvent): event is TerminalStreamEvent
 
 ```typescript
 if (isTerminalEvent(event)) {
-  console.log(event.state.status); // TypeScript knows event.state exists here
+  console.log(event.state.status);
 }
 ```
 
@@ -178,7 +176,7 @@ Lightweight events that carry no state copy.
 | `node:failed` | `node_id`, `node_type`, `error`, `attempt` | A node execution failed (may retry). |
 | `node:retry` | `node_id`, `attempt`, `backoff_ms` | A failed node is being retried after a backoff delay. |
 | `action:applied` | `action_id`, `action_type`, `node_id`, `memory_diff?` | A reducer applied an action to state. Includes a [`MemoryDiff`](#memorydiff) when keys changed. |
-| `state:persisted` | `run_id`, `iteration` | State was persisted via `persistStateFn`. |
+| `state:persisted` | `run_id`, `iteration` | State was persisted via `persistState`. |
 | `agent:token_delta` | `run_id`, `node_id`, `token` | A single token from an LLM response (real-time streaming). |
 | `tool:call_start` | `run_id`, `node_id`, `tool_name`, `tool_call_id`, `args` | A tool has started executing. |
 | `tool:call_finish` | `run_id`, `node_id`, `tool_name`, `tool_call_id`, `duration_ms`, `success`, `error?` | A tool has finished executing. |

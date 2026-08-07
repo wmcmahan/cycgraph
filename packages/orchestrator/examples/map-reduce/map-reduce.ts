@@ -17,9 +17,7 @@ import {
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   createLogger,
   createGraph,
   createWorkflowState,
@@ -101,12 +99,10 @@ const SYNTHESIZER_ID = registry.register({
     writeKeys: ['summary'],
   },
 });
-configureAgentFactory(registry);
 
 // Configure LLM providers — built-in OpenAI + Anthropic are pre-registered.
 // Add custom providers here (e.g., Groq, Ollama) via providers.register().
 const providers = createProviderRegistry();
-configureProviderRegistry(providers);
 
 // ─── 2. Define the graph ─────────────────────────────────────────────────
 
@@ -182,7 +178,9 @@ const initialState = createWorkflowState({
 const persistence = new InMemoryPersistenceProvider();
 
 const runner = new GraphRunner(graph, initialState, {
-  persistStateFn: async (state) => {
+  registry,
+  providers,
+  persistState: async (state) => {
     await persistence.saveWorkflowState(state);
     await persistence.saveWorkflowRun(state);
   },

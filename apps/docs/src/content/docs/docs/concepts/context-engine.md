@@ -25,7 +25,7 @@ The pipeline defines an ordered set of stages that are executed in order. You ca
 
 ### Presets
 
-For ease of use, the engine provides the following presets that compose the right stages automatically. This can be useful for getting started quickly or for simple use cases. More complex use cases may benefit from creating a custom pipeline. The presets are ordered by performance, with fast being the fastest and maximum being the slowest — each preset adds more (and heavier) stages, and every stage adds execution time.
+For ease of use, the engine provides the following presets that compose the right stages automatically. This can be useful for getting started quickly or for simple use cases. More complex use cases may benefit from creating a custom pipeline. The presets are ordered by performance, with fast being the fastest and maximum being the slowest, and each preset adds more (and heavier) stages, and every stage adds execution time.
 
 ```typescript
 const pipeline = createOptimizedPipeline({ preset: 'balanced' });
@@ -64,7 +64,7 @@ const pipeline = createPipeline({
 });
 ```
 
-Each factory returns a complete [`Stage`](#stage) — `name` and `scope` are declared by the stage itself, not wrapped by the caller.
+Each factory returns a complete [Stage](#stage) where `name` and `scope` are declared by the stage itself, not wrapped by the caller.
 
 ### Incremental
 
@@ -130,7 +130,7 @@ const result = pipeline.compress({ segments, budget });
 
 ### Pipeline timeout
 
-A pipeline-level timeout skips remaining stages when the time budget is exceeded. The pipeline is synchronous by design, so this is a simple check before each stage starts: stages that already completed keep their results, and once the elapsed time exceeds `timeoutMs` every remaining stage is skipped. The pipeline logs a warning naming the first skipped stage. Because the allocator is typically the last stage, a very tight timeout can skip budget enforcement itself — size `timeoutMs` to comfortably include it.
+A pipeline-level timeout skips remaining stages when the time budget is exceeded. The pipeline is synchronous by design, so this is a simple check before each stage starts: stages that already completed keep their results, and once the elapsed time exceeds `timeoutMs` every remaining stage is skipped. The pipeline logs a warning naming the first skipped stage. Because the allocator is typically the last stage, a very tight timeout can skip budget enforcement itself, so size `timeoutMs` to comfortably include it.
 
 ```typescript
 const pipeline = createPipeline({
@@ -213,7 +213,7 @@ const pipeline = createPipeline({
 
 ### Chain-of-Thought
 
-Detects reasoning blocks between delimiter pairs (filtered to the target model's family, e.g. `<thinking>…</thinking>`) and replaces each block with its extracted conclusion — located by explicit markers like `therefore:` / `final answer:`, or the block's final paragraph. Blocks are scanned left to right; an unclosed delimiter is skipped rather than risking content corruption.
+Detects reasoning blocks between delimiter pairs (filtered to the target model's family, e.g. `<thinking>…</thinking>`) and replaces each block with its extracted conclusion, located by explicit markers like `therefore:` / `final answer:`, or the block's final paragraph. Blocks are scanned left to right, and an unclosed delimiter is skipped rather than risking content corruption.
 
 ```typescript
 import { createCotDistillationStage } from '@cycgraph/context-engine';
@@ -244,7 +244,7 @@ const pipeline = createPipeline({
 });
 ```
 
-No pre-computation step is needed — the n-gram scorer is synchronous and runs inline. (`precomputeImportanceScores` is for provider-backed neural scoring; see below.)
+No pre-computation step is needed, as the n-gram scorer is synchronous and runs inline. (`precomputeImportanceScores` is for provider-backed neural scoring; see below.)
 
 ### Heuristic scoring
 
@@ -276,8 +276,6 @@ const provider: CompressionProvider = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'distilgpt2', prompt: text, raw: true }),
     });
-    // Extract and normalize per-token log-probs to [0,1]
-    // Higher surprisal = more important to retain
     return tokens.map(() => 0.5); // replace with actual implementation
   },
 };
@@ -288,15 +286,15 @@ const scores = await precomputeImportanceScores(segments, provider);
 Without a `CompressionProvider`, the self-information stage falls back to the n-gram surprisal scorer (zero dependencies, pure TypeScript). This covers most use cases without any external infrastructure.
 
 **Refs:**
-- [createPruningStage](#createpruningstage): Score-and-prune with any [`TokenScorer`](#tokenscorer) — the generic building block.
+- [createPruningStage](#createpruningstage): Score-and-prune with any [`TokenScorer`](#tokenscorer). The generic building block.
 - [createHeuristicPruningStage](#createheuristicpruningstage): Pruning with the rule-based heuristic scorer (the `balanced`/`maximum` preset stage). Best on verbose, redundant prose; measurably hurts extractive QA on dense factual content.
 - [createSelfInformationStage](#createselfinformationstage): Surprisal-based pruning from provider scores, with n-gram fallback; not included in any preset.
 
-Scorers are also exported standalone — [`createNGramScorer`](#createngramscorer), [`createHeuristicScorer`](#createheuristicscorer), [`createSelfInformationScorer`](#createselfinformationscorer) — for use with `createPruningStage` or the allocator's `scorer` option.
+Scorers are also exported standalone: [`createNGramScorer`](#createngramscorer), [`createHeuristicScorer`](#createheuristicscorer), [`createSelfInformationScorer`](#createselfinformationscorer) for use with `createPruningStage` or the allocator's `scorer` option.
 
 ### Budget allocation
 
-The allocator is a stage like any other — always place it last. It distributes the token budget across segments (proportionally, or by query relevance in the presets) and condenses whichever segments exceed their share. Configuration and the standalone `allocateBudget` are covered in [Budget management](#budget-management).
+The allocator is a stage like any other. Always place it last. It distributes the token budget across segments (proportionally, or by query relevance in the presets) and condenses whichever segments exceed their share. Configuration and the standalone `allocateBudget` are covered in [Budget management](#budget-management).
 
 ```typescript
 import { createAllocatorStage } from '@cycgraph/context-engine';
@@ -340,9 +338,9 @@ const pipeline = createPipeline({
 
 ### Relevance allocation (query-aware)
 
-The allocator has a second allocation mode, `allocation: 'relevance'`, which the presets use by default. When the `compress()` input carries a `query` (the question or goal the context will serve), segments are ranked by BM25 relevance to the query — with light stemming and iterated pseudo-relevance feedback (default 2 rounds, tunable via the allocator's `relevance` option) so multi-hop bridging documents rank too — and budget is granted **whole-segment greedily** in relevance order: the most relevant segments are kept intact, the least relevant are starved. Within-segment condensing stays query-agnostic (entity-driven), because query-similar tokens are not the same as answer-bearing tokens.
+The allocator has a second allocation mode, `allocation: 'relevance'`, which the presets use by default. When the `compress()` input carries a `query` (the question or goal the context will serve), segments are ranked by BM25 relevance to the query with light stemming and iterated pseudo-relevance feedback (default 2 rounds, tunable via the allocator's `relevance` option) so multi-hop bridging documents rank too. Budget is granted **whole-segment greedily** in relevance order: the most relevant segments are kept intact, the least relevant are starved. Within-segment condensing stays query-agnostic (entity-driven), because query-similar tokens are not the same as answer-bearing tokens.
 
-Without a `query` — or when no segment matches it — relevance mode is byte-identical to proportional allocation, so passing no query is always safe.
+Without a `query` or when no segment matches it, relevance mode is byte-identical to proportional allocation, so passing no query is always safe.
 
 ```typescript
 const result = pipeline.compress({
@@ -352,11 +350,11 @@ const result = pipeline.compress({
 });
 ```
 
-On two public benchmarks (both n=100, matched budgets, paired deltas significant), relevance allocation at a 0.3 compression target retained 67/82 answerable questions versus 51/82 for LLMLingua-2 on HotpotQA, and 23/47 versus 13/47 on multi-hop MuSiQue — at ~4ms versus ~600-950ms per compression. In an agent workflow the orchestrator passes the sanitized workflow goal as the query automatically.
+On two public benchmarks (both n=100, matched budgets, paired deltas significant), relevance allocation at a 0.3 compression target retained 67/82 answerable questions versus 51/82 for LLMLingua-2 on HotpotQA, and 23/47 versus 13/47 on multi-hop MuSiQue, at ~4ms versus ~600-950ms per compression. In an agent workflow the orchestrator passes the sanitized workflow goal as the query automatically.
 
 ### Cache-aware locking
 
-`applyCachePolicy` marks system/tools segments as `locked` before compression so provider prompt caches see byte-identical prefixes. Pass the target `model` and the policy consults its profile: providers without a prompt cache (`supportsCaching: false`) get no locks added — locking trades compression for cache stability, which buys nothing without a cache. Pre-existing locks are always preserved.
+`applyCachePolicy` marks system/tools segments as `locked` before compression so provider prompt caches see byte-identical prefixes. Pass the target `model` and the policy consults its profile: providers without a prompt cache (`supportsCaching: false`) get no locks added. Locking trades compression for cache stability, which buys nothing without a cache. Pre-existing locks are always preserved.
 
 ```typescript
 import { applyCachePolicy } from '@cycgraph/context-engine';
@@ -374,10 +372,9 @@ import { diagnoseCacheStability, computeSegmentHashMap } from '@cycgraph/context
 
 const previousHashes = computeSegmentHashMap(lastTurnSegments);
 const diagnostics = diagnoseCacheStability(currentSegments, previousHashes);
-// diagnostics.hitRate, diagnostics.unstableSegments, diagnostics.recommendations
 ```
 
-Two cross-turn measures are available. `measureCacheHitRate` is set-based — the fraction of locked content that is byte-identical, ignoring position (an upper bound). `measurePrefixStability` is prefix-faithful: a change or reorder at position *k* counts everything after *k* as invalidated, matching how provider prompt caches actually behave.
+Two cross-turn measures are available. `measureCacheHitRate` is set-based, the fraction of locked content that is byte-identical, ignoring position (an upper bound). `measurePrefixStability` is prefix-faithful: a change or reorder at position *k* counts everything after *k* as invalidated, matching how provider prompt caches actually behave.
 
 ```typescript
 import { computePrefixHashList, measurePrefixStability } from '@cycgraph/context-engine';
@@ -397,7 +394,7 @@ import { createCircuitBreaker, createLatencyTracker } from '@cycgraph/context-en
 
 const tracker = createLatencyTracker();
 const guarded = createCircuitBreaker(expensiveStage, tracker, {
-  minEfficiency: 1.0,    // tokens saved per millisecond
+  minEfficiency: 1.0,
   warmupSamples: 5,
   cooldownMs: 30_000,
 });

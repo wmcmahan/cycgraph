@@ -44,10 +44,10 @@ async function runWorkflow(state) {
   const mcpManager = new MCPConnectionManager(mcpRegistry);
 
   // 2. Add it to the runner's tools. The agent registry is wired globally
-  //    via configureAgentFactory(registry) once at startup — not per-run.
+  //    by scoping the registry into the run (GraphRunnerOptions.registry).
   const runner = new GraphRunner(graph, state, {
     tools: [mcpManager],
-    persistStateFn: async (s) => { /* persist state hook */ },
+    persistState: async (s) => { /* persist state hook */ },
   });
 
   try {

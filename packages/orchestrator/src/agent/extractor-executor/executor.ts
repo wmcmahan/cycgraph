@@ -14,7 +14,7 @@
 
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
-import { agentFactory } from '../agent-factory/index.js';
+import { agentFactory, AgentFactory } from '../agent-factory/index.js';
 import { AgentExecutionError } from '../agent-executor/errors.js';
 import { classifyRetryable } from '../agent-executor/error-classification.js';
 import { createExtractorPrompt, createExtractorSystemPrompt } from './prompts.js';
@@ -60,13 +60,14 @@ export async function extractFactsExecutor(
   source: unknown,
   maxFacts: number = DEFAULT_MAX_FACTS,
   instruction?: string,
+  factory: AgentFactory = agentFactory,
 ): Promise<ExtractionResult> {
   return withSpan(tracer, 'extractor.extract', async (span) => {
     span.setAttribute('extractor.agent_id', extractorAgentId);
     span.setAttribute('extractor.max_facts', maxFacts);
 
-    const agentConfig = await agentFactory.loadAgent(extractorAgentId);
-    const model = agentFactory.getModel(agentConfig);
+    const agentConfig = await factory.loadAgent(extractorAgentId);
+    const model = factory.getModel(agentConfig);
 
     const systemPrompt = createExtractorSystemPrompt(agentConfig, instruction);
     const prompt = createExtractorPrompt(source, maxFacts, instruction);

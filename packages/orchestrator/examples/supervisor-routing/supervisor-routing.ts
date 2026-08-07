@@ -15,9 +15,7 @@ import {
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  configureAgentFactory,
   createProviderRegistry,
-  configureProviderRegistry,
   createLogger,
   createGraph,
   createWorkflowState,
@@ -53,9 +51,11 @@ const SUPERVISOR_ID = registry.register({
   temperature: 0.3,
   maxSteps: 3,
   tools: [],
+  // Read ceiling only: the supervisor routes, it never writes memory —
+  // its handoff/completion permissions are implied by the node type.
   permissions: {
     readKeys: ['*'],
-    writeKeys: ['*'],
+    writeKeys: [],
   },
 });
 
@@ -116,12 +116,10 @@ const EDITOR_ID = registry.register({
     writeKeys: ['final_draft'],
   },
 });
-configureAgentFactory(registry);
 
 // Configure LLM providers — built-in OpenAI + Anthropic are pre-registered.
 // Add custom providers here (e.g., Groq, Ollama) via providers.register().
 const providers = createProviderRegistry();
-configureProviderRegistry(providers);
 
 // ─── 2. Define the graph ─────────────────────────────────────────────────
 // Cyclic hub-and-spoke: supervisor ⇄ research, supervisor ⇄ write, supervisor ⇄ edit.
@@ -136,8 +134,9 @@ const graph = createGraph({
       id: 'supervisor',
       type: 'supervisor',
       agentId: SUPERVISOR_ID,
-      readKeys: ['*'],
-      writeKeys: ['*'],
+      // No grants: routing/completion permissions are implied by the node
+      // type, and reads derive from the managed nodes' outputs (goal and
+      // constraints are always visible).
       supervisorConfig: {
         managedNodes: ['research', 'write', 'edit'],
         maxIterations: 10,
@@ -203,7 +202,9 @@ const initialState = createWorkflowState({
 const persistence = new InMemoryPersistenceProvider();
 
 const runner = new GraphRunner(graph, initialState, {
-  persistStateFn: async (state) => {
+  registry,
+  providers,
+  persistState: async (state) => {
     await persistence.saveWorkflowState(state);
     await persistence.saveWorkflowRun(state);
   },
