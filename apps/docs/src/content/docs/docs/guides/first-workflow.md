@@ -3,113 +3,100 @@ title: Your First Workflow
 description: Build a complete workflow step-by-step using the research-and-write pattern.
 ---
 
-This guide walks you through building a **linear 2-node workflow** with the raw graph API: a Researcher agent gathers notes, then a Writer agent produces a polished summary. It's the explicit version of the same workflow the [Quickstart](/docs/getting-started/quickstart/) builds with the terse `agent` / `graph` / `run` facade — reach for this level when you need custom persistence, event listeners, or advanced wiring.
+This guide walks you through building a **linear 2-node workflow**: a Researcher agent gathers notes, then a Writer agent produces a polished summary. You author it with the same `agent` / `node` / `graph` facade the [Quickstart](/docs/getting-started/quickstart/) uses, but instead of the one-call `run()` helper you drive an explicit `GraphRunner`. Reach for this level when you need custom persistence, event listeners, streaming, or other runner wiring that `run()` does not expose. The facade compiles to exactly the graph the runner executes, so nothing is lost by dropping down.
 
-## Step 1: Register agents
+## Step 1: Define agents
 
-We start by defining our agents and registering them with an `AgentRegistry`.
+An `agent()` value is a capability: model, instructions, sampling. It carries no id (the registry mints one when the graph compiles) and no state grants (the node it runs on is the authoritative grant). The provider is inferred from the model name, so `claude-*` resolves to Anthropic without a `provider` field.
 
 ```typescript
-import { InMemoryAgentRegistry, createProviderRegistry } from '@cycgraph/orchestrator';
+import { agent } from '@cycgraph/orchestrator';
 
-const registry = new InMemoryAgentRegistry();
-
-const RESEARCHER_ID = registry.register({
+const researcher = agent({
   name: 'Research Agent',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: 'You are a research specialist. Investigate the topic and produce thorough research notes.',
+  instructions: 'You are a research specialist. Investigate the topic and produce thorough research notes.',
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: { readKeys: ['goal', 'constraints'], writeKeys: ['research_notes'] },
 });
 
-const WRITER_ID = registry.register({
+const writer = agent({
   name: 'Writer Agent',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: 'You are a writer. Read the research notes from memory and produce a clear, engaging summary.',
+  instructions: 'You are a writer. Read the research notes from memory and produce a clear, engaging summary.',
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: { readKeys: ['goal', 'research_notes'], writeKeys: ['draft'] },
 });
-
-const providers = createProviderRegistry(); // built-in Anthropic + OpenAI
 ```
 
-The registry and providers are scoped into the run in Step 3 (via `GraphRunnerOptions`), so nothing here mutates process-global state.
+## Step 2: Place them in a graph
 
-## Step 2: Define the graph
-
-Use the `createGraph` helper to build a validated `Graph` definition. We construct two nodes, plugging in the agent IDs we just generated. 
+A `node()` value is a placement: a topology id that edges reference, the state keys it may read and write, and the agent that runs there. `graph()` resolves the agent references, expands the edge sugar, and emits the validated `Graph`. `failurePolicy` keeps only the fields that differ from the defaults, so `{ maxRetries: 2 }` overrides just the retry count.
 
 ```typescript
-import { createGraph } from '@cycgraph/orchestrator';
+import { node, graph } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
+const research = node({
+  id: 'research',
+  agent: researcher,
+  reads: ['goal', 'constraints'],
+  writes: 'research_notes',
+  failurePolicy: { maxRetries: 2 },
+});
+
+const write = node({
+  id: 'write',
+  agent: writer,
+  reads: ['goal', 'research_notes'],
+  writes: 'draft',
+  failurePolicy: { maxRetries: 2 },
+});
+
+const workflow = graph({
   name: 'Research & Write',
   description: 'Two-node linear workflow: research then write',
-
-  nodes: [
-    {
-      id: 'research',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal', 'constraints'],
-      writeKeys: ['research_notes'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-    },
-    {
-      id: 'write',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['goal', 'research_notes'],
-      writeKeys: ['draft'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-    },
-  ],
-
-  edges: [
-    {
-      source: 'research',
-      target: 'write',
-      condition: { type: 'always' },
-    },
-  ],
-
-  startNode: 'research',
-  endNodes: ['write'],
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
 });
 ```
 
-## Step 3: Create initial state
+`startNode` and `endNodes` are inferred for a simple chain. A cyclic graph would require them explicitly.
 
-Use the `createWorkflowState` helper to automatically generate the `run_id`, timestamps, and required structural defaults.
+## Step 3: Seed the state
+
+Use `state()` to build the initial `WorkflowState`. It generates the `run_id`, timestamps, and required structural defaults; you supply the goal and any seed memory.
 
 ```typescript
-import { createWorkflowState } from '@cycgraph/orchestrator';
+import { state } from '@cycgraph/orchestrator';
 
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'Explain how large language models work, including transformers, attention mechanisms, and training data.',
   constraints: ['Keep the final draft under 300 words', 'Use plain language suitable for a general audience'],
   maxExecutionTimeMs: 120_000,
 });
 ```
 
-## Step 4: Run
+## Step 4: Run with an explicit runner
+
+The facade stashed each agent's config on the compiled graph. Pull them out with `agentsForGraph()` and register them into a run-scoped registry, then pass that registry to the runner. Scoping the registry into the run keeps agents out of process-global state, so concurrent runs never contaminate each other.
 
 ```typescript
-import { GraphRunner, InMemoryPersistenceProvider } from '@cycgraph/orchestrator';
+import {
+  agentsForGraph,
+  GraphRunner,
+  InMemoryAgentRegistry,
+  InMemoryPersistenceProvider,
+} from '@cycgraph/orchestrator';
+
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
 
 const persistence = new InMemoryPersistenceProvider();
-const runner = new GraphRunner(graph, initialState, {
+const runner = new GraphRunner(workflow, initialState, {
   registry,   // scope agents to this run
-  providers,  // scope providers to this run
-  persistState: async (state) => {
-    await persistence.saveWorkflowSnapshot(state);
+  persistState: async (snapshot) => {
+    await persistence.saveWorkflowSnapshot(snapshot);
   },
 });
 

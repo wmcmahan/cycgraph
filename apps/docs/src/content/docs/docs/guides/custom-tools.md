@@ -63,11 +63,10 @@ The `tools` option takes everything that provides tools in one array: `tool()` r
 Where the value isn't in scope, agents and nodes reference the tool by bare name:
 
 ```typescript
-const AGENT = agentRegistry.register({
+const support = agent({
   name: 'Support Agent',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: '...',
+  instructions: '...',
   tools: ['lookup_order'],
 });
 ```
@@ -77,13 +76,13 @@ A name that matches a built-in resolves as a built-in; anything else resolves ag
 Custom tools also work in standalone `tool` nodes:
 
 ```typescript
-{
+node({
   id: 'fetch-order',
   type: 'tool',
   toolId: 'lookup_order',
   tools: ['lookup_order'],
-  readKeys: ['goal'],
-}
+  reads: ['goal'],
+})
 ```
 
 The result lands in `memory.fetch_order_result`.
