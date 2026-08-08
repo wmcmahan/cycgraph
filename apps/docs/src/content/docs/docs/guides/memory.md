@@ -112,17 +112,16 @@ Passing `tags` pushes the filter into the store rather than scanning facts clien
 The runner only calls `memoryRetriever` when an agent or supervisor node declares a `memoryQuery` directive. Without that, the retriever sits dormant and the option is silently a no-op. Add `memoryQuery` to every node that should receive retrieved memory:
 
 ```typescript
-{
+node({
   id: 'researcher',
-  type: 'agent',
-  agentId: RESEARCHER_ID,
-  readKeys: ['goal'],
-  writeKeys: ['notes'],
+  agent: RESEARCHER_ID,
+  reads: ['goal'],
+  writes: 'notes',
   memoryQuery: {
     tags: ['lesson'],   // tag-only retrieval
     maxFacts: 10,
   },
-}
+})
 ```
 
 Query shapes:
@@ -140,7 +139,7 @@ Voting and evolution nodes propagate their `memory_query` automatically to every
 To **persist** facts across runs, wire a `memoryWriter` and add a `reflection` node to your graph. The reflection node distills source memory keys into atomic facts and pushes them to your store; future runs retrieve them through `memoryRetriever`.
 
 ```typescript
-import { GraphRunner } from '@cycgraph/orchestrator';
+import { node, graph, GraphRunner } from '@cycgraph/orchestrator';
 import type { MemoryWriter } from '@cycgraph/orchestrator';
 
 // The runner passes options.idempotency_key (`run_id:node_id:iteration`)
@@ -178,36 +177,33 @@ const memoryWriter: MemoryWriter = async (facts, options) => {
   return { fact_ids: ids };
 };
 
-const graph = createGraph({
+const workflow = graph({
   name: 'Compound-learning research',
   description: 'Researcher writes notes, reflection extracts lessons for next run',
   nodes: [
-    {
+    node({
       id: 'researcher',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal'],
-      writeKeys: ['research_notes'],
+      agent: RESEARCHER_ID,
+      reads: ['goal'],
+      writes: 'research_notes',
       memoryQuery: { tags: ['lesson'], maxFacts: 10 },
-    },
-    {
+    }),
+    node({
       id: 'reflect',
       type: 'reflection',
-      readKeys: ['research_notes'],
-      writeKeys: ['research_notes_reflection'],
+      reads: ['research_notes'],
+      writes: 'research_notes_reflection',
       reflectionConfig: {
         sourceKeys: ['research_notes'],
         extractor: { type: 'rule_based', minSentenceLength: 25 },
         tags: ['lesson', 'graph:research-v1'],
       },
-    },
+    }),
   ],
-  edges: [{ source: 'researcher', target: 'reflect' }],
-  startNode: 'researcher',
-  endNodes: ['reflect'],
+  edges: [{ from: 'researcher', to: 'reflect' }],
 });
 
-const runner = new GraphRunner(graph, state, { memoryRetriever, memoryWriter });
+const runner = new GraphRunner(workflow, state, { memoryRetriever, memoryWriter });
 ```
 
 See the [Reflection pattern](/docs/patterns/reflection/) for full details and the `learning-research-agent` example for a runnable demo.

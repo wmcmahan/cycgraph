@@ -7,17 +7,17 @@ cycgraph ships with **OpenAI** and **Anthropic** pre-registered. To use a differ
 
 ## Quick start
 
-Create a provider registry and scope it into the run. The built-in providers are included automatically.
+Create a provider registry and scope it into the run. The built-in providers are included automatically. `run()` takes a `providers` option, and the explicit `GraphRunner` takes the same option under `GraphRunnerOptions`.
 
 ```typescript
-import { createProviderRegistry, GraphRunner } from '@cycgraph/orchestrator';
+import { createProviderRegistry, run } from '@cycgraph/orchestrator';
 
 const providers = createProviderRegistry(); // includes openai + anthropic
 
-const runner = new GraphRunner(graph, state, { providers });
+const result = await run(workflow, { goal: '...' }, { providers });
 ```
 
-That's it for the defaults. Agents using `provider: 'openai'` or `provider: 'anthropic'` will resolve correctly as long as the corresponding `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` environment variable is set. (The older `configureProviderRegistry(providers)` global is deprecated in favor of the `providers` option.)
+That's it for the defaults. Agents using `provider: 'openai'` or `provider: 'anthropic'` will resolve correctly as long as the corresponding `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` environment variable is set. The older `configureProviderRegistry(providers)` global is deprecated in favor of the `providers` option.
 
 ## Adding a custom provider
 
@@ -82,25 +82,23 @@ providers.register('google', (modelId) => google(modelId), {
 
 ## Using a custom provider in agents
 
-Reference your provider by name in the agent config:
+Reference your provider by name in the agent's `provider` field. The facade infers the provider only from well-known model prefixes, so a custom-provider model names its provider explicitly:
 
 ```typescript
-const FAST_AGENT = registry.register({
+const fastResearcher = agent({
   name: 'Fast Researcher',
   model: 'llama-3.3-70b-versatile',
   provider: 'groq',
-  systemPrompt: 'You are a research specialist...',
-  tools: [],
-  permissions: { readKeys: ['goal'], writeKeys: ['notes'] },
+  instructions: 'You are a research specialist...',
 });
 ```
 
 ## Provider options
 
-Some providers support additional options (extended thinking, structured output modes, etc.). Pass these via `providerOptions` on the agent config:
+Some providers support additional options such as extended thinking or structured output modes. Pass these via `providerOptions` on the agent:
 
 ```typescript
-const THINKING_AGENT = registry.register({
+const deepThinker = agent({
   name: 'Deep Thinker',
   model: 'claude-opus-4-8',
   provider: 'anthropic',
@@ -110,26 +108,26 @@ const THINKING_AGENT = registry.register({
       budgetTokens: 12000,
     },
   },
-  systemPrompt: 'You solve complex problems step by step...',
-  tools: [],
-  permissions: { readKeys: ['*'], writeKeys: ['*'] },
+  instructions: 'You solve complex problems step by step...',
 });
 ```
 
 ## Provider inference
 
-If an agent config omits the `provider` field, the engine infers it by matching the `model` against each provider's known model list. If no match is found, it defaults to `anthropic`.
+There are two layers of inference, and they behave differently.
+
+The facade's `agent()` infers the provider at authoring time from well-known model-name prefixes: `claude-*` resolves to Anthropic, `gpt-*` and `o1`/`o3`-style names to OpenAI. A model it does not recognize, such as a Groq or Ollama model, has no known prefix, so `agent()` throws unless you pass `provider` explicitly. This is why the custom-provider examples above name their provider.
+
+The engine has a second, broader inference used when an agent config reaches the registry without a `provider` field, for example one loaded from a database rather than authored with `agent()`. It matches the `model` against each registered provider's known model list, and falls back to `anthropic` when nothing matches.
 
 ```typescript
-// provider is inferred as 'groq' because 'llama-3.3-70b-versatile'
-// was registered in the groq provider's model list
-const AGENT = registry.register({
+// provider resolves to 'groq' because 'llama-3.3-70b-versatile'
+// is in the groq provider's registered model list
+registry.register({
   name: 'Inferred Provider Agent',
   model: 'llama-3.3-70b-versatile',
-  // provider: omitted — inferred automatically
+  // provider omitted — the registry infers it from the model list
   systemPrompt: '...',
-  tools: [],
-  permissions: { readKeys: ['*'], writeKeys: ['*'] },
 });
 ```
 

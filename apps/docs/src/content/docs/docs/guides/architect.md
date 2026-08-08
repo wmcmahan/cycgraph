@@ -65,14 +65,14 @@ This is useful for incrementally building up complex workflows through conversat
 Once you have a graph, use it like any other. Create state and run:
 
 ```typescript
-import { GraphRunner, createWorkflowState } from '@cycgraph/orchestrator';
+import { GraphRunner, state } from '@cycgraph/orchestrator';
 
-const state = createWorkflowState({
+const initialState = state({
   workflowId: graph.id,
   goal: 'Summarize today\'s top AI news from Hacker News',
 });
 
-const runner = new GraphRunner(graph, state);
+const runner = new GraphRunner(graph, initialState);
 
 const result = await runner.run();
 ```
