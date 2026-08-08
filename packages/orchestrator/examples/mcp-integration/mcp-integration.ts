@@ -11,6 +11,13 @@
  * Demonstrates: registerDefaultMCPServers, MCPConnectionManager,
  * ToolSource declarations, taint tracking, connection lifecycle.
  *
+ * The graph is authored with the facade vocabulary (`agent` · `node` ·
+ * `graph` · `state`); an agent's `tools` array takes `{ mcp: 'server-id' }`
+ * references directly. Because the example inspects the final WorkflowState
+ * (taint registry, visited nodes) and wires the MCPConnectionManager plus
+ * tool-call event listeners onto the runner, it keeps an explicit GraphRunner
+ * and registers the facade agents via `agentsForGraph`.
+ *
  * Prerequisites:
  *   - BRAVE_API_KEY for web search (get one at https://brave.com/search/api/)
  *   - ANTHROPIC_API_KEY for the LLM agents
@@ -21,17 +28,18 @@
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
   InMemoryAgentRegistry,
   InMemoryMCPServerRegistry,
-  createProviderRegistry,
   MCPConnectionManager,
   registerDefaultMCPServers,
-  createGraph,
-  createWorkflowState,
   createLogger,
 } from '@cycgraph/orchestrator';
-import type { ToolSourceConfig } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API keys ────────────────────────────────────────
 
@@ -61,21 +69,19 @@ logger.info(`Registered MCP servers: ${registered.join(', ')}`);
 // You can also register selectively or with overrides:
 //   registerDefaultMCPServers(mcpRegistry, { only: ['fetch'] });
 //   registerDefaultMCPServers(mcpRegistry, { braveApiKey: 'BSA-...' });
-//   registerDefaultMCPServers(mcpRegistry, { allowedAgents: [RESEARCHER_ID] });
+//   registerDefaultMCPServers(mcpRegistry, { allowedAgents: ['<agent-id>'] });
 
-// ─── 2. Register agents with MCP tool references ────────────────────────
-// Tools are declared as ToolSource[] — the MCPConnectionManager resolves
-// them at execution time by connecting to the registered servers.
-
-const agentRegistry = new InMemoryAgentRegistry();
+// ─── 2. Define agents with MCP tool references ──────────────────────────
+// An agent's `tools` array takes `{ mcp: 'server-id' }` references — the
+// MCPConnectionManager resolves them at execution time by connecting to the
+// registered servers.
 
 // Research agent: uses web-search MCP server + fetch MCP server
-const RESEARCHER_ID = agentRegistry.register({
+const researcher = agent({
   name: 'Web Research Agent',
   description: 'Researches topics using web search and URL fetching',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a research agent with access to web search and URL fetching.',
     'Use brave_web_search to find current information about the topic.',
     'Use fetch to read specific URLs when you need deeper content from a search result.',
@@ -84,35 +90,23 @@ const RESEARCHER_ID = agentRegistry.register({
   temperature: 0.5,
   maxSteps: 8, // More steps to allow search → fetch → summarize chains
   tools: [
-    { type: 'mcp', serverId: 'web-search' },  // Brave web search
-    { type: 'mcp', serverId: 'fetch' },       // URL content fetching
-  ] satisfies ToolSourceConfig[],
-  permissions: {
-    readKeys: ['*'],
-    writeKeys: ['research_notes'],
-  },
+    { mcp: 'web-search' }, // Brave web search
+    { mcp: 'fetch' }, // URL content fetching
+  ],
 });
 
 // Writer agent: no MCP tools needed, just processes research notes
-const WRITER_ID = agentRegistry.register({
+const writer = agent({
   name: 'Summary Writer',
   description: 'Writes concise summaries from research notes',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a writer. Using the research notes, produce a clear, well-structured summary.',
     'Include key facts and cite sources when available.',
   ].join(' '),
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['research_notes'],
-    writeKeys: ['summary'],
-  },
 });
-
-const providers = createProviderRegistry();
 
 // ─── 3. Create the MCPConnectionManager ─────────────────────────────────
 // Connects to MCP servers lazily on first tool use.
@@ -122,58 +116,51 @@ const mcpManager = new MCPConnectionManager(mcpRegistry);
 
 // ─── 4. Define the graph ────────────────────────────────────────────────
 
-const graph = createGraph({
+const research = node({
+  id: 'research',
+  agent: researcher,
+  reads: ['*'],
+  writes: 'research_notes',
+  failurePolicy: { maxRetries: 2, initialBackoffMs: 2000, maxBackoffMs: 30000 },
+});
+
+const write = node({
+  id: 'write',
+  agent: writer,
+  reads: ['research_notes'],
+  writes: 'summary',
+  failurePolicy: { maxRetries: 2, maxBackoffMs: 30000 },
+});
+
+const workflow = graph({
   name: 'Web Research Pipeline',
   description: 'Search + fetch → research notes → written summary',
-
-  nodes: [
-    {
-      id: 'research',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['*'],
-      writeKeys: ['research_notes'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 2000, maxBackoffMs: 30000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'write',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['research_notes'],
-      writeKeys: ['summary'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [
-    { source: 'research', target: 'write' },
-  ],
-
-  startNode: 'research',
-  endNodes: ['write'],
-
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
   // Taint tracking: MCP tool outputs are automatically marked as tainted.
   // strict_taint rejects routing decisions that depend on tainted data.
   strictTaint: true,
 });
+
+// Hybrid pattern: register the facade-minted agent configs into a run-scoped
+// registry for the GraphRunner this example keeps.
+const agentRegistry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) agentRegistry.register(config);
 
 // ─── 5. Run ─────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting web research pipeline...\n');
 
-  const state = createWorkflowState({
-    workflowId: graph.id,
+  const initialState = state({
+    workflowId: workflow.id,
     goal: 'Research the Model Context Protocol (MCP): what it is, who introduced it, and how it lets tools connect to LLMs. Summarize the key facts.',
     constraints: ['Keep the summary under 300 words', 'Include specific facts and sources'],
     maxExecutionTimeMs: 120_000,
   });
 
-  const runner = new GraphRunner(graph, state, {
+  const runner = new GraphRunner(workflow, initialState, {
     registry: agentRegistry,
-    providers,
     tools: [mcpManager],
   });
 

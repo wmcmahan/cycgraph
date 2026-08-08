@@ -1,5 +1,5 @@
 /**
- * Verifier Fix-Loop — Runnable Example
+ * Verifier Fix-Loop — Runnable Example (authoring facade)
  *
  * A 3-node compound-systems workflow demonstrating the
  * generator → verifier → fixer loop:
@@ -17,18 +17,25 @@
  * output meets a structural invariant even when the generator misses
  * on the first try — the heart of the compound-systems pattern.
  *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
+ * through an explicit GraphRunner because the example inspects the final
+ * WorkflowState (verification outcome, iteration count, cost) and attaches
+ * event listeners, which the one-call `run()` helper does not expose.
+ *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/verifier-fix-loop/verifier-fix-loop.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
-  InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  createProviderRegistry,
+  InMemoryPersistenceProvider,
   createLogger,
-  createGraph,
-  createWorkflowState,
 } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
@@ -41,16 +48,15 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const logger = createLogger('example');
 
-// ─── 1. Register agents ──────────────────────────────────────────────────
+// ─── 1. Define agents ────────────────────────────────────────────────────
+// An agent() value is a capability: model, instructions, sampling. No id
+// (graph() mints one) and no permissions (the node's grants are authoritative).
 
-const registry = new InMemoryAgentRegistry();
-
-const EXTRACTOR_ID = registry.register({
+const extractorAgent = agent({
   name: 'Purchase Order Extractor',
   description: 'Extracts a structured purchase order from a noisy customer email',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a strict data extraction agent.',
     'Given the text in memory key `email_text`, extract a purchase order and write it to memory key `purchase_order` as a JSON object with these fields:',
     '  - customer_email (string)',
@@ -61,19 +67,13 @@ const EXTRACTOR_ID = registry.register({
   ].join('\n'),
   temperature: 0.2,
   maxSteps: 2,
-  tools: [],
-  permissions: {
-    readKeys: ['email_text', 'goal'],
-    writeKeys: ['purchase_order'],
-  },
 });
 
-const FIXER_ID = registry.register({
+const fixerAgent = agent({
   name: 'Purchase Order Fixer',
   description: 'Re-extracts a purchase order using verifier feedback',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a data correction agent.',
     'The previous extraction failed verification. Read:',
     '  - `email_text` — original customer email',
@@ -83,79 +83,67 @@ const FIXER_ID = registry.register({
   ].join('\n'),
   temperature: 0.3,
   maxSteps: 2,
-  tools: [],
-  permissions: {
-    readKeys: ['email_text', 'purchase_order', 'verify_email_verification', 'goal'],
-    writeKeys: ['purchase_order'],
-  },
 });
 
-const providers = createProviderRegistry();
+// ─── 2. Place them in a graph ────────────────────────────────────────────
+// A verifier node has no agent: it runs a deterministic JSONPath assertion.
+// Its result keys are an implied write grant, so no `writes` is declared —
+// only `reads` for the target key it inspects.
 
-// ─── 2. Define the graph ─────────────────────────────────────────────────
+const extract = node({
+  id: 'extract',
+  agent: extractorAgent,
+  reads: ['email_text', 'goal'],
+  writes: 'purchase_order',
+});
 
-const graph = createGraph({
+const verifyEmail = node({
+  id: 'verify_email',
+  type: 'verifier',
+  verifierConfig: {
+    type: 'jsonpath',
+    targetKey: 'purchase_order',
+    path: '$.customer_email',
+    // A real email has at least one `@` and one `.`, no whitespace.
+    // Catches model outputs like "not provided", null, or junk strings.
+    assertion: { op: 'matches', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$' },
+  },
+  // The verifier's target_key must be readable; its result keys are implied.
+  reads: ['purchase_order'],
+});
+
+const fix = node({
+  id: 'fix',
+  agent: fixerAgent,
+  reads: ['email_text', 'purchase_order', 'verify_email_verification', 'goal'],
+  writes: 'purchase_order',
+});
+
+// The verifier's success path is implicit: when it passes, no outgoing edge
+// matches and the runner completes the workflow. That means every node has an
+// outbound edge, so end nodes cannot be inferred — pass them explicitly.
+const workflow = graph({
   name: 'Verifier Fix-Loop',
   description: 'Generator → deterministic verifier → fixer loop for reliable structured extraction',
-
-  nodes: [
-    {
-      id: 'extract',
-      type: 'agent',
-      agentId: EXTRACTOR_ID,
-      readKeys: ['email_text', 'goal'],
-      writeKeys: ['purchase_order'],
-    },
-    {
-      id: 'verify_email',
-      type: 'verifier',
-      verifierConfig: {
-        type: 'jsonpath',
-        targetKey: 'purchase_order',
-        path: '$.customer_email',
-        // A real email has at least one `@` and one `.`, no whitespace.
-        // Catches model outputs like "not provided", null, or junk strings.
-        assertion: { op: 'matches', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$' },
-      },
-      // verifier_config.target_key must be readable; result keys must be writable.
-      readKeys: ['purchase_order'],
-      writeKeys: ['verify_email_verification', 'verify_email_verification_passed'],
-    },
-    {
-      id: 'fix',
-      type: 'agent',
-      agentId: FIXER_ID,
-      readKeys: ['email_text', 'purchase_order', 'verify_email_verification', 'goal'],
-      writeKeys: ['purchase_order'],
-    },
-  ],
-
+  nodes: [extract, verifyEmail, fix],
   edges: [
     // Always: extract → verify
-    { source: 'extract', target: 'verify_email' },
-
+    { from: extract, to: verifyEmail },
     // Failure path: verify → fix
-    {
-      source: 'verify_email',
-      target: 'fix',
-      condition: {
-        type: 'conditional',
-        condition: 'memory.verify_email_verification_passed == false',
-      },
-    },
-
+    { from: verifyEmail, to: fix, when: 'memory.verify_email_verification_passed == false' },
     // Loop: fix → verify
-    { source: 'fix', target: 'verify_email' },
-
-    // Success path is implicit: when the verifier passes, no outgoing edge
-    // matches and the runner completes the workflow automatically.
+    { from: fix, to: verifyEmail },
   ],
-
-  startNode: 'extract',
+  startNode: extract,
   endNodes: [],
 });
 
-// ─── 3. Create initial state ─────────────────────────────────────────────
+// ─── 3. Set up registry, state, and runner ───────────────────────────────
+// The graph carries its agent() configs; register them into a run-scoped
+// registry for the explicit GraphRunner path.
+
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
 
 // A deliberately noisy customer email. The model usually gets this right on
 // the first try, but failures (placeholder strings, transposed digits in the
@@ -177,8 +165,8 @@ Thanks,
 Jordan
 `.trim();
 
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'Extract a structured purchase order from a customer email',
   constraints: ['Output a JSON object with customer_email, order_id, total_usd, and items'],
   memory: { email_text: NOISY_EMAIL },
@@ -186,17 +174,11 @@ const initialState = createWorkflowState({
   maxExecutionTimeMs: 180_000,
 });
 
-// ─── 4. Set up persistence + runner ──────────────────────────────────────
-
 const persistence = new InMemoryPersistenceProvider();
 
-const runner = new GraphRunner(graph, initialState, {
+const runner = new GraphRunner(workflow, initialState, {
   registry,
-  providers,
-  persistState: async (state) => {
-    await persistence.saveWorkflowState(state);
-    await persistence.saveWorkflowRun(state);
-  },
+  persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // Event listeners — verification events are the most interesting signal here.
@@ -220,7 +202,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 5. Run ──────────────────────────────────────────────────────────────
+// ─── 4. Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting verifier-fix-loop workflow...\n');

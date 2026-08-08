@@ -1,25 +1,32 @@
 /**
- * Eval Loop — Runnable Example
+ * Eval Loop — Runnable Example (authoring facade)
  *
  * A 3-node cyclic workflow: a Writer drafts content, an Evaluator scores it,
  * and either loops back for revision (score < 0.8) or forwards to a Publisher
  * (score >= 0.8).
  *
- * Demonstrates: conditional edges, cyclic graphs, iterative refinement,
- * agent-as-config, in-memory persistence, and event listeners.
+ * Demonstrates: conditional edges, cyclic graphs, iterative refinement, and
+ * the __done__-free termination via a quality gate.
+ *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
+ * through an explicit GraphRunner because the example inspects the final
+ * WorkflowState (iteration count, score, cost) and attaches event listeners,
+ * which the one-call `run()` helper does not expose.
  *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/eval-loop/eval-loop.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
-  InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  createProviderRegistry,
+  InMemoryPersistenceProvider,
   createLogger,
-  createGraph,
-  createWorkflowState,
 } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
@@ -32,17 +39,15 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const logger = createLogger('example');
 
-// ─── 1. Register agents ──────────────────────────────────────────────────
-// register() returns the auto-generated UUID for each agent.
+// ─── 1. Define agents ────────────────────────────────────────────────────
+// An agent() value is a capability: model, instructions, sampling. No id
+// (graph() mints one) and no permissions (the node's grants are authoritative).
 
-const registry = new InMemoryAgentRegistry();
-
-const WRITER_ID = registry.register({
+const writerAgent = agent({
   name: 'Writer Agent',
   description: 'Writes or refines a draft based on feedback',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a skilled writer.',
     'Your task: write a concise, engaging explanation of the given topic for a general audience.',
     'If memory.feedback and memory.suggestions are present, you are revising a previous draft — use that feedback to improve.',
@@ -51,19 +56,13 @@ const WRITER_ID = registry.register({
   ].join(' '),
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
-    writeKeys: ['draft'],
-  },
 });
 
-const EVALUATOR_ID = registry.register({
+const evaluatorAgent = agent({
   name: 'Evaluator Agent',
   description: 'Scores a draft on quality and provides feedback',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a writing evaluator.',
     'Read the draft and score it on clarity, accuracy, engagement, and conciseness.',
     'You MUST call save_to_memory THREE times:',
@@ -76,19 +75,13 @@ const EVALUATOR_ID = registry.register({
   ].join(' '),
   temperature: 0.3,
   maxSteps: 5,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints', 'draft'],
-    writeKeys: ['score', 'feedback', 'suggestions'],
-  },
 });
 
-const PUBLISHER_ID = registry.register({
+const publisherAgent = agent({
   name: 'Publisher Agent',
   description: 'Produces the final polished version',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a publishing editor.',
     'Take the approved draft and produce a final, polished version.',
     'Fix any remaining grammar, style, or clarity issues.',
@@ -96,74 +89,66 @@ const PUBLISHER_ID = registry.register({
   ].join(' '),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'draft'],
-    writeKeys: ['final_output'],
-  },
 });
 
-// Configure LLM providers — built-in OpenAI + Anthropic are pre-registered.
-// Add custom providers here (e.g., Groq, Ollama) via providers.register().
-const providers = createProviderRegistry();
-
-// ─── 2. Define the graph ─────────────────────────────────────────────────
+// ─── 2. Place them in a graph ────────────────────────────────────────────
 // Cyclic graph with conditional edges:
 //   writer → evaluator ──[score >= 0.8]──→ publisher (done)
 //                │
 //                └──[score < 0.8]──→ writer (loop back)
 
-const graph = createGraph({
-  name: 'Eval Loop',
-  description: 'Cyclic write-evaluate-revise loop with conditional quality gate',
-
-  nodes: [
-    {
-      id: 'writer',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
-      writeKeys: ['draft'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'evaluator',
-      type: 'agent',
-      agentId: EVALUATOR_ID,
-      readKeys: ['goal', 'constraints', 'draft'],
-      writeKeys: ['score', 'feedback', 'suggestions'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'publisher',
-      type: 'agent',
-      agentId: PUBLISHER_ID,
-      readKeys: ['goal', 'draft'],
-      writeKeys: ['final_output'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [
-    // writer always goes to evaluator
-    { source: 'writer', target: 'evaluator' },
-    // loop back: evaluator → writer when score < 0.8
-    { source: 'evaluator', target: 'writer', condition: { type: 'conditional', condition: 'number(memory.score) < 0.8' } },
-    // quality gate: evaluator → publisher when score >= 0.8
-    { source: 'evaluator', target: 'publisher', condition: { type: 'conditional', condition: 'number(memory.score) >= 0.8' } },
-  ],
-
-  startNode: 'writer',
-  endNodes: ['publisher'],
+const writer = node({
+  id: 'writer',
+  agent: writerAgent,
+  reads: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
+  writes: 'draft',
+  failurePolicy: { maxRetries: 2 },
 });
 
-// ─── 3. Create initial state ─────────────────────────────────────────────
+const evaluator = node({
+  id: 'evaluator',
+  agent: evaluatorAgent,
+  reads: ['goal', 'constraints', 'draft'],
+  writes: ['score', 'feedback', 'suggestions'],
+  failurePolicy: { maxRetries: 2 },
+});
 
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const publisher = node({
+  id: 'publisher',
+  agent: publisherAgent,
+  reads: ['goal', 'draft'],
+  writes: 'final_output',
+  failurePolicy: { maxRetries: 2 },
+});
+
+// Cyclic graph: the loop-back edge means start/end cannot be inferred, so
+// pass them explicitly. Edge order matters — the runner takes the first
+// matching edge, so the loop-back is listed before the exit.
+const workflow = graph({
+  name: 'Eval Loop',
+  description: 'Cyclic write-evaluate-revise loop with conditional quality gate',
+  nodes: [writer, evaluator, publisher],
+  edges: [
+    // writer always goes to evaluator
+    { from: writer, to: evaluator },
+    // loop back: evaluator → writer when score < 0.8
+    { from: evaluator, to: writer, when: 'number(memory.score) < 0.8' },
+    // quality gate: evaluator → publisher when score >= 0.8
+    { from: evaluator, to: publisher, when: 'number(memory.score) >= 0.8' },
+  ],
+  startNode: writer,
+  endNodes: [publisher],
+});
+
+// ─── 3. Set up registry, state, and runner ───────────────────────────────
+// The graph carries its agent() configs; register them into a run-scoped
+// registry for the explicit GraphRunner path.
+
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
+
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'Write a concise explanation of quantum computing for a general audience.',
   constraints: [
     'Under 250 words',
@@ -175,17 +160,11 @@ const initialState = createWorkflowState({
   maxExecutionTimeMs: 300_000,
 });
 
-// ─── 4. Set up persistence + runner ──────────────────────────────────────
-
 const persistence = new InMemoryPersistenceProvider();
 
-const runner = new GraphRunner(graph, initialState, {
+const runner = new GraphRunner(workflow, initialState, {
   registry,
-  providers,
-  persistState: async (state) => {
-    await persistence.saveWorkflowState(state);
-    await persistence.saveWorkflowRun(state);
-  },
+  persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // Event listeners for observability
@@ -209,7 +188,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 5. Run ──────────────────────────────────────────────────────────────
+// ─── 4. Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting eval-loop workflow...\n');

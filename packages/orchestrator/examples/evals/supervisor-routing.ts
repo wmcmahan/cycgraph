@@ -4,49 +4,28 @@
  * Validates that a router-based graph correctly dispatches to a
  * worker node and then completes. Uses a router node to simulate
  * supervisor routing behavior without requiring real LLM calls.
+ * Authored with the facade vocabulary: `node()` placements compiled
+ * by `graph()` into the same wire the raw API produces.
  *
  * @module evals/supervisor-routing
  */
 
-import { createGraph, type EvalSuite } from '@cycgraph/orchestrator';
+import { graph, node, type EvalSuite } from '@cycgraph/orchestrator';
 
-const supervisorGraph = createGraph({
+const retryOnce = { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
+
+const router = node({ id: 'router', type: 'router', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
+const worker = node({ id: 'worker', type: 'tool', toolId: 'mock_worker', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
+const done = node({ id: 'done', type: 'tool', toolId: 'mock_done', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
+
+const supervisorGraph = graph({
   name: 'Supervisor Routing Eval',
   description: 'Router dispatches to tool node then completes',
-  nodes: [
-    {
-      id: 'router',
-      type: 'router',
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'worker',
-      type: 'tool',
-      toolId: 'mock_worker',
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'done',
-      type: 'tool',
-      toolId: 'mock_done',
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 },
-      requiresCompensation: false,
-    },
-  ],
+  nodes: [router, worker, done],
   edges: [
-    { id: 'e1', source: 'router', target: 'worker', condition: { type: 'always' } },
-    { id: 'e2', source: 'worker', target: 'done', condition: { type: 'always' } },
+    { from: router, to: worker },
+    { from: worker, to: done },
   ],
-  startNode: 'router',
-  endNodes: ['done'],
 });
 
 /** Eval suite asserting the router dispatches to a worker and completes. */

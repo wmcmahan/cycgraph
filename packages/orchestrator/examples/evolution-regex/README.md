@@ -93,11 +93,11 @@ Exact numbers vary across runs — LLM output is non-deterministic. The shape (u
 ## The key code
 
 ```typescript
-import { GraphRunner } from '@cycgraph/orchestrator';
+import { agent, node, graph, state, agentsForGraph, GraphRunner, InMemoryAgentRegistry } from '@cycgraph/orchestrator';
 import type { FitnessFunction } from '@cycgraph/orchestrator';
 
-const SHOULD_MATCH = ['192.168.1.1', '10.0.0.1', '255.255.255.255', /* ... */];
-const SHOULD_REJECT = ['256.1.1.1', '192.168.1.300', '1.1.1', /* ... */];
+const SHOULD_MATCH = ['400', '402', '405', /* ... */];
+const SHOULD_REJECT = ['401', '403', '404', '200', /* ... */];
 
 const fitnessFunction: FitnessFunction = async (output) => {
   const candidate = (output as { candidate_output?: string }).candidate_output ?? '';
@@ -114,10 +114,31 @@ const fitnessFunction: FitnessFunction = async (output) => {
   return { score: hits / total };
 };
 
-const runner = new GraphRunner(graph, state, { fitnessFunction });
+// The candidate is authored as a facade agent() and placed in an evolution node.
+// `candidateAgentId` accepts the agent() value directly — graph() resolves it.
+const candidate = agent({ model: 'claude-haiku-4-5-20251001', instructions: '…' });
+const evolve = node({
+  id: 'evolve',
+  type: 'evolution',
+  agent: candidate,
+  reads: ['*'],
+  writes: '*',
+  evolutionConfig: { candidateAgentId: candidate, populationSize: 4, maxGenerations: 4 },
+});
+const g = graph({ name: 'Regex Evolution', nodes: [evolve], edges: [], startNode: evolve, endNodes: [evolve] });
+
+// A JS fitnessFunction can't ride on the serializable graph, so run through an
+// explicit GraphRunner. Re-pin the candidate's write ceiling to `candidate_output`
+// (a facade agent() carries no permissions, and evolution grants each candidate
+// write_keys ['*'], so the ceiling is what routes its text to that key).
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(g)) {
+  registry.register({ ...config, permissions: { readKeys: ['*'], writeKeys: ['candidate_output'] } });
+}
+const runner = new GraphRunner(g, state({ workflowId: g.id, goal: '…' }), { registry, fitnessFunction });
 ```
 
-The evolution node config drops `evaluator_agent_id` entirely — the runner-supplied `fitnessFunction` takes over.
+The evolution node config drops `evaluatorAgentId` entirely — the runner-supplied `fitnessFunction` takes over.
 
 ## When to use this pattern
 
@@ -125,4 +146,4 @@ The evolution node config drops `evaluator_agent_id` entirely — the runner-sup
 - When you've seen the LLM judge plateau or jitter and want clean, monotonic climbing.
 - When token budget for evaluation is a concern — deterministic fitness is free.
 
-Stick with the LLM-as-judge `evaluator_agent_id` for tasks with no objective answer (creative writing, design rationale, subjective quality).
+Stick with the LLM-as-judge `evaluatorAgentId` for tasks with no objective answer (creative writing, design rationale, subjective quality).

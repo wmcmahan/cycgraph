@@ -1,5 +1,5 @@
 /**
- * Learning Research Agent — Runnable Example
+ * Learning Research Agent — Runnable Example (authoring facade, hybrid)
  *
  * Demonstrates compound learning across workflow runs using the
  * `reflection` node + `MemoryWriter` + `MemoryRetriever`.
@@ -7,16 +7,21 @@
  * The same graph runs twice on related goals. After run 1 the reflection
  * node distills the researcher's notes into atomic lessons and writes
  * them to an `@cycgraph/memory` store. On run 2 the researcher node's
- * `memory_query` directive causes the runner to call `memoryRetriever`
+ * `memoryQuery` directive causes the runner to call `memoryRetriever`
  * before prompt construction; the returned lessons are rendered into a
  * `## Relevant Memory` section of the system prompt. Agents compound
  * knowledge with zero manual injection.
+ *
+ * The graph is authored with the facade vocabulary (`agent` · `node` ·
+ * `graph` · `state`). Because the example inspects the final
+ * `WorkflowState` (status, tokens, cost), it keeps an explicit
+ * `GraphRunner` and registers the facade agents via `agentsForGraph`.
  *
  * Demonstrates:
  * - `reflection` node with `rule_based` extractor
  * - `MemoryWriter` adapter wired to `InMemoryMemoryStore`
  * - `MemoryRetriever` adapter using tag-only `retrieveMemory()`
- * - Per-node `memory_query: { tags }` directive
+ * - Per-node `memoryQuery: { tags }` directive
  * - Side-by-side comparison of run 1 vs run 2 outcomes
  *
  * Usage:
@@ -27,13 +32,14 @@
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
-  InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  createProviderRegistry,
   createLogger,
-  createGraph,
-  createWorkflowState,
 } from '@cycgraph/orchestrator';
 import type {
   MemoryWriter,
@@ -103,7 +109,7 @@ const memoryWriter: MemoryWriter = async (facts) => {
 /**
  * `MemoryRetriever` adapter — pulls lessons tagged with this graph's
  * namespace. The runner invokes this before building the researcher's
- * system prompt because the researcher node carries `memory_query`.
+ * system prompt because the researcher node carries `memoryQuery`.
  */
 const memoryRetriever: MemoryRetriever = async (query, options) => {
   const result = await retrieveMemory(memoryStore, memoryIndex, {
@@ -120,16 +126,13 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
   };
 };
 
-// ─── 2. Register agents ─────────────────────────────────────────────────
+// ─── 2. Define the agent and the graph ──────────────────────────────────
 
-const registry = new InMemoryAgentRegistry();
-
-const RESEARCHER_ID = registry.register({
+const researcher = agent({
   name: 'Research Agent',
   description: 'Gathers concise research notes on a topic',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a research specialist.',
     'Given a goal, produce 5–8 bullet-style research notes.',
     'Each bullet is a single, self-contained sentence (25–60 words).',
@@ -139,76 +142,53 @@ const RESEARCHER_ID = registry.register({
   ].join(' '),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints'],
-    writeKeys: ['research_notes'],
-  },
 });
 
-const providers = createProviderRegistry();
+const research = node({
+  id: 'research',
+  agent: researcher,
+  reads: ['goal', 'constraints'],
+  writes: 'research_notes',
+  // Per-node memory retrieval directive. The runner calls
+  // `memoryRetriever({ tags: [LESSON_TAG] }, …)` before building this
+  // node's prompt and renders the result into a `## Relevant Memory`
+  // section. Zero manual injection required.
+  memoryQuery: {
+    tags: [LESSON_TAG],
+    maxFacts: 20,
+  },
+  failurePolicy: { maxRetries: 2 },
+});
 
-// ─── 3. Define the graph ────────────────────────────────────────────────
+const reflect = node({
+  id: 'reflect',
+  type: 'reflection',
+  reads: ['research_notes'],
+  writes: 'research_notes_reflection',
+  reflectionConfig: {
+    sourceKeys: ['research_notes'],
+    extractor: { type: 'rule_based', minSentenceLength: 25 },
+    tags: ['lesson', LESSON_TAG],
+    // The result key is an implied write grant; pin it because the code
+    // below reads this specific name from final memory.
+    resultKey: 'research_notes_reflection',
+  },
+  failurePolicy: { maxRetries: 1, initialBackoffMs: 500, maxBackoffMs: 5000 },
+});
 
-const graph = createGraph({
+const workflow = graph({
   name: 'Learning Research Agent',
   description: 'Research node followed by a reflection node that compounds lessons across runs',
-
-  nodes: [
-    {
-      id: 'research',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal', 'constraints'],
-      writeKeys: ['research_notes'],
-      // Per-node memory retrieval directive. The runner calls
-      // `memoryRetriever({ tags: [LESSON_TAG] }, …)` before building this
-      // node's prompt and renders the result into a `## Relevant Memory`
-      // section. Zero manual injection required.
-      memoryQuery: {
-        tags: [LESSON_TAG],
-        maxFacts: 20,
-      },
-      failurePolicy: {
-        maxRetries: 2,
-        backoffStrategy: 'exponential',
-        initialBackoffMs: 1000,
-        maxBackoffMs: 60000,
-      },
-      requiresCompensation: false,
-    },
-    {
-      id: 'reflect',
-      type: 'reflection',
-      readKeys: ['research_notes'],
-      writeKeys: ['research_notes_reflection'],
-      reflectionConfig: {
-        sourceKeys: ['research_notes'],
-        extractor: { type: 'rule_based', minSentenceLength: 25 },
-        tags: ['lesson', LESSON_TAG],
-        // The result key is an implied write grant; pin it because the code
-        // below reads this specific name from final memory.
-        resultKey: 'research_notes_reflection',
-      },
-      failurePolicy: {
-        maxRetries: 1,
-        backoffStrategy: 'exponential',
-        initialBackoffMs: 500,
-        maxBackoffMs: 5000,
-      },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [
-    { source: 'research', target: 'reflect' },
-  ],
-
-  startNode: 'research',
-  endNodes: ['reflect'],
+  nodes: [research, reflect],
+  edges: [{ from: research, to: reflect }],
 });
 
-// ─── 4. Run helper ──────────────────────────────────────────────────────
+// The hybrid pattern: the facade minted and stashed the agent configs at
+// compile time; register them into a run-scoped registry for GraphRunner.
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
+
+// ─── 3. Run helper ──────────────────────────────────────────────────────
 
 interface RunOutcome {
   goal: string;
@@ -228,21 +208,15 @@ async function countLessons(): Promise<number> {
 async function runOnce(goal: string, constraints: string[]): Promise<RunOutcome> {
   const priorLessonCount = await countLessons();
 
-  const initialState = createWorkflowState({
-    workflowId: graph.id,
+  const initialState = state({
+    workflowId: workflow.id,
     goal,
     constraints,
     maxExecutionTimeMs: 120_000,
   });
 
-  const persistence = new InMemoryPersistenceProvider();
-  const runner = new GraphRunner(graph, initialState, {
+  const runner = new GraphRunner(workflow, initialState, {
     registry,
-    providers,
-    persistState: async (state) => {
-      await persistence.saveWorkflowState(state);
-      await persistence.saveWorkflowRun(state);
-    },
     memoryWriter,
     memoryRetriever,
   });
@@ -270,7 +244,7 @@ async function runOnce(goal: string, constraints: string[]): Promise<RunOutcome>
   };
 }
 
-// ─── 5. Main: run twice and compare ─────────────────────────────────────
+// ─── 4. Main: run twice and compare ─────────────────────────────────────
 
 async function main() {
   logger.info('Starting learning-research-agent example\n');

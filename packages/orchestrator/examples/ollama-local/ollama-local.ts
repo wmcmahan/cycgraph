@@ -1,8 +1,14 @@
 /**
- * Ollama Local — Runnable Example
+ * Ollama Local — Runnable Example (authoring facade)
  *
  * A 2-node linear workflow demonstrating the registerOllamaProvider()
  * integration. Runs against a local Ollama instance with any model.
+ *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`). The local
+ * provider is registered onto a run-scoped ProviderRegistry and passed via
+ * GraphRunnerOptions.providers — no process-global mutation. The example runs
+ * through an explicit GraphRunner because it attaches event listeners and
+ * inspects the final WorkflowState (status, tokens, cost).
  *
  * Prerequisites:
  *   1. Install Ollama: https://ollama.com
@@ -30,14 +36,17 @@
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
   createProviderRegistry,
   registerOllamaProvider,
   createLogger,
-  createGraph,
-  createWorkflowState,
 } from '@cycgraph/orchestrator';
 
 import { createOpenAI } from '@ai-sdk/openai';
@@ -76,16 +85,15 @@ async function checkOllama(): Promise<void> {
   }
 }
 
-// ─── 1. Register agents ─────────────────────────────────────────────────
+// ─── 1. Define agents ───────────────────────────────────────────────────
+// The provider can't be inferred from a local model name, so name it explicitly.
 
-const registry = new InMemoryAgentRegistry();
-
-const RESEARCHER_ID = registry.register({
+const researcher = agent({
   name: 'Local Research Agent',
   description: 'Gathers background information using a local model',
   model: OLLAMA_MODEL,
   provider: 'ollama',
-  systemPrompt: [
+  instructions: [
     'You are a research specialist.',
     'Given a goal, produce concise, factual research notes.',
     'Focus on key facts and notable perspectives.',
@@ -93,33 +101,53 @@ const RESEARCHER_ID = registry.register({
   ].join(' '),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints'],
-    writeKeys: ['research_notes'],
-  },
 });
 
-const WRITER_ID = registry.register({
+const writer = agent({
   name: 'Local Writer Agent',
   description: 'Produces a polished draft using a local model',
   model: OLLAMA_MODEL,
   provider: 'ollama',
-  systemPrompt: [
+  instructions: [
     'You are a professional writer.',
     'Using the provided research notes, produce a clear and engaging summary.',
     'Keep it under 300 words. Use plain language.',
   ].join(' '),
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'research_notes'],
-    writeKeys: ['draft'],
-  },
 });
 
-// ─── 2. Configure providers ─────────────────────────────────────────────
+// ─── 2. Place them in a graph ───────────────────────────────────────────
+
+const research = node({
+  id: 'research',
+  agent: researcher,
+  reads: ['goal', 'constraints'],
+  writes: 'research_notes',
+  failurePolicy: { maxRetries: 1, maxBackoffMs: 30_000 },
+});
+
+const write = node({
+  id: 'write',
+  agent: writer,
+  reads: ['goal', 'research_notes'],
+  writes: 'draft',
+  failurePolicy: { maxRetries: 1, maxBackoffMs: 30_000 },
+});
+
+const workflow = graph({
+  name: 'Ollama Local Research & Write',
+  description: 'Two-node linear workflow running on local Ollama models',
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
+});
+
+// The graph carries its agent() configs; register them into a run-scoped
+// registry for the explicit GraphRunner path.
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
+
+// ─── 3. Configure providers (run-scoped) ────────────────────────────────
 
 const providers = createProviderRegistry();
 
@@ -146,42 +174,10 @@ registerOllamaProvider(
   },
 );
 
-// ─── 3. Define the graph ────────────────────────────────────────────────
-
-const graph = createGraph({
-  name: 'Ollama Local Research & Write',
-  description: 'Two-node linear workflow running on local Ollama models',
-
-  nodes: [
-    {
-      id: 'research',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal', 'constraints'],
-      writeKeys: ['research_notes'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'write',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['goal', 'research_notes'],
-      writeKeys: ['draft'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [{ source: 'research', target: 'write' }],
-  startNode: 'research',
-  endNodes: ['write'],
-});
-
 // ─── 4. Create initial state ────────────────────────────────────────────
 
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'Explain what large language models are and how they work, in simple terms.',
   constraints: ['Keep the final draft under 300 words', 'Use plain language suitable for a general audience'],
   maxExecutionTimeMs: 300_000, // 5 min — local models are slower
@@ -196,12 +192,12 @@ async function main() {
   logger.info('model', { model: OLLAMA_MODEL, baseUrl: OLLAMA_BASE_URL });
 
   const persistence = new InMemoryPersistenceProvider();
-  const runner = new GraphRunner(graph, initialState, {
+  const runner = new GraphRunner(workflow, initialState, {
     registry,
     providers,
-    persistState: async (state) => {
-      await persistence.saveWorkflowState(state);
-      await persistence.saveWorkflowRun(state);
+    persistState: async (s) => {
+      await persistence.saveWorkflowState(s);
+      await persistence.saveWorkflowRun(s);
     },
   });
 

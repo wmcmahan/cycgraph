@@ -1,6 +1,6 @@
 # Eval Suites
 
-Example eval suites demonstrating the `@cycgraph/orchestrator` eval framework. Each suite defines a graph, seeds input data, and asserts against the final workflow state.
+Example eval suites demonstrating the `@cycgraph/orchestrator` eval framework. Each suite authors a graph with the facade vocabulary (`node()` placements compiled by `graph()`), seeds input data, and asserts against the final workflow state.
 
 ## Available Suites
 
@@ -13,9 +13,11 @@ Example eval suites demonstrating the `@cycgraph/orchestrator` eval framework. E
 ## Writing Your Own
 
 ```typescript
-import type { EvalSuite, Graph } from '@cycgraph/orchestrator';
+import { graph, node, type EvalSuite } from '@cycgraph/orchestrator';
 
-const myGraph: Graph = { /* ... */ };
+const work = node({ id: 'my_node', type: 'tool', toolId: 'my_tool', reads: ['*'], writes: ['*'] });
+
+const myGraph = graph({ name: 'My Graph', nodes: [work] });
 
 export const suite: EvalSuite = {
   name: 'My Suite',

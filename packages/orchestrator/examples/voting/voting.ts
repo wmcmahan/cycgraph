@@ -1,5 +1,5 @@
 /**
- * Voting / Consensus — Runnable Example
+ * Voting / Consensus — Runnable Example (authoring facade)
  *
  * Multiple agents independently vote on a decision. A strategy aggregates
  * the results (majority vote, weighted vote, or LLM judge).
@@ -10,16 +10,24 @@
  * Demonstrates: voting node, parallel agent execution, majority vote
  * aggregation, quorum enforcement, and per-task timeout.
  *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`). The
+ * voting node takes the agent() values directly on `voterAgentIds` — graph()
+ * deep-resolves them to registry ids. It runs through an explicit GraphRunner
+ * because the example inspects the final WorkflowState (status, token/cost
+ * totals), which the one-call `run()` helper does not expose.
+ *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/voting/voting.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
   InMemoryAgentRegistry,
-  createProviderRegistry,
-  createGraph,
-  createWorkflowState,
   createLogger,
 } from '@cycgraph/orchestrator';
 
@@ -33,17 +41,14 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const logger = createLogger('example.voting');
 
-// ─── 1. Register voter agents ───────────────────────────────────────────
+// ─── 1. Define voter agents ──────────────────────────────────────────────
 // Each voter has a different perspective/expertise to provide diverse opinions.
 
-const registry = new InMemoryAgentRegistry();
-
-const SECURITY_VOTER_ID = registry.register({
+const securityVoter = agent({
   name: 'Security Reviewer',
   description: 'Reviews proposals from a security perspective',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a security expert reviewing a technical proposal.',
     'Evaluate the proposal for security implications: authentication, authorization,',
     'data protection, injection risks, and compliance.',
@@ -51,90 +56,74 @@ const SECURITY_VOTER_ID = registry.register({
   ].join(' '),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['*'],
-    writeKeys: ['vote'],
-  },
 });
 
-const PERFORMANCE_VOTER_ID = registry.register({
+const performanceVoter = agent({
   name: 'Performance Reviewer',
   description: 'Reviews proposals from a performance perspective',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a performance engineer reviewing a technical proposal.',
     'Evaluate for scalability, latency impact, resource usage, and efficiency.',
     'Your output must be a JSON object: { "decision": "approve" | "reject", "reasoning": "..." }',
   ].join(' '),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['*'],
-    writeKeys: ['vote'],
-  },
 });
 
-const ARCHITECTURE_VOTER_ID = registry.register({
+const architectureVoter = agent({
   name: 'Architecture Reviewer',
   description: 'Reviews proposals from an architecture perspective',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a software architect reviewing a technical proposal.',
     'Evaluate for design patterns, maintainability, extensibility, and technical debt.',
     'Your output must be a JSON object: { "decision": "approve" | "reject", "reasoning": "..." }',
   ].join(' '),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['*'],
-    writeKeys: ['vote'],
-  },
 });
-
-const providers = createProviderRegistry();
 
 // ─── 2. Define the graph ────────────────────────────────────────────────
 // A single voting node handles parallel execution and aggregation internally.
+// The agent() voters sit directly on voterAgentIds; graph() resolves them.
 
-const graph = createGraph({
-  name: 'Technical Proposal Review',
-  description: 'Multi-expert voting on a technical proposal',
-
-  nodes: [
-    {
-      id: 'review-vote',
-      type: 'voting',
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      votingConfig: {
-        voterAgentIds: [SECURITY_VOTER_ID, PERFORMANCE_VOTER_ID, ARCHITECTURE_VOTER_ID],
-        strategy: 'majority_vote',
-        voteKey: 'vote',
-        quorum: 2,            // At least 2 of 3 voters must respond
-        taskTimeoutMs: 30_000, // Per-voter timeout
-      },
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [],
-  startNode: 'review-vote',
-  endNodes: ['review-vote'],
+const reviewVote = node({
+  id: 'review-vote',
+  type: 'voting',
+  reads: ['*'],
+  writes: ['*'],
+  votingConfig: {
+    voterAgentIds: [securityVoter, performanceVoter, architectureVoter],
+    strategy: 'majority_vote',
+    voteKey: 'vote',
+    quorum: 2,            // At least 2 of 3 voters must respond
+    taskTimeoutMs: 30_000, // Per-voter timeout
+  },
+  failurePolicy: { maxRetries: 2, maxBackoffMs: 30000 },
 });
 
-// ─── 3. Run ─────────────────────────────────────────────────────────────
+const workflow = graph({
+  name: 'Technical Proposal Review',
+  description: 'Multi-expert voting on a technical proposal',
+  nodes: [reviewVote],
+  edges: [],
+  startNode: reviewVote,
+  endNodes: [reviewVote],
+});
+
+// ─── 3. Set up registry, state, and runner ───────────────────────────────
+
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
+
+// ─── 4. Run ─────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting voting example — multi-expert technical review...\n');
 
-  const state = createWorkflowState({
-    workflowId: graph.id,
+  const initialState = state({
+    workflowId: workflow.id,
     goal: [
       'Review this proposal: "Replace our REST API with GraphQL federation.',
       'The migration would involve: (1) adding Apollo Gateway as a reverse proxy,',
@@ -147,7 +136,7 @@ async function main() {
     maxExecutionTimeMs: 120_000,
   });
 
-  const runner = new GraphRunner(graph, state, { registry, providers });
+  const runner = new GraphRunner(workflow, initialState, { registry });
 
   try {
     const finalState = await runner.run();

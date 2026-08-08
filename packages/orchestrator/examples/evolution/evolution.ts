@@ -1,5 +1,5 @@
 /**
- * Evolution (DGM) — Runnable Example
+ * Evolution (DGM) — Runnable Example (authoring facade)
  *
  * Population-based Darwinian selection: generate N candidates in parallel, score
  * them, keep the best, and breed the next generation from the winner — and the
@@ -25,19 +25,27 @@
  * driven refinement, elitism (the curve never dips), and early stopping.
  *
  * (For the LLM-as-judge variant — scoring subjective quality with an evaluator
- * agent — set `evaluator_agent_id` on the node and drop `fitnessFunction`. Just
- * know that on a strong model a simple judged task tends to ace generation 0.)
+ * agent — set `evaluatorAgentId` in `evolutionConfig` to an agent() value and
+ * drop `fitnessFunction`. Just know that on a strong model a simple judged task
+ * tends to ace generation 0.)
+ *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
+ * through an explicit GraphRunner because the deterministic scorer is a JS
+ * function — it rides on GraphRunnerOptions, not the serializable graph — and
+ * the example inspects the final WorkflowState (status, tokens, cost).
  *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/evolution/evolution.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
   InMemoryAgentRegistry,
-  createProviderRegistry,
-  createGraph,
-  createWorkflowState,
   createLogger,
 } from '@cycgraph/orchestrator';
 import type { FitnessFunction } from '@cycgraph/orchestrator';
@@ -105,17 +113,15 @@ const fitnessFunction: FitnessFunction = async (output) => {
   return { score, reasoning };
 };
 
-// ─── 2. Register the candidate agent ─────────────────────────────────────
-// No evaluator agent — the deterministic fitness above does the scoring.
+// ─── 2. Define the candidate agent ───────────────────────────────────────
+// A capability value: model, instructions, sampling. No evaluator agent — the
+// deterministic fitness above does the scoring.
 
-const registry = new InMemoryAgentRegistry();
-
-const CANDIDATE_ID = registry.register({
+const candidate = agent({
   name: 'Tagline Writer',
   description: 'Writes and refines a tagline toward an exact length/word spec',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You write a single product tagline that must hit this spec exactly:',
     SPEC,
     '',
@@ -131,79 +137,83 @@ const CANDIDATE_ID = registry.register({
   ].join('\n'),
   temperature: 0.9, // Overridden by evolution temperature annealing (explore → exploit)
   maxSteps: 2,
-  tools: [],
-  permissions: {
-    readKeys: ['*'],
-    writeKeys: ['candidate_output'],
-  },
 });
 
-const providers = createProviderRegistry();
-
-// ─── 3. Define the graph ─────────────────────────────────────────────────
+// ─── 3. Place the agent in an evolution node + graph ─────────────────────
 // A single evolution node handles the full generational loop internally.
+// `candidateAgentId` accepts the agent() value directly — graph() deep-resolves
+// it to the same registry id the node's `agent` field mints, so it registers once.
 
-const graph = createGraph({
+const evolve = node({
+  id: 'evolve',
+  type: 'evolution',
+  agent: candidate,
+  reads: ['*'],
+  writes: '*',
+  evolutionConfig: {
+    candidateAgentId: candidate,
+    // No evaluatorAgentId — scoring comes from the injected fitnessFunction.
+
+    // Modest population — the value here is iterative convergence, not
+    // brute-forcing the exact counts with one huge first batch.
+    populationSize: 4,
+    maxGenerations: 6,
+    // Elitism: carry the single best candidate forward unchanged each round.
+    // This guarantees the fitness curve never dips — so you see a clean,
+    // monotonic climb — and saves one candidate generation per round.
+    eliteCount: 1,
+
+    // Stop once a candidate is essentially on-spec, OR once progress stalls.
+    // A strong model lands near-spec almost immediately, so the interesting
+    // behavior is the convergence that follows — and stagnation detection
+    // exits cleanly when the best can't be improved for 3 rounds (a local
+    // optimum) rather than padding the run with flat generations.
+    fitnessThreshold: 0.98,
+    stagnationGenerations: 3,
+
+    selectionStrategy: 'rank',
+
+    // Explore wording broadly early, refine late. We keep a little late-stage
+    // exploration (0.5, not near-0) to give the search a chance to escape a
+    // local optimum — e.g. nudging a 53-char phrasing to the exact 55.
+    initialTemperature: 1.0,
+    finalTemperature: 0.5,
+
+    maxConcurrency: 4,
+    errorStrategy: 'best_effort',
+    taskTimeoutMs: 30_000,
+  },
+  failurePolicy: { maxRetries: 2, maxBackoffMs: 30_000 },
+});
+
+const workflow = graph({
   name: 'Tagline Evolution',
   description: 'Converge a tagline onto an exact length/word spec across generations',
-
-  nodes: [
-    {
-      id: 'evolve',
-      type: 'evolution',
-      agentId: CANDIDATE_ID,
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      evolutionConfig: {
-        candidateAgentId: CANDIDATE_ID,
-        // No evaluator_agent_id — scoring comes from the injected fitnessFunction.
-
-        // Modest population — the value here is iterative convergence, not
-        // brute-forcing the exact counts with one huge first batch.
-        populationSize: 4,
-        maxGenerations: 6,
-        // Elitism: carry the single best candidate forward unchanged each round.
-        // This guarantees the fitness curve never dips — so you see a clean,
-        // monotonic climb — and saves one candidate generation per round.
-        eliteCount: 1,
-
-        // Stop once a candidate is essentially on-spec, OR once progress stalls.
-        // A strong model lands near-spec almost immediately, so the interesting
-        // behavior is the convergence that follows — and stagnation detection
-        // exits cleanly when the best can't be improved for 3 rounds (a local
-        // optimum) rather than padding the run with flat generations.
-        fitnessThreshold: 0.98,
-        stagnationGenerations: 3,
-
-        selectionStrategy: 'rank',
-
-        // Explore wording broadly early, refine late. We keep a little late-stage
-        // exploration (0.5, not near-0) to give the search a chance to escape a
-        // local optimum — e.g. nudging a 53-char phrasing to the exact 55.
-        initialTemperature: 1.0,
-        finalTemperature: 0.5,
-
-        maxConcurrency: 4,
-        errorStrategy: 'best_effort',
-        taskTimeoutMs: 30_000,
-      },
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
-      requiresCompensation: false,
-    },
-  ],
-
+  nodes: [evolve],
   edges: [],
-  startNode: 'evolve',
-  endNodes: ['evolve'],
+  startNode: evolve,
+  endNodes: [evolve],
 });
+
+// The graph carries the agent() config; register it into a run-scoped registry
+// for the explicit GraphRunner path. We re-pin the write ceiling to
+// `candidate_output`: a facade agent() is a pure capability (permissions null),
+// but the evolution executor runs each candidate as a synthetic node granted
+// write_keys ['*'], so the agent-config ceiling is the only thing that routes a
+// candidate's text to `candidate_output` — the key the fitnessFunction and the
+// winner blob read.
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) {
+  registry.register({ ...config, permissions: { readKeys: ['*'], writeKeys: ['candidate_output'] } });
+}
 
 // ─── 4. Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting evolution example — converging a tagline onto an exact spec...\n');
 
-  const state = createWorkflowState({
-    workflowId: graph.id,
+  const initialState = state({
+    workflowId: workflow.id,
     goal: 'Write a tagline for "cycgraph", an engine for AI agent workflows that survive crashes and recover automatically.',
     constraints: [`Exactly ${TARGET_CHARS} characters`, `Exactly ${TARGET_WORDS} words`],
     maxExecutionTimeMs: 300_000,
@@ -211,7 +221,7 @@ async function main() {
 
   // The deterministic scorer is injected here, the same way you'd inject an
   // LLM-judge-backed scorer or any other fitness implementation.
-  const runner = new GraphRunner(graph, state, { registry, providers, fitnessFunction });
+  const runner = new GraphRunner(workflow, initialState, { registry, fitnessFunction });
 
   try {
     const finalState = await runner.run();

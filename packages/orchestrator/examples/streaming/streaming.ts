@@ -1,22 +1,28 @@
 /**
- * Streaming — Runnable Example
+ * Streaming — Runnable Example (authoring facade)
  *
  * A 2-node linear workflow consumed via `stream()` instead of `run()`.
  * Demonstrates real-time event handling including token-by-token output,
  * typed event discrimination, and the `isTerminalEvent()` type guard.
+ *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
+ * through an explicit GraphRunner because the example consumes
+ * `runner.stream()`, which the one-call `run()` helper does not expose.
  *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/streaming/streaming.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
-  InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  createProviderRegistry,
+  InMemoryPersistenceProvider,
   isTerminalEvent,
-  createGraph,
-  createWorkflowState,
 } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
@@ -27,86 +33,70 @@ if (!process.env.ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 
-// ─── 1. Register agents ──────────────────────────────────────────────────
+// ─── 1. Define agents ────────────────────────────────────────────────────
+// An agent() value is a capability: model, instructions, sampling. No id
+// (graph() mints one) and no permissions (the node's grants are authoritative).
 
-const registry = new InMemoryAgentRegistry();
-
-const RESEARCHER_ID = registry.register({
+const researcher = agent({
   name: 'Research Agent',
   description: 'Gathers background information on a topic',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a research specialist.',
     'Given a goal, produce concise, factual research notes as bullet points.',
   ].join(' '),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints'],
-    writeKeys: ['research_notes'],
-  },
 });
 
-const WRITER_ID = registry.register({
+const writer = agent({
   name: 'Writer Agent',
   description: 'Produces a polished draft from research notes',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a professional writer.',
     'Using the provided research notes, produce a clear and engaging summary under 200 words.',
   ].join(' '),
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'research_notes'],
-    writeKeys: ['draft'],
-  },
 });
 
-// Configure LLM providers — built-in OpenAI + Anthropic are pre-registered.
-// Add custom providers here (e.g., Groq, Ollama) via providers.register().
-const providers = createProviderRegistry();
+// ─── 2. Place them in a graph ────────────────────────────────────────────
 
-// ─── 2. Define the graph ─────────────────────────────────────────────────
+const research = node({
+  id: 'research',
+  agent: researcher,
+  reads: ['goal', 'constraints'],
+  writes: 'research_notes',
+  failurePolicy: { maxRetries: 2 },
+});
 
-const graph = createGraph({
+const write = node({
+  id: 'write',
+  agent: writer,
+  reads: ['goal', 'research_notes'],
+  writes: 'draft',
+  failurePolicy: { maxRetries: 2 },
+});
+
+// Linear: research → write. Start/end are inferred (research has no inbound
+// edge, write has no outbound edge).
+const workflow = graph({
   name: 'Streaming Research & Write',
   description: 'Two-node linear workflow with streaming output',
-  nodes: [
-    {
-      id: 'research',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal', 'constraints'],
-      writeKeys: ['research_notes'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'write',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['goal', 'research_notes'],
-      writeKeys: ['draft'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-  ],
-  edges: [
-    { source: 'research', target: 'write' },
-  ],
-  startNode: 'research',
-  endNodes: ['write'],
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
 });
 
-// ─── 3. Create initial state ─────────────────────────────────────────────
+// ─── 3. Set up registry and state ────────────────────────────────────────
+// The graph carries its agent() configs; register them into a run-scoped
+// registry for the explicit GraphRunner path.
 
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
+
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'Explain how large language models work, covering transformers and attention.',
   constraints: ['Keep under 200 words', 'Use plain language'],
   maxExecutionTimeMs: 120_000,
@@ -117,11 +107,10 @@ const initialState = createWorkflowState({
 async function main() {
   const persistence = new InMemoryPersistenceProvider();
 
-  const runner = new GraphRunner(graph, initialState, {
+  const runner = new GraphRunner(workflow, initialState, {
     registry,
-    providers,
-    persistState: async (state) => {
-      await persistence.saveWorkflowState(state);
+    persistState: async (s) => {
+      await persistence.saveWorkflowState(s);
     },
   });
 

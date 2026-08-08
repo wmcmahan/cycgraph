@@ -30,10 +30,11 @@ npm install @cycgraph/orchestrator
 
 **Optional packages**
 
-- [@cycgraph/memory](https://github.com/wmcmahan/cycgraph/blob/main/packages/memory) - Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes).
-- [@cycgraph/context-engine](https://github.com/wmcmahan/cycgraph/blob/main/packages/context-engine) - Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads.
-- [@cycgraph/orchestrator-postgres](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator-postgres) - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
-- [@cycgraph/evals](https://github.com/wmcmahan/cycgraph/blob/main/packages/evals) - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
+- **[@cycgraph/memory](https://github.com/wmcmahan/cycgraph/blob/main/packages/memory)** - Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes).
+- **[@cycgraph/context-engine](https://github.com/wmcmahan/cycgraph/blob/main/packages/context-engine)** - Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads.
+- **[@cycgraph/orchestrator-postgres](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator-postgres)** - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
+- **[@cycgraph/tools](./packages/tools)** - MCP and tools library.
+- **[@cycgraph/evals](https://github.com/wmcmahan/cycgraph/blob/main/packages/evals)** - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
 
 ## Quickstart
 

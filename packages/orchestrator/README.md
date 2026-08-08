@@ -12,7 +12,7 @@
 
 ---
 
-Define multi-step agent workflows declaratively, run them with durable execution, and let them **distill what they learned** into a persistent knowledge store that future runs retrieve automatically. Cyclic loops, dynamic supervisors, population-based evolution, and human-in-the-loop gates ship as first-class node types, not framework extensions.
+An orchestration engine for running cyclic LLM agent workflows — loops, conditional routing, parallel fan-out, and nested subgraphs. See [flattop.io](https://flattop.io/docs/) for full docs.
 
 - **[Quickstart](https://flattop.io/docs/getting-started/quickstart/)** — your first workflow in a handful of lines
 - **[Core Concepts](https://flattop.io/docs/concepts/overview/)** — graphs, nodes, agents, state, memory
@@ -28,23 +28,28 @@ npm install @cycgraph/orchestrator
 
 ## Quick start
 
-Author a workflow with the facade vocabulary — `agent` (a capability) · `node` (a placement) · `graph` (the compiler) · `run` (the executor). It compiles to the same graph the raw API produces; the topology stays explicit.
-
 ```typescript
 import { agent, node, graph, run } from '@cycgraph/orchestrator';
 
-const researcher = agent({
-  model: 'claude-sonnet-4-6',            // provider inferred from the model name
-  instructions: 'You are a research specialist. Produce concise, factual notes.',
+const research = node({
+  id: 'research',
+  agent: agent({
+    model: 'claude-sonnet-4-6',
+    instructions: 'You are a research specialist. Produce concise, factual notes.',
+  }),
+  reads: ['goal'],
+  writes: 'notes',
 });
 
-const writer = agent({
-  model: 'claude-sonnet-4-6',
-  instructions: 'Turn the research notes into a clear summary under 300 words.',
+const write = node({
+  id: 'write',
+  agent: agent({
+    model: 'claude-sonnet-4-6',
+    instructions: 'Turn the research notes into a clear summary under 300 words.',
+  }),
+  reads: ['goal', 'notes'],
+  writes: 'draft'
 });
-
-const research = node({ id: 'research', agent: researcher, reads: ['goal'], writes: 'notes' });
-const write    = node({ id: 'write',    agent: writer,     reads: ['goal', 'notes'], writes: 'draft' });
 
 const workflow = graph({
   name: 'research-write',
@@ -52,17 +57,18 @@ const workflow = graph({
   edges: [{ from: research, to: write }],
 });
 
-const { draft } = await run(workflow, { goal: 'Explain how LLMs work' });
+run(workflow, { goal: 'Explain how LLMs work' });
 ```
 
-Set `ANTHROPIC_API_KEY` and that's the whole program. See the [Quickstart guide](https://flattop.io/docs/getting-started/quickstart/) for the full walkthrough, and [Graphs](https://flattop.io/docs/concepts/graphs/) for the raw `createGraph` / `GraphRunner` API used by the cyclic and multi-agent patterns below.
+See the [Quickstart guide](https://flattop.io/docs/getting-started/quickstart/) for the full walkthrough.
 
 **Optional packages**
 
-- [@cycgraph/memory](./packages/memory) - Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes).
-- [@cycgraph/context-engine](./packages/context-engine) - Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads.
-- [@cycgraph/orchestrator-postgres](./packages/orchestrator-postgres) - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
-- [@cycgraph/evals](./packages/evals) - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
+- **[@cycgraph/memory](./packages/memory)** - Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes).
+- **[@cycgraph/context-engine](./packages/context-engine)** - Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads.
+- **[@cycgraph/orchestrator-postgres](./packages/orchestrator-postgres)** - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
+- **[@cycgraph/tools](./packages/tools)** - MCP and tools library.
+- **[@cycgraph/evals](./packages/evals)** - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
 
 ## Built-in Patterns
 

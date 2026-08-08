@@ -1,5 +1,5 @@
 /**
- * Evolution with Deterministic Fitness — Runnable Example
+ * Evolution with Deterministic Fitness — Runnable Example (authoring facade)
  *
  * The same `evolution` node, but the LLM-as-judge is replaced by a
  * deterministic `fitnessFunction` that scores each candidate by running
@@ -23,16 +23,23 @@
  * Demonstrates: evolution node, `fitnessFunction` callback, deterministic
  * scoring on tasks with verifiable answers, visibly clean fitness climb.
  *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
+ * through an explicit GraphRunner because the deterministic scorer is a JS
+ * function — it rides on GraphRunnerOptions, not the serializable graph — and
+ * the example inspects the final WorkflowState (status, tokens, cost).
+ *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/evolution-regex/evolution-regex.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
   InMemoryAgentRegistry,
-  createProviderRegistry,
-  createGraph,
-  createWorkflowState,
   createLogger,
 } from '@cycgraph/orchestrator';
 import type { FitnessFunction } from '@cycgraph/orchestrator';
@@ -128,20 +135,17 @@ const fitnessFunction: FitnessFunction = async (output) => {
   };
 };
 
-// ─── 3. Register the candidate agent ────────────────────────────────────
+// ─── 3. Define the candidate agent ──────────────────────────────────────
 // The evaluator is the deterministic function above — no evaluator agent needed.
 
-const registry = new InMemoryAgentRegistry();
-
-const CANDIDATE_ID = registry.register({
+const candidate = agent({
   name: 'Regex Generator',
   description: 'Generates regex candidates that match HTTP 4xx codes except 401, 403, 404',
   // Haiku is intentionally chosen over Sonnet/Opus — it keeps the cost
   // low and produces recognisable first-pass attempts. Strong models work
   // too; with them the climb is just shorter.
   model: 'claude-haiku-4-5-20251001',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are an expert at writing regular expressions in JavaScript.',
     'Output ONLY a single regex pattern as plain text — no backticks, no explanation, no labels.',
     'You must match HTTP 4xx status codes (exactly three digits, 400 through 499).',
@@ -153,64 +157,65 @@ const CANDIDATE_ID = registry.register({
   ].join(' '),
   temperature: 0.9, // overridden by evolution temperature annealing
   maxSteps: 1,
-  tools: [],
-  permissions: {
-    readKeys: ['*'],
-    writeKeys: ['candidate_output'],
-  },
 });
 
-const providers = createProviderRegistry();
+// ─── 4. Place the agent in an evolution node + graph ────────────────────
+// `candidateAgentId` accepts the agent() value directly — graph() deep-resolves
+// it to the same registry id the node's `agent` field mints, so it registers once.
 
-// ─── 4. Define the graph ────────────────────────────────────────────────
+const evolve = node({
+  id: 'evolve',
+  type: 'evolution',
+  agent: candidate,
+  reads: ['*'],
+  writes: '*',
+  evolutionConfig: {
+    candidateAgentId: candidate,
+    // evaluatorAgentId intentionally omitted — fitnessFunction handles scoring.
+    populationSize: 4,
+    maxGenerations: 4,
+    eliteCount: 1,
+    // Threshold deliberately set above 1.0 so the loop never exits
+    // early. Modern LLMs (Haiku, Sonnet, Opus) one-shot the canonical
+    // regex even for unusual exclusion patterns, which would terminate
+    // the loop on generation 0 and prove nothing about the engine
+    // actually iterating. By running all max_generations we get
+    // visible proof that parent context is propagated, temperature
+    // anneals, and the parallel fan-out fires every generation.
+    fitnessThreshold: 1.5,
+    // Stagnation also disabled so identical-fitness generations
+    // don't trigger early exit.
+    stagnationGenerations: 99,
+    selectionStrategy: 'rank',
+    initialTemperature: 1.0,
+    finalTemperature: 0.3,
+    maxConcurrency: 4,
+    errorStrategy: 'best_effort',
+    taskTimeoutMs: 30_000,
+  },
+  failurePolicy: { maxRetries: 2, maxBackoffMs: 30_000 },
+});
 
-const graph = createGraph({
+const workflow = graph({
   name: 'Regex Evolution',
   description: 'Evolve a regex that matches HTTP 4xx status codes except 401, 403, and 404',
-  nodes: [
-    {
-      id: 'evolve',
-      type: 'evolution',
-      agentId: CANDIDATE_ID,
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      evolutionConfig: {
-        candidateAgentId: CANDIDATE_ID,
-        // evaluator_agent_id intentionally omitted — fitnessFunction handles scoring.
-        populationSize: 4,
-        maxGenerations: 4,
-        eliteCount: 1,
-        // Threshold deliberately set above 1.0 so the loop never exits
-        // early. Modern LLMs (Haiku, Sonnet, Opus) one-shot the canonical
-        // regex even for unusual exclusion patterns, which would terminate
-        // the loop on generation 0 and prove nothing about the engine
-        // actually iterating. By running all max_generations we get
-        // visible proof that parent context is propagated, temperature
-        // anneals, and the parallel fan-out fires every generation.
-        fitnessThreshold: 1.5,
-        // Stagnation also disabled so identical-fitness generations
-        // don't trigger early exit.
-        stagnationGenerations: 99,
-        selectionStrategy: 'rank',
-        initialTemperature: 1.0,
-        finalTemperature: 0.3,
-        maxConcurrency: 4,
-        errorStrategy: 'best_effort',
-        taskTimeoutMs: 30_000,
-      },
-      failurePolicy: {
-        maxRetries: 2,
-        backoffStrategy: 'exponential',
-        initialBackoffMs: 1000,
-        maxBackoffMs: 30_000,
-      },
-      requiresCompensation: false,
-    },
-  ],
+  nodes: [evolve],
   edges: [],
-  startNode: 'evolve',
-  endNodes: ['evolve'],
+  startNode: evolve,
+  endNodes: [evolve],
 });
+
+// The graph carries the agent() config; register it into a run-scoped registry
+// for the explicit GraphRunner path. We re-pin the write ceiling to
+// `candidate_output`: a facade agent() is a pure capability (permissions null),
+// but the evolution executor runs each candidate as a synthetic node granted
+// write_keys ['*'], so the agent-config ceiling is the only thing that routes a
+// candidate's text to `candidate_output` — the key the fitnessFunction and the
+// winner blob read.
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) {
+  registry.register({ ...config, permissions: { readKeys: ['*'], writeKeys: ['candidate_output'] } });
+}
 
 // ─── 5. Run ─────────────────────────────────────────────────────────────
 
@@ -224,13 +229,13 @@ async function main() {
   for (const s of SHOULD_REJECT) console.log(`  ✗ ${s}`);
   console.log('');
 
-  const state = createWorkflowState({
-    workflowId: graph.id,
+  const initialState = state({
+    workflowId: workflow.id,
     goal: 'Match HTTP 4xx status codes (400-499) except 401, 403, and 404; reject everything else',
     maxExecutionTimeMs: 180_000,
   });
 
-  const runner = new GraphRunner(graph, state, { registry, providers, fitnessFunction });
+  const runner = new GraphRunner(workflow, initialState, { registry, fitnessFunction });
 
   try {
     const finalState = await runner.run();
