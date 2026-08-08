@@ -1,26 +1,33 @@
 /**
- * Fan-Out Map-Reduce — Runnable Example
+ * Fan-Out Map-Reduce — Runnable Example (authoring facade)
  *
  * A 4-node workflow demonstrating parallel fan-out with LLM-powered synthesis:
  *   1. Splitter agent decomposes a topic into sub-topics
  *   2. Map node fans out to parallel Researcher workers
  *   3. Synthesizer agent merges all research into a unified summary
  *
- * Demonstrates: map-reduce fan-out, parallel workers, synthesizer with agent_id,
- * JSONPath items resolution, per-item Task Context injection.
+ * Demonstrates: map-reduce fan-out, parallel workers, synthesizer with an
+ * agent, JSONPath items resolution, per-item Task Context injection.
+ *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
+ * through an explicit GraphRunner because the example attaches event listeners
+ * and inspects the final WorkflowState (status, token/cost totals), which the
+ * one-call `run()` helper does not expose.
  *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/map-reduce/map-reduce.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  createProviderRegistry,
   createLogger,
-  createGraph,
-  createWorkflowState,
 } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
@@ -33,17 +40,15 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const logger = createLogger('example');
 
-// ─── 1. Register agents ──────────────────────────────────────────────────
-// register() returns the auto-generated UUID for each agent.
+// ─── 1. Define agents ────────────────────────────────────────────────────
+// An agent() value is a capability: model, instructions, sampling. The node's
+// reads/writes are the authoritative grants.
 
-const registry = new InMemoryAgentRegistry();
-
-const SPLITTER_ID = registry.register({
+const splitterAgent = agent({
   name: 'Splitter Agent',
   description: 'Decomposes a broad topic into focused sub-topics for parallel research',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a topic decomposition specialist.',
     'Given a research goal, break it down into 4-5 focused sub-topics that together cover the full scope.',
     'Each sub-topic should be specific enough for a single researcher to investigate independently.',
@@ -53,19 +58,13 @@ const SPLITTER_ID = registry.register({
   ].join(' '),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints'],
-    writeKeys: ['topics'],
-  },
 });
 
-const RESEARCHER_ID = registry.register({
+const researcherAgent = agent({
   name: 'Researcher Agent',
   description: 'Investigates a specific sub-topic and produces research notes',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a research specialist focused on a single sub-topic.',
     'Your assigned sub-topic is provided as map_item in the Task Context section of your prompt. The broader goal is in the goal field.',
     'Produce concise, factual research notes (3-5 bullet points) about your specific sub-topic.',
@@ -73,19 +72,13 @@ const RESEARCHER_ID = registry.register({
   ].join(' '),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal'],
-    writeKeys: ['research'],
-  },
 });
 
-const SYNTHESIZER_ID = registry.register({
+const synthesizerAgent = agent({
   name: 'Synthesizer Agent',
   description: 'Merges parallel research results into a unified summary',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a synthesis specialist.',
     'You receive parallel research results in mapper_results (an array of objects with "updates" containing research notes).',
     'Combine all research into a single, coherent summary that covers every sub-topic.',
@@ -93,97 +86,81 @@ const SYNTHESIZER_ID = registry.register({
   ].join(' '),
   temperature: 0.4,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'mapper_results', 'mapper_count'],
-    writeKeys: ['summary'],
-  },
 });
-
-// Configure LLM providers — built-in OpenAI + Anthropic are pre-registered.
-// Add custom providers here (e.g., Groq, Ollama) via providers.register().
-const providers = createProviderRegistry();
 
 // ─── 2. Define the graph ─────────────────────────────────────────────────
 
-const graph = createGraph({
-  name: 'Fan-Out Map-Reduce',
-  description: 'Parallel research with LLM-powered synthesis: split → map → synthesize',
-
-  nodes: [
-    {
-      id: 'splitter',
-      type: 'agent',
-      agentId: SPLITTER_ID,
-      readKeys: ['goal', 'constraints'],
-      writeKeys: ['topics'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'mapper',
-      type: 'map',
-      mapReduceConfig: {
-        workerNodeId: 'researcher',
-        itemsPath: '$.memory.topics',
-        maxConcurrency: 5,
-        errorStrategy: 'best_effort',
-      },
-      readKeys: ['*'],
-      writeKeys: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'researcher',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      // The map item arrives via the Task Context prompt section, not memory.
-      readKeys: ['goal'],
-      writeKeys: ['research'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'synthesizer',
-      type: 'synthesizer',
-      agentId: SYNTHESIZER_ID,
-      readKeys: ['goal', 'mapper_results', 'mapper_count'],
-      writeKeys: ['summary'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [
-    { source: 'splitter', target: 'mapper' },
-    { source: 'mapper', target: 'synthesizer' },
-  ],
-
-  startNode: 'splitter',
-  endNodes: ['synthesizer'],
+const splitter = node({
+  id: 'splitter',
+  agent: splitterAgent,
+  reads: ['goal', 'constraints'],
+  writes: ['topics'],
+  failurePolicy: { maxRetries: 2 },
 });
 
-// ─── 3. Create initial state ─────────────────────────────────────────────
+const mapper = node({
+  id: 'mapper',
+  type: 'map',
+  mapReduceConfig: {
+    workerNodeId: 'researcher',
+    itemsPath: '$.memory.topics',
+    maxConcurrency: 5,
+    errorStrategy: 'best_effort',
+  },
+  reads: ['*'],
+  writes: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
+  failurePolicy: { maxRetries: 1 },
+});
 
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const researcher = node({
+  id: 'researcher',
+  agent: researcherAgent,
+  // The map item arrives via the Task Context prompt section, not memory.
+  reads: ['goal'],
+  writes: ['research'],
+  failurePolicy: { maxRetries: 2 },
+});
+
+const synthesizer = node({
+  id: 'synthesizer',
+  type: 'synthesizer',
+  agent: synthesizerAgent,
+  reads: ['goal', 'mapper_results', 'mapper_count'],
+  writes: ['summary'],
+  failurePolicy: { maxRetries: 2 },
+});
+
+// The worker node (researcher) has no edges — the map node drives it — so
+// start/end cannot be inferred: pass them explicitly.
+const workflow = graph({
+  name: 'Fan-Out Map-Reduce',
+  description: 'Parallel research with LLM-powered synthesis: split → map → synthesize',
+  nodes: [splitter, mapper, researcher, synthesizer],
+  edges: [
+    { from: splitter, to: mapper },
+    { from: mapper, to: synthesizer },
+  ],
+  startNode: splitter,
+  endNodes: [synthesizer],
+});
+
+// ─── 3. Set up registry, state, persistence, and runner ──────────────────
+
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
+
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'Research the impacts of climate change across different sectors: agriculture, public health, infrastructure, biodiversity, and economic systems.',
   constraints: ['Each sub-topic research should be 3-5 bullet points', 'Final summary under 500 words'],
   maxExecutionTimeMs: 180_000,
 });
 
-// ─── 4. Set up persistence + runner ──────────────────────────────────────
-
 const persistence = new InMemoryPersistenceProvider();
 
-const runner = new GraphRunner(graph, initialState, {
+const runner = new GraphRunner(workflow, initialState, {
   registry,
-  providers,
-  persistState: async (state) => {
-    await persistence.saveWorkflowState(state);
-    await persistence.saveWorkflowRun(state);
-  },
+  persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // Event listeners for observability
@@ -207,7 +184,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 5. Run ──────────────────────────────────────────────────────────────
+// ─── 4. Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting fan-out map-reduce workflow...\n');

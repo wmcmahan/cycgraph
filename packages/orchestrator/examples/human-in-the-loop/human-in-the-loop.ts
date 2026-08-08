@@ -1,5 +1,5 @@
 /**
- * Human-in-the-Loop — Runnable Example
+ * Human-in-the-Loop — Runnable Example (authoring facade)
  *
  * A 3-node linear workflow with an approval gate: a Writer agent
  * produces a draft, a human reviewer approves or rejects it, and
@@ -8,20 +8,26 @@
  * Demonstrates: approval gates, workflow pausing/resuming,
  * human review data, rejection routing, and the HITL resume flow.
  *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
+ * through an explicit GraphRunner because the pause/resume flow inspects the
+ * paused WorkflowState and builds a second runner over it, which the one-call
+ * `run()` helper does not expose.
+ *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/human-in-the-loop/human-in-the-loop.ts
  */
 
 import * as readline from 'node:readline';
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  ProviderRegistry,
-  registerBuiltInProviders,
   createLogger,
-  createGraph,
-  createWorkflowState,
   type HumanResponse,
   type WorkflowState,
 } from '@cycgraph/orchestrator';
@@ -36,36 +42,28 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const logger = createLogger('example');
 
-// ─── 1. Register agents ──────────────────────────────────────────────────
-// register() returns the auto-generated UUID for each agent.
+// ─── 1. Define agents ────────────────────────────────────────────────────
+// An agent() value is a capability: model, instructions, sampling. No id
+// (graph() mints one) and no permissions (the node's grants are authoritative).
 
-const registry = new InMemoryAgentRegistry();
-
-const WRITER_ID = registry.register({
+const writerAgent = agent({
   name: 'Writer Agent',
   description: 'Produces a draft article on a given topic',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a professional writer.',
     'Given a goal, produce a clear and engaging draft article.',
     'Keep it under 300 words. Use plain language.',
   ].join(' '),
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints'],
-    writeKeys: ['draft'],
-  },
 });
 
-const PUBLISHER_ID = registry.register({
+const publisherAgent = agent({
   name: 'Publisher Agent',
   description: 'Finalizes and formats an approved draft for publication',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a publishing editor.',
     'Take the approved draft and produce a final version with a headline,',
     'proper formatting, and a brief author attribution.',
@@ -73,74 +71,62 @@ const PUBLISHER_ID = registry.register({
   ].join(' '),
   temperature: 0.4,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'draft', 'human_response', 'human_decision'],
-    writeKeys: ['published'],
-  },
 });
-
-// Configure LLM providers — built-in OpenAI + Anthropic are pre-registered.
-// Add custom providers here (e.g., Groq, Ollama) via providers.register().
-const providers = new ProviderRegistry();
-registerBuiltInProviders(providers);
 
 // ─── 2. Define the graph ─────────────────────────────────────────────────
 // Linear: write → review (approval gate) → publish
 // The approval gate pauses the workflow until a human approves or rejects.
 
-const graph = createGraph({
-  name: 'Human-in-the-Loop',
-  description: 'Write → Human Review → Publish with approval gate',
-
-  nodes: [
-    {
-      id: 'write',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['goal', 'constraints'],
-      writeKeys: ['draft'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'review',
-      type: 'approval',
-      approvalConfig: {
-        approvalType: 'human_review',
-        promptMessage: 'Please review the draft before publication.',
-        reviewKeys: ['draft'],
-        timeoutMs: 300_000, // 5 minutes
-      },
-      readKeys: ['*'],
-      writeKeys: ['*', 'control_flow'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 1000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'publish',
-      type: 'agent',
-      agentId: PUBLISHER_ID,
-      readKeys: ['goal', 'draft', 'human_response', 'human_decision'],
-      writeKeys: ['published'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [
-    { source: 'write', target: 'review' },
-    { source: 'review', target: 'publish' },
-  ],
-
-  startNode: 'write',
-  endNodes: ['publish'],
+const write = node({
+  id: 'write',
+  agent: writerAgent,
+  reads: ['goal', 'constraints'],
+  writes: 'draft',
+  failurePolicy: { maxRetries: 2 },
 });
 
-// ─── 3. Create initial state ─────────────────────────────────────────────
+const review = node({
+  id: 'review',
+  type: 'approval',
+  approvalConfig: {
+    approvalType: 'human_review',
+    promptMessage: 'Please review the draft before publication.',
+    reviewKeys: ['draft'],
+    timeoutMs: 300_000, // 5 minutes
+  },
+  reads: ['*'],
+  writes: ['*', 'control_flow'],
+  failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 1000 },
+});
 
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const publish = node({
+  id: 'publish',
+  agent: publisherAgent,
+  reads: ['goal', 'draft', 'human_response', 'human_decision'],
+  writes: 'published',
+  failurePolicy: { maxRetries: 2 },
+});
+
+// Start/end are inferred (write has no inbound edge, publish has no outbound).
+const workflow = graph({
+  name: 'Human-in-the-Loop',
+  description: 'Write → Human Review → Publish with approval gate',
+  nodes: [write, review, publish],
+  edges: [
+    { from: write, to: review },
+    { from: review, to: publish },
+  ],
+});
+
+// ─── 3. Set up registry and initial state ────────────────────────────────
+// The graph carries its agent() configs; register them into a run-scoped
+// registry for the explicit GraphRunner path.
+
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
+
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'Write a short article explaining why open-source software matters for innovation.',
   constraints: ['Keep the draft under 300 words', 'Use plain language suitable for a general audience'],
   maxExecutionTimeMs: 600_000,
@@ -150,10 +136,9 @@ const initialState = createWorkflowState({
 
 const persistence = new InMemoryPersistenceProvider();
 
-function createRunner(state: WorkflowState): GraphRunner {
-  const runner = new GraphRunner(graph, state, {
+function createRunner(workflowState: WorkflowState): GraphRunner {
+  const runner = new GraphRunner(workflow, workflowState, {
     registry,
-    providers,
     persistState: async (s) => {
       await persistence.saveWorkflowState(s);
       await persistence.saveWorkflowRun(s);

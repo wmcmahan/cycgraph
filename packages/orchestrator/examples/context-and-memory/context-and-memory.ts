@@ -14,18 +14,25 @@
  *   format compression, fuzzy dedup, and budget allocation
  * - Orchestrator integration via contextCompressor + memoryRetriever
  *
+ * The graph is authored with the facade vocabulary (`agent` · `node` ·
+ * `graph` · `state`). Because the example inspects the final WorkflowState
+ * and wires runner-level hooks (contextCompressor, memoryRetriever, event
+ * listeners), it keeps an explicit GraphRunner and registers the facade
+ * agents via `agentsForGraph`.
+ *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/context-and-memory/context-and-memory.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
-  InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  createProviderRegistry,
   createLogger,
-  createGraph,
-  createWorkflowState,
 } from '@cycgraph/orchestrator';
 import type { ContextCompressor } from '@cycgraph/orchestrator';
 import type { MemoryRetriever } from '@cycgraph/orchestrator';
@@ -68,7 +75,7 @@ const logger = createLogger('example');
 
 const memoryStore = new InMemoryMemoryStore();
 const memoryIndex = new InMemoryMemoryIndex();
-const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 5 * 60 * 1000 });
+const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 5 * 60 * 1000 });
 const extractor = new RuleBasedExtractor({ minSentenceLength: 15 });
 const clusterer = new ConsolidatingThemeClusterer({
   assignmentThreshold: 0.7,
@@ -202,16 +209,13 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
   };
 };
 
-// ─── 4. Register agents ─────────────────────────────────────────────────
+// ─── 4. Define the agents ───────────────────────────────────────────────
 
-const registry = new InMemoryAgentRegistry();
-
-const RESEARCHER_ID = registry.register({
+const researcher = agent({
   name: 'Research Agent',
   description: 'Gathers background information on a topic',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a research specialist.',
     'Given a goal, produce concise, factual research notes.',
     'Focus on key facts, statistics, and notable perspectives.',
@@ -219,77 +223,59 @@ const RESEARCHER_ID = registry.register({
   ].join(' '),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints'],
-    writeKeys: ['research_notes'],
-  },
 });
 
-const WRITER_ID = registry.register({
+const writer = agent({
   name: 'Writer Agent',
   description: 'Produces a polished draft from research notes and memory',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a professional writer.',
     'Using the provided research notes and any relevant memory context, produce a clear and engaging summary.',
     'Keep it under 300 words. Use plain language.',
   ].join(' '),
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'research_notes'],
-    writeKeys: ['draft'],
-  },
 });
-
-const providers = createProviderRegistry();
 
 // ─── 5. Define the graph ────────────────────────────────────────────────
 
-const graph = createGraph({
+const research = node({
+  id: 'research',
+  agent: researcher,
+  reads: ['goal', 'constraints'],
+  writes: 'research_notes',
+  // Pulls facts derived from the seeded prior conversation into the
+  // researcher's prompt under a "## Relevant Memory" section.
+  memoryQuery: { tags: [PRIOR_KNOWLEDGE_TAG], maxFacts: 10 },
+  failurePolicy: { maxRetries: 2 },
+});
+
+const write = node({
+  id: 'write',
+  agent: writer,
+  reads: ['goal', 'research_notes'],
+  writes: 'draft',
+  memoryQuery: { tags: [PRIOR_KNOWLEDGE_TAG], maxFacts: 10 },
+  failurePolicy: { maxRetries: 2 },
+});
+
+const workflow = graph({
   name: 'Research & Write with Memory',
   description: 'Two-node workflow with persistent memory and context compression',
-
-  nodes: [
-    {
-      id: 'research',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal', 'constraints'],
-      writeKeys: ['research_notes'],
-      // Pulls facts derived from the seeded prior conversation into the
-      // researcher's prompt under a "## Relevant Memory" section.
-      memoryQuery: { tags: [PRIOR_KNOWLEDGE_TAG], maxFacts: 10 },
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'write',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['goal', 'research_notes'],
-      writeKeys: ['draft'],
-      memoryQuery: { tags: [PRIOR_KNOWLEDGE_TAG], maxFacts: 10 },
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [
-    { source: 'research', target: 'write' },
-  ],
-
-  startNode: 'research',
-  endNodes: ['write'],
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
 });
+
+// Hybrid pattern: register the facade-minted agent configs into a run-scoped
+// registry for the GraphRunner this example keeps.
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
 
 // ─── 6. Create initial state ────────────────────────────────────────────
 
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'Explain how large language models work, including transformers, attention mechanisms, and training data.',
   constraints: ['Keep the final draft under 300 words', 'Use plain language suitable for a general audience'],
   maxExecutionTimeMs: 120_000,
@@ -357,15 +343,8 @@ async function main() {
   logger.info('  contextCompressor: incremental pipeline (format + dedup + allocator)');
   logger.info('  memoryRetriever: hierarchical top-down retrieval\n');
 
-  const persistence = new InMemoryPersistenceProvider();
-
-  const runner = new GraphRunner(graph, initialState, {
+  const runner = new GraphRunner(workflow, initialState, {
     registry,
-    providers,
-    persistState: async (state) => {
-      await persistence.saveWorkflowState(state);
-      await persistence.saveWorkflowRun(state);
-    },
     contextCompressor,
     memoryRetriever,
   });

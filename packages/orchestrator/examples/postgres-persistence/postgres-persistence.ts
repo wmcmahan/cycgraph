@@ -1,5 +1,5 @@
 /**
- * Postgres Persistence — Runnable Example
+ * Postgres Persistence — Runnable Example (authoring facade)
  *
  * Demonstrates how to use the `@cycgraph/orchestrator-postgres` adapter for
  * durable state persistence, event sourcing, and usage tracking with a
@@ -8,6 +8,12 @@
  * Demonstrates: DrizzlePersistenceProvider, DrizzleEventLogWriter,
  * DrizzleUsageRecorder, DrizzleAgentRegistry, state checkpointing,
  * event replay, and cost/token tracking.
+ *
+ * The graph is authored with the facade (`node` / `graph`), then run through
+ * an explicit GraphRunner because the example inspects the final WorkflowState
+ * and verifies persistence. Agents are registered in the Postgres-backed
+ * DrizzleAgentRegistry directly, so nodes reference them by their stored id —
+ * that idempotent, restart-surviving registration is the feature on show.
  *
  * Prerequisites:
  *   docker-compose up -d   # Start Postgres on localhost:5433
@@ -19,10 +25,10 @@
  */
 
 import {
+  node,
+  graph,
+  state,
   GraphRunner,
-  createProviderRegistry,
-  createGraph,
-  createWorkflowState,
   createLogger,
 } from '@cycgraph/orchestrator';
 
@@ -126,54 +132,47 @@ async function main() {
 
   const { RESEARCHER_ID, WRITER_ID } = await ensureAgentsRegistered();
 
-  const providers = createProviderRegistry();
+  // Author the graph with the facade, referencing the Postgres-stored agent
+  // ids by string. The node's reads/writes are the authoritative grant.
+  const research = node({
+    id: 'research',
+    agent: RESEARCHER_ID,
+    reads: ['*'],
+    writes: 'research_notes',
+    failurePolicy: { maxRetries: 2, maxBackoffMs: 30000 },
+  });
 
-  // Define graph
-  const graph = createGraph({
+  const write = node({
+    id: 'write',
+    agent: WRITER_ID,
+    reads: ['research_notes'],
+    writes: 'article',
+    failurePolicy: { maxRetries: 2, maxBackoffMs: 30000 },
+  });
+
+  const workflow = graph({
     name: 'Postgres Workflow',
     description: 'Research → Write with Postgres persistence',
-    nodes: [
-      {
-        id: 'research',
-        type: 'agent',
-        agentId: RESEARCHER_ID,
-        readKeys: ['*'],
-        writeKeys: ['research_notes'],
-        failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
-        requiresCompensation: false,
-      },
-      {
-        id: 'write',
-        type: 'agent',
-        agentId: WRITER_ID,
-        readKeys: ['research_notes'],
-        writeKeys: ['article'],
-        failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
-        requiresCompensation: false,
-      },
-    ],
-    edges: [{ source: 'research', target: 'write' }],
-    startNode: 'research',
-    endNodes: ['write'],
+    nodes: [research, write],
+    edges: [{ from: research, to: write }],
   });
 
   // Save graph definition to Postgres
-  await persistence.saveGraph(graph);
-  logger.info('Graph saved to Postgres', { graph_id: graph.id });
+  await persistence.saveGraph(workflow);
+  logger.info('Graph saved to Postgres', { graph_id: workflow.id });
 
   // Create workflow state
-  const state = createWorkflowState({
-    workflowId: graph.id,
+  const initialState = state({
+    workflowId: workflow.id,
     goal: 'Research and write about the impact of large language models on software development',
     constraints: ['Under 300 words'],
     maxExecutionTimeMs: 120_000,
   });
 
   // Create runner with Postgres persistence + event log
-  const runner = new GraphRunner(graph, state, {
-    // Scope the Postgres-backed agent registry + providers to this run
+  const runner = new GraphRunner(workflow, initialState, {
+    // Scope the Postgres-backed agent registry to this run
     registry: agentRegistry,
-    providers,
     // State is persisted to Postgres after every step (enables crash recovery)
     persistState: async (s) => {
       await persistence.saveWorkflowState(s);
@@ -200,7 +199,7 @@ async function main() {
     // Record usage to Postgres (for billing/analytics)
     await usageRecorder.saveUsageRecord({
       run_id: finalState.run_id,
-      graph_id: graph.id,
+      graph_id: workflow.id,
       input_tokens: 0,  // Actual breakdown would come from action metadata
       output_tokens: 0,
       cost_usd: finalState.total_cost_usd,

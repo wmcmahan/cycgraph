@@ -3,40 +3,24 @@
  *
  * Validates that a simple 2-node tool pipeline (fetch → transform)
  * runs to completion with both nodes visited and results in memory.
+ * Authored with the facade vocabulary: `node()` placements compiled
+ * by `graph()` into the same wire the raw API produces.
  *
  * @module evals/linear-completion
  */
 
-import { createGraph, type EvalSuite } from '@cycgraph/orchestrator';
+import { graph, node, type EvalSuite } from '@cycgraph/orchestrator';
 
-const linearGraph = createGraph({
+const retryOnce = { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
+
+const fetchData = node({ id: 'fetch', type: 'tool', toolId: 'mock_fetch', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
+const transform = node({ id: 'transform', type: 'tool', toolId: 'mock_transform', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
+
+const linearGraph = graph({
   name: 'Linear Completion Eval',
   description: 'Two tool nodes in sequence',
-  nodes: [
-    {
-      id: 'fetch',
-      type: 'tool',
-      toolId: 'mock_fetch',
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'transform',
-      type: 'tool',
-      toolId: 'mock_transform',
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 },
-      requiresCompensation: false,
-    },
-  ],
-  edges: [
-    { id: 'e1', source: 'fetch', target: 'transform', condition: { type: 'always' } },
-  ],
-  startNode: 'fetch',
-  endNodes: ['transform'],
+  nodes: [fetchData, transform],
+  edges: [{ from: fetchData, to: transform }],
 });
 
 /** Eval suite asserting a linear tool pipeline completes successfully. */

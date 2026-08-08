@@ -1,5 +1,5 @@
 /**
- * Prompt Builder with Self-Annealing Loop — Runnable Example
+ * Prompt Builder with Self-Annealing Loop — Runnable Example (authoring facade)
  *
  * A 7-node workflow where a Prompt Builder agent transforms vague user
  * goals into structured instructions, then a Prompt Critic scores the
@@ -16,18 +16,26 @@
  * iterative refinement with critic feedback, goal decomposition, and
  * structured constraint injection before supervisor routing.
  *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
+ * through an explicit GraphRunner because the example attaches event listeners
+ * and inspects the final WorkflowState (annealing rounds, routing history,
+ * token/cost totals), which the one-call `run()` helper does not expose. The
+ * graph is cyclic, so start/end are passed explicitly.
+ *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/prompt-builder/prompt-builder.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  createProviderRegistry,
   createLogger,
-  createGraph,
-  createWorkflowState,
 } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
@@ -40,17 +48,14 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const logger = createLogger('example');
 
-// ─── 1. Register agents ──────────────────────────────────────────────────
-
-const registry = new InMemoryAgentRegistry();
+// ─── 1. Define agents ────────────────────────────────────────────────────
 
 // ── Prompt Builder: drafts (or refines) structured instructions ──────────
-const PROMPT_BUILDER_ID = registry.register({
+const promptBuilderAgent = agent({
   name: 'Prompt Builder Agent',
   description: 'Transforms vague user goals into structured, actionable instructions',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a prompt engineering specialist. Your job is to take a raw user goal and transform it into structured, actionable instructions that a team of AI agents can execute effectively.',
     '',
     'If "prompt_feedback" exists in the workflow state, you are REFINING a previous attempt.',
@@ -77,20 +82,14 @@ const PROMPT_BUILDER_ID = registry.register({
   ].join('\n'),
   temperature: 0.4,
   maxSteps: 5,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria', 'prompt_feedback', 'prompt_suggestions'],
-    writeKeys: ['refined_goal', 'task_plan', 'quality_criteria'],
-  },
 });
 
 // ── Prompt Critic: scores the builder's output and gives feedback ────────
-const PROMPT_CRITIC_ID = registry.register({
+const promptCriticAgent = agent({
   name: 'Prompt Critic Agent',
   description: 'Evaluates the quality of structured prompt instructions and provides feedback',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a prompt quality evaluator. Your job is to assess whether structured instructions are clear, specific, and actionable enough for a team of AI agents to execute.',
     '',
     'You will receive three pieces of output from the prompt builder:',
@@ -116,20 +115,14 @@ const PROMPT_CRITIC_ID = registry.register({
   ].join('\n'),
   temperature: 0.3,
   maxSteps: 5,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria'],
-    writeKeys: ['prompt_score', 'prompt_feedback', 'prompt_suggestions'],
-  },
 });
 
 // ── Supervisor: routes work using the refined instructions ───────────────
-const SUPERVISOR_ID = registry.register({
+const supervisorAgent = agent({
   name: 'Supervisor Agent',
   description: 'Routes tasks between specialist agents using the structured plan',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a project supervisor coordinating a team of specialists.',
     'You have three team members: "research" (gathers facts), "write" (produces drafts), and "edit" (polishes prose).',
     '',
@@ -143,20 +136,14 @@ const SUPERVISOR_ID = registry.register({
   ].join(' '),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['*'],
-    writeKeys: ['*'],
-  },
 });
 
 // ── Specialist agents ────────────────────────────────────────────────────
-const RESEARCHER_ID = registry.register({
+const researcherAgent = agent({
   name: 'Research Agent',
   description: 'Gathers background information guided by the structured plan',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a research specialist.',
     'Read the "refined_goal" and "task_plan" from the workflow state — these contain your specific research instructions.',
     'Follow the research steps in the task_plan precisely.',
@@ -164,19 +151,13 @@ const RESEARCHER_ID = registry.register({
   ].join(' '),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['refined_goal', 'task_plan', 'constraints'],
-    writeKeys: ['research_notes'],
-  },
 });
 
-const WRITER_ID = registry.register({
+const writerAgent = agent({
   name: 'Writer Agent',
   description: 'Produces a draft article guided by the structured plan',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a professional writer.',
     'Read the "refined_goal", "task_plan", and "quality_criteria" from the workflow state.',
     'Follow the writing instructions in the task_plan for structure, tone, and format.',
@@ -185,19 +166,13 @@ const WRITER_ID = registry.register({
   ].join(' '),
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['refined_goal', 'task_plan', 'quality_criteria', 'research_notes'],
-    writeKeys: ['draft'],
-  },
 });
 
-const EDITOR_ID = registry.register({
+const editorAgent = agent({
   name: 'Editor Agent',
   description: 'Polishes a draft using the quality criteria as a checklist',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a meticulous editor.',
     'Read the "quality_criteria" from the workflow state — this is your checklist.',
     'Review the draft against each criterion. Fix any issues you find.',
@@ -205,14 +180,7 @@ const EDITOR_ID = registry.register({
   ].join(' '),
   temperature: 0.4,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['refined_goal', 'quality_criteria', 'draft'],
-    writeKeys: ['final_draft'],
-  },
 });
-
-const providers = createProviderRegistry();
 
 // ─── 2. Define the graph ─────────────────────────────────────────────────
 //
@@ -226,118 +194,110 @@ const providers = createProviderRegistry();
 //   │                     (loop back)
 //   └──────────────────────────────────────────┘
 
-const graph = createGraph({
-  name: 'Prompt Builder with Self-Annealing Loop',
-  description: 'Iterative prompt enrichment with critic feedback before supervisor-routed execution',
-
-  nodes: [
-    // ── Phase 1: Self-annealing prompt enrichment ──────────────────
-    {
-      id: 'prompt_builder',
-      type: 'agent',
-      agentId: PROMPT_BUILDER_ID,
-      readKeys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria', 'prompt_feedback', 'prompt_suggestions'],
-      writeKeys: ['refined_goal', 'task_plan', 'quality_criteria'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'prompt_critic',
-      type: 'agent',
-      agentId: PROMPT_CRITIC_ID,
-      readKeys: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria'],
-      writeKeys: ['prompt_score', 'prompt_feedback', 'prompt_suggestions'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-
-    // ── Phase 2: Supervisor-routed execution ───────────────────────
-    {
-      id: 'supervisor',
-      type: 'supervisor',
-      agentId: SUPERVISOR_ID,
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      supervisorConfig: {
-        managedNodes: ['research', 'write', 'edit'],
-        maxIterations: 10,
-      },
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'research',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['refined_goal', 'task_plan', 'constraints'],
-      writeKeys: ['research_notes'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'write',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['refined_goal', 'task_plan', 'quality_criteria', 'research_notes'],
-      writeKeys: ['draft'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'edit',
-      type: 'agent',
-      agentId: EDITOR_ID,
-      readKeys: ['refined_goal', 'quality_criteria', 'draft'],
-      writeKeys: ['final_draft'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [
-    // Phase 1: Self-annealing loop
-    { source: 'prompt_builder', target: 'prompt_critic' },
-    // Loop back if prompt quality is below threshold
-    { source: 'prompt_critic', target: 'prompt_builder', condition: { type: 'conditional', condition: 'number(memory.prompt_score) < 0.8' } },
-    // Graduate to execution when prompt quality passes
-    { source: 'prompt_critic', target: 'supervisor', condition: { type: 'conditional', condition: 'number(memory.prompt_score) >= 0.8' } },
-
-    // Phase 2: Supervisor ⇄ specialists
-    { source: 'supervisor', target: 'research' },
-    { source: 'supervisor', target: 'write' },
-    { source: 'supervisor', target: 'edit' },
-    { source: 'research', target: 'supervisor' },
-    { source: 'write', target: 'supervisor' },
-    { source: 'edit', target: 'supervisor' },
-  ],
-
-  startNode: 'prompt_builder',
-  endNodes: [],  // Termination via __done__ sentinel
+// ── Phase 1: Self-annealing prompt enrichment ──────────────────
+const promptBuilder = node({
+  id: 'prompt_builder',
+  agent: promptBuilderAgent,
+  reads: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria', 'prompt_feedback', 'prompt_suggestions'],
+  writes: ['refined_goal', 'task_plan', 'quality_criteria'],
+  failurePolicy: { maxRetries: 2 },
 });
 
-// ─── 3. Create initial state ─────────────────────────────────────────────
+const promptCritic = node({
+  id: 'prompt_critic',
+  agent: promptCriticAgent,
+  reads: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria'],
+  writes: ['prompt_score', 'prompt_feedback', 'prompt_suggestions'],
+  failurePolicy: { maxRetries: 2 },
+});
+
+// ── Phase 2: Supervisor-routed execution ───────────────────────
+// The supervisor reads the enrichment outputs (refined_goal, task_plan,
+// quality_criteria), which are not managed-node writes, so reads stay
+// explicit rather than derived.
+const supervisor = node({
+  id: 'supervisor',
+  type: 'supervisor',
+  agent: supervisorAgent,
+  reads: ['*'],
+  writes: ['*'],
+  supervisorConfig: {
+    managedNodes: ['research', 'write', 'edit'],
+    maxIterations: 10,
+  },
+  failurePolicy: { maxRetries: 2 },
+});
+
+const research = node({
+  id: 'research',
+  agent: researcherAgent,
+  reads: ['refined_goal', 'task_plan', 'constraints'],
+  writes: ['research_notes'],
+  failurePolicy: { maxRetries: 2 },
+});
+
+const write = node({
+  id: 'write',
+  agent: writerAgent,
+  reads: ['refined_goal', 'task_plan', 'quality_criteria', 'research_notes'],
+  writes: ['draft'],
+  failurePolicy: { maxRetries: 2 },
+});
+
+const edit = node({
+  id: 'edit',
+  agent: editorAgent,
+  reads: ['refined_goal', 'quality_criteria', 'draft'],
+  writes: ['final_draft'],
+  failurePolicy: { maxRetries: 2 },
+});
+
+// Cyclic self-annealing loop plus supervisor hub-and-spoke: start/end are
+// passed explicitly (termination is via the __done__ sentinel).
+const workflow = graph({
+  name: 'Prompt Builder with Self-Annealing Loop',
+  description: 'Iterative prompt enrichment with critic feedback before supervisor-routed execution',
+  nodes: [promptBuilder, promptCritic, supervisor, research, write, edit],
+  edges: [
+    // Phase 1: Self-annealing loop
+    { from: promptBuilder, to: promptCritic },
+    // Loop back if prompt quality is below threshold
+    { from: promptCritic, to: promptBuilder, when: 'number(memory.prompt_score) < 0.8' },
+    // Graduate to execution when prompt quality passes
+    { from: promptCritic, to: supervisor, when: 'number(memory.prompt_score) >= 0.8' },
+
+    // Phase 2: Supervisor ⇄ specialists
+    { from: supervisor, to: research },
+    { from: supervisor, to: write },
+    { from: supervisor, to: edit },
+    { from: research, to: supervisor },
+    { from: write, to: supervisor },
+    { from: edit, to: supervisor },
+  ],
+  startNode: promptBuilder,
+  endNodes: [], // Termination via __done__ sentinel
+});
+
+// ─── 3. Set up registry, state, persistence, and runner ──────────────────
+
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
+
 // Note: the goal is intentionally vague — that's the point.
 // The self-annealing loop will refine it until it's actionable.
-
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'write something about AI agents',
   constraints: ['keep it accessible'],
   maxIterations: 30,    // Allow enough headroom for annealing + execution
   maxExecutionTimeMs: 300_000,
 });
 
-// ─── 4. Set up persistence + runner ──────────────────────────────────────
-
 const persistence = new InMemoryPersistenceProvider();
 
-const runner = new GraphRunner(graph, initialState, {
+const runner = new GraphRunner(workflow, initialState, {
   registry,
-  providers,
-  persistState: async (state) => {
-    await persistence.saveWorkflowState(state);
-    await persistence.saveWorkflowRun(state);
-  },
+  persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 runner.on('workflow:start', ({ run_id }) => {
@@ -360,7 +320,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 5. Run ──────────────────────────────────────────────────────────────
+// ─── 4. Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting prompt-builder workflow with self-annealing loop...');

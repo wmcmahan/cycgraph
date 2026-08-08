@@ -1,5 +1,5 @@
 /**
- * Supervisor Routing — Runnable Example
+ * Supervisor Routing — Runnable Example (authoring facade)
  *
  * A 4-node cyclic hub-and-spoke workflow: a Supervisor agent dynamically
  * routes work between Research, Write, and Edit specialist agents.
@@ -7,18 +7,25 @@
  * Demonstrates: supervisor pattern, LLM-powered dynamic routing,
  * cyclic graphs, hub-and-spoke topology, and the __done__ sentinel.
  *
+ * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
+ * through an explicit GraphRunner because the example inspects the final
+ * WorkflowState (routing history, visited nodes, cost) and attaches event
+ * listeners, which the one-call `run()` helper does not expose.
+ *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/supervisor-routing/supervisor-routing.ts
  */
 
 import {
+  agent,
+  node,
+  graph,
+  state,
+  agentsForGraph,
   GraphRunner,
-  InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
-  createProviderRegistry,
+  InMemoryPersistenceProvider,
   createLogger,
-  createGraph,
-  createWorkflowState,
 } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
@@ -31,17 +38,15 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const logger = createLogger('example');
 
-// ─── 1. Register agents ──────────────────────────────────────────────────
-// register() returns the auto-generated UUID for each agent.
+// ─── 1. Define agents ────────────────────────────────────────────────────
+// An agent() value is a capability: model, instructions, sampling. No id
+// (graph() mints one) and no permissions (the node's grants are authoritative).
 
-const registry = new InMemoryAgentRegistry();
-
-const SUPERVISOR_ID = registry.register({
+const supervisorAgent = agent({
   name: 'Supervisor Agent',
   description: 'Routes tasks between specialist agents to produce a polished article',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a project supervisor coordinating a team of specialists to produce a high-quality article.',
     'You have three team members: "research" (gathers facts), "write" (produces drafts), and "edit" (polishes prose).',
     'Review the current state and decide which specialist should work next.',
@@ -50,21 +55,13 @@ const SUPERVISOR_ID = registry.register({
   ].join(' '),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  // Read ceiling only: the supervisor routes, it never writes memory —
-  // its handoff/completion permissions are implied by the node type.
-  permissions: {
-    readKeys: ['*'],
-    writeKeys: [],
-  },
 });
 
-const RESEARCHER_ID = registry.register({
+const researcherAgent = agent({
   name: 'Research Agent',
   description: 'Gathers background information on a topic',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a research specialist.',
     'Given a goal, produce concise, factual research notes.',
     'Focus on key facts, statistics, and notable perspectives.',
@@ -72,142 +69,115 @@ const RESEARCHER_ID = registry.register({
   ].join(' '),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'constraints'],
-    writeKeys: ['research_notes'],
-  },
 });
 
-const WRITER_ID = registry.register({
+const writerAgent = agent({
   name: 'Writer Agent',
   description: 'Produces a draft article from research notes',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a professional writer.',
     'Using the provided research notes, produce a clear and engaging article draft.',
     'Keep it under 500 words. Use plain language.',
   ].join(' '),
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'research_notes'],
-    writeKeys: ['draft'],
-  },
 });
 
-const EDITOR_ID = registry.register({
+const editorAgent = agent({
   name: 'Editor Agent',
   description: 'Polishes a draft into a final article',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a meticulous editor.',
     'Review the draft for clarity, grammar, flow, and factual accuracy.',
     'Produce a polished final version.',
   ].join(' '),
   temperature: 0.4,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['goal', 'draft'],
-    writeKeys: ['final_draft'],
-  },
 });
 
-// Configure LLM providers — built-in OpenAI + Anthropic are pre-registered.
-// Add custom providers here (e.g., Groq, Ollama) via providers.register().
-const providers = createProviderRegistry();
-
-// ─── 2. Define the graph ─────────────────────────────────────────────────
+// ─── 2. Place them in a graph ────────────────────────────────────────────
 // Cyclic hub-and-spoke: supervisor ⇄ research, supervisor ⇄ write, supervisor ⇄ edit.
 // The supervisor routes dynamically; termination is via the __done__ sentinel.
 
-const graph = createGraph({
-  name: 'Supervisor Routing',
-  description: 'Cyclic hub-and-spoke workflow with LLM-powered dynamic routing',
-
-  nodes: [
-    {
-      id: 'supervisor',
-      type: 'supervisor',
-      agentId: SUPERVISOR_ID,
-      // No grants: routing/completion permissions are implied by the node
-      // type, and reads derive from the managed nodes' outputs (goal and
-      // constraints are always visible).
-      supervisorConfig: {
-        managedNodes: ['research', 'write', 'edit'],
-        maxIterations: 10,
-      },
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'research',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal', 'constraints'],
-      writeKeys: ['research_notes'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'write',
-      type: 'agent',
-      agentId: WRITER_ID,
-      readKeys: ['goal', 'research_notes'],
-      writeKeys: ['draft'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'edit',
-      type: 'agent',
-      agentId: EDITOR_ID,
-      readKeys: ['goal', 'draft'],
-      writeKeys: ['final_draft'],
-      failurePolicy: { maxRetries: 2, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 60000 },
-      requiresCompensation: false,
-    },
-  ],
-
-  edges: [
-    // Supervisor → specialists (outbound)
-    { source: 'supervisor', target: 'research' },
-    { source: 'supervisor', target: 'write' },
-    { source: 'supervisor', target: 'edit' },
-    // Specialists → supervisor (return)
-    { source: 'research', target: 'supervisor' },
-    { source: 'write', target: 'supervisor' },
-    { source: 'edit', target: 'supervisor' },
-  ],
-
-  startNode: 'supervisor',
-  endNodes: [],  // Termination via __done__ sentinel
+const research = node({
+  id: 'research',
+  agent: researcherAgent,
+  reads: ['goal', 'constraints'],
+  writes: 'research_notes',
+  failurePolicy: { maxRetries: 2 },
 });
 
-// ─── 3. Create initial state ─────────────────────────────────────────────
+const write = node({
+  id: 'write',
+  agent: writerAgent,
+  reads: ['goal', 'research_notes'],
+  writes: 'draft',
+  failurePolicy: { maxRetries: 2 },
+});
 
-const initialState = createWorkflowState({
-  workflowId: graph.id,
+const edit = node({
+  id: 'edit',
+  agent: editorAgent,
+  reads: ['goal', 'draft'],
+  writes: 'final_draft',
+  failurePolicy: { maxRetries: 2 },
+});
+
+const supervisor = node({
+  id: 'supervisor',
+  type: 'supervisor',
+  agent: supervisorAgent,
+  // No reads declared: a supervisor derives its reads from the managed
+  // nodes' writes, and its routing/completion permissions are implied by
+  // the node type. Goal and constraints are always visible.
+  supervisorConfig: {
+    managedNodes: [research, write, edit],
+    maxIterations: 10,
+  },
+  failurePolicy: { maxRetries: 2 },
+});
+
+// Every node in a cycle has inbound and outbound edges, so start/end cannot
+// be inferred: pass them explicitly.
+const workflow = graph({
+  name: 'Supervisor Routing',
+  description: 'Cyclic hub-and-spoke workflow with LLM-powered dynamic routing',
+  nodes: [supervisor, research, write, edit],
+  edges: [
+    // Supervisor → specialists (outbound)
+    { from: supervisor, to: research },
+    { from: supervisor, to: write },
+    { from: supervisor, to: edit },
+    // Specialists → supervisor (return)
+    { from: research, to: supervisor },
+    { from: write, to: supervisor },
+    { from: edit, to: supervisor },
+  ],
+  startNode: supervisor,
+  endNodes: [], // Termination via __done__ sentinel
+});
+
+// ─── 3. Set up registry, state, and runner ───────────────────────────────
+// The graph carries its agent() configs; register them into a run-scoped
+// registry for the explicit GraphRunner path.
+
+const registry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(workflow)) registry.register(config);
+
+const initialState = state({
+  workflowId: workflow.id,
   goal: 'Write a concise article about how renewable energy is transforming the global power grid, covering solar, wind, and battery storage.',
   constraints: ['Keep the final article under 500 words', 'Use plain language suitable for a general audience'],
   maxExecutionTimeMs: 300_000,
 });
 
-// ─── 4. Set up persistence + runner ──────────────────────────────────────
-
 const persistence = new InMemoryPersistenceProvider();
 
-const runner = new GraphRunner(graph, initialState, {
+const runner = new GraphRunner(workflow, initialState, {
   registry,
-  providers,
-  persistState: async (state) => {
-    await persistence.saveWorkflowState(state);
-    await persistence.saveWorkflowRun(state);
-  },
+  persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 
 // Event listeners for observability
@@ -231,7 +201,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 5. Run ──────────────────────────────────────────────────────────────
+// ─── 4. Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting supervisor-routing workflow...\n');

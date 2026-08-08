@@ -1,9 +1,13 @@
 /**
- * Workflow Observer — Dogfood Example
+ * Workflow Observer — Dogfood Example (authoring facade)
  *
  * Demonstrates a "triage observer" pattern: a completely separate workflow
  * that reads another workflow's event log and state, then produces a
  * structured triage report — without modifying the target workflow.
+ *
+ * Both graphs are authored with the facade (`agent` / `node` / `graph`). They
+ * run through an explicit GraphRunner / WorkflowWorker: the observer needs the
+ * shared event log and middleware, and the target runs on the durable queue.
  *
  *   1. A target workflow runs (simple supervisor → researcher → writer)
  *   2. After the target completes, the observer workflow analyzes its events
@@ -20,15 +24,17 @@
  */
 
 import {
+  agent,
+  node,
+  graph,
+  agentsForGraph,
   GraphRunner,
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
   InMemoryEventLogWriter,
   InMemoryWorkflowQueue,
   WorkflowWorker,
-  createProviderRegistry,
-  createGraph,
-  createWorkflowState,
+  state,
   createLogger,
   type WorkflowState,
 } from '@cycgraph/orchestrator';
@@ -50,17 +56,17 @@ const logger = createLogger('example.observer');
 const persistence = new InMemoryPersistenceProvider();
 const eventLog = new InMemoryEventLogWriter();
 const queue = new InMemoryWorkflowQueue();
-const agentRegistry = new InMemoryAgentRegistry();
 
-// ─── 2. Register target workflow agents ─────────────────────────────────
+// ─── 2. Define target workflow agents ───────────────────────────────────
 // A simple 3-agent supervisor workflow (no MCP — runs with just an API key).
+// An agent() value is a capability: model, instructions, sampling. The node's
+// reads/writes are the authoritative grant, so no permissions live here.
 
-const TARGET_SUPERVISOR_ID = agentRegistry.register({
+const targetSupervisorAgent = agent({
   name: 'Target Supervisor',
   description: 'Routes between researcher and writer',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You supervise a research-and-write workflow with two team members:',
     '  - "researcher": Produces research notes on the given topic.',
     '  - "writer": Writes a polished summary from the research notes.',
@@ -72,47 +78,38 @@ const TARGET_SUPERVISOR_ID = agentRegistry.register({
   ].join('\n'),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  permissions: { readKeys: ['*'], writeKeys: ['*'] },
 });
 
-const TARGET_RESEARCHER_ID = agentRegistry.register({
+const researcherAgent = agent({
   name: 'Researcher',
   description: 'Produces research notes on a topic using existing knowledge',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a research specialist. Produce detailed research notes on the topic in the goal.',
     'Cover key concepts, recent developments, and practical applications.',
   ].join('\n'),
   temperature: 0.5,
   maxSteps: 3,
-  tools: [],
-  permissions: { readKeys: ['goal'], writeKeys: ['research_notes'] },
 });
 
-const TARGET_WRITER_ID = agentRegistry.register({
+const writerAgent = agent({
   name: 'Writer',
   description: 'Writes a polished summary from research notes',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are a writer. Read the research_notes and produce a concise, polished summary.',
   ].join('\n'),
   temperature: 0.7,
   maxSteps: 3,
-  tools: [],
-  permissions: { readKeys: ['goal', 'research_notes'], writeKeys: ['summary'] },
 });
 
-// ─── 3. Register observer workflow agents ───────────────────────────────
+// ─── 3. Define observer workflow agents ─────────────────────────────────
 
-const OBSERVER_SUPERVISOR_ID = agentRegistry.register({
+const observerSupervisorAgent = agent({
   name: 'Observer Supervisor',
   description: 'Routes between triage specialist agents',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You are an observer supervisor triaging a completed workflow run.',
     'You have three specialists and a report writer:',
     '  - "token_analyst": Analyzes token usage patterns.',
@@ -125,16 +122,13 @@ const OBSERVER_SUPERVISOR_ID = agentRegistry.register({
   ].join('\n'),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  permissions: { readKeys: ['*'], writeKeys: ['*'] },
 });
 
-const TOKEN_ANALYST_ID = agentRegistry.register({
+const tokenAnalystAgent = agent({
   name: 'Token Analyst',
   description: 'Analyzes token usage patterns for waste or anomalies',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You analyze token usage from a completed workflow run.',
     'You receive target_events (event log) and target_snapshot (state summary) in memory.',
     '',
@@ -149,19 +143,13 @@ const TOKEN_ANALYST_ID = agentRegistry.register({
   ].join('\n'),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['target_events', 'target_snapshot'],
-    writeKeys: ['token_analysis'],
-  },
 });
 
-const STALL_DETECTOR_ID = agentRegistry.register({
+const stallDetectorAgent = agent({
   name: 'Stall Detector',
   description: 'Detects routing loops, stalls, or anomalous patterns',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You detect stalls and routing anomalies in a completed workflow run.',
     'You receive target_events and target_snapshot in memory.',
     '',
@@ -176,19 +164,13 @@ const STALL_DETECTOR_ID = agentRegistry.register({
   ].join('\n'),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['target_events', 'target_snapshot'],
-    writeKeys: ['stall_analysis'],
-  },
 });
 
-const ERROR_CLASSIFIER_ID = agentRegistry.register({
+const errorClassifierAgent = agent({
   name: 'Error Classifier',
   description: 'Classifies errors from the workflow run',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You classify errors from a completed workflow run.',
     'You receive target_events and target_snapshot in memory.',
     '',
@@ -205,19 +187,13 @@ const ERROR_CLASSIFIER_ID = agentRegistry.register({
   ].join('\n'),
   temperature: 0.3,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['target_events', 'target_snapshot'],
-    writeKeys: ['error_analysis'],
-  },
 });
 
-const REPORT_WRITER_ID = agentRegistry.register({
+const reportWriterAgent = agent({
   name: 'Triage Report Writer',
   description: 'Synthesizes triage findings into a structured report',
   model: 'claude-sonnet-4-6',
-  provider: 'anthropic',
-  systemPrompt: [
+  instructions: [
     'You synthesize triage findings into a final structured report.',
     'You receive token_analysis, stall_analysis, and error_analysis in memory.',
     '',
@@ -231,132 +207,123 @@ const REPORT_WRITER_ID = agentRegistry.register({
   ].join('\n'),
   temperature: 0.4,
   maxSteps: 3,
-  tools: [],
-  permissions: {
-    readKeys: ['token_analysis', 'stall_analysis', 'error_analysis', 'target_snapshot'],
-    writeKeys: ['triage_report'],
-  },
 });
 
-const providers = createProviderRegistry();
-
 // ─── 4. Define the target workflow graph ────────────────────────────────
+// Supervisor nodes omit reads/writes: derived reads (from the managed nodes'
+// writes) and control-flow write permissions are implied by the node type.
 
-const targetGraph = createGraph({
+const researcher = node({
+  id: 'researcher',
+  agent: researcherAgent,
+  reads: ['goal'],
+  writes: 'research_notes',
+  failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
+});
+
+const writer = node({
+  id: 'writer',
+  agent: writerAgent,
+  reads: ['goal', 'research_notes'],
+  writes: 'summary',
+  failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
+});
+
+const targetSupervisor = node({
+  id: 'supervisor',
+  type: 'supervisor',
+  agent: targetSupervisorAgent,
+  supervisorConfig: {
+    managedNodes: [researcher, writer],
+    maxIterations: 10,
+  },
+  failurePolicy: { maxRetries: 1, maxBackoffMs: 30000 },
+});
+
+const targetGraph = graph({
   name: 'Target: Research & Write',
   description: 'Simple supervisor workflow for the observer to analyze',
-  nodes: [
-    {
-      id: 'supervisor',
-      type: 'supervisor',
-      agentId: TARGET_SUPERVISOR_ID,
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      supervisorConfig: {
-        managedNodes: ['researcher', 'writer'],
-        maxIterations: 10,
-      },
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'exponential', initialBackoffMs: 1000, maxBackoffMs: 30000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'researcher',
-      type: 'agent',
-      agentId: TARGET_RESEARCHER_ID,
-      readKeys: ['goal'],
-      writeKeys: ['research_notes'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'writer',
-      type: 'agent',
-      agentId: TARGET_WRITER_ID,
-      readKeys: ['goal', 'research_notes'],
-      writeKeys: ['summary'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
-      requiresCompensation: false,
-    },
-  ],
+  nodes: [targetSupervisor, researcher, writer],
   edges: [
-    { source: 'supervisor', target: 'researcher' },
-    { source: 'supervisor', target: 'writer' },
-    { source: 'researcher', target: 'supervisor' },
-    { source: 'writer', target: 'supervisor' },
+    { from: targetSupervisor, to: researcher },
+    { from: targetSupervisor, to: writer },
+    { from: researcher, to: targetSupervisor },
+    { from: writer, to: targetSupervisor },
   ],
-  startNode: 'supervisor',
-  endNodes: [],
+  startNode: targetSupervisor,
+  endNodes: [], // Termination via __done__ sentinel
 });
 
 // ─── 5. Define the observer workflow graph ──────────────────────────────
 
-const observerGraph = createGraph({
+const tokenAnalyst = node({
+  id: 'token_analyst',
+  agent: tokenAnalystAgent,
+  reads: ['target_events', 'target_snapshot'],
+  writes: 'token_analysis',
+  failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
+});
+
+const stallDetector = node({
+  id: 'stall_detector',
+  agent: stallDetectorAgent,
+  reads: ['target_events', 'target_snapshot'],
+  writes: 'stall_analysis',
+  failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
+});
+
+const errorClassifier = node({
+  id: 'error_classifier',
+  agent: errorClassifierAgent,
+  reads: ['target_events', 'target_snapshot'],
+  writes: 'error_analysis',
+  failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
+});
+
+const reportWriter = node({
+  id: 'report_writer',
+  agent: reportWriterAgent,
+  reads: ['token_analysis', 'stall_analysis', 'error_analysis', 'target_snapshot'],
+  writes: 'triage_report',
+  failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
+});
+
+const observerSupervisor = node({
+  id: 'observer_supervisor',
+  type: 'supervisor',
+  agent: observerSupervisorAgent,
+  supervisorConfig: {
+    managedNodes: [tokenAnalyst, stallDetector, errorClassifier, reportWriter],
+    maxIterations: 8,
+  },
+  failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
+});
+
+const observerGraph = graph({
   name: 'Workflow Observer',
   description: 'Triage observer that analyzes a completed workflow run',
-  nodes: [
-    {
-      id: 'observer_supervisor',
-      type: 'supervisor',
-      agentId: OBSERVER_SUPERVISOR_ID,
-      readKeys: ['*'],
-      writeKeys: ['*'],
-      supervisorConfig: {
-        managedNodes: ['token_analyst', 'stall_detector', 'error_classifier', 'report_writer'],
-        maxIterations: 8,
-      },
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'token_analyst',
-      type: 'agent',
-      agentId: TOKEN_ANALYST_ID,
-      readKeys: ['target_events', 'target_snapshot'],
-      writeKeys: ['token_analysis'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'stall_detector',
-      type: 'agent',
-      agentId: STALL_DETECTOR_ID,
-      readKeys: ['target_events', 'target_snapshot'],
-      writeKeys: ['stall_analysis'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'error_classifier',
-      type: 'agent',
-      agentId: ERROR_CLASSIFIER_ID,
-      readKeys: ['target_events', 'target_snapshot'],
-      writeKeys: ['error_analysis'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
-      requiresCompensation: false,
-    },
-    {
-      id: 'report_writer',
-      type: 'agent',
-      agentId: REPORT_WRITER_ID,
-      readKeys: ['token_analysis', 'stall_analysis', 'error_analysis', 'target_snapshot'],
-      writeKeys: ['triage_report'],
-      failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 1000, maxBackoffMs: 5000 },
-      requiresCompensation: false,
-    },
-  ],
+  nodes: [observerSupervisor, tokenAnalyst, stallDetector, errorClassifier, reportWriter],
   edges: [
-    { source: 'observer_supervisor', target: 'token_analyst' },
-    { source: 'observer_supervisor', target: 'stall_detector' },
-    { source: 'observer_supervisor', target: 'error_classifier' },
-    { source: 'observer_supervisor', target: 'report_writer' },
-    { source: 'token_analyst', target: 'observer_supervisor' },
-    { source: 'stall_detector', target: 'observer_supervisor' },
-    { source: 'error_classifier', target: 'observer_supervisor' },
-    { source: 'report_writer', target: 'observer_supervisor' },
+    { from: observerSupervisor, to: tokenAnalyst },
+    { from: observerSupervisor, to: stallDetector },
+    { from: observerSupervisor, to: errorClassifier },
+    { from: observerSupervisor, to: reportWriter },
+    { from: tokenAnalyst, to: observerSupervisor },
+    { from: stallDetector, to: observerSupervisor },
+    { from: errorClassifier, to: observerSupervisor },
+    { from: reportWriter, to: observerSupervisor },
   ],
-  startNode: 'observer_supervisor',
-  endNodes: [],
+  startNode: observerSupervisor,
+  endNodes: [], // Termination via __done__ sentinel
 });
+
+// ─── 5b. Run-scoped agent registry ──────────────────────────────────────
+// Both graphs carry their agent() configs. Register them into one shared
+// registry that the target worker and observer runner both draw from.
+
+const agentRegistry = new InMemoryAgentRegistry();
+for (const config of agentsForGraph(targetGraph)) agentRegistry.register(config);
+for (const config of agentsForGraph(observerGraph)) agentRegistry.register(config);
 
 // ─── 6. Run the target workflow ─────────────────────────────────────────
 
@@ -365,7 +332,7 @@ async function runTargetWorkflow(): Promise<WorkflowState> {
 
   await persistence.saveGraph(targetGraph);
 
-  const targetState = createWorkflowState({
+  const targetState = state({
     workflowId: targetGraph.id,
     goal: 'Explain the key differences between transformer and diffusion architectures in modern AI, covering attention mechanisms, training approaches, and practical applications.',
     maxIterations: 20,
@@ -380,7 +347,7 @@ async function runTargetWorkflow(): Promise<WorkflowState> {
     heartbeatIntervalMs: 30_000,
     reclaimIntervalMs: 15_000,
     shutdownGracePeriodMs: 10_000,
-    runnerOptionsFactory: () => ({ registry: agentRegistry, providers }),
+    runnerOptionsFactory: () => ({ registry: agentRegistry }),
   });
 
   worker.on('job:completed', ({ jobId }) => {
@@ -424,7 +391,7 @@ async function runObserverWorkflow(targetRunId: string): Promise<WorkflowState> 
 
   await persistence.saveGraph(observerGraph);
 
-  const observerState = createWorkflowState({
+  const observerState = state({
     workflowId: observerGraph.id,
     goal: `Triage the workflow run ${targetRunId} — analyze events and state for issues.`,
     maxIterations: 20,
@@ -437,7 +404,6 @@ async function runObserverWorkflow(targetRunId: string): Promise<WorkflowState> 
   // to the target's state.
   const runner = new GraphRunner(observerGraph, observerState, {
     registry: agentRegistry,
-    providers,
     persistState: async (s) => { await persistence.saveWorkflowSnapshot(s); },
     eventLog,
     middleware: [{
