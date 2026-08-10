@@ -311,7 +311,7 @@ describe('Supervisor — Taint Warnings', () => {
     await executeSupervisor(node, stateView, [], 1);
 
     expect(vi.mocked(generateText)).toHaveBeenCalledOnce();
-    const systemPrompt = vi.mocked(generateText).mock.calls[0][0].system as string;
+    const systemPrompt = vi.mocked(generateText).mock.calls[0][0].instructions as string;
     expect(systemPrompt).toContain('[TAINTED]');
     expect(systemPrompt).toContain('search_result');
   });
@@ -344,7 +344,7 @@ describe('Supervisor — Taint Warnings', () => {
 
     await executeSupervisor(node, stateView, [], 1);
 
-    const systemPrompt = vi.mocked(generateText).mock.calls[0][0].system as string;
+    const systemPrompt = vi.mocked(generateText).mock.calls[0][0].instructions as string;
     expect(systemPrompt).not.toContain('[TAINTED]');
   });
 });
@@ -412,7 +412,7 @@ describe('Supervisor — budget accounting', () => {
     const huge = 'x'.repeat(500_000);
     await executeSupervisor(supervisorNode(), cleanStateView({ blob: huge }), [], 1);
 
-    const systemPrompt = vi.mocked(generateText).mock.calls[0][0].system as string;
+    const systemPrompt = vi.mocked(generateText).mock.calls[0][0].instructions as string;
     expect(systemPrompt).toContain('[truncated');
     expect(systemPrompt.length).toBeLessThan(200_000);
   });

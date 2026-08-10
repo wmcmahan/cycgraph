@@ -5,7 +5,7 @@ vi.mock('ai', () => ({
   streamText: vi.fn(),
   tool: vi.fn((def: any) => def),
   jsonSchema: vi.fn((def: any) => def),
-  stepCountIs: vi.fn((n: number) => ({ type: 'stepCount', count: n })),
+  isStepCount: vi.fn((n: number) => ({ type: 'stepCount', count: n })),
   APICallError: { isInstance: () => false },
 }));
 
@@ -297,8 +297,8 @@ describe('executeAgent', () => {
     await executeAgent('test-agent', stateView, {}, 1);
 
     const callArgs = (streamText as any).mock.calls[0][0];
-    expect(callArgs.system).toContain('### INJECTED HEADER');
-    expect(callArgs.system).not.toMatch(/[^#]# INJECTED/);
+    expect(callArgs.instructions).toContain('### INJECTED HEADER');
+    expect(callArgs.instructions).not.toMatch(/[^#]# INJECTED/);
   });
 });
 
@@ -487,7 +487,7 @@ describe('ceiling-and-grant routing (ADR 001)', () => {
       memory: { topic: 'AI orchestration', secret_notes: 'should not reach the prompt' },
     }), {}, 1, { nodeId: 'n', grantedWriteKeys: ['*'] });
 
-    const systemPrompt = (streamText as any).mock.calls.at(-1)[0].system as string;
+    const systemPrompt = (streamText as any).mock.calls.at(-1)[0].instructions as string;
     expect(systemPrompt).toContain('AI orchestration');
     expect(systemPrompt).not.toContain('should not reach the prompt');
   });
@@ -527,8 +527,8 @@ describe('executeAgent — streaming tool-call callbacks', () => {
 
   it('forwards tool-call start and finish events to the callbacks', async () => {
     mockStreamWithCallbacks((opts) => {
-      opts.experimental_onToolCallStart?.({ toolCall: { toolName: 'web_search', toolCallId: 'tc1', args: { q: 'x' } } });
-      opts.experimental_onToolCallFinish?.({ toolCall: { toolName: 'web_search', toolCallId: 'tc1' }, durationMs: 12, success: true });
+      opts.onToolExecutionStart?.({ toolCall: { toolName: 'web_search', toolCallId: 'tc1', args: { q: 'x' } } });
+      opts.onToolExecutionEnd?.({ toolCall: { toolName: 'web_search', toolCallId: 'tc1' }, toolExecutionMs: 12, toolOutput: { type: 'tool-result' } });
     });
 
     const onToolCall = vi.fn();
@@ -543,7 +543,7 @@ describe('executeAgent — streaming tool-call callbacks', () => {
 
   it('reads tool-call args from the input field when args is absent', async () => {
     mockStreamWithCallbacks((opts) => {
-      opts.experimental_onToolCallStart?.({ toolCall: { toolName: 't', toolCallId: 'tc2', input: { v: 1 } } });
+      opts.onToolExecutionStart?.({ toolCall: { toolName: 't', toolCallId: 'tc2', input: { v: 1 } } });
     });
 
     const onToolCall = vi.fn();
@@ -554,7 +554,7 @@ describe('executeAgent — streaming tool-call callbacks', () => {
 
   it('passes undefined args when neither args nor input is present', async () => {
     mockStreamWithCallbacks((opts) => {
-      opts.experimental_onToolCallStart?.({ toolCall: { toolName: 't', toolCallId: 'tc3' } });
+      opts.onToolExecutionStart?.({ toolCall: { toolName: 't', toolCallId: 'tc3' } });
     });
 
     const onToolCall = vi.fn();
@@ -565,7 +565,7 @@ describe('executeAgent — streaming tool-call callbacks', () => {
 
   it('reports a failed tool call with its error string', async () => {
     mockStreamWithCallbacks((opts) => {
-      opts.experimental_onToolCallFinish?.({ toolCall: { toolName: 't', toolCallId: 'tc4' }, durationMs: 3, success: false, error: new Error('nope') });
+      opts.onToolExecutionEnd?.({ toolCall: { toolName: 't', toolCallId: 'tc4' }, toolExecutionMs: 3, toolOutput: { type: 'tool-error', error: new Error('nope') } });
     });
 
     const onToolCallComplete = vi.fn();
@@ -578,7 +578,7 @@ describe('executeAgent — streaming tool-call callbacks', () => {
 
   it('swallows a throwing user callback without failing the execution', async () => {
     mockStreamWithCallbacks((opts) => {
-      opts.experimental_onToolCallStart?.({ toolCall: { toolName: 't', toolCallId: 'tc5', args: {} } });
+      opts.onToolExecutionStart?.({ toolCall: { toolName: 't', toolCallId: 'tc5', args: {} } });
     });
 
     const onToolCall = vi.fn(() => { throw new Error('handler boom'); });

@@ -46,11 +46,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@ai-sdk/anthropic": "^3.0.76",
+    "@ai-sdk/anthropic": "^4.0.36",
     "@anthropic-ai/sdk": "^0.112.5",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.3.5",
-    "ai": "^6.0.116",
+    "ai": "^7.0.58",
     "tsx": "^4.19.4",
     "typescript": "7.0.2",
     "vitest": "^4.0.18"

@@ -90,7 +90,7 @@ type MCPClientType = {
 
 type CreateMCPClientFn = (config: {
   transport: unknown;
-  name?: string;
+  clientName?: string;
   onUncaughtError?: (error: unknown) => void;
 }) => Promise<MCPClientType>;
 
@@ -454,7 +454,7 @@ export class MCPConnectionManager implements ToolResolver {
 
     const client = await createClient({
       transport,
-      name: `mcai-${serverId}`,
+      clientName: `mcai-${serverId}`,
       onUncaughtError: (error) => {
         logger.error('uncaught_mcp_error', error as Error, { server_id: serverId });
       },

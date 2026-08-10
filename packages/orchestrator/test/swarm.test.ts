@@ -13,7 +13,7 @@ vi.mock('ai', () => ({
   generateObject: vi.fn(),
   generateText: vi.fn(),
   streamText: vi.fn(),
-  stepCountIs: vi.fn().mockReturnValue(() => false),
+  isStepCount: vi.fn().mockReturnValue(() => false),
   tool: vi.fn((def: any) => def),
   jsonSchema: vi.fn((schema: any) => schema),
   Output: { object: vi.fn().mockReturnValue({}) },

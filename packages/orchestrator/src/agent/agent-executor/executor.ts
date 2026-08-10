@@ -22,7 +22,7 @@
  * @module agent-executor/executor
  */
 
-import { streamText, tool, stepCountIs, jsonSchema } from 'ai';
+import { streamText, tool, isStepCount, jsonSchema } from 'ai';
 import { classifyRetryable } from './error-classification.js';
 import type { ToolSet } from 'ai';
 import { agentFactory, AgentFactory } from '../agent-factory/index.js';
@@ -236,17 +236,17 @@ export async function executeAgent(
     try {
       result = await streamText({
         model,
-        system: systemPrompt,
+        instructions: systemPrompt,
         prompt: taskPrompt,
         tools,
-        stopWhen: stepCountIs(config.maxSteps),
+        stopWhen: isStepCount(config.maxSteps),
         abortSignal: combinedSignal,
         ...(options?.temperatureOverride !== undefined
           ? { temperature: clampTemperature(options.temperatureOverride, effectiveConfig.provider, agentId) }
           : {}),
         ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
         ...(options?.onToolCall ? {
-          experimental_onToolCallStart: (event) => {
+          onToolExecutionStart: (event) => {
             try {
               const tc = event.toolCall;
               options.onToolCall!({
@@ -258,14 +258,15 @@ export async function executeAgent(
           },
         } : {}),
         ...(options?.onToolCallComplete ? {
-          experimental_onToolCallFinish: (event) => {
+          onToolExecutionEnd: (event) => {
             try {
+              const output = event.toolOutput;
               options.onToolCallComplete!({
                 toolName: event.toolCall.toolName,
                 toolCallId: event.toolCall.toolCallId,
-                durationMs: event.durationMs,
-                success: event.success,
-                ...(!event.success ? { error: String(event.error) } : {}),
+                durationMs: event.toolExecutionMs,
+                success: output.type !== 'tool-error',
+                ...(output.type === 'tool-error' ? { error: String(output.error) } : {}),
               });
             } catch { /* best-effort */ }
           },
