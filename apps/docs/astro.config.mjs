@@ -143,6 +143,7 @@ export default defineConfig({
             { label: 'Verifier', slug: 'docs/patterns/verifier' },
             { label: 'Human-in-the-Loop', slug: 'docs/patterns/human-in-the-loop' },
             { label: 'Map-Reduce', slug: 'docs/patterns/map-reduce' },
+            { label: 'Subgraph (Composition)', slug: 'docs/patterns/subgraph' },
           ],
         },
         {

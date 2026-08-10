@@ -59,3 +59,25 @@ export class SubgraphIncompleteError extends CycgraphError {
     this.name = 'SubgraphIncompleteError';
   }
 }
+
+/**
+ * Thrown by the subgraph executor when a value crossing the composition
+ * boundary violates the child graph's declared interface — a mapped input
+ * fails its schema (or a required input is missing), or a mapped output
+ * fails its schema. The boundary is a typed call: declared signature,
+ * checked arguments, checked return.
+ */
+export class SubgraphInterfaceError extends CycgraphError {
+  constructor(
+    public readonly nodeId: string,
+    public readonly subgraphId: string,
+    public readonly direction: 'input' | 'output',
+    public readonly key: string,
+    detail: string,
+  ) {
+    super(
+      `Subgraph "${subgraphId}" ${direction} "${key}" violates the declared interface: ${detail}`,
+    );
+    this.name = 'SubgraphInterfaceError';
+  }
+}

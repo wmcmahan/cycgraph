@@ -26,7 +26,7 @@ import type { FitnessFunction } from '../../agent/fitness-function.js';
 import type { RateLimiter } from '../../agent/rate-limiter.js';
 import type { AgentRegistry } from '../../persistence/interfaces.js';
 import type { ProviderRegistry } from '../../agent/provider-registry.js';
-import type { ToolsOption } from '../../tools/registry.js';
+import type { ToolsOption, CapabilityCeiling } from '../../tools/registry.js';
 
 /**
  * Raw tool definition — description + parameters without an execute function.
@@ -221,6 +221,10 @@ export interface NodeExecutorContext {
    * composition would see them as unregistered).
    */
   tools?: ToolsOption[];
+  /** This runner's own capability ceiling — inherited by uncapped subgraph children. */
+  capabilityCeiling?: CapabilityCeiling;
+  /** Declared per-subgraph ceilings (from bundle manifests), threaded to child runners. */
+  capabilityCeilings?: Record<string, CapabilityCeiling>;
   /** Create a filtered state view for a node. */
   createStateView: (node: GraphNode) => StateView;
   /** Injected runtime dependencies. */

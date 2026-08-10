@@ -100,6 +100,30 @@ Every node type is authored the same way — `node()` with its `type`:
 const lookup = node({ id: 'lookup', type: 'tool', toolId: 'web_fetch', tools: ['web_fetch'], reads: ['goal'] });
 ```
 
+## Composing graphs
+
+Whole graphs compose too. `subgraph()` embeds a child graph as a single node, with isolated state and explicit memory mappings. `run()` resolves an in-scope child and registers its agents automatically:
+
+```typescript
+const research = graph({ name: 'research-block', nodes: [/* … */] });
+
+const pipeline = graph({
+  name: 'briefing',
+  nodes: [
+    subgraph(research, {
+      id: 'research',
+      inputs:  { topic: 'goal_in' },     // parent key → child key
+      outputs: { summary: 'findings' },  // child key → parent key
+      writes: 'findings',
+    }),
+    write,
+  ],
+  edges: [{ from: 'research', to: write }],
+});
+```
+
+The child sees only the mapped keys, never the parent's blackboard, which is what makes a graph a dependable building block. See the [Subgraph pattern](/docs/patterns/subgraph/).
+
 ## When to reach past the facade
 
 The facade covers the common case. For custom persistence, event listeners, budget/rate limiting, distributed workers, or pre-registered agents in a database, drop to the raw `createGraph` + `GraphRunner` API — the facade compiles to exactly that, so there's no cliff. See [Graphs](/docs/concepts/graphs/), [Graph Runner](/docs/concepts/graph-runner/), and the runnable examples in `packages/orchestrator/examples/`.

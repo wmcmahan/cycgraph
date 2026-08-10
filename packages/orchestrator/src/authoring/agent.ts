@@ -1,8 +1,7 @@
 /**
- * agent() — terse agent authoring
+ * Core agent authoring utilities.
  *
- * Part of the authoring facade (see docs/plans/authoring-facade.md). An
- * agent value is a CAPABILITY only: model, instructions, tools, sampling.
+ * An agent value is a CAPABILITY only: model, instructions, tools, sampling.
  * It carries no topology — placement in a graph (node id, state grants) is
  * `node()`'s job — and no registry id: `graph()` mints one when it compiles,
  * and `run()` registers the config into a run-scoped registry.
@@ -134,11 +133,15 @@ export function toRegistryConfig(
 ): AgentRegistryConfig & { id: string } {
   const { spec } = value;
   const id = ensureAgentId(value);
+
   const tools = (spec.tools ?? []).map((entry) => {
-    if (!isDefinedTool(entry)) return entry;
+    if (!isDefinedTool(entry)) {
+      return entry;
+    }
     collectTool?.(entry);
     return { type: 'custom' as const, name: entry.name };
   });
+
   return {
     id,
     name: spec.name ?? id,
@@ -147,8 +150,6 @@ export function toRegistryConfig(
     provider: spec.provider!,
     systemPrompt: spec.instructions,
     tools,
-    // No ceiling: the agent is a capability; the NODE's grants are the
-    // authoritative permission in the engine.
     permissions: null,
     ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}),
     ...(spec.maxSteps !== undefined ? { maxSteps: spec.maxSteps } : {}),

@@ -45,6 +45,43 @@ export class ToolNotRegisteredError extends Error {
   }
 }
 
+/**
+ * The capability surface a capped run may reach: custom tool names and MCP
+ * server ids. Derived from a bundle manifest's `requires` and enforced at
+ * tool resolution — a graph cannot use more than it declared. Built-in
+ * tools are uncapped (the engine ships them; `requires` never lists them).
+ * See docs/plans/capability-isolation.md.
+ */
+export interface CapabilityCeiling {
+  tools: string[];
+  mcpServers: string[];
+}
+
+/** Thrown when a capped run resolves a tool source outside its ceiling. */
+export class CapabilityViolationError extends Error {
+  constructor(
+    public readonly kind: 'tool' | 'mcp_server',
+    public readonly name: string,
+  ) {
+    super(
+      kind === 'tool'
+        ? `Custom tool "${name}" is outside this graph's declared capability ceiling — it was not in the manifest's requires.tools`
+        : `MCP server "${name}" is outside this graph's declared capability ceiling — it was not in the manifest's requires.mcp_servers`,
+    );
+    this.name = 'CapabilityViolationError';
+  }
+}
+
+/** Intersect two ceilings: the surface allowed by both. */
+export function intersectCeilings(a: CapabilityCeiling, b: CapabilityCeiling): CapabilityCeiling {
+  const bTools = new Set(b.tools);
+  const bServers = new Set(b.mcpServers);
+  return {
+    tools: a.tools.filter((name) => bTools.has(name)),
+    mcpServers: a.mcpServers.filter((id) => bServers.has(id)),
+  };
+}
+
 /** Runtime shape discrimination for the `tools` option array. */
 function isToolResolver(entry: ToolsOption): entry is ToolResolver {
   return typeof (entry as ToolResolver).resolveTools === 'function';
@@ -69,8 +106,15 @@ export class ComposedToolResolution implements ToolResolver {
   private readonly resolutions = new WeakMap<object, ResolutionRecord>();
   /** Process-wide fallback accumulator for no-arg drains (legacy parity). */
   private readonly fallbackTaint = new Map<string, TaintMetadata>();
+  /** Capability ceiling, when this run is capped (fail-closed at resolution). */
+  private readonly allowedTools?: ReadonlySet<string>;
+  private readonly allowedServers?: ReadonlySet<string>;
 
-  constructor(entries: ToolsOption[]) {
+  constructor(entries: ToolsOption[], options?: { capabilityCeiling?: CapabilityCeiling }) {
+    if (options?.capabilityCeiling) {
+      this.allowedTools = new Set(options.capabilityCeiling.tools);
+      this.allowedServers = new Set(options.capabilityCeiling.mcpServers);
+    }
     for (const entry of entries) {
       if (isToolResolver(entry)) {
         this.resolvers.push(entry);
@@ -108,6 +152,26 @@ export class ComposedToolResolution implements ToolResolver {
     const builtinSources = sources.filter((s) => s.type === 'builtin');
     const customSources = sources.filter((s) => s.type === 'custom');
     const mcpSources = sources.filter((s): s is MCPToolSource => s.type === 'mcp');
+
+    // Capability ceiling first, and BEFORE the registration lookup: a
+    // registered-but-undeclared tool must surface as a capability violation,
+    // not resolve. This is the choke point every path funnels through —
+    // node tools, agent-config tools, synthetic sub-nodes — so agent configs
+    // resolved from the registry at runtime are capped too.
+    if (this.allowedTools) {
+      for (const source of customSources) {
+        if (!this.allowedTools.has(source.name)) {
+          throw new CapabilityViolationError('tool', source.name);
+        }
+      }
+    }
+    if (this.allowedServers) {
+      for (const source of mcpSources) {
+        if (!this.allowedServers.has(source.server_id)) {
+          throw new CapabilityViolationError('mcp_server', source.server_id);
+        }
+      }
+    }
 
     Object.assign(tools, resolveBuiltinTools(builtinSources));
 
@@ -255,6 +319,9 @@ export class ComposedToolResolution implements ToolResolver {
  * Throws {@link ToolDefinitionError} at construction on duplicate custom
  * names or invalid entries — a config error, surfaced before any run.
  */
-export function composeToolResolution(entries: ToolsOption[]): ComposedToolResolution {
-  return new ComposedToolResolution(entries);
+export function composeToolResolution(
+  entries: ToolsOption[],
+  options?: { capabilityCeiling?: CapabilityCeiling },
+): ComposedToolResolution {
+  return new ComposedToolResolution(entries, options);
 }

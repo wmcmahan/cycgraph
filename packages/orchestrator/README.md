@@ -80,10 +80,10 @@ Each pattern is a node type. Declarative, composable, and traced through OpenTel
 - **[Evolution (DGM)](https://flattop.io/docs/patterns/evolution/)** Generate N candidates per generation, score fitness, breed the winners
 - **[Self-Annealing](https://flattop.io/docs/patterns/self-annealing/)** Iteratively refine a single output, dropping temperature each pass
 - **[Reflection](https://flattop.io/docs/patterns/reflection/)** Distill run output into atomic facts that future runs retrieve
-- **[Human-in-the-Loop](https://flattop.io/docs/patterns/human-in-the-loop/)** | Pause for a human reviewer; resume hours later from the exact checkpoint
+- **[Human-in-the-Loop](https://flattop.io/docs/patterns/human-in-the-loop/)** Pause for a human reviewer; resume hours later from the exact checkpoint
 - **[Verifier](https://flattop.io/docs/patterns/verifier/)** LLM-judge / filtrex expression / JSONPath assertion
 - **[Voting](https://flattop.io/docs/patterns/voting/)** consensus across N voter agents
-- **[Subgraph](https://flattop.io/docs/concepts/nodes/#subgraphconfig)** nested workflows with isolated state
+- **[Subgraph](https://flattop.io/docs/patterns/subgraph/)** Compose whole graphs as reusable blocks with isolated state
 
 ## Examples
 

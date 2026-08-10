@@ -71,7 +71,7 @@ export { SecurityPolicyViolationError, readableTaintedKeys } from './runner/secu
 export { createObserverMiddleware } from './runner/observer-middleware.js';
 export type { ObserverMiddlewareOptions, ObserverFinding, ObserverSeverity, DiagnosticAgentOptions } from './runner/observer-middleware.js';
 export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './runner/errors.js';
-export { MemoryWriterMissingError, VerificationFailedError, SubgraphIncompleteError } from './runner/node-executors/errors.js';
+export { MemoryWriterMissingError, VerificationFailedError, SubgraphIncompleteError, SubgraphInterfaceError } from './runner/node-executors/errors.js';
 
 // ─── Stream Events ─────────────────────────────────────────────────
 export type { StreamEvent, TerminalStreamEvent, ModelResolvedEvent, ContextCompressedEvent, MemoryDiff } from './runner/stream-events.js';
@@ -184,10 +184,6 @@ export { SUPERVISOR_DONE } from './agent/supervisor-executor/constants.js';
 export { SupervisorConfigError, SupervisorRoutingError } from './agent/supervisor-executor/errors.js';
 export type { SupervisorDecision } from './agent/supervisor-executor/executor.js';
 
-// ─── Authoring Facade ───────────────────────────────────────────────
-// Terse vocabulary (agent · node · graph · state · run) that compiles to
-// the same wire as the raw graph API. See docs/plans/authoring-facade.md.
-
 export {
   agent,
   isAgentValue,
@@ -195,12 +191,19 @@ export {
   AgentSpecError,
   node,
   isNodeValue,
+  subgraph,
   graph,
   agentsForGraph,
   toolsForGraph,
+  graphsForGraph,
   GraphSpecError,
   run,
   state,
+  computeRequirements,
+  checkRequirements,
+  bundle,
+  parseBundle,
+  BundleIntegrityError,
 } from './authoring/index.js';
 export type {
   AgentSpec,
@@ -208,18 +211,27 @@ export type {
   NodeValue,
   NodeSpec,
   NodeRef,
+  SubgraphSpec,
   GraphSpec,
   EdgeSugar,
   RunInput,
   RunOptions,
+  GraphInputSpec,
+  GraphOutputSpec,
+  InterfaceSchema,
+  GraphRequirements,
+  RequiredTool,
+  RequirementsHost,
+  RequirementsCheck,
+  BundleMeta,
 } from './authoring/index.js';
 
 // ─── Custom Tools ───────────────────────────────────────────────────
 
 export { defineTool, tool, isDefinedTool, ToolDefinitionError, DEFAULT_CUSTOM_TOOL_TIMEOUT_MS } from './tools/define-tool.js';
 export type { DefinedTool, DefinedToolSpec } from './tools/define-tool.js';
-export { ToolNotRegisteredError } from './tools/registry.js';
-export type { ToolsOption } from './tools/registry.js';
+export { ToolNotRegisteredError, CapabilityViolationError, intersectCeilings } from './tools/registry.js';
+export type { ToolsOption, CapabilityCeiling } from './tools/registry.js';
 
 // ─── MCP Integration ────────────────────────────────────────────────
 

@@ -17,7 +17,9 @@ import { NodeConfigError } from '../errors.js';
 import { getTaintInfo, markTainted } from '../../utils/taint.js';
 import type { NodeExecutorContext } from './context.js';
 import { nodeIdempotencyKey } from './idempotency-key.js';
-import { SubgraphIncompleteError } from './errors.js';
+import { SubgraphIncompleteError, SubgraphInterfaceError } from './errors.js';
+import { jsonSchemaToZod, type JSONSchema } from '../../mcp/json-schema-converter.js';
+import { intersectCeilings } from '../../tools/registry.js';
 
 const logger = createLogger('runner.node.subgraph');
 
@@ -28,6 +30,19 @@ const logger = createLogger('runner.node.subgraph');
  * any legitimate composition depth.
  */
 const MAX_SUBGRAPH_DEPTH = 32;
+
+/**
+ * Validate one boundary value against a declared JSON Schema. Returns an
+ * error detail string on violation, `null` on pass. Schemas the converter
+ * can't express degrade to `z.any()`, so an exotic schema never blocks a
+ * valid value.
+ */
+function boundaryViolation(schema: Record<string, unknown>, value: unknown): string | null {
+  const result = jsonSchemaToZod(schema as unknown as JSONSchema).safeParse(value);
+  if (result.success) return null;
+  const first = result.error.issues[0];
+  return first ? `${first.message}${first.path.length > 0 ? ` at ${first.path.join('.')}` : ''}` : 'schema violation';
+}
 
 /**
  * Revive a stashed child checkpoint after a DB round-trip (JSON turns Dates
@@ -117,6 +132,25 @@ export async function executeSubgraphNode(
     }
   }
 
+  // Boundary validation against the child's declared interface: a required
+  // input must be present, and a present value must satisfy its schema. This
+  // fires on every path, including children resolved by id at runtime that
+  // never saw the facade's compile-time mapping check.
+  if (childGraph.inputs) {
+    for (const [key, decl] of Object.entries(childGraph.inputs)) {
+      if (!(key in childMemory)) {
+        if (decl.required) {
+          throw new SubgraphInterfaceError(node.id, config.subgraph_id, 'input', key, 'required input was not provided');
+        }
+        continue;
+      }
+      const violation = boundaryViolation(decl.schema, childMemory[key]);
+      if (violation) {
+        throw new SubgraphInterfaceError(node.id, config.subgraph_id, 'input', key, violation);
+      }
+    }
+  }
+
   const remainingBudget = ctx.state.max_token_budget
     ? ctx.state.max_token_budget - ctx.state.total_tokens_used
     : undefined;
@@ -179,6 +213,16 @@ export async function executeSubgraphNode(
   // security policy, so a tainted→sensitive action inside the subgraph is gated
   // exactly as in the parent. Without this the composition boundary silently
   // dropped toolResolver/factSanitizer/securityPolicy/etc.
+  // Capability ceiling for the child: the ceiling its bundle manifest
+  // declared (if any), intersected with THIS runner's own ceiling so a
+  // nested bundle is capped by every enclosing manifest. A child with no
+  // declared ceiling inherits the parent's — nesting can never escape a cap.
+  const declaredCeiling = ctx.capabilityCeilings?.[config.subgraph_id];
+  const childCeiling =
+    declaredCeiling && ctx.capabilityCeiling
+      ? intersectCeilings(declaredCeiling, ctx.capabilityCeiling)
+      : declaredCeiling ?? ctx.capabilityCeiling;
+
   const childOptions = {
     loadGraphFn: ctx.loadGraphFn,
     onToken: ctx.onToken,
@@ -190,6 +234,8 @@ export async function executeSubgraphNode(
     tools: ctx.tools,
     registry: ctx.registry,
     providers: ctx.providers,
+    ...(childCeiling ? { capabilityCeiling: childCeiling } : {}),
+    ...(ctx.capabilityCeilings ? { capabilityCeilings: ctx.capabilityCeilings } : {}),
     modelResolver: ctx.modelResolver,
     contextCompressor: ctx.contextCompressor,
     memoryRetriever: ctx.memoryRetriever,
@@ -255,7 +301,15 @@ export async function executeSubgraphNode(
   const childRegistry = finalChildState.taint_registry ?? {};
   for (const [childKey, parentKey] of Object.entries(config.output_mapping)) {
     if (childKey in finalChildState.memory) {
-      outputUpdates[parentKey] = finalChildState.memory[childKey];
+      const value = finalChildState.memory[childKey];
+      const decl = childGraph.outputs?.[childKey];
+      if (decl) {
+        const violation = boundaryViolation(decl.schema, value);
+        if (violation) {
+          throw new SubgraphInterfaceError(node.id, config.subgraph_id, 'output', childKey, violation);
+        }
+      }
+      outputUpdates[parentKey] = value;
       const info = getTaintInfo(childRegistry, childKey);
       if (info) outputTaint[parentKey] = info;
     }
