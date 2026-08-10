@@ -51,7 +51,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { GraphRunnerMiddleware, MiddlewareContext } from './middleware.js';
 
 // External runtime types — kept for the runner's public option types
-import type { ToolsOption, ComposedToolResolution } from '../tools/registry.js';
+import type { ToolsOption, ComposedToolResolution, CapabilityCeiling } from '../tools/registry.js';
 import { composeToolResolution } from '../tools/registry.js';
 import type { ModelResolver } from '../agent/model-resolver.js';
 import type { ContextCompressor } from '../agent/context-compressor.js';
@@ -198,6 +198,20 @@ export interface GraphRunnerOptions {
   persistState?: (state: WorkflowState) => Promise<void>;
   /** Load subgraph definitions by id. */
   loadGraph?: (graphId: string) => Promise<Graph | null>;
+  /**
+   * Capability ceiling applied to THIS runner: tool resolution refuses
+   * custom names and MCP server ids outside it, and the startup wiring
+   * check rejects a graph whose nodes reference beyond it. Set by the
+   * subgraph executor when spawning a bundle child. See
+   * docs/plans/capability-isolation.md.
+   */
+  capabilityCeiling?: CapabilityCeiling;
+  /**
+   * Declared ceilings for subgraph children, keyed by subgraph id —
+   * derived from bundle manifests' `requires` and threaded down so nested
+   * bundles are capped by the intersection of every enclosing manifest.
+   */
+  capabilityCeilings?: Record<string, CapabilityCeiling>;
   /** @deprecated Renamed to `persistState`; this alias will be removed. */
   persistStateFn?: (state: WorkflowState) => Promise<void>;
   /** @deprecated Renamed to `loadGraph`; this alias will be removed. */
@@ -405,6 +419,8 @@ export class GraphRunner extends EventEmitter {
   private readonly registry?: AgentRegistry;
   private readonly providers?: ProviderRegistry;
   private readonly toolsOption?: ToolsOption[];
+  private readonly capabilityCeiling?: CapabilityCeiling;
+  private readonly capabilityCeilings?: Record<string, CapabilityCeiling>;
 
   // Auto-rollback on failure (saga compensation)
   private readonly autoRollback: boolean;
@@ -495,10 +511,14 @@ export class GraphRunner extends EventEmitter {
     });
     this.onToken = options?.onToken;
     this.middleware = options?.middleware ?? [];
-    this.toolResolver = options?.tools ? composeToolResolution(options.tools) : undefined;
+    this.toolResolver = options?.tools
+      ? composeToolResolution(options.tools, { capabilityCeiling: options?.capabilityCeiling })
+      : undefined;
     this.registry = options?.registry;
     this.providers = options?.providers;
     this.toolsOption = options?.tools;
+    this.capabilityCeiling = options?.capabilityCeiling;
+    this.capabilityCeilings = options?.capabilityCeilings;
     this.agentFactory = buildRunAgentFactory(options?.registry, options?.providers);
     this.modelResolver = options?.modelResolver;
     this.contextCompressor = options?.contextCompressor;
@@ -660,6 +680,8 @@ export class GraphRunner extends EventEmitter {
       get registry() { return self.registry; },
       get providers() { return self.providers; },
       get tools() { return self.toolsOption; },
+      get capabilityCeiling() { return self.capabilityCeiling; },
+      get capabilityCeilings() { return self.capabilityCeilings; },
       emit: (event, payload) => self.emit(event, payload),
       listenerCount: (event) => self.listenerCount(event),
     };
@@ -1649,6 +1671,29 @@ export class GraphRunner extends EventEmitter {
           errors.push(
             `node '${node.id}' declares custom tool "${source.name}" but no matching defineTool() registration was provided on GraphRunnerOptions.tools`,
           );
+        }
+      }
+    }
+
+    // Capability ceiling, structural half: a node source outside the ceiling
+    // fails the run at start. The dynamic half (agent-config tools resolved
+    // from the registry at runtime) is enforced at the resolution choke
+    // point in ComposedToolResolution.
+    if (this.capabilityCeiling) {
+      const allowedTools = new Set(this.capabilityCeiling.tools);
+      const allowedServers = new Set(this.capabilityCeiling.mcpServers);
+      for (const node of this.graph.nodes) {
+        for (const source of node.tools ?? []) {
+          if (source.type === 'custom' && !allowedTools.has(source.name)) {
+            errors.push(
+              `node '${node.id}' uses custom tool "${source.name}" outside the graph's declared capability ceiling`,
+            );
+          }
+          if (source.type === 'mcp' && !allowedServers.has(source.server_id)) {
+            errors.push(
+              `node '${node.id}' uses MCP server "${source.server_id}" outside the graph's declared capability ceiling`,
+            );
+          }
         }
       }
     }

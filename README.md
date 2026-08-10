@@ -83,7 +83,7 @@ Each pattern is a node type. Declarative, composable, and traced through OpenTel
 - **[Human-in-the-Loop](https://flattop.io/docs/patterns/human-in-the-loop/)** Pause for a human reviewer; resume hours later from the exact checkpoint
 - **[Verifier](https://flattop.io/docs/patterns/verifier/)** LLM-judge / filtrex expression / JSONPath assertion
 - **[Voting](https://flattop.io/docs/patterns/voting/)** consensus across N voter agents
-- **[Subgraph](https://flattop.io/docs/patterns/subgraph/)** nested workflows with isolated state
+- **[Subgraph](https://flattop.io/docs/patterns/subgraph/)** Compose whole graphs as reusable blocks with isolated state
 
 ## Examples
 

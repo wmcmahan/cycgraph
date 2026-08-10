@@ -185,7 +185,7 @@ const runner = new GraphRunner(graph, state, {
 
 The last expression is the result and must be JSON-serializable; optional JSON `input` is exposed as a global; `console.log` is captured into `logs`. Synchronous only — a Promise completion value is a clear error. Defaults: 2s interrupt deadline, 64 MiB memory limit, 1 MiB result cap (over-cap errors rather than truncating). Failures — syntax error, runtime exception, deadline, memory limit, oversized result — all surface as normal tool errors the model can react to.
 
-This is the design-reviewed member of the library; see the [design doc](https://github.com/wmcmahan/cycgraph/blob/main/docs/plans/sandboxed-js.md) for the full threat model. For binaries or OS-level work, that's a container-backed executor or a task-shaped MCP server, not this tool.
+This is the design-reviewed member of the library. For binaries or OS-level work, that's a container-backed executor or a task-shaped MCP server, not this tool.
 
 ## Related
 

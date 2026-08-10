@@ -198,7 +198,7 @@ Used by `supervisor` nodes. The supervisor LLM dynamically routes work between m
 
 ### SubgraphConfig
 
-Used by subgraph nodes. Executes an entire nested workflow as a single step, with isolated state and explicit memory mapping.
+Used by subgraph nodes. Executes an entire child graph as a single step, with isolated state and explicit memory mapping. This is the engine's composition primitive: a graph becomes a reusable block another graph embeds, and the way to extend a graph you did not write is to wrap it in one of these. See the [Subgraph pattern](/docs/patterns/subgraph/) for composition and the `subgraph()` authoring helper.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

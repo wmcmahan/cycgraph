@@ -62,6 +62,11 @@ export const DEFAULT_OPAQUE_KEYS: ReadonlySet<string> = new Set([
   'memory',
   'env',
   'headers',
+  // Graph interface declarations: record keys are user memory keys, and the
+  // values carry raw JSON Schema (whose own keys, e.g. additionalProperties,
+  // must never be case-converted).
+  'inputs',
+  'outputs',
 ]);
 
 /** Convert a single camelCase key to snake_case (a no-op on snake keys). */

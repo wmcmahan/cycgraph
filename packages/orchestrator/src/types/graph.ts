@@ -781,6 +781,40 @@ export type GraphNode = z.infer<typeof GraphNodeSchema>;
  * must reference a node in `nodes`, and all `end_nodes` must be
  * reachable from `start_node` via `edges`.
  */
+// ── Graph interface (composition contract) ──────────────────────────
+// Optional declarations of the memory keys a graph expects seeded and the
+// keys it produces. This is the graph's public signature at a subgraph
+// boundary: mappings are validated against it at compile time, and values
+// crossing the boundary are validated against the schemas at runtime. The `schema` payload is raw JSON Schema
+// (authored as Zod, projected at the facade boundary) and is opaque to
+// case mapping.
+
+/** Caps interface records so an untrusted graph can't declare unbounded keys. */
+const MAX_INTERFACE_KEYS = 1000;
+const withinInterfaceCap = (value: Record<string, unknown>) =>
+  Object.keys(value).length <= MAX_INTERFACE_KEYS;
+
+/** Declaration of one graph input key. */
+export const GraphInputDeclSchema = z.object({
+  /** JSON Schema for the value seeded under this key. */
+  schema: z.record(z.string(), z.unknown()),
+  /** Whether the key must be provided (mapped or seeded). */
+  required: z.boolean().default(true),
+  /** Human-readable description of the key. */
+  description: z.string().optional(),
+});
+
+/** Declaration of one graph output key. */
+export const GraphOutputDeclSchema = z.object({
+  /** JSON Schema for the value the graph produces under this key. */
+  schema: z.record(z.string(), z.unknown()),
+  /** Human-readable description of the key. */
+  description: z.string().optional(),
+});
+
+export type GraphInputDecl = z.infer<typeof GraphInputDeclSchema>;
+export type GraphOutputDecl = z.infer<typeof GraphOutputDeclSchema>;
+
 export const GraphSchema = z.object({
   /** Unique graph identifier (auto-generated if omitted). */
   id: z.string().default(() => crypto.randomUUID()),
@@ -788,6 +822,16 @@ export const GraphSchema = z.object({
   name: z.string(),
   /** Description of what this graph does. */
   description: z.string(),
+
+  // ── Interface (optional — absent stays absent on the wire) ──
+  /** Memory keys this graph expects seeded, with value schemas. */
+  inputs: z.record(z.string(), GraphInputDeclSchema).refine(withinInterfaceCap, {
+    message: `inputs may declare at most ${MAX_INTERFACE_KEYS} keys`,
+  }).optional(),
+  /** Memory keys this graph produces, with value schemas. */
+  outputs: z.record(z.string(), GraphOutputDeclSchema).refine(withinInterfaceCap, {
+    message: `outputs may declare at most ${MAX_INTERFACE_KEYS} keys`,
+  }).optional(),
 
   // ── Structure ──
   // Arrays are capped so an oversized (untrusted / LLM-authored) graph can't

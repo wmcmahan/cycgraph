@@ -90,6 +90,8 @@ export {
   MemoryQuerySchema,
   SubgraphConfigSchema,
   GraphNodeSchema,
+  GraphInputDeclSchema,
+  GraphOutputDeclSchema,
   GraphSchema,
   createGraph,
 } from './graph.js';
@@ -121,9 +123,28 @@ export type {
   GraphNode,
   Graph,
   GraphInput,
+  GraphInputDecl,
+  GraphOutputDecl,
   NodeConfig,
   GraphConfig,
 } from './graph.js';
+
+// ─── Graph bundles (portable distribution artifacts) ──────────────────
+export {
+  RequiredToolSchema,
+  GraphRequiresSchema,
+  BundledAgentSchema,
+  GraphManifestSchema,
+  GraphBundleSchema,
+  isGraphBundle,
+} from './bundle.js';
+export type {
+  RequiredToolWire,
+  GraphRequires,
+  BundledAgent,
+  GraphManifest,
+  GraphBundle,
+} from './bundle.js';
 
 // ─── Event sourcing ────────────────────────────────────────────────────
 export { EventTypeSchema, WorkflowEventSchema } from './event.js';

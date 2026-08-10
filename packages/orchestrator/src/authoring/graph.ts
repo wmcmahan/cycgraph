@@ -27,6 +27,17 @@ import {
   type AgentValue,
 } from './agent.js';
 import { isNodeValue, NODE_BRAND, type NodeValue, type NodeSpec } from './node.js';
+import { SUBGRAPH_CHILD, SUBGRAPH_BUNDLE } from './subgraph.js';
+import type { GraphBundle } from '../types/bundle.js';
+import type { CapabilityCeiling } from '../tools/registry.js';
+import { GraphSpecError } from './errors.js';
+import {
+  toWireInputs,
+  toWireOutputs,
+  validateChildInterface,
+  type GraphInputSpec,
+  type GraphOutputSpec,
+} from './interface.js';
 import { isDefinedTool, type DefinedTool } from '../tools/define-tool.js';
 
 /** Agent definitions referenced by a facade-authored graph, for `run()`. */
@@ -34,6 +45,12 @@ const graphAgents = new WeakMap<Graph, AgentRegistryConfig[]>();
 
 /** Tool implementations referenced inline by a facade-authored graph, for `run()`. */
 const graphTools = new WeakMap<Graph, DefinedTool[]>();
+
+/** Child graphs referenced by `subgraph()` values in a facade-authored graph, for `run()`. */
+const graphChildren = new WeakMap<Graph, Graph[]>();
+
+/** Capability ceilings declared by embedded bundles, keyed by subgraph id, for `run()`. */
+const graphCeilings = new WeakMap<Graph, Record<string, CapabilityCeiling>>();
 
 /** Retrieve the agent configs a facade-authored graph references (empty if none). */
 export function agentsForGraph(graph: Graph): AgentRegistryConfig[] {
@@ -49,6 +66,27 @@ export function agentsForGraph(graph: Graph): AgentRegistryConfig[] {
  */
 export function toolsForGraph(graph: Graph): DefinedTool[] {
   return graphTools.get(graph) ?? [];
+}
+
+/**
+ * Retrieve the child graphs a facade-authored graph embeds via `subgraph()`
+ * values (empty if none). Keyed on the parent graph's object identity like
+ * {@link agentsForGraph}: a serialized-and-reloaded parent carries only the
+ * `subgraph_id` wire references, and the children must be supplied through
+ * `loadGraph` explicitly.
+ */
+export function graphsForGraph(graph: Graph): Graph[] {
+  return graphChildren.get(graph) ?? [];
+}
+
+/**
+ * Retrieve the capability ceilings a facade-authored graph carries for its
+ * embedded bundles (empty if none), keyed by subgraph id. Derived from each
+ * bundle manifest's `requires`; `run()` threads them to the runner so a
+ * bundle child cannot use more than it declared.
+ */
+export function ceilingsForGraph(graph: Graph): Record<string, CapabilityCeiling> {
+  return graphCeilings.get(graph) ?? {};
 }
 
 /** Anywhere the graph names a node: its id string, or the node value itself. */
@@ -77,15 +115,17 @@ export interface GraphSpec {
   endNodes?: NodeRef[];
   /** Reject conditions that reference tainted memory keys. See taint tracking. */
   strictTaint?: boolean;
+  /**
+   * The graph's public interface: memory keys it expects seeded, as Zod
+   * schemas (or raw JSON Schema, or full declaration entries). Serialized
+   * to JSON Schema on the wire; validated at subgraph boundaries.
+   */
+  inputs?: Record<string, GraphInputSpec>;
+  /** Memory keys the graph produces. Same authoring forms as `inputs`. */
+  outputs?: Record<string, GraphOutputSpec>;
 }
 
-/** Thrown when the graph shape can't be resolved (dup ids, ambiguous start/end). */
-export class GraphSpecError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'GraphSpecError';
-  }
-}
+export { GraphSpecError } from './errors.js';
 
 /** True for object literals only — Date/Map/class instances are NOT plain. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -119,6 +159,8 @@ function expandEdge(edge: EdgeInput): NonNullable<GraphConfig['edges']>[number] 
 interface RefCollector {
   agent(value: AgentValue): void;
   tool(value: DefinedTool): void;
+  graph(value: Graph): void;
+  bundle(value: GraphBundle): void;
 }
 
 /**
@@ -166,13 +208,28 @@ function expandNode(input: NodeInput, collect: RefCollector): NodeConfig {
     );
   }
 
-  // Strip the brand FIRST: object spread copies symbol keys, and a still-
+  // Strip the brands FIRST: object spread copies symbol keys, so a still-
   // branded `rest` would make resolveRefs treat the whole config as a node
-  // reference and collapse it to its id.
-  const { [NODE_BRAND]: _brand, agent: agentRef, reads, writes, ...rest } =
-    input as NodeSpec & { [NODE_BRAND]?: true } & Record<string, unknown>;
+  // reference and collapse it to its id — and a child Graph left in place
+  // would be recursed into and mangled. The child graph is collected for
+  // run()'s loadGraph auto-wiring; only its id string sits in the config.
+  const { [NODE_BRAND]: _brand, [SUBGRAPH_CHILD]: childGraph, [SUBGRAPH_BUNDLE]: bundleRef, agent: agentRef, reads, writes, ...rest } =
+    input as NodeSpec & { [NODE_BRAND]?: true; [SUBGRAPH_CHILD]?: Graph; [SUBGRAPH_BUNDLE]?: GraphBundle } & Record<string, unknown>;
 
   const config = resolveRefs(rest, collect) as Record<string, unknown>;
+
+  if (bundleRef !== undefined) collect.bundle(bundleRef);
+  if (childGraph !== undefined) {
+    collect.graph(childGraph);
+    // Hard-error wiring validation against the child's declared interface:
+    // the manifest is the type signature, the mapping is the call. A child
+    // without a declared interface validates nothing.
+    validateChildInterface(
+      childGraph,
+      String(config.id ?? '(unnamed)'),
+      (config.subgraphConfig ?? {}) as { inputMapping?: Record<string, string>; outputMapping?: Record<string, string> },
+    );
+  }
   if (agentRef !== undefined) {
     config.agentId = isAgentValue(agentRef)
       ? (collect.agent(agentRef), ensureAgentId(agentRef))
@@ -196,9 +253,13 @@ function expandNode(input: NodeInput, collect: RefCollector): NodeConfig {
 export function graph(spec: GraphSpec): Graph {
   const collectedAgents = new Set<AgentValue>();
   const collectedTools = new Set<DefinedTool>();
+  const collectedGraphs = new Set<Graph>();
+  const collectedBundles = new Set<GraphBundle>();
   const collect: RefCollector = {
     agent: (a) => { collectedAgents.add(a); },
     tool: (t) => { collectedTools.add(t); },
+    graph: (child) => { collectedGraphs.add(child); },
+    bundle: (b) => { collectedBundles.add(b); },
   };
 
   const nodes: NodeConfig[] = [];
@@ -223,17 +284,47 @@ export function graph(spec: GraphSpec): Graph {
     startNode,
     endNodes,
     ...(spec.strictTaint !== undefined ? { strictTaint: spec.strictTaint } : {}),
+    ...(spec.inputs ? { inputs: toWireInputs(spec.inputs) } : {}),
+    ...(spec.outputs ? { outputs: toWireOutputs(spec.outputs) } : {}),
   });
 
-  if (collectedAgents.size > 0) {
+  // Deserialized bundles carry their closure as data (no identity stashes),
+  // so fold their agents and child graphs into this graph's stashes. A
+  // LOCALLY assembled bundle keeps its original graph objects, whose stashes
+  // the run-time closure walk already discovers — merging its wire agents
+  // too would register the same definitions twice in two casings.
+  const bundleAgents: AgentRegistryConfig[] = [];
+  const ceilings: Record<string, CapabilityCeiling> = {};
+  for (const b of collectedBundles) {
+    // Every bundle declares a capability ceiling from its manifest —
+    // uniformly for local and deserialized bundles. For an honestly
+    // generated bundle the ceiling equals actual usage; it bites when a
+    // manifest under-declares what the graph tries to use.
+    ceilings[b.graph.id] = {
+      tools: b.manifest.requires.tools.map((t) => t.name),
+      mcpServers: b.manifest.requires.mcp_servers.map((s) => s.id),
+    };
+    const hasLocalStashes =
+      agentsForGraph(b.graph).length > 0 ||
+      graphsForGraph(b.graph).length > 0 ||
+      toolsForGraph(b.graph).length > 0;
+    if (hasLocalStashes) continue;
+    bundleAgents.push(...(b.agents as unknown as AgentRegistryConfig[]));
+    for (const childOfBundle of b.graphs) collectedGraphs.add(childOfBundle);
+  }
+  if (Object.keys(ceilings).length > 0) {
+    graphCeilings.set(built, ceilings);
+  }
+
+  if (collectedAgents.size > 0 || bundleAgents.length > 0) {
     // Two DISTINCT agent() values pinned to the same id would race in the
     // run registry (last registration wins, silently). Same-value reuse
     // across nodes is fine — the Set already deduped by identity.
     // toRegistryConfig also surfaces tool() references carried on agent
     // specs, so agent-level inline tools land in the same stash.
-    const configs = [...collectedAgents].map((value) => toRegistryConfig(value, collect.tool));
+    const facadeConfigs = [...collectedAgents].map((value) => toRegistryConfig(value, collect.tool));
     const byId = new Map<string, number>();
-    for (const config of configs) {
+    for (const config of facadeConfigs) {
       byId.set(config.id, (byId.get(config.id) ?? 0) + 1);
     }
     for (const [id, count] of byId) {
@@ -241,6 +332,25 @@ export function graph(spec: GraphSpec): Graph {
         throw new GraphSpecError(
           `${count} distinct agent() definitions share the id "${id}" — reuse the same agent() ` +
             'value across nodes, or give each definition its own id',
+        );
+      }
+    }
+
+    // Bundle agents merge by id with JSON dedupe: the same definition
+    // arriving from two bundle objects is harmless; a conflicting one is not.
+    const configs: AgentRegistryConfig[] = [];
+    const mergedById = new Map<string, string>();
+    for (const config of [...facadeConfigs, ...bundleAgents]) {
+      const id = (config as { id?: string }).id ?? '';
+      const serialized = JSON.stringify(config);
+      const prior = mergedById.get(id);
+      if (prior === undefined) {
+        mergedById.set(id, serialized);
+        configs.push(config);
+      } else if (prior !== serialized) {
+        throw new GraphSpecError(
+          `Agent id "${id}" is defined differently by an inline agent() and a bundle (or two ` +
+            'bundles) in this graph — give each definition its own id',
         );
       }
     }
@@ -265,6 +375,24 @@ export function graph(spec: GraphSpec): Graph {
       }
     }
     graphTools.set(built, [...collectedTools]);
+  }
+
+  if (collectedGraphs.size > 0) {
+    // Two DISTINCT child graphs sharing an id would collide in loadGraph
+    // resolution (one silently shadows the other). Same-child reuse across
+    // several subgraph nodes is fine — the Set already deduped by identity.
+    const byId = new Map<string, Graph>();
+    for (const child of collectedGraphs) {
+      const existing = byId.get(child.id);
+      if (existing && existing !== child) {
+        throw new GraphSpecError(
+          `Two distinct child graphs share the id "${child.id}" — reuse the same graph() value ` +
+            'across subgraph nodes, or give each child its own id',
+        );
+      }
+      byId.set(child.id, child);
+    }
+    graphChildren.set(built, [...collectedGraphs]);
   }
   return built;
 }

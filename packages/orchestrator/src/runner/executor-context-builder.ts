@@ -36,7 +36,7 @@ import { extractFactsExecutor } from '../agent/extractor-executor/executor.js';
 import type { AgentFactory } from '../agent/agent-factory/index.js';
 import type { AgentRegistry } from '../persistence/interfaces.js';
 import type { ProviderRegistry } from '../agent/provider-registry.js';
-import type { ToolsOption } from '../tools/registry.js';
+import type { ToolsOption, CapabilityCeiling } from '../tools/registry.js';
 import { resolveBuiltinsOnly } from './fallback-tool-resolver.js';
 
 /**
@@ -72,6 +72,9 @@ export interface ExecutorContextRunner {
   registry?: AgentRegistry;
   providers?: ProviderRegistry;
   tools?: ToolsOption[];
+  /** Capability ceilings (own + per-subgraph), for subgraph child capping. */
+  capabilityCeiling?: CapabilityCeiling;
+  capabilityCeilings?: Record<string, CapabilityCeiling>;
 
   emit(event: string, payload: unknown): boolean;
   listenerCount(event: string | symbol): number;
@@ -169,6 +172,8 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     registry: runner.registry,
     providers: runner.providers,
     tools: runner.tools,
+    capabilityCeiling: runner.capabilityCeiling,
+    capabilityCeilings: runner.capabilityCeilings,
     createStateView: (node: GraphNode) =>
       // Same derived-grants resolution as the execution driver's view build,
       // via the shared helper, so the two paths can never disagree.

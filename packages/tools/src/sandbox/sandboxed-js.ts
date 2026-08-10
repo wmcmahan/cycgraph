@@ -1,7 +1,7 @@
 /**
  * sandboxed_js — WASM-sandboxed JavaScript evaluation
  *
- * Runtime model (see docs/plans/sandboxed-js.md): untrusted code is
+ * Runtime model: untrusted code is
  * interpreted by QuickJS compiled to WebAssembly, so its entire world is a
  * bounds-checked linear memory with no host imports beyond a string-only
  * log bridge. That WASM engine runs inside a `worker_threads` worker the

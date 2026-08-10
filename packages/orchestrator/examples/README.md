@@ -16,6 +16,7 @@ Runnable examples for `@cycgraph/orchestrator`.
 | Example | Pattern | Description |
 |---------|---------|-------------|
 | [research-and-write](./research-and-write/) | Linear | 2-node pipeline: Researcher gathers notes, Writer produces a polished summary |
+| [composition](./composition/) | Subgraph (Composition) | A research graph built once as a reusable block, embedded in a briefing workflow via `subgraph()` — isolated child state, mapped inputs/outputs, zero hand-wiring |
 | [supervisor-routing](./supervisor-routing/) | Supervisor | 4-node cyclic hub-and-spoke: Supervisor dynamically routes between Research, Write, and Edit specialists |
 | [human-in-the-loop](./human-in-the-loop/) | Approval Gate | 3-node pipeline with approval gate: Writer drafts, human reviews, Publisher finalizes |
 | [map-reduce](./map-reduce/) | Map-Reduce | 4-node fan-out: Splitter decomposes a topic, Map fans out to parallel Researchers, Synthesizer merges results |

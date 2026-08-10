@@ -106,7 +106,7 @@ Agent-initiated retrieval over the `@cycgraph/memory` temporal knowledge graph: 
 
 ### `sandboxed_js` — `@cycgraph/tools/sandbox`
 
-Evaluate agent-authored JavaScript against workflow data and return a JSON result. Two nested boundaries: QuickJS-in-WASM (no fs/network/timers/modules; only a string-only `console.log` bridge) inside a `worker_threads` worker terminated at the deadline. Synchronous; last expression is the result; optional JSON `input` global. Defaults 2s deadline / 64 MiB / 1 MiB result cap. Carries the QuickJS WASM engine, so it lives behind its own subpath. Design-reviewed — see `docs/plans/sandboxed-js.md`.
+Evaluate agent-authored JavaScript against workflow data and return a JSON result. Two nested boundaries: QuickJS-in-WASM (no fs/network/timers/modules; only a string-only `console.log` bridge) inside a `worker_threads` worker terminated at the deadline. Synchronous; last expression is the result; optional JSON `input` global. Defaults 2s deadline / 64 MiB / 1 MiB result cap. Carries the QuickJS WASM engine, so it lives behind its own subpath.
 
 ## Development
 
