@@ -1,5 +1,102 @@
 # @cycgraph/orchestrator
 
+## 0.13.0
+
+### Minor Changes
+
+- 98557ec: `parseBundle` now cross-checks a bundle's visible usage against its manifest.
+
+  A bundle whose graphs' node sources or bundled agents reference a custom tool, MCP server, or model that the manifest's `requires` never declared is rejected at load time with `BundleIntegrityError`, listing every violation. This moves the common tamper case — a manifest under-declaring to sneak past review — from run time to load time. The runtime capability ceiling remains in place as defense in depth for the one path a bundle cannot show at parse: host-supplied agents referenced by id.
+
+- 98557ec: Bundle manifests can carry provenance: an optional `source` recording where the bundle is distributed from, e.g. an npm package name. Set it at assembly with `bundle(g, { version, source: 'npm:@acme/research-graph' })`. Self-declared attribution for audit trails; for npm distribution, integrity already rides the consumer's lockfile, and `source` records that linkage in the artifact itself. Cryptographic verification is deliberately deferred.
+- 98557ec: Capability isolation for bundle children: a graph cannot use more than its manifest declared.
+
+  A bundle's `requires` is now an enforced ceiling, not documentation. When a composition embeds a bundle, its child runner receives a `CapabilityCeiling` derived from the manifest, and enforcement is fail-closed at two layers: the startup wiring check rejects a child graph whose nodes reference a custom tool or MCP server outside the ceiling, and the tool-resolution choke point throws `CapabilityViolationError` for out-of-ceiling sources arriving any other way — including tools on agent configs resolved from the registry at runtime. An invoked parent agent gains nothing, because its tools still resolve under the child's ceiling.
+
+  Nesting can never escape a cap: a child with no declared ceiling inherits its parent runner's, and a bundle nested inside a bundle is capped by the intersection of both manifests. Combined with `checkRequirements`, this completes the app-permissions model — the preflight shows a human exactly what a bundle asks for, and enforcement guarantees the runtime surface matches the reviewed declaration. A tampered bundle whose manifest under-declares what its graph uses now fails instead of silently reaching the host's full tool surface.
+
+  Raw graphs and non-bundle subgraph children are unchanged. New public surface: `CapabilityCeiling`, `CapabilityViolationError`, `intersectCeilings`, and the `capabilityCeiling` / `capabilityCeilings` options on `GraphRunnerOptions`.
+
+- 98557ec: Graph bundles: package a composition as a portable artifact and drop it into another graph.
+
+  `bundle(g, { version })` assembles a `GraphBundle` from a facade-authored composition: a manifest carrying the graph's declared interface and its computed host requirements (`requires`: custom tools with argument schemas, MCP servers, models), plus everything that travels — the entry graph, the transitive child-graph closure, and the agent definitions in wire form. `JSON.stringify(bundle)` is the complete distribution artifact. Implementations never travel: inline `tool()` code stays behind and appears in `requires.tools` for the host to supply by name.
+
+  `parseBundle(data)` validates a bundle arriving from an untrusted source (a file, an npm package), and `subgraph()` now accepts a bundle directly:
+
+  ```ts
+  import researchBundle from "@acme/research-graph"; // default-exports a GraphBundle
+
+  const pipeline = graph({
+    nodes: [
+      subgraph(parseBundle(researchBundle), {
+        id: "research",
+        inputs: { topic: "goal_in" },
+        outputs: { out: "findings" },
+        writes: "findings",
+      }),
+    ],
+  });
+
+  await run(pipeline, { goal: "..." });
+  ```
+
+  Mappings are validated against the bundle's declared interface at compile time, values crossing the boundary are schema-checked at runtime, and `run()` registers the bundle's agents and resolves its child graphs automatically. New exports: `bundle`, `parseBundle`, `isGraphBundle`, the `GraphBundleSchema` / `GraphManifestSchema` wire schemas, and their types.
+
+- 98557ec: Graphs can declare a public interface, and compositions can compute their host requirements.
+
+  `graph()` accepts optional `inputs` / `outputs` declaring the memory keys a graph expects seeded and produces, authored as Zod schemas (or raw JSON Schema) and serialized as JSON Schema on the wire:
+
+  ```ts
+  const research = graph({
+    name: "research-block",
+    nodes: [
+      /* … */
+    ],
+    inputs: { topic: z.string() },
+    outputs: { summary: z.string() },
+  });
+  ```
+
+  The declaration makes the subgraph boundary a typed call. At compile time, `subgraph()` mappings are validated against the child's declared interface: mapping an undeclared key, or leaving a required input unmapped, is a hard `GraphSpecError`. At runtime, values crossing the boundary are validated against the schemas in both directions and a violation fails the node with the new `SubgraphInterfaceError` — including for children resolved by id that never saw the compile-time check. Graphs without a declared interface behave exactly as before.
+
+  Also adds `computeRequirements(graph)`: walks a composition's `subgraph()` closure and returns the host dependency contract — custom tools (with argument schemas and taint flags when implementations are in scope), MCP server ids, and models. This is the generated half of the upcoming bundle manifest's `requires` block.
+
+- 98557ec: Add `checkRequirements(target, host)`: preflight a composition or bundle against the host environment.
+
+  Pass a `Graph` to compute requirements from the composition closure, or a `GraphBundle` to check its manifest's declared `requires` — which is what makes a deserialized bundle checkable without running it. The host offers its `tools` (only `tool()` implementations satisfy required names), an `mcpServers` registry, and optionally a provider registry for an advisory model check. The result lists exactly what is missing, so a graph that cannot run fails at install or load time with a clear list instead of deep in execution:
+
+  ```ts
+  const { ok, missingTools, missingMcpServers, unknownModels } =
+    await checkRequirements(parseBundle(theirBundle), {
+      tools: [lookupOrder],
+      mcpServers: serverRegistry,
+      providers: createProviderRegistry(),
+    });
+  ```
+
+  `ok` reflects the hard requirements (tools and MCP servers). `unknownModels` is advisory, matching the engine's model lists being advisory rather than an allowlist.
+
+- 98557ec: Add `subgraph()` to the authoring facade: compose a child graph into a parent topology as a first-class value.
+
+  ```ts
+  const parent = graph({
+    name: "parent",
+    nodes: [
+      subgraph(child, {
+        id: "call-child",
+        reads: ["topic"],
+        writes: "result",
+        inputs: { topic: "goal_in" }, // parent key → child key
+        outputs: { out: "result" }, // child key → parent key
+      }),
+    ],
+  });
+
+  await run(parent, { goal: "..." }); // no hand-wired loadGraph
+  ```
+
+  When the child is a `graph()` value in scope, `run()` resolves it automatically and registers its agents and inline tools transitively, including grandchildren. A caller-supplied `loadGraph` still wins for ids it resolves, which is the seam for pre-registered and third-party graphs. `subgraph()` compiles to the identical `subgraph_config` wire the raw API produces, so serialization, persistence, and the durable runner are unchanged. Also exports `graphsForGraph()` alongside `agentsForGraph()`/`toolsForGraph()`.
+
 ## 0.12.0
 
 ### Minor Changes
