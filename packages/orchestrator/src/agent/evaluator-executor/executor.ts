@@ -77,7 +77,7 @@ export async function evaluateQualityExecutor(
     try {
       const result = await generateText({
         model,
-        system: systemPrompt,
+        instructions: systemPrompt,
         prompt,
         output: Output.object({ schema: EvaluationSchema }),
         ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),

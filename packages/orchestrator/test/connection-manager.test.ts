@@ -74,8 +74,8 @@ function createMockClient(tools: Record<string, unknown>) {
 let createdClients: Array<{ serverId: string; client: ReturnType<typeof createMockClient> }> = [];
 
 vi.mock('@ai-sdk/mcp', () => ({
-  createMCPClient: vi.fn(async (config: { name?: string }) => {
-    const name = config.name ?? '';
+  createMCPClient: vi.fn(async (config: { clientName?: string }) => {
+    const name = config.clientName ?? '';
     const tools = name.includes('throw')
       ? throwingTools
       : name.includes('slow')

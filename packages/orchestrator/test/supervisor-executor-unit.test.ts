@@ -496,8 +496,8 @@ describe('SupervisorExecutor', () => {
 
       const { generateText } = await import('ai');
       const callArgs = (generateText as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(callArgs.system).toContain('## Relevant Memory');
-      expect(callArgs.system).toContain('Prior lesson about routing.');
+      expect(callArgs.instructions).toContain('## Relevant Memory');
+      expect(callArgs.instructions).toContain('Prior lesson about routing.');
     });
   });
 });

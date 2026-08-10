@@ -186,7 +186,7 @@ describe('evaluateQualityExecutor', () => {
 
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
-        system: expect.stringContaining('Must be concise'),
+        instructions: expect.stringContaining('Must be concise'),
       }),
     );
   });

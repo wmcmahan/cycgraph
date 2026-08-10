@@ -61,10 +61,11 @@
     "check:pricing": "tsx scripts/check-model-pricing.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.76",
-    "@ai-sdk/mcp": "^1.0.41",
-    "@ai-sdk/openai": "^3.0.63",
+    "@ai-sdk/anthropic": "^4.0.36",
+    "@ai-sdk/mcp": "^2.0.29",
+    "@ai-sdk/openai": "^4.0.36",
     "@opentelemetry/api": "^1.9.0",
+    "ai": "^7.0.58",
     "filtrex": "^3.1.0",
     "jsonpath-plus": "^10.4.0",
     "uuid": "^13.0.0"
@@ -76,7 +77,6 @@
     "@opentelemetry/sdk-metrics": "^2.8.0",
     "@opentelemetry/sdk-node": "^0.221.0",
     "@opentelemetry/semantic-conventions": "^1.41.1",
-    "ai": "^6",
     "zod": "^4"
   },
   "peerDependenciesMeta": {
@@ -110,7 +110,6 @@
     "@types/node": "^25.3.5",
     "@types/uuid": "^11.0.0",
     "@vitest/coverage-v8": "^4.1.5",
-    "ai": "^6.0.116",
     "typescript": "7.0.2",
     "vitest": "^4.0.18",
     "zod": "^4.3.6"

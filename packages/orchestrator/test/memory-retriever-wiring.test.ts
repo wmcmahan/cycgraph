@@ -308,7 +308,7 @@ describe('GraphRunner — memoryRetriever + memory_query', () => {
     expect(options.maxFacts).toBe(5);
 
     expect(streamTextMock).toHaveBeenCalledTimes(1);
-    const sysPrompt = streamTextMock.mock.calls[0][0].system as string;
+    const sysPrompt = streamTextMock.mock.calls[0][0].instructions as string;
     expect(sysPrompt).toContain('## Relevant Memory');
     expect(sysPrompt).toContain('Prefer primary sources.');
   });
@@ -340,7 +340,7 @@ describe('GraphRunner — memoryRetriever + memory_query', () => {
 
     expect(memoryRetriever).not.toHaveBeenCalled();
 
-    const sysPrompt = streamTextMock.mock.calls[0][0].system as string;
+    const sysPrompt = streamTextMock.mock.calls[0][0].instructions as string;
     expect(sysPrompt).not.toContain('## Relevant Memory');
   });
 
@@ -358,7 +358,7 @@ describe('GraphRunner — memoryRetriever + memory_query', () => {
 
     expect(finalState.status).toBe('completed');
     expect(memoryRetriever).toHaveBeenCalledTimes(1);
-    const sysPrompt = streamTextMock.mock.calls[0][0].system as string;
+    const sysPrompt = streamTextMock.mock.calls[0][0].instructions as string;
     expect(sysPrompt).not.toContain('## Relevant Memory');
   });
 });

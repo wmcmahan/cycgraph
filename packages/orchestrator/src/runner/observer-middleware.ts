@@ -383,7 +383,7 @@ async function runDiagnosticAgent(
 
   const result = await generateText({
     model,
-    system: DIAGNOSTIC_SYSTEM_PROMPT,
+    instructions: DIAGNOSTIC_SYSTEM_PROMPT,
     prompt: userPrompt,
   });
 

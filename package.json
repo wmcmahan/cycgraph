@@ -29,7 +29,7 @@
   "overrides": {
     "underscore": ">=1.13.8",
     "esbuild": ">=0.25.0",
-    "@ai-sdk/provider": "^3.0.10",
+    "@ai-sdk/provider": "^4.0.7",
     "@types/node": "^25.3.5"
   },
   "devDependencies": {

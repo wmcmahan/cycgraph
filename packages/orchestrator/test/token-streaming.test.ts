@@ -7,7 +7,7 @@ vi.mock('ai', () => ({
   streamText: vi.fn(),
   tool: vi.fn((def: any) => def),
   jsonSchema: vi.fn((def: any) => def),
-  stepCountIs: vi.fn((n: number) => ({ type: 'stepCount', count: n })),
+  isStepCount: vi.fn((n: number) => ({ type: 'stepCount', count: n })),
 }));
 
 vi.mock('../src/agent/agent-factory/index', () => ({

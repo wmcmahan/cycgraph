@@ -83,7 +83,7 @@ export async function extractFactsExecutor(
     try {
       const result = await generateText({
         model,
-        system: systemPrompt,
+        instructions: systemPrompt,
         prompt,
         output: Output.object({ schema: ExtractionSchema }),
         ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),

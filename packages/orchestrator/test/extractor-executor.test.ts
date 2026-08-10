@@ -211,7 +211,7 @@ describe('extractFactsExecutor', () => {
 
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
-        system: expect.stringContaining('operator supplied a custom extraction instruction'),
+        instructions: expect.stringContaining('operator supplied a custom extraction instruction'),
       }),
     );
   });

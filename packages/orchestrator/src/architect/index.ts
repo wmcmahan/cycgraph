@@ -111,7 +111,7 @@ export async function generateWorkflow(
       const { output: llmGraph } = await generateText({
         model,
         output: Output.object({ schema: LLMGraphSchema }),
-        system: ARCHITECT_SYSTEM_PROMPT,
+        instructions: ARCHITECT_SYSTEM_PROMPT,
         prompt: userMessage,
         temperature: 0.3,
       });
