@@ -4,11 +4,11 @@ import {
   getPersistenceHealth,
   resetPersistenceHealth,
   PersistenceUnavailableError,
-} from '../src/db/persistence-health.js';
+} from '../src/persistence/persistence-health.js';
 import type { PersistenceProvider } from '../src/persistence/interfaces.js';
-import type { WorkflowState } from '../src/types/state.js';
+import type { WorkflowState } from '../src/state/state.js';
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

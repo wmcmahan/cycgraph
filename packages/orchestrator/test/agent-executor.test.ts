@@ -10,7 +10,7 @@ vi.mock('ai', () => ({
 }));
 
 // Mock agent factory
-vi.mock('../src/agent/agent-factory/index', () => ({
+vi.mock('../src/agents/factory/index', () => ({
   agentFactory: {
     loadAgent: vi.fn(),
     getModel: vi.fn(() => ({ provider: 'anthropic', modelId: 'claude-sonnet-4-6' })),
@@ -18,7 +18,7 @@ vi.mock('../src/agent/agent-factory/index', () => ({
 }));
 
 // Mock logger to silence output
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -28,17 +28,17 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 // Mock tracing (no-op)
-vi.mock('../src/utils/tracing.js', () => ({
+vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: unknown, _name: string, fn: (span: any) => any) =>
     fn({ setAttribute: vi.fn() }),
 }));
 
 import { streamText } from 'ai';
-import { agentFactory } from '../src/agent/agent-factory/index.js';
-import { executeAgent } from '../src/agent/agent-executor/executor.js';
-import { PermissionDeniedError } from '../src/agent/agent-executor/errors.js';
-import type { StateView } from '../src/types/state.js';
+import { agentFactory } from '../src/agents/factory/index.js';
+import { executeAgent } from '../src/agents/executors/agent/executor.js';
+import { PermissionDeniedError } from '../src/agents/executors/agent/errors.js';
+import type { StateView } from '../src/state/state.js';
 
 function mockStreamWithCallbacks(invoke: (opts: any) => void, result = mockStreamTextResult()) {
   (streamText as any).mockImplementation((opts: any) => {

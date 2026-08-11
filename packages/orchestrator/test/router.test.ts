@@ -1,13 +1,13 @@
 /**
- * Unit tests for the pure routing primitives (runner/router.ts):
+ * Unit tests for the pure routing primitives (execution/routing/router.ts):
  * getNextNode, getCurrentNode, shouldContinue, buildEdgeMap.
  */
 import { describe, it, expect } from 'vitest';
 
-import { getNextNode, getCurrentNode, shouldContinue, buildEdgeMap } from '../src/runner/router.js';
+import { getNextNode, getCurrentNode, shouldContinue, buildEdgeMap } from '../src/execution/routing/router.js';
 import { createTestState, createLinearGraph } from './helpers/factories.js';
-import type { Graph, GraphNode, GraphEdge } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
+import type { Graph, GraphNode, GraphEdge } from '../src/graph/graph.js';
+import type { WorkflowState } from '../src/state/state.js';
 
 function nodeMapOf(nodes: GraphNode[]): Map<string, GraphNode> {
   return new Map(nodes.map((n) => [n.id, n]));

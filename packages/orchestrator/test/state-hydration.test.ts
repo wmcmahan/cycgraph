@@ -13,8 +13,8 @@ import {
   createWorkflowState,
   hydrateWorkflowState,
   CURRENT_STATE_SCHEMA_VERSION,
-} from '../src/types/state.js';
-import { InMemoryEventLogWriter } from '../src/db/event-log.js';
+} from '../src/state/state.js';
+import { InMemoryEventLogWriter } from '../src/persistence/event-log.js';
 import { InMemoryPersistenceProvider } from '../src/persistence/in-memory.js';
 
 describe('hydrateWorkflowState', () => {

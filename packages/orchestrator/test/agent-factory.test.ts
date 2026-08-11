@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { AgentFactory } from '../src/agent/agent-factory/agent-factory.js';
-import { AgentNotFoundError, UnsupportedProviderError, AgentLoadError } from '../src/agent/agent-factory/errors.js';
-import { isValidUUID } from '../src/agent/agent-factory/validation.js';
+import { AgentFactory } from '../src/agents/factory/agent-factory.js';
+import { AgentNotFoundError, UnsupportedProviderError, AgentLoadError } from '../src/agents/factory/errors.js';
+import { isValidUUID } from '../src/agents/factory/validation.js';
 import { InMemoryAgentRegistry } from '../src/persistence/in-memory.js';
-import { MAX_AGENT_CONFIG_CACHE_SIZE } from '../src/agent/constants.js';
+import { MAX_AGENT_CONFIG_CACHE_SIZE } from '../src/agents/constants.js';
 
 // Mock the AI SDK providers so tests don't need real API keys
 vi.mock('@ai-sdk/openai', () => ({
@@ -15,7 +15,7 @@ vi.mock('@ai-sdk/anthropic', () => ({
 }));
 
 // Mock logger to silence output
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

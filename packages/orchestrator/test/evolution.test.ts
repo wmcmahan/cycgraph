@@ -31,17 +31,17 @@ vi.mock('@opentelemetry/api', () => ({
 
 let candidateCallCount = 0;
 const mockExecuteAgent = vi.fn();
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: (...args: any[]) => mockExecuteAgent(...args),
 }));
 
 const mockEvaluateQuality = vi.fn();
-vi.mock('../src/agent/evaluator-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/evaluator/executor.js', () => ({
   evaluateQualityExecutor: (...args: any[]) => mockEvaluateQuality(...args),
 }));
 
-vi.mock('../src/agent/supervisor-executor/executor.js', () => ({ executeSupervisor: vi.fn() }));
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/executors/supervisor/executor.js', () => ({ executeSupervisor: vi.fn() }));
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test', name: 'Test', model: 'gpt-4', provider: 'openai',
@@ -51,21 +51,21 @@ vi.mock('../src/agent/agent-factory', () => ({
     getModel: vi.fn().mockReturnValue({}),
   },
 }));
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_t: any, _n: string, fn: (s: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { executeEvolutionNode } from '../src/runner/node-executors/evolution.js';
-import { EvolutionConfigSchema } from '../src/types/graph.js';
-import { validateGraph } from '../src/validation/graph-validator.js';
-import type { Graph, GraphNode } from '../src/types/graph.js';
-import type { WorkflowState, StateView, Action } from '../src/types/state.js';
-import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { executeEvolutionNode } from '../src/execution/nodes/evolution.js';
+import { EvolutionConfigSchema } from '../src/graph/graph.js';
+import { validateGraph } from '../src/graph/graph-validator.js';
+import type { Graph, GraphNode } from '../src/graph/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/state/state.js';
+import type { NodeExecutorContext, ExecutorDependencies } from '../src/execution/nodes/context.js';
 
 const createState = (): WorkflowState => ({
   workflow_id: uuidv4(),

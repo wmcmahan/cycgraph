@@ -9,10 +9,10 @@ import {
   HTTPTransportSchema,
   SSETransportSchema,
   BUILTIN_TOOL_NAMES,
-} from '../src/types/tools.js';
+} from '../src/tools/schema.js';
 import { InMemoryMCPServerRegistry } from '../src/persistence/in-memory.js';
 import { MCPServerNotFoundError } from '../src/mcp/errors.js';
-import type { MCPServerEntry } from '../src/types/tools.js';
+import type { MCPServerEntry } from '../src/tools/schema.js';
 
 describe('ToolSourceSchema', () => {
   describe('builtin type', () => {

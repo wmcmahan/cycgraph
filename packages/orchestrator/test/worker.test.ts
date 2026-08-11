@@ -25,7 +25,7 @@ vi.mock('@opentelemetry/api', () => ({
   context: {},
 }));
 
-vi.mock('../src/agent/agent-executor/executor', () => ({
+vi.mock('../src/agents/executors/agent/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _tools: any, attempt: number) => ({
     id: uuidv4(),
     idempotency_key: uuidv4(),
@@ -35,11 +35,11 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
   })),
 }));
 
-vi.mock('../src/agent/supervisor-executor', () => ({
+vi.mock('../src/agents/executors/supervisor', () => ({
   executeSupervisor: vi.fn(),
 }));
 
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent', name: 'Test', model: 'claude-sonnet-4-6', provider: 'anthropic',
@@ -50,25 +50,25 @@ vi.mock('../src/agent/agent-factory', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-import { WorkflowWorker } from '../src/runner/worker';
+import { WorkflowWorker } from '../src/execution/coordination/worker';
 import { InMemoryWorkflowQueue } from '../src/persistence/in-memory-queue';
 import { InMemoryPersistenceProvider } from '../src/persistence/in-memory';
-import { InMemoryEventLogWriter } from '../src/db/event-log';
-import { GraphRunner } from '../src/runner/graph-runner';
+import { InMemoryEventLogWriter } from '../src/persistence/event-log';
+import { GraphRunner } from '../src/execution/engine/graph-runner';
 import { StaleClaimError } from '../src/persistence/errors';
-import { EventSequenceConflictError } from '../src/db/event-log';
+import { EventSequenceConflictError } from '../src/persistence/event-log';
 import { createTestState, makeNode, createSimpleGraph } from './helpers/factories';
-import type { Graph } from '../src/types/graph';
-import type { WorkflowState } from '../src/types/state';
+import type { Graph } from '../src/graph/graph';
+import type { WorkflowState } from '../src/state/state';
 
 function twoNodeGraph(): Graph {
   return {

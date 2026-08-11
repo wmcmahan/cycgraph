@@ -1,5 +1,5 @@
 /**
- * Unit tests for buildExecutorContext (runner/executor-context-builder.ts).
+ * Unit tests for buildExecutorContext (execution/engine/executor-context-builder.ts).
  *
  * Exercises the context bag's streaming callbacks, budget closures, and the
  * rate-limiter-wrapped LLM deps in isolation from the runner.
@@ -7,39 +7,39 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: vi.fn(async () => 'agent-result'),
 }));
 
-vi.mock('../src/agent/supervisor-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/supervisor/executor.js', () => ({
   executeSupervisor: vi.fn(async () => 'supervisor-result'),
 }));
 
-vi.mock('../src/agent/evaluator-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/evaluator/executor.js', () => ({
   evaluateQualityExecutor: vi.fn(async () => 'evaluator-result'),
 }));
 
-vi.mock('../src/agent/extractor-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/extractor/executor.js', () => ({
   extractFactsExecutor: vi.fn(async () => 'extract-result'),
 }));
 
-vi.mock('../src/agent/agent-factory/index.js', () => ({
+vi.mock('../src/agents/factory/index.js', () => ({
   agentFactory: { loadAgent: vi.fn(async () => 'loaded-agent') },
 }));
 
-vi.mock('../src/runner/fallback-tool-resolver.js', () => ({
+vi.mock('../src/execution/engine/fallback-tool-resolver.js', () => ({
   resolveBuiltinsOnly: vi.fn(async () => ({ builtin: {} })),
 }));
 
-import { buildExecutorContext } from '../src/runner/executor-context-builder.js';
-import type { ExecutorContextRunner } from '../src/runner/executor-context-builder.js';
-import { executeAgent } from '../src/agent/agent-executor/executor.js';
-import { executeSupervisor } from '../src/agent/supervisor-executor/executor.js';
-import { evaluateQualityExecutor } from '../src/agent/evaluator-executor/executor.js';
-import { resolveBuiltinsOnly } from '../src/runner/fallback-tool-resolver.js';
+import { buildExecutorContext } from '../src/execution/engine/executor-context-builder.js';
+import type { ExecutorContextRunner } from '../src/execution/engine/executor-context-builder.js';
+import { executeAgent } from '../src/agents/executors/agent/executor.js';
+import { executeSupervisor } from '../src/agents/executors/supervisor/executor.js';
+import { evaluateQualityExecutor } from '../src/agents/executors/evaluator/executor.js';
+import { resolveBuiltinsOnly } from '../src/execution/engine/fallback-tool-resolver.js';
 import { createTestState } from './helpers/factories.js';
 import { makeNode, createSimpleGraph } from './helpers/factories.js';
-import type { WorkflowState } from '../src/types/state.js';
+import type { WorkflowState } from '../src/state/state.js';
 
 interface FakeRunner extends ExecutorContextRunner {
   emitted: Array<{ event: string; payload: unknown }>;

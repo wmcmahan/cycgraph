@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createStateView } from '../src/runner/state-view.js';
-import type { WorkflowState } from '../src/types/state.js';
-import type { GraphNode } from '../src/types/graph.js';
+import { createStateView } from '../src/state/state-view.js';
+import type { WorkflowState } from '../src/state/state.js';
+import type { GraphNode } from '../src/graph/graph.js';
 
 function makeState(
   memory: Record<string, unknown> = {},

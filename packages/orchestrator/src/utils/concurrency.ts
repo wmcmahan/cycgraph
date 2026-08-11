@@ -3,7 +3,7 @@
  *
  * Runs `fn` over every item with at most `limit` invocations in flight at
  * once, preserving input order in the result array. A worker-pool design
- * (not fixed batches) so a slow item doesn't stall the whole batch — the
+ * (not fixed batches) so a slow item doesn't stall the whole batch. The
  * next item starts as soon as any worker frees up.
  *
  * @module utils/concurrency

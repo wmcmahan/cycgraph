@@ -38,7 +38,7 @@ vi.mock('@opentelemetry/api', () => ({
  */
 const agentCallCounts = new Map<string, number>();
 
-vi.mock('../src/agent/agent-executor/executor', () => ({
+vi.mock('../src/agents/executors/agent/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _tools: any, attempt: number) => {
     const count = (agentCallCounts.get(agentId) || 0) + 1;
     agentCallCounts.set(agentId, count);
@@ -70,11 +70,11 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
   }),
 }));
 
-vi.mock('../src/agent/supervisor-executor', () => ({
+vi.mock('../src/agents/executors/supervisor', () => ({
   executeSupervisor: vi.fn(),
 }));
 
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent', name: 'Test', model: 'claude-3-5-sonnet', provider: 'anthropic',
@@ -85,16 +85,16 @@ vi.mock('../src/agent/agent-factory', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-vi.mock('../src/runner/helpers', async (importOriginal) => {
+vi.mock('../src/execution/engine/helpers', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
     ...actual,
@@ -102,9 +102,9 @@ vi.mock('../src/runner/helpers', async (importOriginal) => {
   };
 });
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import type { Graph, GraphNode } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import type { Graph, GraphNode } from '../src/graph/graph.js';
+import type { WorkflowState } from '../src/state/state.js';
 
 beforeEach(() => {
   agentCallCounts.clear();

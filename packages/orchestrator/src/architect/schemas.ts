@@ -10,7 +10,7 @@
  */
 
 import { z } from 'zod';
-import { ToolSourceSchema } from '../types/tools.js';
+import { ToolSourceSchema } from '../tools/schema.js';
 
 /** Edge condition — determines when an edge is traversed. */
 const LLMEdgeConditionSchema = z.object({

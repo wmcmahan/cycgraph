@@ -3,12 +3,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { executeVerifierNode } from '../src/runner/node-executors/verifier.js';
-import { VerificationFailedError } from '../src/runner/node-executors/errors.js';
-import { NodeConfigError } from '../src/runner/errors.js';
-import type { GraphNode, VerifierConfig } from '../src/types/graph.js';
-import type { StateView } from '../src/types/state.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
+import { executeVerifierNode } from '../src/execution/nodes/verifier.js';
+import { VerificationFailedError } from '../src/execution/nodes/errors.js';
+import { NodeConfigError } from '../src/execution/errors.js';
+import type { GraphNode, VerifierConfig } from '../src/graph/graph.js';
+import type { StateView } from '../src/state/state.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
 
 function makeStateView(memory: Record<string, unknown>, goal = 'verify the work'): StateView {
   return {

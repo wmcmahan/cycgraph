@@ -7,12 +7,12 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { StateView } from '../src/types/state.js';
-import type { AgentFactory } from '../src/agent/agent-factory/index.js';
+import type { StateView } from '../src/state/state.js';
+import type { AgentFactory } from '../src/agents/factory/index.js';
 
 const capturedFactories: AgentFactory[] = [];
 
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: vi.fn(async (
     agentId: string,
     _view: StateView,
@@ -31,15 +31,15 @@ vi.mock('../src/agent/agent-executor/executor.js', () => ({
   }),
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { createGraph } from '../src/types/graph.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { createGraph } from '../src/graph/graph.js';
 import { InMemoryAgentRegistry } from '../src/persistence/in-memory.js';
-import { agentFactory as globalAgentFactory } from '../src/agent/agent-factory/index.js';
-import { createProviderRegistry } from '../src/agent/provider-registry.js';
+import { agentFactory as globalAgentFactory } from '../src/agents/factory/index.js';
+import { createProviderRegistry } from '../src/agents/providers/provider-registry.js';
 import { createTestState } from './helpers/factories.js';
 
 const AGENT_ID = uuidv4();

@@ -15,8 +15,8 @@
 
 import { z } from 'zod';
 import { generateWorkflow } from './index.js';
-import { GraphSchema } from '../types/graph.js';
-import { validateGraph } from '../validation/graph-validator.js';
+import { GraphSchema } from '../graph/graph.js';
+import { validateGraph } from '../graph/graph-validator.js';
 
 /**
  * Tool definition used by the agent executor.
@@ -27,8 +27,8 @@ export interface ToolDefinition {
   /** Zod schema for tool input parameters. */
   parameters: z.ZodType;
 }
-import { createLogger } from '../utils/logger.js';
-import type { Graph } from '../types/graph.js';
+import { createLogger } from '../observability/logger.js';
+import type { Graph } from '../graph/graph.js';
 import { ArchitectError } from './errors.js';
 
 const logger = createLogger('architect.tools');

@@ -11,7 +11,7 @@ import { agent } from '../src/authoring/agent.js';
 import { node } from '../src/authoring/node.js';
 import { subgraph } from '../src/authoring/subgraph.js';
 import { graph, GraphSpecError } from '../src/authoring/graph.js';
-import type { Graph } from '../src/types/graph.js';
+import type { Graph } from '../src/graph/graph.js';
 
 function childWithInterface(overrides: { inputs?: Record<string, unknown>; outputs?: Record<string, unknown> } = {}): Graph {
   const worker = node({

@@ -27,7 +27,7 @@ vi.mock('@opentelemetry/api', () => ({
   context: {},
 }));
 
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _tools: any, attempt: number) => ({
     id: uuidv4(),
     idempotency_key: uuidv4(),
@@ -37,11 +37,11 @@ vi.mock('../src/agent/agent-executor/executor.js', () => ({
   })),
 }));
 
-vi.mock('../src/agent/supervisor-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/supervisor/executor.js', () => ({
   executeSupervisor: vi.fn(),
 }));
 
-vi.mock('../src/agent/agent-factory.js', () => ({
+vi.mock('../src/agents/factory.js', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent', name: 'Test', model: 'claude-3-5-sonnet', provider: 'anthropic',
@@ -52,24 +52,24 @@ vi.mock('../src/agent/agent-factory.js', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing.js', () => ({
+vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-import type { Graph } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
+import type { Graph } from '../src/graph/graph.js';
+import type { WorkflowState } from '../src/state/state.js';
 
 // ─── Deferred import to avoid top-level await crashing the worker ────────
  
-let GraphRunner: Awaited<typeof import('../src/runner/graph-runner.js')>['GraphRunner'];
+let GraphRunner: Awaited<typeof import('../src/execution/engine/graph-runner.js')>['GraphRunner'];
 
 beforeAll(async () => {
-  ({ GraphRunner } = await import('../src/runner/graph-runner.js'));
+  ({ GraphRunner } = await import('../src/execution/engine/graph-runner.js'));
 });
 
 // ─── Shared helpers ─────────────────────────────────────────────────────

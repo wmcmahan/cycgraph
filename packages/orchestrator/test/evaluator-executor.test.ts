@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createEvaluatorPrompt, createEvaluatorSystemPrompt } from '../src/agent/evaluator-executor/prompts.js';
-import type { AgentConfig } from '../src/agent/types.js';
+import { createEvaluatorPrompt, createEvaluatorSystemPrompt } from '../src/agents/executors/evaluator/prompts.js';
+import type { AgentConfig } from '../src/agents/types.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────
 
@@ -13,7 +13,7 @@ vi.mock('ai', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/agent/agent-factory/index.js', () => ({
+vi.mock('../src/agents/factory/index.js', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'eval-1',
@@ -31,7 +31,7 @@ vi.mock('../src/agent/agent-factory/index.js', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('../src/utils/logger.js', () => ({
   }),
 }));
 
-vi.mock('../src/utils/tracing.js', () => ({
+vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) =>
     fn({ setAttribute: vi.fn() }),
@@ -64,7 +64,7 @@ function makeEvaluatorConfig(overrides: Partial<AgentConfig> = {}): AgentConfig 
   };
 }
 
-// ─── Prompt Construction Tests (migrated from src/agent/__tests__) ──
+// ─── Prompt Construction Tests (migrated from src/agents/__tests__) ──
 
 describe('createEvaluatorPrompt', () => {
   it('includes goal and output in the prompt', () => {
@@ -142,7 +142,7 @@ describe('evaluateQualityExecutor', () => {
       usage: { totalTokens: 150 },
     });
 
-    const { evaluateQualityExecutor } = await import('../src/agent/evaluator-executor/executor.js');
+    const { evaluateQualityExecutor } = await import('../src/agents/executors/evaluator/executor.js');
     const result = await evaluateQualityExecutor('eval-1', 'Write a summary', 'Here is the summary');
 
     expect(result.score).toBe(0.8);
@@ -158,7 +158,7 @@ describe('evaluateQualityExecutor', () => {
       usage: undefined,
     });
 
-    const { evaluateQualityExecutor } = await import('../src/agent/evaluator-executor/executor.js');
+    const { evaluateQualityExecutor } = await import('../src/agents/executors/evaluator/executor.js');
     const result = await evaluateQualityExecutor('eval-1', 'goal', 'output');
 
     expect(result.tokensUsed).toBe(0);
@@ -168,7 +168,7 @@ describe('evaluateQualityExecutor', () => {
     const { generateText } = await import('ai');
     (generateText as any).mockRejectedValueOnce(new Error('API error'));
 
-    const { evaluateQualityExecutor } = await import('../src/agent/evaluator-executor/executor.js');
+    const { evaluateQualityExecutor } = await import('../src/agents/executors/evaluator/executor.js');
 
     await expect(evaluateQualityExecutor('eval-1', 'goal', 'output'))
       .rejects.toThrow('API error');
@@ -181,7 +181,7 @@ describe('evaluateQualityExecutor', () => {
       usage: { totalTokens: 100 },
     });
 
-    const { evaluateQualityExecutor } = await import('../src/agent/evaluator-executor/executor.js');
+    const { evaluateQualityExecutor } = await import('../src/agents/executors/evaluator/executor.js');
     await evaluateQualityExecutor('eval-1', 'goal', 'output', 'Must be concise');
 
     expect(generateText).toHaveBeenCalledWith(
@@ -192,7 +192,7 @@ describe('evaluateQualityExecutor', () => {
   });
 
   it('forwards providerOptions to generateText when the config declares them', async () => {
-    const { agentFactory } = await import('../src/agent/agent-factory/index.js');
+    const { agentFactory } = await import('../src/agents/factory/index.js');
     (agentFactory.loadAgent as any).mockResolvedValueOnce({
       id: 'eval-1',
       name: 'Quality Evaluator',
@@ -212,7 +212,7 @@ describe('evaluateQualityExecutor', () => {
       usage: { totalTokens: 40 },
     });
 
-    const { evaluateQualityExecutor } = await import('../src/agent/evaluator-executor/executor.js');
+    const { evaluateQualityExecutor } = await import('../src/agents/executors/evaluator/executor.js');
     await evaluateQualityExecutor('eval-1', 'goal', 'output');
 
     expect(generateText).toHaveBeenCalledWith(

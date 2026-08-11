@@ -19,13 +19,13 @@
  * @module authoring/run
  */
 
-import type { Graph } from '../types/graph.js';
-import type { WorkflowState } from '../types/state.js';
-import { createWorkflowState, type WorkflowStateConfig } from '../types/state.js';
+import type { Graph } from '../graph/graph.js';
+import type { WorkflowState } from '../state/state.js';
+import { createWorkflowState, type WorkflowStateConfig } from '../state/state.js';
 import type { PersistenceProvider } from '../persistence/interfaces.js';
 import { InMemoryAgentRegistry, InMemoryPersistenceProvider } from '../persistence/in-memory.js';
-import type { ProviderRegistry } from '../agent/provider-registry.js';
-import { GraphRunner, type GraphRunnerOptions } from '../runner/graph-runner.js';
+import type { ProviderRegistry } from '../agents/providers/provider-registry.js';
+import { GraphRunner, type GraphRunnerOptions } from '../execution/engine/graph-runner.js';
 import { collectClosure } from './closure.js';
 
 /**

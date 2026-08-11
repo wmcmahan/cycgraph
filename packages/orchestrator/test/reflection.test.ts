@@ -41,11 +41,11 @@ vi.mock('@opentelemetry/api', () => ({
   context: {},
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: unknown, _name: string, fn: (span: unknown) => unknown) =>
     fn({ setAttribute: vi.fn() }),
@@ -62,7 +62,7 @@ const mockExtract = vi.fn<
     instruction?: string,
   ) => Promise<{ facts: string[]; reasoning?: string; tokensUsed: number }>
 >();
-vi.mock('../src/agent/extractor-executor/executor', () => ({
+vi.mock('../src/agents/executors/extractor/executor', () => ({
   extractFactsExecutor: (
     agentId: string,
     source: unknown,
@@ -72,17 +72,17 @@ vi.mock('../src/agent/extractor-executor/executor', () => ({
   DEFAULT_MAX_FACTS: 10,
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { executeReflectionNode } from '../src/runner/node-executors/reflection.js';
-import { ReflectionConfigSchema, GraphNodeSchema, NodeTypeSchema } from '../src/types/graph.js';
-import type { Graph, GraphNode, ReflectionConfig } from '../src/types/graph.js';
-import type { MemoryWriter, MemoryWriterFact } from '../src/agent/memory-writer.js';
-import type { FactSanitizer } from '../src/agent/fact-sanitizer.js';
-import type { StateView } from '../src/types/state.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
-import { validateGraph } from '../src/validation/graph-validator.js';
-import { NodeConfigError } from '../src/runner/errors.js';
-import { MemoryWriterMissingError } from '../src/runner/node-executors/errors.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { executeReflectionNode } from '../src/execution/nodes/reflection.js';
+import { ReflectionConfigSchema, GraphNodeSchema, NodeTypeSchema } from '../src/graph/graph.js';
+import type { Graph, GraphNode, ReflectionConfig } from '../src/graph/graph.js';
+import type { MemoryWriter, MemoryWriterFact } from '../src/memory/memory-writer.js';
+import type { FactSanitizer } from '../src/security/fact-sanitizer.js';
+import type { StateView } from '../src/state/state.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
+import { validateGraph } from '../src/graph/graph-validator.js';
+import { NodeConfigError } from '../src/execution/errors.js';
+import { MemoryWriterMissingError } from '../src/execution/nodes/errors.js';
 import { createTestState, makeNode } from './helpers/factories.js';
 
 // ─── Schema ─────────────────────────────────────────────────────────

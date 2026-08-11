@@ -42,11 +42,11 @@ vi.mock('@opentelemetry/api', () => ({
   context: {},
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
@@ -57,7 +57,7 @@ vi.mock('../src/architect/tools', () => ({
 }));
 
 // Mock agent-executor and supervisor for GraphRunner tests
-vi.mock('../src/agent/agent-executor/executor', () => ({
+vi.mock('../src/agents/executors/agent/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _sv: any, _tools: any, attempt: number) => ({
     id: uuidv4(),
     idempotency_key: `${agentId}:${attempt}`,
@@ -72,7 +72,7 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
 // Supervisor-executor is NOT mocked — we test the real buildSupervisorPrompt logic
 // (it uses the mocked 'ai' generateObject above)
 
-vi.mock('../src/agent/agent-factory/index', () => ({
+vi.mock('../src/agents/factory/index', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent', name: 'Test', model: 'claude-sonnet-4-6', provider: 'anthropic',
@@ -83,7 +83,7 @@ vi.mock('../src/agent/agent-factory/index', () => ({
   },
 }));
 
-vi.mock('../src/runner/helpers', async (importOriginal) => {
+vi.mock('../src/execution/engine/helpers', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return { ...actual, sleep: vi.fn().mockResolvedValue(undefined) };
 });
@@ -97,13 +97,13 @@ import {
   getTaintInfo,
   propagateDerivedTaint,
   aggregateParallelTaint,
-} from '../src/utils/taint.js';
-import type { TaintMetadata, TaintRegistry } from '../src/types/state.js';
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { executeSupervisor } from '../src/agent/supervisor-executor/executor.js';
+} from '../src/security/taint.js';
+import type { TaintMetadata, TaintRegistry } from '../src/state/state.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { executeSupervisor } from '../src/agents/executors/supervisor/executor.js';
 import { generateText } from 'ai';
-import type { Graph, GraphNode } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
+import type { Graph, GraphNode } from '../src/graph/graph.js';
+import type { WorkflowState } from '../src/state/state.js';
 
 // ─── Test Helpers ───────────────────────────────────────────────────────
 

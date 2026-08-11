@@ -16,9 +16,9 @@
  * @module mcp/default-servers
  */
 
-import type { MCPServerEntry, MCPServerConfig } from '../types/tools.js';
+import type { MCPServerEntry, MCPServerConfig } from '../tools/schema.js';
 import type { MCPServerRegistry } from '../persistence/interfaces.js';
-import { createLogger } from '../utils/logger.js';
+import { createLogger } from '../observability/logger.js';
 
 const logger = createLogger('mcp.default-servers');
 

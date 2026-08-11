@@ -12,14 +12,14 @@
  *   schema guard).
  *
  * The parse-time counterparts (stdio command allowlist, literal-hostname
- * SSRF guard) live in `types/tools.ts` on `MCPServerEntrySchema`.
+ * SSRF guard) live in `tools/schema.ts` on `MCPServerEntrySchema`.
  *
  * @module mcp/transport-security
  */
 
 import { lookup as dnsLookup } from 'node:dns/promises';
-import { isPrivateOrLoopbackHost } from '../types/tools.js';
-import { createLogger } from '../utils/logger.js';
+import { isPrivateOrLoopbackHost } from '../tools/schema.js';
+import { createLogger } from '../observability/logger.js';
 
 const logger = createLogger('mcp.transport-security');
 

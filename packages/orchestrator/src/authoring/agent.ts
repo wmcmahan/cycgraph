@@ -13,7 +13,7 @@
  */
 
 import type { AgentRegistryConfig } from '../persistence/interfaces.js';
-import type { ToolSourceInput } from '../types/tools.js';
+import type { ToolSourceInput } from '../tools/schema.js';
 import { isDefinedTool, type DefinedTool } from '../tools/define-tool.js';
 
 /** Brand marking a value produced by {@link agent}. */

@@ -7,7 +7,7 @@
  * @module evals/types
  */
 
-import type { Graph } from '../types/graph.js';
+import type { Graph } from '../graph/graph.js';
 
 // ─── Assertion Types ────────────────────────────────────────────────
 

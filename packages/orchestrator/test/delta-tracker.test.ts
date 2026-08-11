@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { StateDeltaTracker } from '../src/persistence/delta-tracker.js';
-import { createWorkflowState, type WorkflowState } from '../src/types/state.js';
+import { createWorkflowState, type WorkflowState } from '../src/state/state.js';
 import { v4 as uuidv4 } from 'uuid';
 
 function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {

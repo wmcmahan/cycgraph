@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { APICallError } from 'ai';
-import { classifyRetryable } from '../src/agent/agent-executor/error-classification.js';
+import { classifyRetryable } from '../src/agents/executors/agent/error-classification.js';
 
 function apiError(statusCode: number, isRetryable: boolean): APICallError {
   return new APICallError({

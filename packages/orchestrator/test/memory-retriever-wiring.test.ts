@@ -18,13 +18,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
-import { buildSystemPrompt, renderRetrievedMemory } from '../src/agent/agent-executor/prompts.js';
-import type { AgentConfig } from '../src/agent/types.js';
-import type { StateView } from '../src/types/state.js';
+import { buildSystemPrompt, renderRetrievedMemory } from '../src/agents/executors/agent/prompts.js';
+import type { AgentConfig } from '../src/agents/types.js';
+import type { StateView } from '../src/state/state.js';
 import type {
   MemoryRetriever,
   MemoryRetrievalResult,
-} from '../src/agent/memory-retriever.js';
+} from '../src/memory/memory-retriever.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -209,7 +209,7 @@ vi.mock('@opentelemetry/api', () => ({
   context: {},
 }));
 
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent',
@@ -227,20 +227,20 @@ vi.mock('../src/agent/agent-factory', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: unknown, _name: string, fn: (span: unknown) => unknown) =>
     fn({ setAttribute: vi.fn() }),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import type { Graph } from '../src/types/graph.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import type { Graph } from '../src/graph/graph.js';
 import { createTestState, makeNode } from './helpers/factories.js';
-import { getLessonProvenance, getInjectedFactIds } from '../src/utils/lesson-provenance.js';
+import { getLessonProvenance, getInjectedFactIds } from '../src/memory/lesson-provenance.js';
 
 function makeAgentGraph(memory_query: Graph['nodes'][number]['memory_query']): Graph {
   return {

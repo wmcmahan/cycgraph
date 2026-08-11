@@ -18,7 +18,7 @@ vi.mock('@opentelemetry/api', () => ({
   context: {},
 }));
 
-vi.mock('../src/agent/agent-executor/executor', () => ({
+vi.mock('../src/agents/executors/agent/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, stateView: any, _t: any, attempt: number) => {
     const item = stateView.taskContext?.map_item;
     return {
@@ -34,9 +34,9 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
   }),
 }));
 
-vi.mock('../src/agent/supervisor-executor', () => ({ executeSupervisor: vi.fn() }));
-vi.mock('../src/agent/evaluator', () => ({ evaluateQuality: vi.fn() }));
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/executors/supervisor', () => ({ executeSupervisor: vi.fn() }));
+vi.mock('../src/agents/evaluator', () => ({ evaluateQuality: vi.fn() }));
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test', name: 'Test', model: 'gpt-4', provider: 'openai',
@@ -46,19 +46,19 @@ vi.mock('../src/agent/agent-factory', () => ({
     getModel: vi.fn().mockReturnValue({}),
   },
 }));
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_t: any, _n: string, fn: (s: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { executeMapNode, executeWorkerWithStateView } from '../src/runner/node-executors/map.js';
-import type { Graph, GraphNode } from '../src/types/graph.js';
-import type { WorkflowState, StateView, Action } from '../src/types/state.js';
-import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { executeMapNode, executeWorkerWithStateView } from '../src/execution/nodes/map.js';
+import type { Graph, GraphNode } from '../src/graph/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/state/state.js';
+import type { NodeExecutorContext, ExecutorDependencies } from '../src/execution/nodes/context.js';
 
 const createState = (memory: Record<string, unknown> = {}): WorkflowState => ({
   workflow_id: uuidv4(),
@@ -147,7 +147,7 @@ describe('executeMapNode', () => {
     });
 
     it('injects per-item context into each worker taskContext', async () => {
-      const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+      const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
       const capturedViews: any[] = [];
       (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number) => {
         if (stateView.taskContext?.map_item !== undefined) capturedViews.push(stateView);
@@ -177,7 +177,7 @@ describe('executeMapNode', () => {
     });
 
     it('collects worker failures in best_effort mode', async () => {
-      const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+      const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
       (executeAgent as any).mockImplementation(async (agentId: string, sv: any, _t: any, attempt: number) => {
         if (sv.taskContext?.map_index === 1) throw new Error('Worker failed');
         return {
@@ -219,7 +219,7 @@ describe('executeMapNode', () => {
     });
 
     it('counts fan-out tokens exactly once (no double-count regression)', async () => {
-      const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+      const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
       (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number) => {
         const item = stateView.taskContext?.map_item;
         return {
@@ -237,7 +237,7 @@ describe('executeMapNode', () => {
     });
 
     it('re-surfaces worker taint onto aggregate keys (no taint laundering)', async () => {
-      const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+      const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
       (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number) => {
         const item = stateView.taskContext?.map_item;
         const outKey = `${agentId}_result`;

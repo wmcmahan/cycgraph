@@ -32,7 +32,7 @@ vi.mock('@opentelemetry/api', () => ({
 }));
 
 let voterResponses: Record<string, string> = {};
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: vi.fn(async (agentId: string, stateView: any, _t: any, attempt: number) => {
     const voteKey = stateView.memory._vote_key || 'vote';
     const vote = voterResponses[agentId] || 'default_vote';
@@ -49,14 +49,14 @@ vi.mock('../src/agent/agent-executor/executor.js', () => ({
   }),
 }));
 
-vi.mock('../src/agent/supervisor-executor/supervisor-executor.js', () => ({ executeSupervisor: vi.fn() }));
+vi.mock('../src/agents/executors/supervisor/supervisor-executor.js', () => ({ executeSupervisor: vi.fn() }));
 
 const mockEvaluateQuality = vi.fn();
-vi.mock('../src/agent/evaluator-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/evaluator/executor.js', () => ({
   evaluateQualityExecutor: (...args: any[]) => mockEvaluateQuality(...args),
 }));
 
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test', name: 'Test', model: 'gpt-4', provider: 'openai',
@@ -66,24 +66,24 @@ vi.mock('../src/agent/agent-factory', () => ({
     getModel: vi.fn().mockReturnValue({}),
   },
 }));
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_t: any, _n: string, fn: (s: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { executeVotingNode } from '../src/runner/node-executors/voting.js';
-import type { Graph, GraphNode } from '../src/types/graph.js';
-import type { WorkflowState, StateView, Action } from '../src/types/state.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { executeVotingNode } from '../src/execution/nodes/voting.js';
+import type { Graph, GraphNode } from '../src/graph/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/state/state.js';
 import type {
   NodeExecutorContext,
   ExecutorDependencies,
   AgentConfigShape,
-} from '../src/runner/node-executors/context.js';
-import type { ModelResolver } from '../src/agent/model-resolver.js';
+} from '../src/execution/nodes/context.js';
+import type { ModelResolver } from '../src/agents/models/model-resolver.js';
 
 // ─── GraphRunner-integration helpers ────────────────────────────────
 
@@ -271,7 +271,7 @@ describe('executeVotingNode', () => {
 
     describe('canonical vote comparison', () => {
       it('treats votes as equal when object keys are reordered', async () => {
-        const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+        const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
         const original = (executeAgent as any).getMockImplementation();
         (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number) => {
           const voteKey = stateView.memory._vote_key || 'vote';
@@ -314,7 +314,7 @@ describe('executeVotingNode', () => {
       });
 
       it('compares array votes by content, not reference identity', async () => {
-        const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+        const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
         const original = (executeAgent as any).getMockImplementation();
         (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number) => {
           const voteKey = stateView.memory._vote_key || 'vote';
@@ -360,7 +360,7 @@ describe('executeVotingNode', () => {
     });
 
     it('treats nested objects with different key ordering as equal', async () => {
-      const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+      const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
       const original = (executeAgent as any).getMockImplementation();
       (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number) => {
         const voteKey = stateView.memory._vote_key || 'vote';
@@ -510,7 +510,7 @@ describe('executeVotingNode', () => {
   });
 
   it('throws when fewer voters respond than the quorum requires', async () => {
-    const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+    const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
     const original = (executeAgent as any).getMockImplementation();
     let callNum = 0;
     (executeAgent as any).mockImplementation(async (...args: any[]) => {
@@ -533,7 +533,7 @@ describe('executeVotingNode', () => {
   it('forwards lesson provenance from every voter into the merged action', async () => {
     voterResponses = { 'voter-a': 'A', 'voter-b': 'A', 'voter-c': 'B' };
 
-    const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+    const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
     const original = (executeAgent as any).getMockImplementation();
     (executeAgent as any).mockImplementation(async (agentId: string, stateView: any, _t: any, attempt: number) => {
       const voteKey = stateView.memory._vote_key || 'vote';

@@ -20,7 +20,7 @@
  * @module authoring/node
  */
 
-import type { NodeConfig } from '../types/graph.js';
+import type { NodeConfig } from '../graph/graph.js';
 import type { AgentValue } from './agent.js';
 
 /** Brand marking a value produced by {@link node}. */

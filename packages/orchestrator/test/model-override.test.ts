@@ -4,10 +4,10 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { resolveEffectiveModelConfig } from '../src/agent/model-override.js';
-import type { AgentConfig } from '../src/agent/types.js';
+import { resolveEffectiveModelConfig } from '../src/agents/models/model-override.js';
+import type { AgentConfig } from '../src/agents/types.js';
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 

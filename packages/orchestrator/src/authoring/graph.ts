@@ -17,8 +17,8 @@
  * @module authoring/graph
  */
 
-import type { Graph, GraphConfig, NodeConfig } from '../types/graph.js';
-import { createGraph } from '../types/graph.js';
+import type { Graph, GraphConfig, NodeConfig } from '../graph/graph.js';
+import { createGraph } from '../graph/graph.js';
 import type { AgentRegistryConfig } from '../persistence/interfaces.js';
 import {
   isAgentValue,
@@ -28,7 +28,7 @@ import {
 } from './agent.js';
 import { isNodeValue, NODE_BRAND, type NodeValue, type NodeSpec } from './node.js';
 import { SUBGRAPH_CHILD, SUBGRAPH_BUNDLE } from './subgraph.js';
-import type { GraphBundle } from '../types/bundle.js';
+import type { GraphBundle } from '../authoring/bundle-schema.js';
 import type { CapabilityCeiling } from '../tools/registry.js';
 import { GraphSpecError } from './errors.js';
 import {

@@ -46,7 +46,7 @@ vi.mock('@opentelemetry/api', () => ({
   context: {},
 }));
 
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent',
@@ -64,21 +64,21 @@ vi.mock('../src/agent/agent-factory', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: unknown, _name: string, fn: (span: unknown) => unknown) =>
     fn({ setAttribute: vi.fn() }),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import type { Graph } from '../src/types/graph.js';
-import { NodeBudgetExceededError } from '../src/runner/errors.js';
-import type { MemoryWriter } from '../src/agent/memory-writer.js';
-import type { FactSanitizer } from '../src/agent/fact-sanitizer.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import type { Graph } from '../src/graph/graph.js';
+import { NodeBudgetExceededError } from '../src/execution/errors.js';
+import type { MemoryWriter } from '../src/memory/memory-writer.js';
+import type { FactSanitizer } from '../src/security/fact-sanitizer.js';
 import { createTestState, makeNode } from './helpers/factories.js';
 
 function stubStreamText(text: string, usage: { inputTokens: number; outputTokens: number; totalTokens: number }): void {

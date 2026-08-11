@@ -6,18 +6,18 @@ import {
   NodeTypeSchema,
   GraphNodeSchema,
   SupervisorConfigSchema,
-} from '../src/types/graph.js';
-import { WorkflowStateSchema } from '../src/types/state.js';
+} from '../src/graph/graph.js';
+import { WorkflowStateSchema } from '../src/state/state.js';
 import type { Graph, WorkflowState, Action } from '../src/index.js';
 
 // Reducer tests
-import { handoffReducer, rootReducer } from '../src/reducers/index.js';
+import { handoffReducer, rootReducer } from '../src/state/reducers.js';
 
 // Validation tests
-import { validateGraph } from '../src/validation/graph-validator.js';
+import { validateGraph } from '../src/graph/graph-validator.js';
 
 // Executor tests (will mock LLM)
-import { SUPERVISOR_DONE } from '../src/agent/supervisor-executor/constants.js';
+import { SUPERVISOR_DONE } from '../src/agents/executors/supervisor/constants.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 

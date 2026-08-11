@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { llmGraphToGraph, graphToLLMSnapshot, type LLMGraph } from '../src/architect/utils.js';
-import type { Graph, GraphNode, GraphEdge } from '../src/types/graph.js';
+import type { Graph, GraphNode, GraphEdge } from '../src/graph/graph.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────
 

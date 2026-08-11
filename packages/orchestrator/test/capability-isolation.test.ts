@@ -13,9 +13,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import type { StateView } from '../src/types/state.js';
+import type { StateView } from '../src/state/state.js';
 
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: vi.fn(async (
     agentId: string,
     _view: StateView,
@@ -31,7 +31,7 @@ vi.mock('../src/agent/agent-executor/executor.js', () => ({
   })),
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
@@ -39,8 +39,8 @@ import { agent, node, subgraph, graph, run } from '../src/authoring/index.js';
 import { bundle, parseBundle } from '../src/authoring/bundle.js';
 import { tool } from '../src/tools/define-tool.js';
 import { intersectCeilings } from '../src/tools/registry.js';
-import type { Graph } from '../src/types/graph.js';
-import type { GraphBundle } from '../src/types/bundle.js';
+import type { Graph } from '../src/graph/graph.js';
+import type { GraphBundle } from '../src/authoring/bundle-schema.js';
 
 const noRetry = { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
 

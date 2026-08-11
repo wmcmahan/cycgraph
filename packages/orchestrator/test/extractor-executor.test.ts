@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createExtractorPrompt, createExtractorSystemPrompt } from '../src/agent/extractor-executor/prompts.js';
-import type { AgentConfig } from '../src/agent/types.js';
+import { createExtractorPrompt, createExtractorSystemPrompt } from '../src/agents/executors/extractor/prompts.js';
+import type { AgentConfig } from '../src/agents/types.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ vi.mock('ai', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/agent/agent-factory/index.js', () => ({
+vi.mock('../src/agents/factory/index.js', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'extractor-1',
@@ -36,11 +36,11 @@ vi.mock('../src/agent/agent-factory/index.js', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing.js', () => ({
+vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
@@ -140,7 +140,7 @@ describe('extractFactsExecutor', () => {
       usage: { totalTokens: 120 },
     });
 
-    const { extractFactsExecutor } = await import('../src/agent/extractor-executor/executor.js');
+    const { extractFactsExecutor } = await import('../src/agents/executors/extractor/executor.js');
     const result = await extractFactsExecutor('extractor-1', 'source text');
 
     expect(result.facts).toEqual(['Fact one.', 'Fact two.']);
@@ -155,7 +155,7 @@ describe('extractFactsExecutor', () => {
       usage: undefined,
     });
 
-    const { extractFactsExecutor } = await import('../src/agent/extractor-executor/executor.js');
+    const { extractFactsExecutor } = await import('../src/agents/executors/extractor/executor.js');
     const result = await extractFactsExecutor('extractor-1', 'source');
 
     expect(result.tokensUsed).toBe(0);
@@ -168,7 +168,7 @@ describe('extractFactsExecutor', () => {
       usage: { totalTokens: 10 },
     });
 
-    const { extractFactsExecutor } = await import('../src/agent/extractor-executor/executor.js');
+    const { extractFactsExecutor } = await import('../src/agents/executors/extractor/executor.js');
     const result = await extractFactsExecutor('extractor-1', 'source', 2);
 
     expect(result.facts).toEqual(['first', 'second']);
@@ -178,21 +178,21 @@ describe('extractFactsExecutor', () => {
     const { generateText } = await import('ai');
     (generateText as any).mockRejectedValueOnce(new Error('API error'));
 
-    const { extractFactsExecutor } = await import('../src/agent/extractor-executor/executor.js');
-    const { AgentExecutionError } = await import('../src/agent/agent-executor/errors.js');
+    const { extractFactsExecutor } = await import('../src/agents/executors/extractor/executor.js');
+    const { AgentExecutionError } = await import('../src/agents/executors/agent/errors.js');
 
     await expect(extractFactsExecutor('extractor-1', 'source')).rejects.toBeInstanceOf(AgentExecutionError);
   });
 
   it('forwards providerOptions to generateText when the config declares them', async () => {
-    const { agentFactory } = await import('../src/agent/agent-factory/index.js');
+    const { agentFactory } = await import('../src/agents/factory/index.js');
     (agentFactory.loadAgent as any).mockResolvedValueOnce(
       makeExtractorConfig({ providerOptions: { anthropic: { thinking: { type: 'enabled', budgetTokens: 4000 } } } }),
     );
     const { generateText } = await import('ai');
     (generateText as any).mockResolvedValueOnce({ output: { facts: ['x'] }, usage: { totalTokens: 5 } });
 
-    const { extractFactsExecutor } = await import('../src/agent/extractor-executor/executor.js');
+    const { extractFactsExecutor } = await import('../src/agents/executors/extractor/executor.js');
     await extractFactsExecutor('extractor-1', 'source');
 
     expect(generateText).toHaveBeenCalledWith(
@@ -206,7 +206,7 @@ describe('extractFactsExecutor', () => {
     const { generateText } = await import('ai');
     (generateText as any).mockResolvedValueOnce({ output: { facts: ['x'] }, usage: { totalTokens: 5 } });
 
-    const { extractFactsExecutor } = await import('../src/agent/extractor-executor/executor.js');
+    const { extractFactsExecutor } = await import('../src/agents/executors/extractor/executor.js');
     await extractFactsExecutor('extractor-1', 'source', 10, 'Only extract risks');
 
     expect(generateText).toHaveBeenCalledWith(

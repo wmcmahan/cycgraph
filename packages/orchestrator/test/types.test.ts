@@ -14,7 +14,7 @@ import {
   MergeParallelResultsPayloadSchema,
   InternalActionTypeSchema,
   narrowActionPayload,
-} from '../src/types/state.js';
+} from '../src/state/state.js';
 import {
   GraphSchema,
   GraphNodeSchema,
@@ -25,7 +25,7 @@ import {
   VotingConfigSchema,
   MapReduceConfigSchema,
   SupervisorConfigSchema,
-} from '../src/types/graph.js';
+} from '../src/graph/graph.js';
 
 describe('Type Validation (Zod Schemas)', () => {
   describe('WorkflowStatusSchema', () => {

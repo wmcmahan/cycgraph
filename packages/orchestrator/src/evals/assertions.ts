@@ -15,9 +15,9 @@
  * @module evals/assertions
  */
 
-import type { WorkflowState } from '../types/state.js';
+import type { WorkflowState } from '../state/state.js';
 import type { EvalAssertion, AssertionResult } from './types.js';
-import { evaluateQualityExecutor } from '../agent/evaluator-executor/executor.js';
+import { evaluateQualityExecutor } from '../agents/executors/evaluator/executor.js';
 
 /**
  * Check a single assertion against the final workflow state.

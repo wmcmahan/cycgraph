@@ -43,19 +43,19 @@ vi.mock('@opentelemetry/api', () => ({
   SpanStatusCode: { OK: 0, ERROR: 2 },
   context: {},
 }));
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
 import { streamText } from 'ai';
-import { GraphRunner } from '../src/runner/graph-runner.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
 import { InMemoryAgentRegistry, InMemoryPersistenceProvider } from '../src/persistence/in-memory.js';
-import { configureAgentFactory } from '../src/agent/agent-factory/index.js';
-import type { Graph } from '../src/types/graph.js';
+import { configureAgentFactory } from '../src/agents/factory/index.js';
+import type { Graph } from '../src/graph/graph.js';
 import { createTestState, makeNode } from './helpers/factories';
 
 // ─── Helpers ──────────────────────────────────────────────────────

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { executeToolNode } from '../src/runner/node-executors/tool.js';
-import { NodeConfigError } from '../src/runner/errors.js';
+import { executeToolNode } from '../src/execution/nodes/tool.js';
+import { NodeConfigError } from '../src/execution/errors.js';
 import { createTestState, makeNode, createSimpleGraph } from './helpers/factories.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     error: vi.fn(),

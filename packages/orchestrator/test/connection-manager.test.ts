@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MCPConnectionManager } from '../src/mcp/connection-manager.js';
 import { MCPServerNotFoundError, MCPAccessDeniedError } from '../src/mcp/errors.js';
 import { InMemoryMCPServerRegistry } from '../src/persistence/in-memory.js';
-import type { MCPServerEntry, ToolSource } from '../src/types/tools.js';
+import type { MCPServerEntry, ToolSource } from '../src/tools/schema.js';
 
 // ─── Mock @ai-sdk/mcp ──────────────────────────────────────────────
 

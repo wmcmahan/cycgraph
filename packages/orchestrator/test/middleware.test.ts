@@ -19,7 +19,7 @@ vi.mock('@opentelemetry/api', () => ({
   SpanStatusCode: { OK: 0, ERROR: 2 },
   context: {},
 }));
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: vi.fn(async (agentId: string, _sv: any, _t: any, attempt: number) => ({
     id: uuidv4(),
     idempotency_key: uuidv4(),
@@ -28,9 +28,9 @@ vi.mock('../src/agent/agent-executor/executor.js', () => ({
     metadata: { node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt, token_usage: { totalTokens: 10 } },
   })),
 }));
-vi.mock('../src/agent/supervisor-executor/executor.js', () => ({ executeSupervisor: vi.fn() }));
-vi.mock('../src/agent/evaluator-executor/executor.js', () => ({ evaluateQualityExecutor: vi.fn() }));
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/executors/supervisor/executor.js', () => ({ executeSupervisor: vi.fn() }));
+vi.mock('../src/agents/executors/evaluator/executor.js', () => ({ evaluateQualityExecutor: vi.fn() }));
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent', name: 'Test', model: 'gpt-4', provider: 'openai',
@@ -40,18 +40,18 @@ vi.mock('../src/agent/agent-factory', () => ({
     getModel: vi.fn().mockReturnValue({}),
   },
 }));
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_t: any, _n: string, fn: (s: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import type { GraphRunnerMiddleware, MiddlewareContext } from '../src/runner/middleware.js';
-import type { Graph } from '../src/types/graph.js';
-import type { WorkflowState, Action } from '../src/types/state.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import type { GraphRunnerMiddleware, MiddlewareContext } from '../src/execution/middleware/middleware.js';
+import type { Graph } from '../src/graph/graph.js';
+import type { WorkflowState, Action } from '../src/state/state.js';
 
 const createGraph = (nodes?: any[]): Graph => ({
   id: 'mw-graph',
@@ -117,7 +117,7 @@ describe('GraphRunner Middleware', () => {
     expect(result.status).toBe('completed');
     expect(result.memory.cached).toBe('from middleware');
 
-    const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+    const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
     expect(executeAgent).not.toHaveBeenCalled();
   });
 

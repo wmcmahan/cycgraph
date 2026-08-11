@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { InMemoryEventLogWriter, NoopEventLogWriter } from '../src/db/event-log.js';
-import type { NewWorkflowEvent } from '../src/types/event.js';
-import type { WorkflowState } from '../src/types/state.js';
-import { createWorkflowState } from '../src/types/state.js';
+import { InMemoryEventLogWriter, NoopEventLogWriter } from '../src/persistence/event-log.js';
+import type { NewWorkflowEvent } from '../src/persistence/event.js';
+import type { WorkflowState } from '../src/state/state.js';
+import { createWorkflowState } from '../src/state/state.js';
 
 const WF_ID = '11111111-1111-4111-8111-111111111111';
 const RUN_ID = '22222222-2222-4222-8222-222222222222';

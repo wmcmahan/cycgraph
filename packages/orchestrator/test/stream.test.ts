@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { GraphRunner } from '../src/runner/graph-runner';
-import { isTerminalEvent } from '../src/runner/stream-events';
-import type { StreamEvent } from '../src/runner/stream-events';
+import { GraphRunner } from '../src/execution/engine/graph-runner';
+import { isTerminalEvent } from '../src/execution/streaming/stream-events';
+import type { StreamEvent } from '../src/execution/streaming/stream-events';
 
 // ─── Mocks ──────────────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ vi.mock('@opentelemetry/api', () => ({
   context: {},
 }));
 
-vi.mock('../src/agent/agent-executor/executor', () => ({
+vi.mock('../src/agents/executors/agent/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _tools: any, attempt: number) => ({
     id: uuidv4(),
     idempotency_key: uuidv4(),
@@ -40,11 +40,11 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
   })),
 }));
 
-vi.mock('../src/agent/supervisor-executor', () => ({
+vi.mock('../src/agents/executors/supervisor', () => ({
   executeSupervisor: vi.fn(),
 }));
 
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent', name: 'Test', model: 'claude-3-5-sonnet', provider: 'anthropic',
@@ -55,17 +55,17 @@ vi.mock('../src/agent/agent-factory', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-import type { Graph } from '../src/types/graph';
-import type { WorkflowState } from '../src/types/state';
+import type { Graph } from '../src/graph/graph';
+import type { WorkflowState } from '../src/state/state';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -222,7 +222,7 @@ describe('GraphRunner.stream() — Terminal Events', () => {
   });
 
   it('workflow:waiting event for HITL approval nodes', async () => {
-    const { executeAgent } = await import('../src/agent/agent-executor/executor');
+    const { executeAgent } = await import('../src/agents/executors/agent/executor');
     const mockedExecute = vi.mocked(executeAgent);
     mockedExecute.mockResolvedValueOnce({
       id: uuidv4(),
@@ -255,7 +255,7 @@ describe('GraphRunner.stream() — Token Streaming', () => {
   it('yields agent:token_delta events with onToken callback', async () => {
     const onToken = vi.fn();
 
-    const { executeAgent } = await import('../src/agent/agent-executor/executor');
+    const { executeAgent } = await import('../src/agents/executors/agent/executor');
     const mockedExecute = vi.mocked(executeAgent);
     mockedExecute.mockImplementation(async (agentId, _stateView, _tools, attempt) => {
       return {

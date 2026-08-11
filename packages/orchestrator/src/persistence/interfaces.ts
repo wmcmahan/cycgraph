@@ -5,18 +5,16 @@
  * The orchestrator depends only on these interfaces — concrete implementations
  * (Drizzle/Postgres, in-memory, etc.) are injected at startup.
  *
- * Design principle: "Batteries included, but swappable."
- *
  * @module persistence/interfaces
  */
 
-import type { Graph } from '../types/graph.js';
-import type { WorkflowState } from '../types/state.js';
-import type { MCPServerEntry, MCPServerConfig, ToolSource, ToolSourceInput } from '../types/tools.js';
-import type { Camelize } from '../types/case-mapping.js';
-import type { ModelTier } from '../agent/model-resolver.js';
+import type { Graph } from '../graph/graph.js';
+import type { WorkflowState } from '../state/state.js';
+import type { MCPServerEntry, MCPServerConfig, ToolSource, ToolSourceInput } from '../tools/schema.js';
+import type { Camelize } from '../utils/case-mapping.js';
+import type { ModelTier } from '../agents/models/model-resolver.js';
 
-/** JSON-serializable value. Structurally compatible with AI SDK's `JSONValue`. */
+/** JSON-serializable value. */
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 // ─── JSON-safe types (DB-agnostic) ──────────────────────────────────────

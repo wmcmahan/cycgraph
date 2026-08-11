@@ -9,9 +9,9 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { BudgetMonitor } from '../src/runner/budget-monitor.js';
-import { BudgetExceededError } from '../src/runner/errors.js';
-import type { WorkflowState, Action } from '../src/types/state.js';
+import { BudgetMonitor } from '../src/cost/budget-monitor.js';
+import { BudgetExceededError } from '../src/execution/errors.js';
+import type { WorkflowState, Action } from '../src/state/state.js';
 
 function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
   return {

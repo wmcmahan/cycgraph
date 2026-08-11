@@ -20,7 +20,7 @@
  * @module tools/builtin
  */
 
-import type { BuiltinToolSource } from '../../types/tools.js';
+import type { BuiltinToolSource } from '../../tools/schema.js';
 
 /**
  * Raw definition for the `save_to_memory` built-in. The actual persistence

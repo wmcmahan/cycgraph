@@ -12,17 +12,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-import { updateMemoryReducer, mergeParallelResultsReducer, handoffReducer } from '../src/reducers/index.js';
-import { executeToolNode } from '../src/runner/node-executors/tool.js';
+import { updateMemoryReducer, mergeParallelResultsReducer, handoffReducer } from '../src/state/reducers.js';
+import { executeToolNode } from '../src/execution/nodes/tool.js';
 import { MCPConnectionManager } from '../src/mcp/connection-manager.js';
 import { InMemoryMCPServerRegistry } from '../src/persistence/in-memory.js';
-import type { Action, WorkflowState } from '../src/types/state.js';
-import type { GraphNode } from '../src/types/graph.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
+import type { Action, WorkflowState } from '../src/state/state.js';
+import type { GraphNode } from '../src/graph/graph.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
 
 function makeAction(updates: Record<string, unknown>, type: Action['type'] = 'update_memory'): Action {
   return {

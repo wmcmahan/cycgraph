@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { executeSupervisor, SupervisorDecisionSchema } from '../src/agent/supervisor-executor/executor.js';
-import { SUPERVISOR_DONE } from '../src/agent/supervisor-executor/constants.js';
-import { SupervisorConfigError, SupervisorRoutingError } from '../src/agent/supervisor-executor/errors.js';
-import { AgentExecutionError } from '../src/agent/agent-executor/errors.js';
-import { buildSupervisorSystemPrompt } from '../src/agent/supervisor-executor/prompts.js';
-import type { GraphNode, SupervisorConfig } from '../src/types/graph.js';
-import type { StateView, WorkflowState } from '../src/types/state.js';
+import { executeSupervisor, SupervisorDecisionSchema } from '../src/agents/executors/supervisor/executor.js';
+import { SUPERVISOR_DONE } from '../src/agents/executors/supervisor/constants.js';
+import { SupervisorConfigError, SupervisorRoutingError } from '../src/agents/executors/supervisor/errors.js';
+import { AgentExecutionError } from '../src/agents/executors/agent/errors.js';
+import { buildSupervisorSystemPrompt } from '../src/agents/executors/supervisor/prompts.js';
+import type { GraphNode, SupervisorConfig } from '../src/graph/graph.js';
+import type { StateView, WorkflowState } from '../src/state/state.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ vi.mock('ai', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/agent/agent-factory/index.js', () => ({
+vi.mock('../src/agents/factory/index.js', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'sup-agent',
@@ -35,7 +35,7 @@ vi.mock('../src/agent/agent-factory/index.js', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -44,7 +44,7 @@ vi.mock('../src/utils/logger.js', () => ({
   }),
 }));
 
-vi.mock('../src/utils/tracing.js', () => ({
+vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) =>
     fn({ setAttribute: vi.fn() }),
@@ -187,7 +187,7 @@ describe('SupervisorExecutor', () => {
     });
 
     it('forwards abortSignal and provider options to generateText', async () => {
-      const { agentFactory } = await import('../src/agent/agent-factory/index.js');
+      const { agentFactory } = await import('../src/agents/factory/index.js');
       (agentFactory.loadAgent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         id: 'sup-agent', name: 'Supervisor', model: 'claude-sonnet-4-6', provider: 'anthropic',
         system: 'You are a supervisor.', temperature: 0.5, maxSteps: 10, tools: [],

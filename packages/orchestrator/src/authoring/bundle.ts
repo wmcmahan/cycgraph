@@ -13,14 +13,14 @@
  * @module authoring/bundle
  */
 
-import type { Graph } from '../types/graph.js';
+import type { Graph } from '../graph/graph.js';
 import {
   GraphBundleSchema,
   type BundledAgent,
   type GraphBundle,
-} from '../types/bundle.js';
-import { normalizeToolSources } from '../types/tools.js';
-import { camelToSnakeDeep } from '../types/case-mapping.js';
+} from './bundle-schema.js';
+import { normalizeToolSources } from '../tools/schema.js';
+import { camelToSnakeDeep } from '../utils/case-mapping.js';
 import type { AgentRegistryConfig } from '../persistence/interfaces.js';
 import { collectClosure } from './closure.js';
 import { computeRequirements } from './requirements.js';

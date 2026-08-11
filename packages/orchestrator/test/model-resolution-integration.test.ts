@@ -4,17 +4,17 @@
  * Tests the full wiring: agent node executor → model resolver → executeAgent modelOverride.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { executeAgentNode } from '../src/runner/node-executors/agent.js';
-import { executeSupervisorNode } from '../src/runner/node-executors/supervisor.js';
-import { defaultModelResolver } from '../src/agent/model-resolver.js';
-import type { ModelTierMap } from '../src/agent/model-resolver.js';
-import type { GraphNode, Graph } from '../src/types/graph.js';
-import type { WorkflowState, StateView, Action } from '../src/types/state.js';
-import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
+import { executeAgentNode } from '../src/execution/nodes/agent.js';
+import { executeSupervisorNode } from '../src/execution/nodes/supervisor.js';
+import { defaultModelResolver } from '../src/agents/models/model-resolver.js';
+import type { ModelTierMap } from '../src/agents/models/model-resolver.js';
+import type { GraphNode, Graph } from '../src/graph/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/state/state.js';
+import type { NodeExecutorContext, ExecutorDependencies } from '../src/execution/nodes/context.js';
 
 // Mock logger (vi.hoisted ensures the fn is available before vi.mock runs)
 const { warnFn } = vi.hoisted(() => ({ warnFn: vi.fn() }));
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: warnFn,

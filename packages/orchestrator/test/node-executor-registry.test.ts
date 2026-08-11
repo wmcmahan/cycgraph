@@ -6,8 +6,8 @@ import {
   NODE_EXECUTORS,
   SUPPORTED_NODE_TYPES,
   getNodeExecutor,
-} from '../src/runner/node-executors/registry.js';
-import { NodeTypeSchema } from '../src/types/graph.js';
+} from '../src/execution/nodes/registry.js';
+import { NodeTypeSchema } from '../src/graph/graph.js';
 
 describe('node executor registry', () => {
   it('registers an executor for every NodeType in the schema', () => {

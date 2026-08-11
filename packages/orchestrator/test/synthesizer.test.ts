@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executeSynthesizerNode } from '../src/runner/node-executors/synthesizer.js';
-import type { GraphNode } from '../src/types/graph.js';
-import type { WorkflowState, StateView, Action } from '../src/types/state.js';
-import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
+import { executeSynthesizerNode } from '../src/execution/nodes/synthesizer.js';
+import type { GraphNode } from '../src/graph/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/state/state.js';
+import type { NodeExecutorContext, ExecutorDependencies } from '../src/execution/nodes/context.js';
 
 // Mock logger
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

@@ -13,7 +13,7 @@
  */
 
 import { z } from 'zod';
-import type { Graph, GraphInputDecl, GraphOutputDecl } from '../types/graph.js';
+import type { Graph, GraphInputDecl, GraphOutputDecl } from '../graph/graph.js';
 import { GraphSpecError } from './errors.js';
 
 /** A declared value schema: a Zod type, or raw JSON Schema passed through. */

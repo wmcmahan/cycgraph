@@ -1,36 +1,18 @@
 /**
  * @cycgraph/orchestrator — Public API
  *
- * This is the package entry point. All public types, classes, and
- * functions are re-exported here. Consumers should import from
- * `@cycgraph/orchestrator` and never reach into internal paths.
- *
- * Implementation details that are not part of the semver contract (the runner's
- * internal reducer, the stream channel, filtrex/backoff internals) live behind
- * the `@cycgraph/orchestrator/internal` subpath — see `src/internal.ts`.
- *
  * @packageDocumentation
  */
 
-// ─── Core Types ─────────────────────────────────────────────────────
-// State, Graph, Event schemas and TypeScript types.
-//
-// The `export *` here re-exports the `./types` barrel, which is itself a
-// CURATED set of explicit named exports (no `export *` inside). So a new
-// symbol added to a leaf schema file (state/graph/event/tools/case-mapping)
-// does NOT auto-enter the public surface — it must be added to `types/index.ts`
-// deliberately. Same discipline applies to `./persistence` and `./evals` below.
+// ─── Schemas ────────────────────────────────────────────────────────
 
-export * from './types/index.js';
+export * from './schemas.js';
 
 // ─── Error Base Class ───────────────────────────────────────────────
-// Every engine error extends CycgraphError, so consumers can catch them as a
-// group: `catch (e) { if (e instanceof CycgraphError) … }`.
+
 export { CycgraphError } from './errors.js';
 
 // ─── Reducers ───────────────────────────────────────────────────────
-// Pure state transition functions. Explicit named exports — `internalReducer`
-// is intentionally NOT public (it's exposed via `@cycgraph/orchestrator/internal`).
 
 export {
   REPLAY_VERSION,
@@ -49,140 +31,143 @@ export {
   canTransitionStatus,
   isTerminalStatus,
   TERMINAL_STATUSES,
-} from './reducers/index.js';
-export type { Reducer, MemoryDropRecord } from './reducers/index.js';
+} from './state/reducers.js';
+export type { Reducer, MemoryDropRecord } from './state/reducers.js';
 
 // ─── Graph Runner ───────────────────────────────────────────────────
-// Workflow execution engine
 
-export { GraphRunner } from './runner/graph-runner.js';
-export type { HumanResponse, GraphRunnerEvents, GraphRunnerOptions } from './runner/graph-runner.js';
-export { WorkflowWorker } from './runner/worker.js';
-export type { WorkflowWorkerOptions, WorkflowWorkerEvents } from './runner/worker.js';
-export { createStateView } from './runner/state-view.js';
-export type { GraphRunnerMiddleware, MiddlewareContext, BeforeNodeResult } from './runner/middleware.js';
+export { GraphRunner } from './execution/engine/graph-runner.js';
+export type { HumanResponse, GraphRunnerEvents, GraphRunnerOptions } from './execution/engine/graph-runner.js';
+export { WorkflowWorker } from './execution/coordination/worker.js';
+export type { WorkflowWorkerOptions, WorkflowWorkerEvents } from './execution/coordination/worker.js';
+export { createStateView } from './state/state-view.js';
+export type { GraphRunnerMiddleware, MiddlewareContext, BeforeNodeResult } from './execution/middleware/middleware.js';
 export type {
   SecurityPolicy,
   SecurityPolicyContext,
   SecurityPolicyDecision,
   SecurityPolicyEffect,
-} from './runner/security-policy.js';
-export { SecurityPolicyViolationError, readableTaintedKeys } from './runner/security-policy.js';
-export { createObserverMiddleware } from './runner/observer-middleware.js';
-export type { ObserverMiddlewareOptions, ObserverFinding, ObserverSeverity, DiagnosticAgentOptions } from './runner/observer-middleware.js';
-export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './runner/errors.js';
-export { MemoryWriterMissingError, VerificationFailedError, SubgraphIncompleteError, SubgraphInterfaceError } from './runner/node-executors/errors.js';
+} from './security/security-policy.js';
+export { SecurityPolicyViolationError, readableTaintedKeys } from './security/security-policy.js';
+export { createObserverMiddleware } from './execution/middleware/observer-middleware.js';
+export type { ObserverMiddlewareOptions, ObserverFinding, ObserverSeverity, DiagnosticAgentOptions } from './execution/middleware/observer-middleware.js';
+export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './execution/errors.js';
+export { MemoryWriterMissingError, VerificationFailedError, SubgraphIncompleteError, SubgraphInterfaceError } from './execution/nodes/errors.js';
 
 // ─── Stream Events ─────────────────────────────────────────────────
-export type { StreamEvent, TerminalStreamEvent, ModelResolvedEvent, ContextCompressedEvent, MemoryDiff } from './runner/stream-events.js';
-export { isTerminalEvent } from './runner/stream-events.js';
-// `StreamChannel` and the low-level `helpers`/filtrex `conditions` internals are
-// NOT public — see `@cycgraph/orchestrator/internal`. Only the public condition
-// evaluator is re-exported here.
-export { evaluateCondition } from './runner/conditions.js';
-export { executeParallel } from './runner/parallel-executor.js';
-export type { ParallelTask, ParallelResult, ParallelExecutionConfig } from './runner/parallel-executor.js';
-export { executeEvolutionNode } from './runner/node-executors/evolution.js';
+
+export type { StreamEvent, TerminalStreamEvent, ModelResolvedEvent, ContextCompressedEvent, MemoryDiff } from './execution/streaming/stream-events.js';
+export { isTerminalEvent } from './execution/streaming/stream-events.js';
+export { evaluateCondition } from './execution/routing/conditions.js';
+export { executeParallel } from './execution/engine/parallel-executor.js';
+export type { ParallelTask, ParallelResult, ParallelExecutionConfig } from './execution/engine/parallel-executor.js';
+export { executeEvolutionNode } from './execution/nodes/evolution.js';
 
 // ─── Event Sourcing / Durable Execution ─────────────────────────────
 
-export type { EventLogWriter } from './db/event-log.js';
-export { NoopEventLogWriter, InMemoryEventLogWriter, EventSequenceConflictError } from './db/event-log.js';
-export { PersistenceUnavailableError } from './db/persistence-health.js';
+export type { EventLogWriter } from './persistence/event-log.js';
+export { NoopEventLogWriter, InMemoryEventLogWriter, EventSequenceConflictError } from './persistence/event-log.js';
+export { PersistenceUnavailableError } from './persistence/persistence-health.js';
 
 // ─── Persistence ────────────────────────────────────────────────────
-// Interfaces and in-memory implementations
 
 export * from './persistence/index.js';
 
 // ─── Validation ─────────────────────────────────────────────────────
 
-export { validateGraph } from './validation/graph-validator.js';
-export type { ValidationResult } from './validation/graph-validator.js';
+export { validateGraph } from './graph/graph-validator.js';
+export type { ValidationResult } from './graph/graph-validator.js';
 export {
   effectiveWriteKeys,
   impliedActionPermissions,
   impliedResultKeys,
   intersectWriteGrant,
-} from './validation/effective-permissions.js';
+} from './security/effective-permissions.js';
 
 // ─── Agent Runtime ──────────────────────────────────────────────────
 
-export { agentFactory, AgentFactory, AgentNotFoundError, AgentLoadError, configureAgentFactory, configureProviderRegistry } from './agent/agent-factory/index.js';
-export { executeAgent } from './agent/agent-executor/executor.js';
-export { PermissionDeniedError, AgentTimeoutError, AgentExecutionError } from './agent/agent-executor/errors.js';
-export type { TokenUsage } from './agent/agent-executor/executor.js';
-export { AgentConfigSchema } from './agent/types.js';
-export type { AgentConfig, AgentExecutionMetadata } from './agent/types.js';
+export { agentFactory, AgentFactory, AgentNotFoundError, AgentLoadError, configureAgentFactory, configureProviderRegistry } from './agents/factory/index.js';
+export { executeAgent } from './agents/executors/agent/executor.js';
+export { PermissionDeniedError, AgentTimeoutError, AgentExecutionError } from './agents/executors/agent/errors.js';
+export type { TokenUsage } from './agents/executors/agent/executor.js';
+export { AgentConfigSchema } from './agents/types.js';
+export type { AgentConfig, AgentExecutionMetadata } from './agents/types.js';
 
 // ─── Budget-Aware Model Resolution ────────────────────────────────
+
 export {
   ModelTierSchema,
   ModelResolutionReasonSchema,
   ESTIMATED_TOKENS_PER_CALL,
   estimateCallCost,
   defaultModelResolver,
-} from './agent/model-resolver.js';
+} from './agents/models/model-resolver.js';
 export type {
   ModelTier,
   ModelResolutionReason,
   ModelTierMap,
   ModelResolutionResult,
   ModelResolver,
-} from './agent/model-resolver.js';
-export { ProviderRegistry, createProviderRegistry, registerBuiltInProviders } from './agent/provider-registry.js';
-export type { LanguageModelFactory, ProviderOptions } from './agent/provider-registry.js';
-export { UnsupportedProviderError } from './agent/agent-factory/errors.js';
-export { registerOllamaProvider } from './agent/ollama-provider.js';
-export type { OllamaModelFactory, OllamaProviderOptions } from './agent/ollama-provider.js';
-export { OLLAMA_MODELS } from './agent/constants.js';
+} from './agents/models/model-resolver.js';
+export { ProviderRegistry, createProviderRegistry, registerBuiltInProviders } from './agents/providers/provider-registry.js';
+export type { LanguageModelFactory, ProviderOptions } from './agents/providers/provider-registry.js';
+export { UnsupportedProviderError } from './agents/factory/errors.js';
+export { registerOllamaProvider } from './agents/providers/ollama-provider.js';
+export type { OllamaModelFactory, OllamaProviderOptions } from './agents/providers/ollama-provider.js';
+export { OLLAMA_MODELS } from './agents/constants.js';
 
 // ─── Context Compression ───────────────────────────────────────────
+
 export type {
   ContextCompressor,
   ContextCompressionResult,
   ContextCompressionMetrics,
   ContextCompressionStageMetrics,
-} from './agent/context-compressor.js';
+} from './memory/context-compressor.js';
 
 // ─── Memory Retriever ─────────────────────────────────────────────
+
 export type {
   MemoryRetriever,
   MemoryRetrievalResult,
-} from './agent/memory-retriever.js';
+} from './memory/memory-retriever.js';
 
 // ─── Memory Writer (Reflection) ───────────────────────────────────
+
 export type {
   MemoryWriter,
   MemoryWriterFact,
   MemoryWriterResult,
-} from './agent/memory-writer.js';
+} from './memory/memory-writer.js';
 
 // ─── Fact Sanitizer (Guardrail) ───────────────────────────────────
-export type { FactSanitizer } from './agent/fact-sanitizer.js';
+
+export type { FactSanitizer } from './security/fact-sanitizer.js';
 
 // ─── Fitness Function (Evolution) ──────────────────────────────────
-export type { FitnessFunction, FitnessResult } from './agent/fitness-function.js';
+
+export type { FitnessFunction, FitnessResult } from './execution/nodes/fitness-function.js';
 
 // ─── Rate Limiter (LLM call pacing) ────────────────────────────────
-export type { RateLimiter, RateLimitRequest, RateLimitCallKind } from './agent/rate-limiter.js';
+
+export type { RateLimiter, RateLimitRequest, RateLimitCallKind } from './agents/rate-limiter.js';
 
 // ─── Evaluator (LLM-as-Judge) ───────────────────────────────────────
 
-export { evaluateQualityExecutor as evaluateQuality } from './agent/evaluator-executor/executor.js';
-export type { EvaluationResult } from './agent/evaluator-executor/executor.js';
+export { evaluateQualityExecutor as evaluateQuality } from './agents/executors/evaluator/executor.js';
+export type { EvaluationResult } from './agents/executors/evaluator/executor.js';
 
 // ─── Extractor (LLM Fact Extraction) ────────────────────────────────
 
-export { extractFactsExecutor, DEFAULT_MAX_FACTS } from './agent/extractor-executor/executor.js';
-export type { ExtractionResult as FactExtractionResult } from './agent/extractor-executor/executor.js';
+export { extractFactsExecutor, DEFAULT_MAX_FACTS } from './agents/executors/extractor/executor.js';
+export type { ExtractionResult as FactExtractionResult } from './agents/executors/extractor/executor.js';
 
 // ─── Supervisor (Hierarchical Pattern) ──────────────────────────────
 
-export { executeSupervisor, SupervisorDecisionSchema } from './agent/supervisor-executor/executor.js';
-export { SUPERVISOR_DONE } from './agent/supervisor-executor/constants.js';
-export { SupervisorConfigError, SupervisorRoutingError } from './agent/supervisor-executor/errors.js';
-export type { SupervisorDecision } from './agent/supervisor-executor/executor.js';
+export { executeSupervisor, SupervisorDecisionSchema } from './agents/executors/supervisor/executor.js';
+export { SUPERVISOR_DONE } from './agents/executors/supervisor/constants.js';
+export { SupervisorConfigError, SupervisorRoutingError } from './agents/executors/supervisor/errors.js';
+export type { SupervisorDecision } from './agents/executors/supervisor/executor.js';
 
 export {
   agent,
@@ -239,7 +224,8 @@ export { jsonSchemaToZod } from './mcp/json-schema-converter.js';
 export type { JSONSchema } from './mcp/json-schema-converter.js';
 export { MCPServerNotFoundError, MCPAccessDeniedError, ToolCircuitBreakerOpenError } from './mcp/errors.js';
 export { MCPConnectionManager } from './mcp/connection-manager.js';
-export type { ToolResolver, TaintedToolResult as MCPTaintedToolResult, MCPConnectionManagerOptions } from './mcp/connection-manager.js';
+export type { ToolResolver } from './tools/resolver.js';
+export type { TaintedToolResult as MCPTaintedToolResult, MCPConnectionManagerOptions } from './mcp/connection-manager.js';
 export { ToolCircuitBreakerManager } from './mcp/tool-circuit-breaker.js';
 export type {
   ToolCircuitBreakerOptions,
@@ -266,9 +252,9 @@ export type { ArchitectToolDeps } from './architect/tools.js';
 
 // ─── Utilities ──────────────────────────────────────────────────────
 
-export { createLogger, Logger } from './utils/logger.js';
-export type { LogLevel } from './utils/logger.js';
-export { initTracing, getTracer, withSpan } from './utils/tracing.js';
+export { createLogger, Logger } from './observability/logger.js';
+export type { LogLevel } from './observability/logger.js';
+export { initTracing, getTracer, withSpan } from './observability/tracing.js';
 export { runWithContext, getCurrentContext } from './utils/context.js';
 export type { RunContext } from './utils/context.js';
 export {
@@ -278,8 +264,8 @@ export {
   loadPricingTable,
   getModelPricing,
   clearPricingOverrides,
-} from './utils/pricing.js';
-export type { ModelPricing } from './utils/pricing.js';
+} from './cost/pricing.js';
+export type { ModelPricing } from './cost/pricing.js';
 export {
   initMetrics,
   collectMetrics,
@@ -291,14 +277,14 @@ export {
   recordCostUsd,
   recordAgentDuration,
   setQueueDepthProvider,
-} from './utils/metrics.js';
-export { markTainted, isTainted, getTaintRegistry, getTaintInfo, propagateDerivedTaint } from './utils/taint.js';
+} from './observability/metrics.js';
+export { markTainted, isTainted, getTaintRegistry, getTaintInfo, propagateDerivedTaint } from './security/taint.js';
 export {
   getLessonProvenance,
   getInjectedFactIds,
   getLessonProvenanceRegistry,
-} from './utils/lesson-provenance.js';
-export type { LessonProvenanceEntry, LessonProvenanceRegistry } from './types/state.js';
+} from './memory/lesson-provenance.js';
+export type { LessonProvenanceEntry, LessonProvenanceRegistry } from './state/state.js';
 
 // ─── Eval Framework ─────────────────────────────────────────────────
 

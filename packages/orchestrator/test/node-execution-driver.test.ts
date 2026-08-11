@@ -4,19 +4,19 @@
  * failed-attempt usage accounting, lifecycle events, and registry dispatch.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NodeExecutionDriver } from '../src/runner/node-execution-driver.js';
-import type { NodeExecutionDriverDeps } from '../src/runner/node-execution-driver.js';
-import { WorkflowTimeoutError, UnsupportedNodeTypeError } from '../src/runner/errors.js';
-import { createStateView } from '../src/runner/state-view.js';
+import { NodeExecutionDriver } from '../src/execution/engine/node-execution-driver.js';
+import type { NodeExecutionDriverDeps } from '../src/execution/engine/node-execution-driver.js';
+import { WorkflowTimeoutError, UnsupportedNodeTypeError } from '../src/execution/errors.js';
+import { createStateView } from '../src/state/state-view.js';
 import { createTestState, makeNode, createSimpleGraph } from './helpers/factories.js';
-import type { GraphNode } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
+import type { GraphNode } from '../src/graph/graph.js';
+import type { WorkflowState } from '../src/state/state.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
-vi.mock('../src/utils/tracing.js', () => ({
+vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_t: unknown, _n: string, fn: (s: unknown) => unknown) => fn({ setAttribute: vi.fn() }),
 }));

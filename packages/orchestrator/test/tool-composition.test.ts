@@ -13,10 +13,10 @@ import {
   ToolNotRegisteredError,
 } from '../src/tools/registry.js';
 import { defineTool, ToolDefinitionError } from '../src/tools/define-tool.js';
-import type { ToolResolver } from '../src/mcp/connection-manager.js';
-import type { TaintMetadata } from '../src/types/state.js';
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import type { Graph } from '../src/types/graph.js';
+import type { ToolResolver } from '../src/tools/resolver.js';
+import type { TaintMetadata } from '../src/state/state.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import type { Graph } from '../src/graph/graph.js';
 import { createTestState, makeNode } from './helpers/factories.js';
 
 function localTool(name: string, taints = false) {

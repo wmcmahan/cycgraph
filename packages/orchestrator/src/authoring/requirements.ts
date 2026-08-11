@@ -15,11 +15,11 @@
  * @module authoring/requirements
  */
 
-import type { Graph } from '../types/graph.js';
-import { normalizeToolSources } from '../types/tools.js';
-import { isGraphBundle, type GraphBundle } from '../types/bundle.js';
+import type { Graph } from '../graph/graph.js';
+import { normalizeToolSources } from '../tools/schema.js';
+import { isGraphBundle, type GraphBundle } from '../authoring/bundle-schema.js';
 import type { MCPServerRegistry } from '../persistence/interfaces.js';
-import type { ProviderRegistry } from '../agent/provider-registry.js';
+import type { ProviderRegistry } from '../agents/providers/provider-registry.js';
 import { isDefinedTool } from '../tools/define-tool.js';
 import type { ToolsOption } from '../tools/registry.js';
 import { agentsForGraph, graphsForGraph, toolsForGraph } from './graph.js';
