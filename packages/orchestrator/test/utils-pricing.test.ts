@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Track warned models across tests by resetting module state
-let calculateCost: typeof import('../src/utils/pricing.js').calculateCost;
-let MODEL_PRICING: typeof import('../src/utils/pricing.js').MODEL_PRICING;
-let setModelPricing: typeof import('../src/utils/pricing.js').setModelPricing;
-let loadPricingTable: typeof import('../src/utils/pricing.js').loadPricingTable;
-let getModelPricing: typeof import('../src/utils/pricing.js').getModelPricing;
-let clearPricingOverrides: typeof import('../src/utils/pricing.js').clearPricingOverrides;
+let calculateCost: typeof import('../src/cost/pricing.js').calculateCost;
+let MODEL_PRICING: typeof import('../src/cost/pricing.js').MODEL_PRICING;
+let setModelPricing: typeof import('../src/cost/pricing.js').setModelPricing;
+let loadPricingTable: typeof import('../src/cost/pricing.js').loadPricingTable;
+let getModelPricing: typeof import('../src/cost/pricing.js').getModelPricing;
+let clearPricingOverrides: typeof import('../src/cost/pricing.js').clearPricingOverrides;
 
 // Mock logger to capture warnings
 const warnFn = vi.fn();
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: warnFn,
@@ -22,7 +22,7 @@ vi.mock('../src/utils/logger.js', () => ({
 beforeEach(async () => {
   warnFn.mockClear();
   vi.resetModules();
-  const mod = await import('../src/utils/pricing.js');
+  const mod = await import('../src/cost/pricing.js');
   calculateCost = mod.calculateCost;
   MODEL_PRICING = mod.MODEL_PRICING;
   setModelPricing = mod.setModelPricing;

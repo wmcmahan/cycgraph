@@ -2,7 +2,7 @@
  * Condition Expression Options
  *
  * The filtrex compile options and expression normalization shared by the
- * runtime evaluator (`runner/conditions.ts`), the verifier executor's
+ * runtime evaluator (`execution/routing/conditions.ts`), the verifier executor's
  * `expression` variant, and the load-time graph validator. Living in
  * `utils/` keeps the dependency direction downward for all three —
  * `validation/` must not import from `runner/`.

@@ -12,13 +12,13 @@ import {
   impliedActionPermissions,
   impliedResultKeys,
   intersectWriteGrant,
-} from '../src/validation/effective-permissions.js';
-import { extractMemoryUpdates } from '../src/agent/agent-executor/memory.js';
-import { validateGraph } from '../src/validation/graph-validator.js';
-import { validateAction } from '../src/reducers/index.js';
-import { createGraph } from '../src/types/graph.js';
-import type { GraphNode } from '../src/types/graph.js';
-import type { Action } from '../src/types/state.js';
+} from '../src/security/effective-permissions.js';
+import { extractMemoryUpdates } from '../src/agents/executors/agent/memory.js';
+import { validateGraph } from '../src/graph/graph-validator.js';
+import { validateAction } from '../src/state/reducers.js';
+import { createGraph } from '../src/graph/graph.js';
+import type { GraphNode } from '../src/graph/graph.js';
+import type { Action } from '../src/state/state.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const node = (overrides: Partial<GraphNode>): GraphNode => ({

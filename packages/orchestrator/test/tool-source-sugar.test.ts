@@ -1,5 +1,5 @@
 /**
- * Tests for the tool-source authoring sugar (src/types/tools.ts):
+ * Tests for the tool-source authoring sugar (src/tools/schema.ts):
  * ToolSourceInputSchema normalization and the wire-purity guarantees at
  * createGraph and agent-registry boundaries.
  */
@@ -9,8 +9,8 @@ import { z } from 'zod';
 import {
   ToolSourceInputSchema,
   normalizeToolSources,
-} from '../src/types/tools.js';
-import { createGraph } from '../src/types/graph.js';
+} from '../src/tools/schema.js';
+import { createGraph } from '../src/graph/graph.js';
 import { InMemoryAgentRegistry } from '../src/persistence/in-memory.js';
 import { defineTool } from '../src/tools/define-tool.js';
 

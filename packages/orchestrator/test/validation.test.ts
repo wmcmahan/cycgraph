@@ -1,9 +1,9 @@
 /**
- * Tests for the graph structure validator (validation/graph-validator.ts).
+ * Tests for the graph structure validator (graph/graph-validator.ts).
  */
 
 import { describe, it, expect } from 'vitest';
-import { validateGraph } from '../src/validation/graph-validator.js';
+import { validateGraph } from '../src/graph/graph-validator.js';
 import type { Graph, GraphNode } from '../src/index.js';
 
 const FAILURE_POLICY = {

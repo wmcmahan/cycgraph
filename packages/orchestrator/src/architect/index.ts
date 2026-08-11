@@ -19,10 +19,10 @@
 
 import { generateText, Output } from 'ai';
 import { z } from 'zod';
-import { agentFactory } from '../agent/agent-factory/index.js';
-import { validateGraph } from '../validation/graph-validator.js';
-import { createLogger } from '../utils/logger.js';
-import type { Graph } from '../types/graph.js';
+import { agentFactory } from '../agents/factory/index.js';
+import { validateGraph } from '../graph/graph-validator.js';
+import { createLogger } from '../observability/logger.js';
+import type { Graph } from '../graph/graph.js';
 import { ARCHITECT_SYSTEM_PROMPT } from './prompts.js';
 import { LLMGraphSchema } from './schemas.js';
 import { ArchitectError } from './errors.js';

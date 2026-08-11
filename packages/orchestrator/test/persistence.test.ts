@@ -6,8 +6,8 @@ import {
   InMemoryUsageRecorder,
   InMemoryRetentionService,
 } from '../src/persistence/in-memory.js';
-import type { WorkflowState } from '../src/types/state.js';
-import type { Graph } from '../src/types/graph.js';
+import type { WorkflowState } from '../src/state/state.js';
+import type { Graph } from '../src/graph/graph.js';
 
 function createWorkflowState(overrides?: Partial<WorkflowState>): WorkflowState {
   return {

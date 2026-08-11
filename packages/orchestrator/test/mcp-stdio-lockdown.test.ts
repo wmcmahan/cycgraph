@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { MCPServerEntrySchema, isStdioMcpDisabled } from '../src/types/tools.js';
+import { MCPServerEntrySchema, isStdioMcpDisabled } from '../src/tools/schema.js';
 
 const stdioEntry = {
   id: 'srv-stdio',

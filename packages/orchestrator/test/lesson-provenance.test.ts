@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { updateMemoryReducer, mergeParallelResultsReducer, handoffReducer, setStatusReducer, rootReducer } from '../src/reducers/index.js';
+import { updateMemoryReducer, mergeParallelResultsReducer, handoffReducer, setStatusReducer, rootReducer } from '../src/state/reducers.js';
 import {
   LESSON_PROVENANCE_KEY,
   MAX_LESSON_PROVENANCE_ENTRIES,
@@ -18,10 +18,10 @@ import {
   getInjectedFactIds,
   mintLessonProvenance,
   trimLessonProvenance,
-} from '../src/utils/lesson-provenance.js';
-import { createStateView } from '../src/runner/state-view.js';
-import type { WorkflowState, Action, LessonProvenanceRegistry } from '../src/types/state.js';
-import type { GraphNode } from '../src/types/graph.js';
+} from '../src/memory/lesson-provenance.js';
+import { createStateView } from '../src/state/state-view.js';
+import type { WorkflowState, Action, LessonProvenanceRegistry } from '../src/state/state.js';
+import type { GraphNode } from '../src/graph/graph.js';
 
 const createBaseState = (): WorkflowState => ({
   workflow_id: uuidv4(),

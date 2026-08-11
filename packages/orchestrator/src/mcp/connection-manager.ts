@@ -2,7 +2,7 @@
  * MCP Connection Manager
  *
  * Manages lifecycle of `@ai-sdk/mcp` client connections per workflow run.
- * Resolves agent ToolSource declarations into AI SDK tool sets by looking up server
+ * Resolves agent ToolSource declarations into tool sets by looking up server
  * configs from the trusted MCPServerRegistry.
  *
  * Key design decisions:
@@ -17,7 +17,7 @@
  * @module mcp/connection-manager
  */
 
-import { createLogger } from '../utils/logger.js';
+import { createLogger } from '../observability/logger.js';
 import { MCPServerNotFoundError, MCPAccessDeniedError } from './errors.js';
 import {
   ToolCircuitBreakerManager,
@@ -26,11 +26,12 @@ import {
 } from './tool-circuit-breaker.js';
 import { Semaphore } from './semaphore.js';
 import type { MCPServerRegistry } from '../persistence/interfaces.js';
-import type { ToolSource, MCPServerEntry } from '../types/tools.js';
-import { isStdioMcpDisabled } from '../types/tools.js';
+import type { ToolSource, MCPServerEntry } from '../tools/schema.js';
+import { isStdioMcpDisabled } from '../tools/schema.js';
+import type { ToolResolver } from '../tools/resolver.js';
 import { resolveBuiltinTools } from '../tools/builtin/index.js';
 import { assertHostResolvesPublic, scrubStdioEnv } from './transport-security.js';
-import type { TaintMetadata } from '../types/state.js';
+import type { TaintMetadata } from '../state/state.js';
 
 const logger = createLogger('mcp.connections');
 
@@ -47,35 +48,6 @@ export interface TaintedToolResult {
 /**
  * Abstract interface for tool resolution (DI seam for testing).
  */
-export interface ToolResolver {
-  /**
-   * Resolve an array of ToolSource declarations into an AI SDK tool set.
-   * Returns a merged record of tool name → tool object with execute functions.
-   *
-   * @param sources - Tool source declarations from the agent config.
-   * @param agentId - The requesting agent's ID (for access control).
-   */
-  resolveTools(sources: ToolSource[], agentId?: string): Promise<Record<string, unknown>>;
-
-  /**
-   * Close all open MCP client connections and release resources.
-   */
-  closeAll(): Promise<void>;
-
-  /**
-   * Drain accumulated taint entries from MCP tool executions.
-   *
-   * Pass the exact toolset returned by a prior `resolveTools()` call to drain
-   * ONLY that execution's taint — required for correctness under concurrent
-   * executions (voting / evolution / map), where a single shared accumulator
-   * would let one agent's drain swallow another's still-accumulating entries.
-   * Called with no argument, falls back to a process-wide accumulator
-   * (legacy / single-execution behavior).
-   *
-   * Optional — only implemented by MCPConnectionManager.
-   */
-  drainTaintEntries?(tools?: Record<string, unknown>): Map<string, TaintMetadata>;
-}
 
 // ─── Lazy Imports ───────────────────────────────────────────────────
 

@@ -1,0 +1,686 @@
+/**
+ * Agent Executor
+ *
+ * Orchestrates a single LLM agent invocation end-to-end:
+ *
+ * 1. Load agent config from factory (cached)
+ * 2. Build context-aware system prompt (with injection guards)
+ * 3. Execute agent with tools (with timeout)
+ * 4. Track token usage
+ * 5. Extract memory updates and taint metadata from tool calls
+ * 6. Validate Zero Trust permissions
+ * 7. Return an {@link Action} for the GraphRunner
+ *
+ * Security hardening:
+ * - Prompt injection guards via sanitization + `<data>` boundaries
+ * - Internal metadata separated from agent memory
+ * - AbortController with configurable timeout
+ * - Bounded memory serialisation in prompts
+ * - Tool call/result correlation by ID (not index)
+ * - Zero Trust permission validation
+ *
+ * @module agent-executor/executor
+ */
+
+import { streamText, tool, isStepCount, jsonSchema } from 'ai';
+import { classifyRetryable } from './error-classification.js';
+import type { ToolSet } from 'ai';
+import { agentFactory, AgentFactory } from '../../factory/index.js';
+import type { StateView, Action } from '../../../state/state.js';
+import { createLogger } from '../../../observability/logger.js';
+import { getTracer, withSpan } from '../../../observability/tracing.js';
+import { v4 as uuidv4 } from 'uuid';
+import type { TaintMetadata } from '../../../state/state.js';
+import { propagateDerivedTaint } from '../../../security/taint.js';
+import { LESSON_PROVENANCE_KEY, mintLessonProvenance } from '../../../memory/lesson-provenance.js';
+import { retrieveForPrompt } from '../../../memory/retrieve-for-prompt.js';
+import { resolveEffectiveModelConfig } from '../../models/model-override.js';
+import { buildSystemPrompt, buildTaskPrompt } from './prompts.js';
+import { DEFAULT_AGENT_TIMEOUT_MS } from '../../constants.js';
+import { extractMemoryUpdates } from './memory.js';
+import { validateMemoryUpdatePermissions } from './validation.js';
+import { intersectWriteGrant } from '../../../security/effective-permissions.js';
+import { AgentTimeoutError, AgentExecutionError, type PartialUsage } from './errors.js';
+
+const logger = createLogger('agent.executor');
+const tracer = getTracer('orchestrator.agent');
+
+/** Token usage from a single agent execution. */
+export interface TokenUsage {
+  /** The number of input tokens consumed. */
+  inputTokens: number;
+  /** The number of output tokens generated. */
+  outputTokens: number;
+  /** The total number of tokens (input + output). */
+  totalTokens: number;
+}
+
+/** Minimal shape of a single step. */
+interface AgentStep {
+  toolCalls?: Array<{
+    toolCallId: string;
+    toolName: string;
+    args?: unknown;
+    input?: unknown;
+  }>;
+  toolResults?: Array<{
+    toolCallId?: string;
+    result?: unknown;
+  }>;
+}
+
+/**
+ * Execute a single agent invocation against the LLM.
+ *
+ * @param agentId - The database ID of the agent to execute.
+ * @param stateView - The current workflow state, scoped to this agent's read permissions.
+ * @param rawTools - Tool definitions to expose to the LLM.
+ * @param attempt - The current attempt number (1-based, increments on retry).
+ * @param options - Optional execution configuration.
+ * @param options.temperatureOverride - Override the agent's configured temperature.
+ * @param options.nodeId - The graph node ID, used to derive the fallback memory key.
+ * @param options.timeoutMs - Override the default agent timeout.
+ * @param options.abortSignal - External cancellation signal (e.g. workflow cancellation).
+ * @param options.onToken - Callback invoked for each streamed token (best-effort).
+ * @param options.onToolCall - Callback invoked when a tool call starts executing. Receives tool name, args, and call ID.
+ * @param options.onToolCallComplete - Callback invoked when a tool call finishes. Receives tool name, call ID, duration, and success/error.
+ * @returns The resulting {@link Action} containing memory updates and metadata.
+ * @throws {AgentTimeoutError} If the LLM call exceeds the configured timeout.
+ * @throws {AgentExecutionError} If the LLM call fails for any other reason.
+ */
+export async function executeAgent(
+  agentId: string,
+  stateView: StateView,
+  rawTools: Record<string, unknown>,
+  attempt: number,
+  options?: {
+    /**
+     * Agent factory to load configs / resolve models from. Defaults to the
+     * process-global singleton; the runner injects a run-scoped factory so
+     * concurrent runs never share registry/provider state.
+     */
+    agentFactory?: AgentFactory;
+    /** Override the agent's configured temperature. */
+    temperatureOverride?: number;
+    /** The graph node ID, used to derive the fallback memory key. */
+    nodeId?: string;
+    /** Override the default agent timeout. */
+    timeoutMs?: number;
+    /** External cancellation signal (e.g. workflow cancellation). */
+    abortSignal?: AbortSignal;
+    /** Callback invoked for each streamed token (best-effort). */
+    onToken?: (token: string) => void;
+    /** Callback invoked when a tool call starts executing. Receives tool name, args, and call ID. */
+    onToolCall?: (event: { toolName: string; toolCallId: string; args: unknown }) => void;
+    /** Callback invoked when a tool call finishes. Receives tool name, call ID, duration, and success/error. */
+    onToolCallComplete?: (event: { toolName: string; toolCallId: string; durationMs: number; success: boolean; error?: string }) => void;
+    /** Callback invoked to drain taint entries from tools. */
+    drainTaintEntries?: (tools?: Record<string, unknown>) => Map<string, TaintMetadata>;
+    /** Override the model from agent config (used by budget-aware model resolution). */
+    modelOverride?: string;
+    /** Context compressor for memory serialization in prompts. */
+    contextCompressor?: import('../../../memory/context-compressor.js').ContextCompressor;
+    /** Callback fired when context compression runs. */
+    onContextCompressed?: (metrics: import('../../../memory/context-compressor.js').ContextCompressionMetrics) => void;
+    /** Default write key from node config for orchestrator-managed text output. */
+    defaultWriteKey?: string;
+    /**
+     * Deterministic idempotency key for the produced action (the canonical
+     * `node:iteration:attempt` form from `nodeIdempotencyKey`). Falls back to
+     * a random UUID when the executor is invoked outside a graph node context.
+     */
+    idempotencyKey?: string;
+    /**
+     * The NODE's write grant (its `write_keys`, including `'*'`). The
+     * effective write permission is this grant intersected with the agent
+     * config's optional ceiling (ADR 001). When absent (executor invoked
+     * outside a graph node), the ceiling alone governs.
+     */
+    grantedWriteKeys?: string[];
+    /**
+     * Memory retriever to call before prompt construction. Combined with
+     * `memory_query` and rendered into the system prompt's Relevant Memory section.
+     */
+    memoryRetriever?: import('../../../memory/memory-retriever.js').MemoryRetriever;
+    /**
+     * Per-node retrieval directive. When set alongside `memoryRetriever`,
+     * the executor awaits a retrieval call and feeds the result into
+     * `buildSystemPrompt`. Defaults `text` to `stateView.goal` if neither
+     * `text` nor `entityIds` is set.
+     */
+    memoryQuery?: {
+      text?: string;
+      entityIds?: string[];
+      tags?: string[];
+      maxFacts?: number;
+      /** Retrieved content is untrusted → taint the agent's outputs. */
+      untrusted?: boolean;
+    };
+  }
+): Promise<Action> {
+  return withSpan(tracer, 'agent.execute', async (span) => {
+    span.setAttribute('agent.id', agentId);
+    span.setAttribute('agent.attempt', attempt);
+
+    const startTime = Date.now();
+
+    // Load agent config (cached)
+    const factory = options?.agentFactory ?? agentFactory;
+    const config = await factory.loadAgent(agentId);
+
+    // Budget-aware model resolution: use override if provided, else config.model
+    const effectiveConfig = resolveEffectiveModelConfig(config, options?.modelOverride, {
+      agentId,
+      nodeId: options?.nodeId,
+    });
+    const model = factory.getModel(effectiveConfig);
+
+    const tools = buildToolSet(rawTools, agentId);
+    const hasSaveToMemoryTool = 'save_to_memory' in tools;
+
+    // Ceiling-and-grant (ADR 001): the node's grant intersected with the
+    // agent config's optional ceiling is the effective write permission —
+    // used for prompt instructions, output routing, and validation below.
+    const effectiveWrite = intersectWriteGrant(options?.grantedWriteKeys, config.write_keys);
+
+    // Read ceiling: when the agent config declares one, filter the node's
+    // already-sliced view down to the intersection. The node's read_keys
+    // remain the grant; this only ever narrows.
+    const view = applyReadCeiling(stateView, config.read_keys);
+
+    // Resolve memory retrieval (best-effort — failures must never block
+    // execution; the agent still gets the workflow-state memory below).
+    const retrievedMemory = await retrieveForPrompt(
+      options?.memoryRetriever,
+      options?.memoryQuery,
+      view,
+      effectiveConfig.model,
+    );
+
+    // Build context-aware prompt (with injection guards)
+    const systemPrompt = buildSystemPrompt(config, view, {
+      contextCompressor: options?.contextCompressor,
+      model: effectiveConfig.model,
+      onCompressed: options?.onContextCompressed,
+      hasSaveToMemoryTool,
+      retrievedMemory,
+      effectiveWriteKeys: effectiveWrite,
+    });
+    const taskPrompt = buildTaskPrompt(view, attempt);
+
+    logger.info('executing', {
+      agent_id: agentId,
+      agent_name: config.name,
+      model: effectiveConfig.model,
+      ...(options?.modelOverride ? { original_model: config.model } : {}),
+      attempt,
+      tool_count: Object.keys(tools).length,
+    });
+
+    // AbortController with configurable timeout to prevent hung LLM calls.
+    // If an external abort signal is provided (workflow cancellation), combine
+    // it with the internal timeout so either can abort the stream.
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
+    const { timeoutId, controller } = createAbortControllerWithTimeout(timeoutMs);
+
+    // Combine external cancellation signal with internal timeout
+    const combinedSignal = options?.abortSignal
+      ? AbortSignal.any([controller.signal, options.abortSignal])
+      : controller.signal;
+
+    let text: string;
+    let usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined;
+    let steps: AgentStep[];
+    let result: Awaited<ReturnType<typeof streamText>> | undefined;
+
+    try {
+      result = await streamText({
+        model,
+        instructions: systemPrompt,
+        prompt: taskPrompt,
+        tools,
+        stopWhen: isStepCount(config.maxSteps),
+        abortSignal: combinedSignal,
+        ...(options?.temperatureOverride !== undefined
+          ? { temperature: clampTemperature(options.temperatureOverride, effectiveConfig.provider, agentId) }
+          : {}),
+        ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
+        ...(options?.onToolCall ? {
+          onToolExecutionStart: (event) => {
+            try {
+              const tc = event.toolCall;
+              options.onToolCall!({
+                toolName: tc.toolName,
+                toolCallId: tc.toolCallId,
+                args: 'args' in tc ? tc.args : ('input' in tc ? tc.input : undefined),
+              });
+            } catch { /* best-effort */ }
+          },
+        } : {}),
+        ...(options?.onToolCallComplete ? {
+          onToolExecutionEnd: (event) => {
+            try {
+              const output = event.toolOutput;
+              options.onToolCallComplete!({
+                toolName: event.toolCall.toolName,
+                toolCallId: event.toolCall.toolCallId,
+                durationMs: event.toolExecutionMs,
+                success: output.type !== 'tool-error',
+                ...(output.type === 'tool-error' ? { error: String(output.error) } : {}),
+              });
+            } catch { /* best-effort */ }
+          },
+        } : {}),
+      });
+
+      // When onToken is provided, consume the textStream for token-by-token
+      // streaming. Otherwise use the existing await path (zero overhead).
+      if (options?.onToken) {
+        text = '';
+        for await (const delta of result.textStream) {
+          text += delta;
+          try { options.onToken(delta); } catch { /* best-effort streaming */ }
+        }
+      } else {
+        text = await result.text;
+      }
+
+      // Track AGGREGATE token usage across ALL tool-use rounds
+      usage = await result.totalUsage;
+
+      // Extract tool calls and results from ALL steps.
+      steps = ((await result.steps) ?? []) as AgentStep[];
+    } catch (error) {
+      // Best-effort: a failed/aborted attempt may still have spent tokens.
+      // Read them so the runner can account for failed-attempt spend instead
+      // of discarding it. Bounded so a never-settling promise can't hang the
+      // error path; any rejection is swallowed (usage simply stays absent).
+      const partialUsage = await capturePartialUsage(result, config.model);
+
+      if (error instanceof Error && error.name === 'AbortError') {
+        const duration = Date.now() - startTime;
+        logger.error('agent_timeout', error, {
+          agent_id: agentId,
+          timeout_ms: timeoutMs,
+          duration_ms: duration,
+        });
+        span.setAttribute('agent.error', 'timeout');
+        throw new AgentTimeoutError(agentId, timeoutMs, partialUsage);
+      }
+
+      // Structured error handling — log and re-wrap
+      const duration = Date.now() - startTime;
+      logger.error('agent_execution_failed', error, {
+        agent_id: agentId,
+        model: config.model,
+        attempt,
+        duration_ms: duration,
+      });
+      span.setAttribute('agent.error', error instanceof Error ? error.message : String(error));
+      throw new AgentExecutionError(agentId, error, partialUsage, classifyRetryable(error));
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    const tokenUsage: TokenUsage = {
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
+      totalTokens: usage?.totalTokens ?? 0,
+    };
+
+    // Flatten tool calls and results from all steps
+    const toolCalls = steps.flatMap((step) => step.toolCalls ?? []);
+    const toolResults = steps.flatMap((step) => step.toolResults ?? []);
+
+    // Build a lookup map for tool results by toolCallId (not index).
+    // Index-based alignment breaks when a call has no result or steps
+    // have variable numbers of calls.
+    const toolResultById = new Map<string, unknown>();
+    for (const tr of toolResults) {
+      if (tr.toolCallId) {
+        toolResultById.set(tr.toolCallId, tr.result);
+      }
+    }
+
+    // Log individual tool calls for observability
+    for (const call of toolCalls) {
+      logger.info('tool_called', {
+        agent_id: agentId,
+        tool_name: call.toolName,
+        tool_call_id: call.toolCallId,
+      });
+      logger.debug('tool_call_detail', {
+        agent_id: agentId,
+        tool_name: call.toolName,
+        tool_call_id: call.toolCallId,
+        args: call.input ?? call.args,
+      });
+    }
+
+    // Extract memory updates from tool results, validated and routed against
+    // the EFFECTIVE write permission (grant ∩ ceiling).
+    const fallbackKey = options?.nodeId ? `${options.nodeId}_output` : 'agent_response';
+    const memoryUpdates = extractMemoryUpdates(text, toolCalls, effectiveWrite, fallbackKey, options?.defaultWriteKey);
+
+    // Apply MCP taint: if any MCP tools were called during this execution,
+    // mark all output memory keys as tainted by MCP tool origin.
+    const mcpToolCalls = toolCalls.filter((c) => c.toolName !== 'save_to_memory');
+    // Pass the toolset so taint is drained from THIS execution's collector —
+    // race-free when sibling executions (voting/evolution/map) run concurrently.
+    const mcpTaintEntries = options?.drainTaintEntries?.(rawTools);
+
+    // Propagate taint: if any READABLE input keys were tainted (per the view's
+    // scoped registry), mark outputs as derived-tainted.
+    const outputKeys = Object.keys(memoryUpdates);
+    if (outputKeys.length > 0) {
+      const taintUpdates = propagateDerivedTaint(
+        view.memory,
+        view.taint ?? {},
+        outputKeys,
+        agentId,
+      );
+
+      // Merge external-tool direct taint: when tainting tools (MCP, or
+      // custom tools declared `taints: true`) were called this execution,
+      // apply their taint to all output keys (we can't trace which specific
+      // tool result ended up in which key, so taint conservatively). The
+      // first drained entry is the representative — its `source` carries
+      // through so custom-tool taint is attributed as `custom_tool`.
+      if (mcpToolCalls.length > 0 && mcpTaintEntries && mcpTaintEntries.size > 0) {
+        for (const key of outputKeys) {
+          const [, firstEntry] = mcpTaintEntries.entries().next().value as [string, TaintMetadata];
+          taintUpdates[key] = {
+            source: firstEntry.source,
+            tool_name: [...new Set(mcpToolCalls.map((c) => c.toolName))].join(','),
+            server_id: firstEntry.server_id,
+            agent_id: agentId,
+            created_at: new Date().toISOString(),
+          };
+        }
+      }
+
+      // Retrieval taint: when untrusted retrieved content (RAG over external /
+      // user documents) was injected into this prompt, mark the outputs so a
+      // poisoned document can't drive a downstream sensitive action ungated.
+      if (options?.memoryQuery?.untrusted && (retrievedMemory?.facts?.length ?? 0) > 0) {
+        for (const key of outputKeys) {
+          taintUpdates[key] = { source: 'retrieval', agent_id: agentId, created_at: new Date().toISOString() };
+        }
+      }
+
+      // Only the NEW entries go on the wire — the reducer's routing choke
+      // point appends them to `state.taint_registry` (append-only).
+      if (Object.keys(taintUpdates).length > 0) {
+        memoryUpdates['_taint_registry'] = taintUpdates;
+      }
+    }
+
+    // Record lesson provenance: which retrieved facts were injected into
+    // this prompt. Added AFTER the taint block so the registry key never
+    // counts as an agent output for taint propagation, and recorded even
+    // when the agent wrote nothing beyond the fallback key.
+    const lessonProvenance = mintLessonProvenance(retrievedMemory, {
+      nodeId: options?.nodeId ?? agentId,
+      agentId,
+    });
+    if (lessonProvenance) {
+      memoryUpdates[LESSON_PROVENANCE_KEY] = lessonProvenance;
+    }
+
+    // Collect tool execution metadata separately — not stored in memory
+    // Correlate by toolCallId for correctness
+    const toolExecutions = toolCalls
+      .filter((call) => call.toolName !== 'save_to_memory')
+      .map((call) => ({
+        tool: call.toolName,
+        args: call.input ?? call.args,
+        result: toolResultById.get(call.toolCallId),
+      }));
+
+    const duration = Date.now() - startTime;
+
+    // Build action — internal metadata is in metadata, not polluting memory
+    const action: Action = {
+      id: uuidv4(),
+      idempotency_key: options?.idempotencyKey ?? uuidv4(),
+      type: 'update_memory',
+      payload: {
+        updates: memoryUpdates,
+      },
+      metadata: {
+        // The GRAPH NODE id — reducers attribute memory drops and recovery
+        // attributes events via this field. Falls back to the agent id only
+        // when the executor is invoked outside a graph node context.
+        node_id: options?.nodeId ?? agentId,
+        agent_id: agentId,
+        model: effectiveConfig.model,
+        ...(options?.modelOverride ? {
+          model_resolution: {
+            original_model: config.model,
+            resolved_model: options.modelOverride,
+          },
+        } : {}),
+        timestamp: new Date(),
+        attempt,
+        duration_ms: duration,
+        token_usage: tokenUsage,
+        tool_executions: toolExecutions.length > 0 ? toolExecutions : undefined,
+      },
+    };
+
+    logger.info('completed', {
+      agent_id: agentId,
+      duration_ms: duration,
+      tool_calls: toolCalls.length,
+      tool_names: [...new Set(toolCalls.map((c) => c.toolName))].join(','),
+      input_tokens: tokenUsage.inputTokens,
+      output_tokens: tokenUsage.outputTokens,
+      total_tokens: tokenUsage.totalTokens,
+      memory_keys_updated: Object.keys(memoryUpdates),
+    });
+
+    // Add span attributes for observability
+    span.setAttribute('agent.model', effectiveConfig.model);
+    span.setAttribute('agent.provider', config.provider);
+    span.setAttribute('agent.duration_ms', duration);
+    span.setAttribute('agent.tokens.input', tokenUsage.inputTokens);
+    span.setAttribute('agent.tokens.output', tokenUsage.outputTokens);
+    span.setAttribute('agent.tokens.total', tokenUsage.totalTokens);
+    span.setAttribute('agent.tools_called', toolCalls.length);
+
+    // Validate against Zero Trust permissions (grant ∩ ceiling)
+    validateMemoryUpdatePermissions(action, effectiveWrite);
+
+    return action;
+  });
+}
+
+/**
+ * Narrow a state view by the agent config's optional read CEILING (ADR 001).
+ * The node's `read_keys` produced the incoming view (the grant); a declared
+ * agent-level ceiling can only remove keys from it, never add. `'*'` or an
+ * undefined ceiling passes the view through unchanged.
+ */
+function applyReadCeiling(stateView: StateView, ceiling: string[] | undefined): StateView {
+  if (ceiling === undefined || ceiling.includes('*')) return stateView;
+
+  const cap = new Set(ceiling.map((k) => k.split('.')[0]));
+  const memory: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(stateView.memory)) {
+    if (cap.has(key)) memory[key] = value;
+  }
+  let taint: StateView['taint'];
+  if (stateView.taint) {
+    taint = {};
+    for (const [key, value] of Object.entries(stateView.taint)) {
+      if (cap.has(key)) taint[key] = value;
+    }
+  }
+  return {
+    ...stateView,
+    memory,
+    ...(taint && Object.keys(taint).length > 0 ? { taint } : { taint: undefined }),
+  };
+}
+
+/**
+ * Clamp a temperature override to the provider's supported range.
+ *
+ * Annealing / evolution configs allow temperatures up to 2 (the widest
+ * provider surface), but Anthropic's API rejects values above 1 — without
+ * clamping, a high-temperature annealing iteration on an Anthropic agent
+ * hard-errors mid-loop instead of running slightly less hot.
+ */
+function clampTemperature(value: number, provider: string, agentId: string): number {
+  const max = provider === 'anthropic' ? 1 : 2;
+  const clamped = Math.min(Math.max(0, value), max);
+  if (clamped !== value) {
+    logger.warn('temperature_override_clamped', {
+      agent_id: agentId,
+      provider,
+      requested: value,
+      clamped,
+    });
+  }
+  return clamped;
+}
+
+/**
+ * Create an {@link AbortController} that auto-aborts after the given timeout.
+ *
+ * @param timeoutMs - Milliseconds before the controller aborts.
+ * @returns The timeout ID (for cleanup) and the controller.
+ */
+function createAbortControllerWithTimeout(timeoutMs: number) {
+  const controller = new AbortController();
+  return {
+    timeoutId: setTimeout(() => controller.abort(), timeoutMs),
+    controller,
+  };
+}
+
+/**
+ * Best-effort read of token usage from a streamText result after the call
+ * failed or was aborted. Bounded by a short timeout so a never-settling
+ * `totalUsage` promise can't hang the error path; any rejection or absence
+ * yields `undefined` (no usage attributed).
+ */
+async function capturePartialUsage(
+  result: Awaited<ReturnType<typeof streamText>> | undefined,
+  model: string,
+): Promise<PartialUsage | undefined> {
+  if (!result) return undefined;
+  try {
+    const usage = await Promise.race([
+      result.totalUsage,
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 200)),
+    ]);
+    if (!usage) return undefined;
+    const total = usage.totalTokens ?? ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
+    if (!total) return undefined;
+    return {
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
+      totalTokens: total,
+      model,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Check whether a resolved tool entry is already a well-formed AI SDK `Tool`.
+ *
+ * The AI SDK `Tool` type discriminates on `type`:
+ * - `undefined | 'function'` — standard tools created by `tool()`
+ * - `'dynamic'`              — runtime tools created by `dynamicTool()` (e.g. `@ai-sdk/mcp`)
+ * - `'provider'`             — provider-specific tools
+ *
+ * All three variants require `inputSchema` to be present, so we use that as
+ * the structural guard in addition to `type`.
+ *
+ * @see https://github.com/vercel/ai — `@ai-sdk/provider-utils/src/types/tool.ts`
+ */
+function isAISDKTool(entry: Record<string, unknown>): boolean {
+  const type = entry.type;
+  const hasInputSchema = 'inputSchema' in entry;
+
+  // dynamicTool() always sets type: 'dynamic'
+  if (type === 'dynamic' && hasInputSchema) return true;
+
+  // tool() leaves type undefined (or explicitly 'function')
+  if ((type === undefined || type === 'function') && hasInputSchema) return true;
+
+  // Provider tools have type: 'provider' + an id field
+  if (type === 'provider' && typeof entry.id === 'string') return true;
+
+  return false;
+}
+
+/**
+ * Build an AI SDK {@link ToolSet} from resolved tool definitions.
+ *
+ * Tools arrive from `MCPConnectionManager.resolveTools()` in two shapes:
+ *
+ * 1. **Pre-formed AI SDK tools** (`dynamicTool()` objects from `@ai-sdk/mcp`,
+ *    or `tool()` objects from other sources). Detected via {@link isAISDKTool}
+ *    and passed through directly — re-wrapping would strip internal state.
+ *
+ * 2. **Raw tool definitions** — plain `{ description, parameters, execute }`
+ *    objects (e.g. built-in tools like `save_to_memory`). Wrapped with the
+ *    AI SDK `tool()` helper for schema validation.
+ *
+ * @param rawTools - Resolved tool definitions (may include execute callbacks).
+ * @param agentId - The agent ID, for logging context.
+ * @returns A {@link ToolSet} compatible with `streamText`.
+ */
+function buildToolSet(
+  rawTools: Record<string, unknown>,
+  agentId: string,
+): ToolSet {
+  const tools: ToolSet = {};
+
+  for (const [name, raw] of Object.entries(rawTools)) {
+    if (!raw || typeof raw !== 'object') {
+      logger.warn('tool_skipped_invalid', { agent_id: agentId, tool_name: name, reason: 'not an object' });
+      continue;
+    }
+
+    const entry = raw as Record<string, unknown>;
+
+    // ── Pre-formed AI SDK tool ─────────────────────────────────────
+    if (isAISDKTool(entry)) {
+      tools[name] = raw as ToolSet[string];
+      continue;
+    }
+
+    // ── Raw tool definition (built-in tools) ───────────────────────
+    const description = entry.description;
+    const schema = entry.inputSchema ?? entry.parameters;
+
+    if (typeof description !== 'string' || !description) {
+      logger.warn('tool_skipped_invalid', { agent_id: agentId, tool_name: name, reason: 'missing description' });
+      continue;
+    }
+
+    if (!schema || typeof schema !== 'object') {
+      logger.warn('tool_skipped_invalid', { agent_id: agentId, tool_name: name, reason: 'missing parameters/inputSchema' });
+      continue;
+    }
+
+    const executeFn = typeof entry.execute === 'function'
+      ? entry.execute as (args: Record<string, unknown>) => Promise<unknown>
+      : undefined;
+
+    tools[name] = tool({
+      description,
+      inputSchema: jsonSchema(schema as Parameters<typeof jsonSchema>[0]),
+      execute: executeFn
+        ? async (args: Record<string, unknown>) => executeFn(args)
+        : async (args: Record<string, unknown>) => args,
+    });
+  }
+
+  return tools;
+}

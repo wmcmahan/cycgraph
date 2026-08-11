@@ -3,8 +3,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { executeParallel, type ParallelTask } from '../src/runner/parallel-executor.js';
-import type { Action } from '../src/types/state.js';
+import { executeParallel, type ParallelTask } from '../src/execution/engine/parallel-executor.js';
+import type { Action } from '../src/state/state.js';
 
 const makeTask = (nodeId: string): ParallelTask => ({
   node: {

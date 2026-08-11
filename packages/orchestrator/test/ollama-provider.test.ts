@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ProviderRegistry } from '../src/agent/provider-registry.js';
-import { registerOllamaProvider } from '../src/agent/ollama-provider.js';
-import { OLLAMA_MODELS } from '../src/agent/constants.js';
+import { ProviderRegistry } from '../src/agents/providers/provider-registry.js';
+import { registerOllamaProvider } from '../src/agents/providers/ollama-provider.js';
+import { OLLAMA_MODELS } from '../src/agents/constants.js';
 import type { LanguageModel } from 'ai';
-import type { OllamaModelFactory } from '../src/agent/ollama-provider.js';
+import type { OllamaModelFactory } from '../src/agents/providers/ollama-provider.js';
 
 // Mock logger to silence output
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

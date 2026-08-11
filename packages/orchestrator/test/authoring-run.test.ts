@@ -7,12 +7,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WorkflowState } from '../src/types/state.js';
+import type { WorkflowState } from '../src/state/state.js';
 
 const runnerRun = vi.hoisted(() => vi.fn());
 const runnerCtor = vi.hoisted(() => vi.fn());
 
-vi.mock('../src/runner/graph-runner.js', () => ({
+vi.mock('../src/execution/engine/graph-runner.js', () => ({
   GraphRunner: class {
     constructor(...args: unknown[]) {
       runnerCtor(...args);

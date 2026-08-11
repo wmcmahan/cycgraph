@@ -7,9 +7,9 @@ import {
   VerificationFailedError,
   MemoryWriterMissingError,
   SubgraphIncompleteError,
-} from '../src/runner/node-executors/errors.js';
+} from '../src/execution/nodes/errors.js';
 import { CycgraphError } from '../src/errors.js';
-import type { VerificationResult } from '../src/types/graph.js';
+import type { VerificationResult } from '../src/graph/graph.js';
 
 describe('VerificationFailedError', () => {
   const result: VerificationResult = {

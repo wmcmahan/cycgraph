@@ -23,7 +23,7 @@
  */
 
 import { z } from 'zod';
-import { BUILTIN_TOOL_NAMES } from '../types/tools.js';
+import { BUILTIN_TOOL_NAMES } from './schema.js';
 
 /** Default per-call execution timeout — aligned with the MCP default. */
 export const DEFAULT_CUSTOM_TOOL_TIMEOUT_MS = 30_000;
@@ -152,9 +152,5 @@ export function defineTool<TArgs extends z.ZodType>(spec: DefinedToolSpec<TArgs>
   };
 }
 
-/**
- * Terse alias of {@link defineTool} — the tool member of the authoring
- * vocabulary (`agent` · `node` · `graph` · `state` · `run` · `tool`).
- * `defineTool` remains as the verbose form; both are the same function.
- */
+/** Terse alias of {@link defineTool} */
 export const tool = defineTool;

@@ -11,9 +11,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { buildExecutorContext } from '../src/runner/executor-context-builder.js';
-import type { ExecutorContextRunner } from '../src/runner/executor-context-builder.js';
-import { AgentFactory } from '../src/agent/agent-factory/index.js';
+import { buildExecutorContext } from '../src/execution/engine/executor-context-builder.js';
+import type { ExecutorContextRunner } from '../src/execution/engine/executor-context-builder.js';
+import { AgentFactory } from '../src/agents/factory/index.js';
 import { InMemoryAgentRegistry } from '../src/persistence/in-memory.js';
 import { createTestState, createSimpleGraph } from './helpers/factories.js';
 

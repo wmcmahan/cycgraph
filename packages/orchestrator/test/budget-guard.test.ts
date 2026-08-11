@@ -7,13 +7,13 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-import { checkCompositeBudget } from '../src/runner/node-executors/budget-guard.js';
-import type { GraphNode } from '../src/types/graph.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
+import { checkCompositeBudget } from '../src/execution/nodes/budget-guard.js';
+import type { GraphNode } from '../src/graph/graph.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
 
 const node = (budget?: { max_tokens?: number; max_cost_usd?: number }): GraphNode => ({
   id: 'composite',

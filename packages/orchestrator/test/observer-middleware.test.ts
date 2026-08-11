@@ -1,5 +1,5 @@
 /**
- * Tests for runner/observer-middleware: the deterministic health checks
+ * Tests for execution/middleware/observer-middleware: the deterministic health checks
  * (token burn, iteration budget, stall detection) and the optional
  * post-run diagnostic agent.
  */
@@ -13,18 +13,18 @@ const { generateText, mockLogger, resolveModel } = vi.hoisted(() => ({
 }));
 
 vi.mock('ai', () => ({ generateText }));
-vi.mock('../src/agent/provider-registry.js', () => ({
+vi.mock('../src/agents/providers/provider-registry.js', () => ({
   createProviderRegistry: () => ({ resolveModel }),
 }));
-vi.mock('../src/utils/logger.js', () => ({ createLogger: () => mockLogger }));
+vi.mock('../src/observability/logger.js', () => ({ createLogger: () => mockLogger }));
 
 import {
   createObserverMiddleware,
   type ObserverFinding,
   type DiagnosticAgentOptions,
-} from '../src/runner/observer-middleware.js';
-import type { Action, WorkflowState } from '../src/types/state.js';
-import type { MiddlewareContext } from '../src/runner/middleware.js';
+} from '../src/execution/middleware/observer-middleware.js';
+import type { Action, WorkflowState } from '../src/state/state.js';
+import type { MiddlewareContext } from '../src/execution/middleware/middleware.js';
 
 function makeAction(overrides: Partial<Action> & { metadata?: Partial<Action['metadata']> } = {}): Action {
   const metadata = {

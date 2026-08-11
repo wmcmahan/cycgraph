@@ -1,18 +1,18 @@
 /**
- * Tests for utils/metrics: the disabled no-op path and the enabled
+ * Tests for observability/metrics: the disabled no-op path and the enabled
  * Prometheus path (real OTel SDK), exercised by re-importing the module
  * with METRICS_ENABLED controlled per test.
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-type MetricsModule = typeof import('../src/utils/metrics.js');
+type MetricsModule = typeof import('../src/observability/metrics.js');
 
 async function loadMetrics(enabled: boolean): Promise<MetricsModule> {
   vi.resetModules();
   if (enabled) process.env.METRICS_ENABLED = 'true';
   else delete process.env.METRICS_ENABLED;
-  return import('../src/utils/metrics.js');
+  return import('../src/observability/metrics.js');
 }
 
 describe('metrics (disabled)', () => {

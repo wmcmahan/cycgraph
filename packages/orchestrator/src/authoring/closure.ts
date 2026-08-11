@@ -9,7 +9,7 @@
  * @module authoring/closure
  */
 
-import type { Graph } from '../types/graph.js';
+import type { Graph } from '../graph/graph.js';
 import type { AgentRegistryConfig } from '../persistence/interfaces.js';
 import type { DefinedTool } from '../tools/define-tool.js';
 import type { CapabilityCeiling } from '../tools/registry.js';

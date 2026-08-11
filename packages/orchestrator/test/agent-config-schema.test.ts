@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { AgentConfigSchema } from '../src/agent/types.js';
+import { AgentConfigSchema } from '../src/agents/types.js';
 
 function baseConfig(overrides: Record<string, unknown> = {}) {
   return {

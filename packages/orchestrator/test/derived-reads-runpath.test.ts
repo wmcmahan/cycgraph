@@ -9,11 +9,11 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { StateView } from '../src/types/state.js';
+import type { StateView } from '../src/state/state.js';
 
 const capturedViews: StateView[] = [];
 
-vi.mock('../src/agent/supervisor-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/supervisor/executor.js', () => ({
   executeSupervisor: vi.fn(async (node: { id: string }, stateView: StateView, _h: unknown, attempt: number) => {
     capturedViews.push(stateView);
     return {
@@ -26,14 +26,14 @@ vi.mock('../src/agent/supervisor-executor/executor.js', () => ({
   }),
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { createGraph } from '../src/types/graph.js';
-import { markTainted } from '../src/utils/taint.js';
-import type { SecurityPolicy } from '../src/runner/security-policy.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { createGraph } from '../src/graph/graph.js';
+import { markTainted } from '../src/security/taint.js';
+import type { SecurityPolicy } from '../src/security/security-policy.js';
 import { createTestState } from './helpers/factories.js';
 
 function supervisorOverWorker() {

@@ -29,7 +29,7 @@ vi.mock('jsonpath', () => ({
 }));
 
 // Mock agent runtime modules — subgraph tests only need tool nodes
-vi.mock('../src/agent/agent-factory.js', () => ({
+vi.mock('../src/agents/factory.js', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent',
@@ -43,36 +43,36 @@ vi.mock('../src/agent/agent-factory.js', () => ({
   AgentFactory: vi.fn(),
 }));
 
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: vi.fn(),
   PermissionDeniedError: class extends Error { },
 }));
 
-vi.mock('../src/agent/supervisor-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/supervisor/executor.js', () => ({
   executeSupervisor: vi.fn(),
   SupervisorConfigError: class extends Error { },
   SupervisorRoutingError: class extends Error { },
   SUPERVISOR_DONE: '__done__',
 }));
 
-vi.mock('../src/agent/evaluator-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/evaluator/executor.js', () => ({
   evaluateQualityExecutor: vi.fn(),
 }));
 
-vi.mock('../src/utils/tracing.js', () => ({
+vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_t: any, _n: string, fn: any) => fn({ setAttribute: vi.fn() }),
   initTracing: vi.fn(),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { executeSubgraphNode } from '../src/runner/node-executors/subgraph.js';
-import { executeAgent } from '../src/agent/agent-executor/executor.js';
-import { NodeConfigError } from '../src/runner/errors.js';
-import { markTainted } from '../src/utils/taint.js';
-import type { Graph, GraphNode } from '../src/types/graph.js';
-import type { WorkflowState, StateView } from '../src/types/state.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { executeSubgraphNode } from '../src/execution/nodes/subgraph.js';
+import { executeAgent } from '../src/agents/executors/agent/executor.js';
+import { NodeConfigError } from '../src/execution/errors.js';
+import { markTainted } from '../src/security/taint.js';
+import type { Graph, GraphNode } from '../src/graph/graph.js';
+import type { WorkflowState, StateView } from '../src/state/state.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
 
 function createTestState(overrides: Partial<WorkflowState> = {}): WorkflowState {
   return {

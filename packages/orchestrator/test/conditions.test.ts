@@ -1,9 +1,9 @@
 /**
- * Tests for the edge condition evaluator (runner/conditions.ts).
+ * Tests for the edge condition evaluator (execution/routing/conditions.ts).
  */
 
 import { describe, it, expect } from 'vitest';
-import { evaluateCondition } from '../src/runner/conditions.js';
+import { evaluateCondition } from '../src/execution/routing/conditions.js';
 import { FILTREX_CACHE_SIZE } from '../src/runtime-config.js';
 import { createTestState } from './helpers/factories.js';
 import type { EdgeCondition, WorkflowState } from '../src/index.js';

@@ -12,8 +12,8 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { GraphRunner } from '../runner/graph-runner.js';
-import type { WorkflowState } from '../types/state.js';
+import { GraphRunner } from '../execution/engine/graph-runner.js';
+import type { WorkflowState } from '../state/state.js';
 import { checkAssertion } from './assertions.js';
 import type { EvalSuite, EvalCase, EvalCaseResult, EvalReport } from './types.js';
 

@@ -7,7 +7,7 @@ vi.mock('ai', () => ({
 }));
 
 // Mock agent factory
-vi.mock('../src/agent/agent-factory/index', () => ({
+vi.mock('../src/agents/factory/index', () => ({
   agentFactory: {
     loadAgent: vi.fn(),
     getModel: vi.fn(() => ({ provider: 'anthropic', modelId: 'claude-sonnet-4-6' })),
@@ -15,7 +15,7 @@ vi.mock('../src/agent/agent-factory/index', () => ({
 }));
 
 // Mock logger to silence output
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -25,11 +25,11 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 import { generateText } from 'ai';
-import { agentFactory } from '../src/agent/agent-factory/index.js';
+import { agentFactory } from '../src/agents/factory/index.js';
 import { generateWorkflow } from '../src/architect/index.js';
 import { ArchitectError } from '../src/architect/errors.js';
 import { LLMGraphSchema } from '../src/architect/schemas.js';
-import type { Graph } from '../src/types/graph.js';
+import type { Graph } from '../src/graph/graph.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────
 

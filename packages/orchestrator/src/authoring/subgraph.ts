@@ -16,8 +16,8 @@
  * @module authoring/subgraph
  */
 
-import type { Graph } from '../types/graph.js';
-import { isGraphBundle, type GraphBundle } from '../types/bundle.js';
+import type { Graph } from '../graph/graph.js';
+import { isGraphBundle, type GraphBundle } from './bundle-schema.js';
 import { NODE_BRAND, type NodeValue } from './node.js';
 
 /**

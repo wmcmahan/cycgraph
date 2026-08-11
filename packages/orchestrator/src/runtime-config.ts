@@ -8,7 +8,7 @@
  * or a negative timeout.
  *
  * Domain constants (model identifiers, default prompts, etc.) live in
- * `agent/constants.ts` — they aren't tunable at runtime and don't belong here.
+ * `agent/constants.ts` and aren't tunable at runtime and don't belong here.
  *
  * @module runtime-config
  */
@@ -41,7 +41,7 @@ function envInt(name: string): number | undefined {
 /**
  * Zod schema with bounds for every operational knob. Bounds exist to catch
  * footguns (e.g. `MAX_MEMORY_VALUE_BYTES=0` would silently drop every update).
- * If you genuinely need a value outside these bounds, change the schema —
+ * If you genuinely need a value outside these bounds, change the schema and
  * don't widen at the caller.
  */
 const RuntimeConfigSchema = z.object({
@@ -112,10 +112,6 @@ function loadRuntimeConfig(): RuntimeConfig {
 export const runtimeConfig: RuntimeConfig = loadRuntimeConfig();
 
 // ─── Named exports (backwards-compatible aliases) ────────────────────
-//
-// Prefer importing these from this module; `agent/constants.ts`,
-// `reducers/index.ts`, and `runner/conditions.ts` re-export them for
-// back-compat.
 
 export const AGENT_CONFIG_CACHE_TTL_MS = runtimeConfig.AGENT_CONFIG_CACHE_TTL_MS;
 export const MAX_AGENT_CONFIG_CACHE_SIZE = runtimeConfig.MAX_AGENT_CONFIG_CACHE_SIZE;

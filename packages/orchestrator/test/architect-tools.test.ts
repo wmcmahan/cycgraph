@@ -6,10 +6,10 @@ import {
   type ArchitectToolDeps,
 } from '../src/architect/tools.js';
 import { ArchitectError } from '../src/architect/errors.js';
-import type { Graph } from '../src/types/graph.js';
+import type { Graph } from '../src/graph/graph.js';
 
 // Mock logger
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

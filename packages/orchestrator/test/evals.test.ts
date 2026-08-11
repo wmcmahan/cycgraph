@@ -27,7 +27,7 @@ vi.mock('@opentelemetry/api', () => ({
   context: {},
 }));
 
-vi.mock('../src/agent/agent-executor/executor', () => ({
+vi.mock('../src/agents/executors/agent/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _tools: any, attempt: number) => ({
     id: uuidv4(),
     idempotency_key: uuidv4(),
@@ -37,11 +37,11 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
   })),
 }));
 
-vi.mock('../src/agent/supervisor-executor', () => ({
+vi.mock('../src/agents/executors/supervisor', () => ({
   executeSupervisor: vi.fn(),
 }));
 
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent', name: 'Test', model: 'claude-3-5-sonnet', provider: 'anthropic',
@@ -52,25 +52,25 @@ vi.mock('../src/agent/agent-factory', () => ({
   },
 }));
 
-vi.mock('../src/agent/evaluator-executor/executor', () => ({
+vi.mock('../src/agents/executors/evaluator/executor', () => ({
   evaluateQualityExecutor: vi.fn(),
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
 import { checkAssertion } from '../src/evals/assertions.js';
 import { runEval } from '../src/evals/runner.js';
-import { evaluateQualityExecutor } from '../src/agent/evaluator-executor/executor.js';
-import type { WorkflowState } from '../src/types/state.js';
+import { evaluateQualityExecutor } from '../src/agents/executors/evaluator/executor.js';
+import type { WorkflowState } from '../src/state/state.js';
 import type { EvalAssertion, EvalSuite } from '../src/evals/types.js';
-import type { Graph } from '../src/types/graph.js';
+import type { Graph } from '../src/graph/graph.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 

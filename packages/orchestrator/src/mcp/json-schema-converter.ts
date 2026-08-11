@@ -19,7 +19,7 @@
  */
 
 import { z } from 'zod';
-import { createLogger } from '../utils/logger.js';
+import { createLogger } from '../observability/logger.js';
 
 /**
  * Subset of JSON Schema used by MCP tool input definitions.

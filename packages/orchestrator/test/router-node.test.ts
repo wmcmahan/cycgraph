@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executeRouterNode } from '../src/runner/node-executors/router.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
+import { executeRouterNode } from '../src/execution/nodes/router.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
 import { makeNode, createTestState, createSimpleGraph } from './helpers/factories.js';
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     error: vi.fn(),

@@ -9,8 +9,8 @@
  */
 
 import { z } from 'zod';
-import type { Graph } from '../types/graph.js';
-import { GraphSchema } from '../types/graph.js';
+import type { Graph } from '../graph/graph.js';
+import { GraphSchema } from '../graph/graph.js';
 import { LLMGraphSchema } from './schemas.js';
 
 /** Inferred type of an LLM-generated graph (before runtime fields are added). */

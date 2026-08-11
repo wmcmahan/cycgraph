@@ -10,12 +10,12 @@
  * @module persistence/in-memory
  */
 
-import type { Graph } from '../types/graph.js';
-import type { WorkflowState } from '../types/state.js';
-import { hydrateWorkflowState } from '../types/state.js';
-import type { MCPServerEntry, MCPServerConfig } from '../types/tools.js';
-import { MCPServerEntrySchema, normalizeToolSources } from '../types/tools.js';
-import { camelToSnakeDeep } from '../types/case-mapping.js';
+import type { Graph } from '../graph/graph.js';
+import type { WorkflowState } from '../state/state.js';
+import { hydrateWorkflowState } from '../state/state.js';
+import type { MCPServerEntry, MCPServerConfig } from '../tools/schema.js';
+import { MCPServerEntrySchema, normalizeToolSources } from '../tools/schema.js';
+import { camelToSnakeDeep } from '../utils/case-mapping.js';
 import type {
   PersistenceProvider,
   AgentRegistry,
@@ -190,7 +190,7 @@ export class InMemoryPersistenceProvider implements PersistenceProvider {
       _cost_alert_thresholds_fired: state._cost_alert_thresholds_fired,
       model_breakdown: state.model_breakdown,
       memory_drops: state.memory_drops,
-      // Engine-owned registries (schema v2).
+      // Engine-owned registries.
       taint_registry: state.taint_registry,
       lesson_provenance: state.lesson_provenance,
       pending_approval: state.pending_approval,

@@ -1,11 +1,11 @@
 /**
- * Tests for utils/tracing: getTracer, withSpan (success/error paths), and
+ * Tests for observability/tracing: getTracer, withSpan (success/error paths), and
  * initTracing (disabled early-return + enabled NodeSDK path with the OTel
  * modules mocked so no real exporter or network is involved).
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getTracer, withSpan } from '../src/utils/tracing.js';
+import { getTracer, withSpan } from '../src/observability/tracing.js';
 
 describe('getTracer', () => {
   it('returns a tracer with a startActiveSpan method', () => {
@@ -81,7 +81,7 @@ describe('initTracing', () => {
   it('no-ops when OTEL_EXPORTER_OTLP_ENDPOINT is not set', async () => {
     vi.resetModules();
     delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-    const mod = await import('../src/utils/tracing.js');
+    const mod = await import('../src/observability/tracing.js');
 
     await expect(mod.initTracing('test-service')).resolves.toBeUndefined();
   });
@@ -89,7 +89,7 @@ describe('initTracing', () => {
   it('is idempotent once initialized', async () => {
     vi.resetModules();
     delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-    const mod = await import('../src/utils/tracing.js');
+    const mod = await import('../src/observability/tracing.js');
 
     await mod.initTracing('test-service');
     await expect(mod.initTracing('test-service')).resolves.toBeUndefined();
@@ -128,7 +128,7 @@ describe('initTracing', () => {
       return process;
     });
 
-    const mod = await import('../src/utils/tracing.js');
+    const mod = await import('../src/observability/tracing.js');
     await mod.initTracing('orchestrator');
 
     expect(exporterCtor).toHaveBeenCalledWith({ url: 'http://localhost:4318/v1/traces' });

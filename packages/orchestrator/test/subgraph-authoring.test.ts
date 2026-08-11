@@ -9,7 +9,7 @@ import { agent } from '../src/authoring/agent.js';
 import { node } from '../src/authoring/node.js';
 import { subgraph } from '../src/authoring/subgraph.js';
 import { graph, graphsForGraph, GraphSpecError } from '../src/authoring/graph.js';
-import { createGraph, type Graph } from '../src/types/graph.js';
+import { createGraph, type Graph } from '../src/graph/graph.js';
 
 function childGraph(name = 'child'): Graph {
   const worker = node({

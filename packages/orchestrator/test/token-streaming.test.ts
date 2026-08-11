@@ -10,14 +10,14 @@ vi.mock('ai', () => ({
   isStepCount: vi.fn((n: number) => ({ type: 'stepCount', count: n })),
 }));
 
-vi.mock('../src/agent/agent-factory/index', () => ({
+vi.mock('../src/agents/factory/index', () => ({
   agentFactory: {
     loadAgent: vi.fn(),
     getModel: vi.fn(() => ({ provider: 'anthropic', modelId: 'claude-sonnet-4-6' })),
   },
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -26,16 +26,16 @@ vi.mock('../src/utils/logger.js', () => ({
   }),
 }));
 
-vi.mock('../src/utils/tracing.js', () => ({
+vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: unknown, _name: string, fn: (span: any) => any) =>
     fn({ setAttribute: vi.fn() }),
 }));
 
 import { streamText } from 'ai';
-import { agentFactory } from '../src/agent/agent-factory/index.js';
-import { executeAgent } from '../src/agent/agent-executor/executor.js';
-import type { StateView } from '../src/types/state.js';
+import { agentFactory } from '../src/agents/factory/index.js';
+import { executeAgent } from '../src/agents/executors/agent/executor.js';
+import type { StateView } from '../src/state/state.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -180,7 +180,7 @@ describe('Token Streaming', () => {
         context: {},
       }));
 
-      vi.doMock('../src/agent/agent-executor/executor', () => ({
+      vi.doMock('../src/agents/executors/agent/executor', () => ({
         executeAgent: vi.fn(async (agentId: string, _sv: any, _tools: any, attempt: number, options?: any) => {
           if (options?.onToken) {
             options.onToken('Hello');
@@ -197,11 +197,11 @@ describe('Token Streaming', () => {
         }),
       }));
 
-      vi.doMock('../src/agent/supervisor-executor/executor', () => ({
+      vi.doMock('../src/agents/executors/supervisor/executor', () => ({
         executeSupervisor: vi.fn(),
       }));
 
-            vi.doMock('../src/agent/agent-factory/index', () => ({
+            vi.doMock('../src/agents/factory/index', () => ({
         agentFactory: {
           loadAgent: vi.fn().mockResolvedValue({
             id: 'test-agent', name: 'Test', model: 'claude-sonnet-4-6', provider: 'anthropic',
@@ -212,7 +212,7 @@ describe('Token Streaming', () => {
         },
       }));
 
-      const { GraphRunner } = await import('../src/runner/graph-runner.js');
+      const { GraphRunner } = await import('../src/execution/engine/graph-runner.js');
 
       const graph = {
         id: uuidv4(),

@@ -14,7 +14,7 @@ import { computeRequirements, checkRequirements } from '../src/authoring/require
 import { bundle, parseBundle } from '../src/authoring/bundle.js';
 import { tool } from '../src/tools/define-tool.js';
 import { InMemoryMCPServerRegistry } from '../src/persistence/in-memory.js';
-import { createProviderRegistry } from '../src/agent/provider-registry.js';
+import { createProviderRegistry } from '../src/agents/providers/provider-registry.js';
 
 describe('computeRequirements', () => {
   it('collects custom tools, mcp servers, and models from one graph', () => {

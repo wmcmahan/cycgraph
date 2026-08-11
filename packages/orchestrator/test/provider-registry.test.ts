@@ -3,8 +3,8 @@ import {
   ProviderRegistry,
   registerBuiltInProviders,
   createProviderRegistry,
-} from '../src/agent/provider-registry.js';
-import { UnsupportedProviderError } from '../src/agent/agent-factory/errors.js';
+} from '../src/agents/providers/provider-registry.js';
+import { UnsupportedProviderError } from '../src/agents/factory/errors.js';
 import type { LanguageModel } from 'ai';
 
 // Mock the AI SDK providers
@@ -17,7 +17,7 @@ vi.mock('@ai-sdk/anthropic', () => ({
 }));
 
 // Mock logger to silence output
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

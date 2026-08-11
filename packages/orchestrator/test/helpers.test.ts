@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateBackoff, sleep } from '../src/runner/helpers.js';
+import { calculateBackoff, sleep } from '../src/execution/engine/helpers.js';
 
 describe('Helper Utilities', () => {
   describe('calculateBackoff', () => {

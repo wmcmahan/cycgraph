@@ -1,0 +1,266 @@
+/**
+ * Node Executor Context
+ *
+ * Shared types for all node executor functions. Defines the dependency
+ * injection interface ({@link ExecutorDependencies}) and the context
+ * bag ({@link NodeExecutorContext}) passed to every executor.
+ *
+ * This module decouples node executors from the `GraphRunner` import
+ * tree, enabling clean unit testing via mock dependencies.
+ *
+ * @module execution/nodes/context
+ */
+
+import type { GraphNode } from '../../graph/graph.js';
+import type { Graph } from '../../graph/graph.js';
+import type { WorkflowState, Action, StateView, TaintMetadata } from '../../state/state.js';
+import type { ToolSource } from '../../tools/schema.js';
+import type { SecurityPolicy } from '../../security/security-policy.js';
+import type { ToolResolver } from '../../tools/resolver.js';
+import type { ModelResolver, ModelResolutionResult, ModelTier } from '../../agents/models/model-resolver.js';
+import type { ContextCompressor, ContextCompressionMetrics } from '../../memory/context-compressor.js';
+import type { MemoryRetriever } from '../../memory/memory-retriever.js';
+import type { MemoryWriter } from '../../memory/memory-writer.js';
+import type { FactSanitizer } from '../../security/fact-sanitizer.js';
+import type { FitnessFunction } from './fitness-function.js';
+import type { RateLimiter } from '../../agents/rate-limiter.js';
+import type { AgentRegistry } from '../../persistence/interfaces.js';
+import type { ProviderRegistry } from '../../agents/providers/provider-registry.js';
+import type { ToolsOption, CapabilityCeiling } from '../../tools/registry.js';
+
+/**
+ * Raw tool definition — description + parameters without an execute function.
+ */
+export interface RawToolDefinition {
+  /** Human-readable tool description. */
+  description: string;
+  /** JSON Schema or Zod schema for the tool's input parameters. */
+  parameters: unknown;
+}
+
+/**
+ * Resolved tool — a tool definition that includes an execute function.
+ * Returned by `resolveTools` from the MCPConnectionManager.
+ */
+export interface ResolvedTool extends RawToolDefinition {
+  /** Execute callback provided by the MCP client or built-in implementation. */
+  execute?: (args: Record<string, unknown>) => Promise<unknown>;
+}
+
+/**
+ * Tainted tool result shape from MCP tool execution.
+ */
+export interface TaintedToolResultShape {
+  /** The actual tool return value. */
+  result: unknown;
+  /** Taint metadata to merge into the taint registry. */
+  taint: Record<string, unknown>;
+}
+
+/**
+ * Agent config shape (subset needed by executors).
+ */
+export interface AgentConfigShape {
+  /** Structured tool source declarations. */
+  tools: ToolSource[];
+  /** Memory-key write CEILING (ADR 001). `undefined` = uncapped. */
+  write_keys?: string[];
+  /** LLM provider (e.g. `'anthropic'`). */
+  provider: string;
+  /** Static fallback model identifier. */
+  model: string;
+  /** Capability tier preference for budget-aware model resolution. */
+  model_preference?: ModelTier;
+  [key: string]: unknown;
+}
+
+/**
+ * Injected dependencies for node executors.
+ *
+ * All external runtime functions are provided here so that tests
+ * can mock them at the GraphRunner level without node executors
+ * needing their own imports.
+ */
+export interface ExecutorDependencies {
+  /** Execute an agent LLM call and return the resulting action. */
+  executeAgent: (
+    agent_id: string,
+    stateView: StateView,
+    tools: Record<string, unknown>,
+    attempt: number,
+    options?: {
+      temperatureOverride?: number;
+      nodeId?: string;
+      /** Deterministic action idempotency key (`node:iteration:attempt`). */
+      idempotencyKey?: string;
+      /** The node's write grant, intersected with the agent's optional ceiling (ADR 001). */
+      grantedWriteKeys?: string[];
+      abortSignal?: AbortSignal;
+      onToken?: (token: string) => void;
+      onToolCall?: (event: { toolName: string; toolCallId: string; args: unknown }) => void;
+      onToolCallComplete?: (event: { toolName: string; toolCallId: string; durationMs: number; success: boolean; error?: string }) => void;
+      drainTaintEntries?: (tools?: Record<string, unknown>) => Map<string, TaintMetadata>;
+      /** Override the model from agent config (used by budget-aware model resolution). */
+      modelOverride?: string;
+      /** Context compressor for memory serialization in prompts. */
+      contextCompressor?: ContextCompressor;
+      /** Callback fired when context compression runs. */
+      onContextCompressed?: (metrics: ContextCompressionMetrics) => void;
+      /** Memory retriever for injecting relevant facts into prompts. */
+      memoryRetriever?: MemoryRetriever;
+      /** Per-node retrieval directive (paired with `memoryRetriever`). */
+      memoryQuery?: {
+        text?: string;
+        entityIds?: string[];
+        tags?: string[];
+        maxFacts?: number;
+      };
+    },
+  ) => Promise<Action>;
+
+  /** Execute a supervisor routing decision. */
+  executeSupervisor: (
+    node: GraphNode,
+    stateView: StateView,
+    supervisorHistory: Array<{
+      supervisor_id: string;
+      delegated_to: string;
+      reasoning: string;
+      iteration: number;
+      timestamp: Date;
+    }>,
+    attempt: number,
+    options?: {
+      abortSignal?: AbortSignal;
+      modelOverride?: string;
+      /** Context compressor for memory serialization in prompts. */
+      contextCompressor?: ContextCompressor;
+      /** Callback fired when context compression runs. */
+      onContextCompressed?: (metrics: ContextCompressionMetrics) => void;
+      /** Memory retriever for injecting relevant facts into the routing prompt. */
+      memoryRetriever?: MemoryRetriever;
+      /** Per-node retrieval directive (paired with `memoryRetriever`). */
+      memoryQuery?: {
+        text?: string;
+        entityIds?: string[];
+        tags?: string[];
+        maxFacts?: number;
+      };
+    },
+  ) => Promise<Action>;
+
+  /** Evaluate output quality via an LLM-as-judge. */
+  evaluateQualityExecutor: (
+    evaluatorAgentId: string,
+    goal: string,
+    data: unknown,
+    instruction?: string,
+  ) => Promise<{ score: number; reasoning: string; tokensUsed: number }>;
+
+  /**
+   * Extract a bounded list of atomic facts from source text via an LLM.
+   * Used by the reflection node's `llm` extractor variant.
+   */
+  extractFactsExecutor: (
+    extractorAgentId: string,
+    source: unknown,
+    maxFacts?: number,
+    instruction?: string,
+  ) => Promise<{ facts: string[]; reasoning?: string; tokensUsed: number }>;
+
+  /**
+   * Resolve structured tool sources into AI SDK tool objects.
+   * Returns a merged record of tool name → resolved tool (with execute).
+   * Handles built-in tools, MCP server connections, and taint wrapping.
+   */
+  resolveTools: (sources: ToolSource[], agentId?: string) => Promise<Record<string, unknown>>;
+
+  /** Load an agent's configuration. */
+  loadAgent: (agentId: string) => Promise<AgentConfigShape>;
+
+  /**
+   * Drain accumulated MCP taint entries after agent execution. Pass the
+   * toolset from the paired `resolveTools()` call to drain only that
+   * execution's entries (race-free under concurrent sub-executions).
+   */
+  drainTaintEntries?: (tools?: Record<string, unknown>) => Map<string, TaintMetadata>;
+}
+
+/**
+ * Context bag passed to every node executor function.
+ *
+ * Provides read access to runner state and injected dependencies,
+ * without coupling executors to GraphRunner's import tree.
+ */
+export interface NodeExecutorContext {
+  /** Current workflow state (read-only snapshot for idempotency keys, etc.). */
+  state: WorkflowState;
+  /** The graph being executed. */
+  graph: Graph;
+  /** Load a graph by ID (needed by the subgraph executor). */
+  loadGraphFn?: (graphId: string) => Promise<Graph | null>;
+  /**
+   * The tool resolver instance (from GraphRunnerOptions). Exposed so the
+   * subgraph executor can propagate it into the child runner — otherwise a
+   * subgraph would silently run with built-in tools only.
+   */
+  toolResolver?: ToolResolver;
+  /**
+   * The run's agent registry / provider registry (from GraphRunnerOptions).
+   * Exposed for the same reason as `toolResolver`: the subgraph executor
+   * must propagate them into the child runner, or a scoped run's subgraphs
+   * would silently fall back to the process-global agent factory — a
+   * cross-tenant contamination hole under multi-tenant workers.
+   */
+  registry?: AgentRegistry;
+  providers?: ProviderRegistry;
+  /**
+   * The ORIGINAL `GraphRunnerOptions.tools` array, for subgraph child
+   * scoping. Not the composed resolution: re-wrapping the parent's composed
+   * resolver as a child leg would misroute custom-tool sources (the child
+   * composition would see them as unregistered).
+   */
+  tools?: ToolsOption[];
+  /** This runner's own capability ceiling — inherited by uncapped subgraph children. */
+  capabilityCeiling?: CapabilityCeiling;
+  /** Declared per-subgraph ceilings (from bundle manifests), threaded to child runners. */
+  capabilityCeilings?: Record<string, CapabilityCeiling>;
+  /** Create a filtered state view for a node. */
+  createStateView: (node: GraphNode) => StateView;
+  /** Injected runtime dependencies. */
+  deps: ExecutorDependencies;
+  /** Budget-aware model resolver (from GraphRunnerOptions). */
+  modelResolver?: ModelResolver;
+  /** Context compressor for memory serialization in prompts (from GraphRunnerOptions). */
+  contextCompressor?: ContextCompressor;
+  /** Memory retriever for injecting relevant facts into prompts (from GraphRunnerOptions). */
+  memoryRetriever?: MemoryRetriever;
+  /** Taint-aware security policy (from GraphRunnerOptions) — propagated into subgraph child runners. */
+  securityPolicy?: SecurityPolicy;
+  /** Memory writer for persisting facts produced by reflection nodes (from GraphRunnerOptions). */
+  memoryWriter?: MemoryWriter;
+  /** Optional pre-write hook applied to reflection facts (from GraphRunnerOptions). */
+  factSanitizer?: FactSanitizer;
+  /** What to do when factSanitizer throws: 'drop' (fail closed) or 'pass'. */
+  factSanitizerFailMode?: 'drop' | 'pass';
+  /** Optional deterministic fitness evaluator for evolution nodes (from GraphRunnerOptions). */
+  fitnessFunction?: FitnessFunction;
+  /** Optional rate-limiting hook awaited before every LLM call (from GraphRunnerOptions). */
+  rateLimiter?: RateLimiter;
+  /** Callback fired when context compression runs on a prompt's memory section. */
+  onContextCompressed?: (event: { tokensIn: number; tokensOut: number; reductionPercent: number; durationMs: number }, nodeId: string) => void;
+  /** Remaining workflow budget in USD, or `undefined` if unlimited (static snapshot — prefer getRemainingBudgetUsd). */
+  remainingBudgetUsd?: number;
+  /** Lazy budget getter — reads current state at call time (avoids TOCTOU). */
+  getRemainingBudgetUsd?: () => number | undefined;
+  /** Abort signal for workflow cancellation — propagated to LLM calls. */
+  abortSignal?: AbortSignal;
+  /** Token streaming callback — fires for each text delta with the originating node ID. */
+  onToken?: (token: string, nodeId: string) => void;
+  /** Tool call start callback — fires when a tool begins executing. */
+  onToolCall?: (event: { toolName: string; toolCallId: string; args: unknown }, nodeId: string) => void;
+  /** Tool call finish callback — fires when a tool completes. */
+  onToolCallComplete?: (event: { toolName: string; toolCallId: string; durationMs: number; success: boolean; error?: string }, nodeId: string) => void;
+  /** Model resolution callback — fires when a model is dynamically resolved for an agent. */
+  onModelResolved?: (event: { agentId: string; originalModel: string; resolution: ModelResolutionResult }, nodeId: string) => void;
+}

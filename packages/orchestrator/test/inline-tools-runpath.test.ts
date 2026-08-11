@@ -9,11 +9,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import type { StateView } from '../src/types/state.js';
+import type { StateView } from '../src/state/state.js';
 
 const capturedToolsets: Record<string, unknown>[] = [];
 
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: vi.fn(async (
     agentId: string,
     _view: StateView,
@@ -32,7 +32,7 @@ vi.mock('../src/agent/agent-executor/executor.js', () => ({
   }),
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 

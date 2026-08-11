@@ -22,7 +22,7 @@
  * @module persistence/delta-tracker
  */
 
-import type { WorkflowState } from '../types/state.js';
+import type { WorkflowState } from '../state/state.js';
 
 /**
  * A JSON-serializable patch representing changes to workflow state.

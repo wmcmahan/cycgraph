@@ -9,9 +9,9 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import type { Graph, GraphInput, GraphNode } from '../../src/types/graph.js';
-import type { WorkflowState } from '../../src/types/state.js';
-import { createWorkflowState } from '../../src/types/state.js';
+import type { Graph, GraphInput, GraphNode } from '../../src/graph/graph.js';
+import type { WorkflowState } from '../../src/state/state.js';
+import { createWorkflowState } from '../../src/state/state.js';
 
 /**
  * Create a test WorkflowState with sensible defaults.

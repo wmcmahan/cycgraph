@@ -7,9 +7,9 @@ import {
   canTransitionStatus,
   isTerminalStatus,
   TERMINAL_STATUSES,
-} from '../src/reducers/status-transitions.js';
-import { setStatusReducer, internalReducer } from '../src/reducers/index.js';
-import { createWorkflowState, type WorkflowState, type Action } from '../src/types/state.js';
+} from '../src/state/status-transitions.js';
+import { setStatusReducer, internalReducer } from '../src/state/reducers.js';
+import { createWorkflowState, type WorkflowState, type Action } from '../src/state/state.js';
 
 function makeState(status: WorkflowState['status']): WorkflowState {
   return createWorkflowState({ workflow_id: uuidv4(), goal: 'g', status });

@@ -8,8 +8,8 @@ import {
   validateAction,
   handoffReducer,
   MAX_SUPERVISOR_HISTORY,
-} from '../src/reducers/index.js';
-import type { WorkflowState, Action } from '../src/types/state.js';
+} from '../src/state/reducers.js';
+import type { WorkflowState, Action } from '../src/state/state.js';
 
 const createBaseState = (): WorkflowState => ({
   workflow_id: uuidv4(),

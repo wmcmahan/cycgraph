@@ -57,11 +57,11 @@ export function setupCoreMocks() {
     context: {},
   }));
 
-  vi.mock('../../src/utils/logger.js', () => ({
+  vi.mock('../../src/observability/logger.js', () => ({
     createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
   }));
 
-  vi.mock('../../src/utils/tracing.js', () => ({
+  vi.mock('../../src/observability/tracing.js', () => ({
     getTracer: () => ({}),
     withSpan: (_tracer: any, _name: string, fn: (span: any) => any) =>
       fn({ setAttribute: vi.fn() }),
@@ -85,19 +85,19 @@ export function setupAgentMocks() {
     metadata: { node_id: agentId, agent_id: agentId, timestamp: new Date(), attempt, token_usage: { totalTokens: 25 } },
   }));
 
-  vi.mock('../../src/agent/agent-executor/executor.js', () => ({
+  vi.mock('../../src/agents/executors/agent/executor.js', () => ({
     executeAgent: (...args: any[]) => mockExecuteAgent(...args),
   }));
 
-  vi.mock('../../src/agent/supervisor-executor/executor.js', () => ({
+  vi.mock('../../src/agents/executors/supervisor/executor.js', () => ({
     executeSupervisor: vi.fn(),
   }));
 
-  vi.mock('../../src/agent/evaluator-executor/executor.js', () => ({
+  vi.mock('../../src/agents/executors/evaluator/executor.js', () => ({
     evaluateQualityExecutor: vi.fn(),
   }));
 
-  vi.mock('../../src/agent/agent-factory', () => ({
+  vi.mock('../../src/agents/factory', () => ({
     agentFactory: {
       loadAgent: vi.fn().mockResolvedValue({
         id: 'test-agent', name: 'Test', model: 'claude-sonnet-4-6', provider: 'anthropic',

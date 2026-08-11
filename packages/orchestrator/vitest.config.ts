@@ -15,21 +15,28 @@ export default defineConfig({
       exclude: [
         'src/index.ts',
         'src/internal.ts',
+        'src/schemas.ts',
         'src/**/index.ts',
         'src/**/*.d.ts',
-        'src/types/**',
+        // Wire schemas (were src/types/**): declarative Zod, excluded from coverage.
+        'src/state/state.ts',
+        'src/graph/graph.ts',
+        'src/tools/schema.ts',
+        'src/authoring/bundle-schema.ts',
+        'src/persistence/event.ts',
+        'src/utils/case-mapping.ts',
       ],
       thresholds: {
         statements: 97,
         functions: 96,
         branches: 95,
         lines: 97,
-        'src/runner/**': {
+        'src/execution/**': {
           statements: 96,
           functions: 95,
           branches: 93,
         },
-        'src/agent/**': {
+        'src/agents/**': {
           statements: 99,
           functions: 99,
           branches: 98,

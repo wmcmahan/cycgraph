@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { CircuitBreakerManager } from '../src/runner/circuit-breaker.js';
-import type { GraphNode } from '../src/types/graph.js';
+import { CircuitBreakerManager } from '../src/execution/engine/circuit-breaker.js';
+import type { GraphNode } from '../src/graph/graph.js';
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     error: vi.fn(),

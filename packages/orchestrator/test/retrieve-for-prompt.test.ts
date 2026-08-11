@@ -4,11 +4,11 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { retrieveForPrompt } from '../src/agent/retrieve-for-prompt.js';
-import type { MemoryRetriever, MemoryRetrievalResult } from '../src/agent/memory-retriever.js';
-import type { StateView } from '../src/types/state.js';
+import { retrieveForPrompt } from '../src/memory/retrieve-for-prompt.js';
+import type { MemoryRetriever, MemoryRetrievalResult } from '../src/memory/memory-retriever.js';
+import type { StateView } from '../src/state/state.js';
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 

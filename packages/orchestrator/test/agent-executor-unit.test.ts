@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { PermissionDeniedError, AgentTimeoutError, AgentExecutionError } from '../src/agent/agent-executor/errors.js';
-import { sanitizeString, sanitizeForPrompt, sanitizeValue } from '../src/agent/agent-executor/sanitizers.js';
-import { validateMemoryUpdatePermissions } from '../src/agent/agent-executor/validation.js';
-import { extractMemoryUpdates } from '../src/agent/agent-executor/memory.js';
-import type { Action } from '../src/types/state.js';
+import { PermissionDeniedError, AgentTimeoutError, AgentExecutionError } from '../src/agents/executors/agent/errors.js';
+import { sanitizeString, sanitizeForPrompt, sanitizeValue } from '../src/agents/executors/agent/sanitizers.js';
+import { validateMemoryUpdatePermissions } from '../src/agents/executors/agent/validation.js';
+import { extractMemoryUpdates } from '../src/agents/executors/agent/memory.js';
+import type { Action } from '../src/state/state.js';
 
 // ─── Error Classes ─────────────────────────────────────────────────────
 

@@ -16,10 +16,10 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { markTainted } from '../../src/utils/taint.js';
-import type { Graph } from '../../src/types/graph.js';
-import type { WorkflowState, Action } from '../../src/types/state.js';
-import type { SecurityPolicy } from '../../src/runner/security-policy.js';
+import { markTainted } from '../../src/security/taint.js';
+import type { Graph } from '../../src/graph/graph.js';
+import type { WorkflowState, Action } from '../../src/state/state.js';
+import type { SecurityPolicy } from '../../src/security/security-policy.js';
 
 export interface InjectionCase {
   id: string;

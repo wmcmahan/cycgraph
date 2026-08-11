@@ -13,7 +13,7 @@ import {
   type NodeConfig,
   type GraphConfig,
   type GraphInput,
-} from '../src/types/graph.js';
+} from '../src/graph/graph.js';
 
 describe('createGraph camelCase authoring', () => {
   it('maps top-level node fields camelCase → snake_case', () => {

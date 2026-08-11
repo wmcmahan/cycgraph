@@ -1,11 +1,11 @@
 /**
- * Unit tests for StreamChannel (runner/stream-channel.ts) — the pending-event
+ * Unit tests for StreamChannel (execution/streaming/stream-channel.ts) — the pending-event
  * and token queues plus the single-slot notify primitive.
  */
 import { describe, it, expect, vi } from 'vitest';
 
-import { StreamChannel } from '../src/runner/stream-channel.js';
-import type { StreamEvent } from '../src/runner/stream-events.js';
+import { StreamChannel } from '../src/execution/streaming/stream-channel.js';
+import type { StreamEvent } from '../src/execution/streaming/stream-events.js';
 
 function tokenEvent(token: string): StreamEvent {
   return { type: 'agent:token_delta', run_id: 'r1', node_id: 'n1', token, timestamp: 0 };

@@ -11,11 +11,11 @@ import {
   buildSystemPrompt,
   capToMemoryBudget,
   renderTaskContext,
-} from '../src/agent/agent-executor/prompts.js';
-import { buildSupervisorSystemPrompt } from '../src/agent/supervisor-executor/prompts.js';
-import type { ContextCompressor, ContextCompressionMetrics } from '../src/agent/context-compressor.js';
-import type { AgentConfig } from '../src/agent/types.js';
-import type { StateView, WorkflowState } from '../src/types/state.js';
+} from '../src/agents/executors/agent/prompts.js';
+import { buildSupervisorSystemPrompt } from '../src/agents/executors/supervisor/prompts.js';
+import type { ContextCompressor, ContextCompressionMetrics } from '../src/memory/context-compressor.js';
+import type { AgentConfig } from '../src/agents/types.js';
+import type { StateView, WorkflowState } from '../src/state/state.js';
 
 // ─── Test helpers ──────────────────────────────────────────────────
 

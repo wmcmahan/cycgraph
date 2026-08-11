@@ -9,10 +9,10 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { PersistenceCoordinator, MAX_PERSIST_FAILURES } from '../src/runner/persistence-coordinator.js';
-import { NoopEventLogWriter, InMemoryEventLogWriter } from '../src/db/event-log.js';
+import { PersistenceCoordinator, MAX_PERSIST_FAILURES } from '../src/execution/coordination/persistence-coordinator.js';
+import { NoopEventLogWriter, InMemoryEventLogWriter } from '../src/persistence/event-log.js';
 import { StaleClaimError } from '../src/persistence/errors.js';
-import type { WorkflowState } from '../src/types/state.js';
+import type { WorkflowState } from '../src/state/state.js';
 import type { StatePatch } from '../src/persistence/delta-tracker.js';
 
 function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {

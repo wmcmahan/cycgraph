@@ -2,8 +2,8 @@
  * memory-differ.test.ts — computeMemoryDiff (incl. apply round-trip)
  */
 import { describe, it, expect } from 'vitest';
-import { computeMemoryDiff } from '../src/runner/memory-differ.js';
-import type { MemoryDiff } from '../src/runner/stream-events.js';
+import { computeMemoryDiff } from '../src/execution/streaming/memory-differ.js';
+import type { MemoryDiff } from '../src/execution/streaming/stream-events.js';
 
 /** Reconstruct `after` by applying a diff to `before` — the inverse of computeMemoryDiff. */
 function applyDiff(before: Record<string, unknown>, diff: MemoryDiff | undefined): Record<string, unknown> {

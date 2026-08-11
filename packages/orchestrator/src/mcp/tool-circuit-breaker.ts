@@ -3,7 +3,7 @@
  *
  * Protects MCP tool invocations from runaway failure cascades. A breaker is
  * tracked per `(serverId, toolName)` pair. The state machine mirrors the
- * node-level breaker in `runner/circuit-breaker.ts` but operates at the tool
+ * node-level breaker in `execution/engine/circuit-breaker.ts` but operates at the tool
  * granularity, which is what we actually want when one tool on a multi-tool
  * server starts misbehaving — opening the per-tool breaker keeps healthy
  * tools on the same server usable.
@@ -23,7 +23,7 @@
  */
 
 import { ToolCircuitBreakerOpenError } from './errors.js';
-import { createLogger } from '../utils/logger.js';
+import { createLogger } from '../observability/logger.js';
 
 const logger = createLogger('mcp.tool-circuit-breaker');
 

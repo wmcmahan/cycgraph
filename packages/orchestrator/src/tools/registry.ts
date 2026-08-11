@@ -22,13 +22,13 @@
  * @module tools/registry
  */
 
-import type { TaintMetadata } from '../types/state.js';
-import type { ToolSource, MCPToolSource } from '../types/tools.js';
-import type { ToolResolver } from '../mcp/connection-manager.js';
+import type { TaintMetadata } from '../state/state.js';
+import type { ToolSource, MCPToolSource } from './schema.js';
+import type { ToolResolver } from './resolver.js';
 import type { DefinedTool } from './define-tool.js';
 import { resolveBuiltinTools } from './builtin/index.js';
 import { ToolDefinitionError, isDefinedTool } from './define-tool.js';
-import { createLogger } from '../utils/logger.js';
+import { createLogger } from '../observability/logger.js';
 
 const logger = createLogger('tools.registry');
 

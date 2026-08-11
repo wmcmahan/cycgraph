@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { sanitizeString, sanitizeForPrompt, sanitizeValue } from '../src/agent/agent-executor/sanitizers.js';
+import { sanitizeString, sanitizeForPrompt, sanitizeValue } from '../src/agents/executors/agent/sanitizers.js';
 
 describe('sanitizeString', () => {
   describe('instruction-override and tag stripping', () => {

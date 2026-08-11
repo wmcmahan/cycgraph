@@ -1,5 +1,5 @@
 /**
- * Tests for graph bundles (src/authoring/bundle.ts + src/types/bundle.ts):
+ * Tests for graph bundles (src/authoring/bundle.ts + src/authoring/bundle-schema.ts):
  * manifest assembly, wire-form agent embedding, the transitive graph
  * closure, JSON round-tripping through parseBundle, and the run path —
  * a serialized bundle dropped into a new composition via subgraph()
@@ -9,12 +9,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
-import type { StateView } from '../src/types/state.js';
-import type { AgentFactory } from '../src/agent/agent-factory/index.js';
+import type { StateView } from '../src/state/state.js';
+import type { AgentFactory } from '../src/agents/factory/index.js';
 
 const capturedFactories: AgentFactory[] = [];
 
-vi.mock('../src/agent/agent-executor/executor.js', () => ({
+vi.mock('../src/agents/executors/agent/executor.js', () => ({
   executeAgent: vi.fn(async (
     agentId: string,
     _view: StateView,
@@ -33,7 +33,7 @@ vi.mock('../src/agent/agent-executor/executor.js', () => ({
   }),
 }));
 
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
@@ -41,8 +41,8 @@ import { agent, node, subgraph, graph, run } from '../src/authoring/index.js';
 import { bundle, parseBundle, BundleIntegrityError } from '../src/authoring/bundle.js';
 import { GraphSpecError } from '../src/authoring/errors.js';
 import { tool } from '../src/tools/define-tool.js';
-import type { Graph } from '../src/types/graph.js';
-import type { GraphBundle } from '../src/types/bundle.js';
+import type { Graph } from '../src/graph/graph.js';
+import type { GraphBundle } from '../src/authoring/bundle-schema.js';
 
 const WORKER_INSTRUCTIONS = 'bundled research specialist';
 

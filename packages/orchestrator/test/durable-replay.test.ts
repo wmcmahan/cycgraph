@@ -39,7 +39,7 @@ vi.mock('@opentelemetry/api', () => ({
  * Agent executor mock: returns update_memory actions based on agent_id.
  * Default behavior: writes { [agentId]_result: 'done' }.
  */
-vi.mock('../src/agent/agent-executor/executor', () => ({
+vi.mock('../src/agents/executors/agent/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _tools: any, attempt: number) => ({
     id: uuidv4(),
     idempotency_key: `${agentId}:mock:${attempt}`,
@@ -49,15 +49,15 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
   })),
 }));
 
-vi.mock('../src/agent/supervisor-executor/executor', () => ({
+vi.mock('../src/agents/executors/supervisor/executor', () => ({
   executeSupervisor: vi.fn(),
 }));
 
-vi.mock('../src/agent/evaluator-executor/executor', () => ({
+vi.mock('../src/agents/executors/evaluator/executor', () => ({
   evaluateQualityExecutor: vi.fn(),
 }));
 
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test-agent', name: 'Test', model: 'claude-3-5-sonnet', provider: 'anthropic',
@@ -68,26 +68,26 @@ vi.mock('../src/agent/agent-factory', () => ({
   },
 }));
 
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-vi.mock('../src/utils/taint', () => ({
+vi.mock('../src/security/taint', () => ({
   getTaintRegistry: vi.fn().mockReturnValue({}),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { InMemoryEventLogWriter, EventSequenceConflictError } from '../src/db/event-log.js';
-import { REPLAY_VERSION } from '../src/reducers/index.js';
-import { hydrateWorkflowState } from '../src/types/state.js';
-import { executeAgent } from '../src/agent/agent-executor/executor.js';
-import type { Graph, GraphNode, GraphEdge } from '../src/types/graph.js';
-import type { WorkflowState } from '../src/types/state.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { InMemoryEventLogWriter, EventSequenceConflictError } from '../src/persistence/event-log.js';
+import { REPLAY_VERSION } from '../src/state/reducers.js';
+import { hydrateWorkflowState } from '../src/state/state.js';
+import { executeAgent } from '../src/agents/executors/agent/executor.js';
+import type { Graph, GraphNode, GraphEdge } from '../src/graph/graph.js';
+import type { WorkflowState } from '../src/state/state.js';
 
 function makeNode(id: string, type: GraphNode['type'] = 'agent'): GraphNode {
   return {

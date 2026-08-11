@@ -9,10 +9,10 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { buildAgentMemoryOptions } from '../src/runner/node-executors/memory-options.js';
-import type { GraphNode } from '../src/types/graph.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
-import type { MemoryRetriever } from '../src/agent/memory-retriever.js';
+import { buildAgentMemoryOptions } from '../src/execution/nodes/memory-options.js';
+import type { GraphNode } from '../src/graph/graph.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
+import type { MemoryRetriever } from '../src/memory/memory-retriever.js';
 import { makeNode } from './helpers/factories.js';
 
 function makeCtx(overrides: Partial<NodeExecutorContext> = {}): NodeExecutorContext {

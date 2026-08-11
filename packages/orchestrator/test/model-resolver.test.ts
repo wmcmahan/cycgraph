@@ -5,8 +5,8 @@ import {
   ESTIMATED_TOKENS_PER_CALL,
   estimateCallCost,
   defaultModelResolver,
-} from '../src/agent/model-resolver.js';
-import type { ModelTier, ModelTierMap, ModelResolver } from '../src/agent/model-resolver.js';
+} from '../src/agents/models/model-resolver.js';
+import type { ModelTier, ModelTierMap, ModelResolver } from '../src/agents/models/model-resolver.js';
 
 // ─── Shared Test Fixtures ─────────────────────────────────────────
 

@@ -1,16 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executeAgentNode } from '../src/runner/node-executors/agent.js';
-import { executeToolNode } from '../src/runner/node-executors/tool.js';
-import { executeApprovalNode } from '../src/runner/node-executors/approval.js';
-import { executeRouterNode } from '../src/runner/node-executors/router.js';
-import { executeSupervisorNode } from '../src/runner/node-executors/supervisor.js';
-import { NodeConfigError } from '../src/runner/errors.js';
-import type { GraphNode, Graph } from '../src/types/graph.js';
-import type { WorkflowState, StateView, Action } from '../src/types/state.js';
-import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
+import { executeAgentNode } from '../src/execution/nodes/agent.js';
+import { executeToolNode } from '../src/execution/nodes/tool.js';
+import { executeApprovalNode } from '../src/execution/nodes/approval.js';
+import { executeRouterNode } from '../src/execution/nodes/router.js';
+import { executeSupervisorNode } from '../src/execution/nodes/supervisor.js';
+import { NodeConfigError } from '../src/execution/errors.js';
+import type { GraphNode, Graph } from '../src/graph/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/state/state.js';
+import type { NodeExecutorContext, ExecutorDependencies } from '../src/execution/nodes/context.js';
 
 // Mock logger
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

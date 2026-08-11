@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Logger, createLogger } from '../src/utils/logger.js';
+import { Logger, createLogger } from '../src/observability/logger.js';
 
 // Mock context module
 vi.mock('../src/utils/context.js', () => ({

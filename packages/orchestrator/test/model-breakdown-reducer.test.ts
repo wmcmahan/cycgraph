@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { internalReducer } from '../src/reducers/index.js';
-import type { WorkflowState, Action } from '../src/types/state.js';
+import { internalReducer } from '../src/state/reducers.js';
+import type { WorkflowState, Action } from '../src/state/state.js';
 
 /** Minimal running state for exercising the per-model usage reducer. */
 function baseState(): WorkflowState {

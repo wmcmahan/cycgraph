@@ -18,7 +18,7 @@ vi.mock('ai', () => ({
 }));
 
 // Mock logger to silence output
-vi.mock('../src/utils/logger.js', () => ({
+vi.mock('../src/observability/logger.js', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 // Mock tracing (no-op)
-vi.mock('../src/utils/tracing.js', () => ({
+vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: unknown, _name: string, fn: (span: any) => any) =>
     fn({ setAttribute: vi.fn() }),
@@ -39,16 +39,16 @@ import type { LanguageModel } from 'ai';
 import {
   ProviderRegistry,
   registerBuiltInProviders,
-} from '../src/agent/provider-registry.js';
-import { registerOllamaProvider } from '../src/agent/ollama-provider.js';
+} from '../src/agents/providers/provider-registry.js';
+import { registerOllamaProvider } from '../src/agents/providers/ollama-provider.js';
 import { InMemoryAgentRegistry } from '../src/persistence/in-memory.js';
 import {
   agentFactory,
   configureAgentFactory,
   configureProviderRegistry,
-} from '../src/agent/agent-factory/index.js';
-import { executeAgent } from '../src/agent/agent-executor/executor.js';
-import type { StateView } from '../src/types/state.js';
+} from '../src/agents/factory/index.js';
+import { executeAgent } from '../src/agents/executors/agent/executor.js';
+import type { StateView } from '../src/state/state.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 

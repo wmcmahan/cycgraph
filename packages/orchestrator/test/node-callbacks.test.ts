@@ -6,8 +6,8 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { buildNodeCallbacks } from '../src/runner/node-executors/node-callbacks.js';
-import type { NodeExecutorContext } from '../src/runner/node-executors/context.js';
+import { buildNodeCallbacks } from '../src/execution/nodes/node-callbacks.js';
+import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
 
 function makeCtx(overrides: Partial<NodeExecutorContext> = {}): NodeExecutorContext {
   return {

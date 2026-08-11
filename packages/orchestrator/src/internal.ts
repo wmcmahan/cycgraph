@@ -1,5 +1,5 @@
 /**
- * @cycgraph/orchestrator/internal — Unstable internal API
+ * @cycgraph/orchestrator/internal — Internal API
  *
  * Symbols here are implementation details of the engine. They are exposed
  * through the `@cycgraph/orchestrator/internal` subpath ONLY so first-party
@@ -14,20 +14,14 @@
  * @packageDocumentation
  */
 
-// Runner-controlled lifecycle reducer (init/complete/fail/timeout/cancel/...).
-// Public consumers should never dispatch these `_`-prefixed actions directly.
-export { internalReducer } from './reducers/index.js';
+export { internalReducer } from './state/reducers.js';
 
-// The token/event buffer GraphRunner manages internally for streaming.
-export { StreamChannel } from './runner/stream-channel.js';
+export { StreamChannel } from './execution/streaming/stream-channel.js';
 
-// filtrex-coupled condition internals. `evaluateCondition` stays public; these
-// bind to filtrex's own surface and are exposed only for tooling/validation.
 export {
   FILTREX_EXTRA_FUNCTIONS,
   FILTREX_COMPILE_OPTIONS,
   normalizeConditionExpression,
 } from './utils/condition-expression.js';
 
-// Low-level retry/backoff helpers.
-export { calculateBackoff, sleep } from './runner/helpers.js';
+export { calculateBackoff, sleep } from './execution/engine/helpers.js';

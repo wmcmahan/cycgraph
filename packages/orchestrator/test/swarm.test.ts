@@ -30,7 +30,7 @@ vi.mock('@opentelemetry/api', () => ({
 }));
 
 let delegateTarget: string | null = null;
-vi.mock('../src/agent/agent-executor/executor', () => ({
+vi.mock('../src/agents/executors/agent/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _t: any, attempt: number) => {
     const updates: Record<string, unknown> = { [`${agentId}_result`]: 'done' };
     if (delegateTarget) {
@@ -52,9 +52,9 @@ vi.mock('../src/agent/agent-executor/executor', () => ({
   }),
 }));
 
-vi.mock('../src/agent/supervisor-executor', () => ({ executeSupervisor: vi.fn() }));
-vi.mock('../src/agent/evaluator', () => ({ evaluateQuality: vi.fn() }));
-vi.mock('../src/agent/agent-factory', () => ({
+vi.mock('../src/agents/executors/supervisor', () => ({ executeSupervisor: vi.fn() }));
+vi.mock('../src/agents/evaluator', () => ({ evaluateQuality: vi.fn() }));
+vi.mock('../src/agents/factory', () => ({
   agentFactory: {
     loadAgent: vi.fn().mockResolvedValue({
       id: 'test', name: 'Test', model: 'gpt-4', provider: 'openai',
@@ -64,19 +64,19 @@ vi.mock('../src/agent/agent-factory', () => ({
     getModel: vi.fn().mockReturnValue({}),
   },
 }));
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
-vi.mock('../src/utils/tracing', () => ({
+vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_t: any, _n: string, fn: (s: any) => any) => fn({ setAttribute: vi.fn() }),
 }));
 
-import { GraphRunner } from '../src/runner/graph-runner.js';
-import { executeSwarmAgentNode } from '../src/runner/node-executors/swarm.js';
-import type { Graph, GraphNode } from '../src/types/graph.js';
-import type { WorkflowState, StateView, Action } from '../src/types/state.js';
-import type { NodeExecutorContext, ExecutorDependencies } from '../src/runner/node-executors/context.js';
+import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { executeSwarmAgentNode } from '../src/execution/nodes/swarm.js';
+import type { Graph, GraphNode } from '../src/graph/graph.js';
+import type { WorkflowState, StateView, Action } from '../src/state/state.js';
+import type { NodeExecutorContext, ExecutorDependencies } from '../src/execution/nodes/context.js';
 
 const createState = (): WorkflowState => ({
   workflow_id: uuidv4(),
@@ -184,7 +184,7 @@ describe('executeSwarmAgentNode', () => {
 
     it('injects swarm peer context into the agent taskContext', async () => {
       delegateTarget = null;
-      const { executeAgent } = await import('../src/agent/agent-executor/executor.js');
+      const { executeAgent } = await import('../src/agents/executors/agent/executor.js');
       (executeAgent as any).mockClear();
       const runner = new GraphRunner(createSwarmGraph(), createState());
 
