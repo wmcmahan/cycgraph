@@ -1,5 +1,47 @@
 # @cycgraph/orchestrator
 
+## 0.14.0
+
+### Minor Changes
+
+- 37d6451: Agent2Agent (A2A) interop: delegate a graph step to a remote agent.
+
+  New `a2a` node type, sibling to `subgraph`: same mapping convention and
+  implied write grants, but budget and capability ceilings deliberately stop
+  at the network boundary and everything returned is taint-tracked. A remote
+  `input-required` pauses the run through the existing HITL machinery and
+  resumes the same remote task, including when nested inside a subgraph.
+  `rejected` and `auth-required` tasks are classified non-retryable.
+
+  Supporting pieces: a trusted `A2AServerRegistry` (SSRF-guarded Agent Card
+  URLs, credentials as named env vars, per-server `propagateTraceContext`),
+  an `A2AClient` port so core carries no protocol dependency, `toAgentCard` /
+  `agentCardFidelity` for publishing a graph's interface, and the new
+  `@cycgraph/a2a` package implementing the port on `@a2a-js/sdk`.
+
+- 37d6451: Engine hardening across the delegation and permission layers: subgraph
+  output-mapping targets are implied write grants; supervisors derive reads
+  from managed nodes' implied result keys; the graph validator warns on tool
+  nodes declaring inert `write_keys` and reflection `source_keys` nothing
+  produces; boundary crossing logic (mapping, taint, interface enforcement)
+  extracted to a module shared by delegating nodes; `subgraph.run` and
+  `a2a.task` tracing spans with an `injectTraceContext` helper for outbound
+  W3C trace propagation.
+- 37d6451: BREAKING: `ContextCompressor` now receives the whole prompt as segments.
+
+  The compressor is called once per prompt with every variable-size section
+  (`system`, `goal`, `retrieved`, `task_context`, `memory`, `instructions`,
+  plus `routing_history` for supervisors) instead of a single memory blob, so
+  one budget can be allocated across the prompt. Locked segments must be
+  returned byte-identical or the whole result is discarded. Memory now
+  reaches the compressor uncapped; byte caps apply to output as a backstop.
+
+  Also: agents accept `maxOutputTokens` (no default; forwarded to providers
+  and to the compressor as `outputReserve`), and the agent executor captures
+  the provider error from the stream, so failures like a 401 surface with
+  their real message and stop retrying instead of reporting "No output
+  generated" after three attempts.
+
 ## 0.13.0
 
 ### Minor Changes
