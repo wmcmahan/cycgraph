@@ -1,0 +1,25 @@
+{
+  "name": "@cycgraph/test-servers",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local protocol servers for integration testing: A2A agents and MCP servers with scripted scenarios. Never published.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@a2a-js/sdk": "^1.0.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "express": "^5.1.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "7.0.2"
+  }
+}

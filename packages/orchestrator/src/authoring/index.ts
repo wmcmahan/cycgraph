@@ -14,6 +14,8 @@ export { node, isNodeValue } from './node.js';
 export type { NodeValue, NodeSpec } from './node.js';
 export { subgraph } from './subgraph.js';
 export type { SubgraphSpec } from './subgraph.js';
+export { a2a } from './a2a.js';
+export type { A2ASpec } from './a2a.js';
 export { graph, agentsForGraph, toolsForGraph, graphsForGraph, GraphSpecError } from './graph.js';
 export type { GraphInputSpec, GraphOutputSpec, InterfaceSchema } from './interface.js';
 export { computeRequirements, checkRequirements } from './requirements.js';

@@ -54,6 +54,32 @@ export type { ObserverMiddlewareOptions, ObserverFinding, ObserverSeverity, Diag
 export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './execution/errors.js';
 export { MemoryWriterMissingError, VerificationFailedError, SubgraphIncompleteError, SubgraphInterfaceError } from './execution/nodes/errors.js';
 
+export {
+  A2AServerEntrySchema,
+  A2AAuthSchema,
+  A2ACredentialError,
+  resolveAuthHeaders,
+} from './a2a/schema.js';
+export type { A2AServerEntry, A2AServerConfig, A2AAuth, A2AServerRegistry } from './a2a/schema.js';
+export { InMemoryA2AServerRegistry } from './a2a/in-memory-registry.js';
+export type {
+  A2AClient,
+  A2ATaskRequest,
+  A2AResumeRequest,
+  A2ATaskResult,
+  A2ATaskState,
+  A2AArtifact,
+} from './a2a/client.js';
+export { toAgentCard, agentCardFidelity } from './a2a/agent-card.js';
+export type {
+  AgentCardDescriptor,
+  AgentCardOptions,
+  AgentCardFidelity,
+  AgentSkillDescriptor,
+  AgentInterfaceDescriptor,
+} from './a2a/agent-card.js';
+export { A2AInterfaceError, A2ATaskFailedError } from './execution/nodes/errors.js';
+
 // ─── Stream Events ─────────────────────────────────────────────────
 
 export type { StreamEvent, TerminalStreamEvent, ModelResolvedEvent, ContextCompressedEvent, MemoryDiff } from './execution/streaming/stream-events.js';
@@ -177,6 +203,7 @@ export {
   node,
   isNodeValue,
   subgraph,
+  a2a,
   graph,
   agentsForGraph,
   toolsForGraph,
@@ -197,6 +224,7 @@ export type {
   NodeSpec,
   NodeRef,
   SubgraphSpec,
+  A2ASpec,
   GraphSpec,
   EdgeSugar,
   RunInput,

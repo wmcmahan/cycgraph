@@ -10,18 +10,24 @@
  */
 
 import type { GraphNode } from '../../graph/graph.js';
-import type { Action, WorkflowState, StateView, TaintMetadata, TaintRegistry } from '../../state/state.js';
+import type { Action, WorkflowState, StateView } from '../../state/state.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../observability/logger.js';
+import { getTracer, withSpan } from '../../observability/tracing.js';
 import { NodeConfigError } from '../errors.js';
-import { getTaintInfo, markTainted } from '../../security/taint.js';
+import {
+  mapInbound,
+  mapOutbound,
+  validateInbound,
+  type BoundaryFailure,
+} from './boundary.js';
 import type { NodeExecutorContext } from './context.js';
 import { nodeIdempotencyKey } from './idempotency-key.js';
 import { SubgraphIncompleteError, SubgraphInterfaceError } from './errors.js';
-import { jsonSchemaToZod, type JSONSchema } from '../../mcp/json-schema-converter.js';
 import { intersectCeilings } from '../../tools/registry.js';
 
 const logger = createLogger('runner.node.subgraph');
+const tracer = getTracer('orchestrator.subgraph');
 
 /**
  * Maximum nesting depth for subgraphs. Cycle detection only blocks revisiting
@@ -37,13 +43,6 @@ const MAX_SUBGRAPH_DEPTH = 32;
  * can't express degrade to `z.any()`, so an exotic schema never blocks a
  * valid value.
  */
-function boundaryViolation(schema: Record<string, unknown>, value: unknown): string | null {
-  const result = jsonSchemaToZod(schema as unknown as JSONSchema).safeParse(value);
-  if (result.success) return null;
-  const first = result.error.issues[0];
-  return first ? `${first.message}${first.path.length > 0 ? ` at ${first.path.join('.')}` : ''}` : 'schema violation';
-}
-
 /**
  * Revive a stashed child checkpoint after a DB round-trip (JSON turns Dates
  * into strings). We can't use `WorkflowStateSchema.parse` here — a subgraph
@@ -117,39 +116,15 @@ export async function executeSubgraphNode(
     throw new NodeConfigError(node.id, 'subgraph', `graph "${config.subgraph_id}"`);
   }
 
-  // Build isolated child memory with mapped inputs. Taint carries across the
-  // composition boundary on the child's first-class registry: an untrusted
-  // parent value must stay untrusted inside the child, or the child's
-  // sensitive nodes would run ungated. (`stateView.taint` is scoped to this
-  // node's readable keys.)
-  const childMemory: Record<string, unknown> = {};
-  let childTaint: TaintRegistry = {};
-  for (const [parentKey, childKey] of Object.entries(config.input_mapping)) {
-    if (parentKey in stateView.memory) {
-      childMemory[childKey] = stateView.memory[parentKey];
-      const info = getTaintInfo(stateView.taint ?? {}, parentKey);
-      if (info) childTaint = markTainted(childTaint, childKey, info);
-    }
-  }
+  // Crossing INTO the child: mapped keys only, taint carried, declared
+  // inputs enforced. The rules live in `boundary.ts` because they are the
+  // same for any node that delegates to something opaque.
+  const fail: BoundaryFailure = (direction, key, detail) => {
+    throw new SubgraphInterfaceError(node.id, config.subgraph_id, direction, key, detail);
+  };
 
-  // Boundary validation against the child's declared interface: a required
-  // input must be present, and a present value must satisfy its schema. This
-  // fires on every path, including children resolved by id at runtime that
-  // never saw the facade's compile-time mapping check.
-  if (childGraph.inputs) {
-    for (const [key, decl] of Object.entries(childGraph.inputs)) {
-      if (!(key in childMemory)) {
-        if (decl.required) {
-          throw new SubgraphInterfaceError(node.id, config.subgraph_id, 'input', key, 'required input was not provided');
-        }
-        continue;
-      }
-      const violation = boundaryViolation(decl.schema, childMemory[key]);
-      if (violation) {
-        throw new SubgraphInterfaceError(node.id, config.subgraph_id, 'input', key, violation);
-      }
-    }
-  }
+  const { memory: childMemory, taint: childTaint } = mapInbound(stateView, config.input_mapping);
+  validateInbound(childGraph.inputs, childMemory, fail);
 
   const remainingBudget = ctx.state.max_token_budget
     ? ctx.state.max_token_budget - ctx.state.total_tokens_used
@@ -241,6 +216,8 @@ export async function executeSubgraphNode(
     memoryRetriever: ctx.memoryRetriever,
     securityPolicy: ctx.securityPolicy,
     memoryWriter: ctx.memoryWriter,
+    a2aRegistry: ctx.a2aRegistry,
+    a2aClient: ctx.a2aClient,
     factSanitizer: ctx.factSanitizer,
     fitnessFunction: ctx.fitnessFunction,
     ...(ctx.rateLimiter ? { rateLimiter: ctx.rateLimiter } : {}),
@@ -256,19 +233,30 @@ export async function executeSubgraphNode(
   const resumeKey = `_subgraph_resume_${node.id}`;
   const stashed = ctx.state.subgraph_checkpoints?.[node.id];
 
-  let finalChildState: WorkflowState;
-  if (stashed) {
-    const resumedChild = reviveChildState(stashed);
-    const childRunner = new GraphRunner(childGraph, resumedChild, childOptions);
-    childRunner.applyHumanResponse({
-      decision: ctx.state.memory.human_decision as 'approved' | 'rejected' | 'edited',
-      data: ctx.state.memory.human_response,
-    });
-    finalChildState = await childRunner.run();
-  } else {
+  // The child runs on its own GraphRunner, so its `workflow.run` span is a
+  // separate root unless something links them. This span is that link, and
+  // it carries the attributes needed to find a child run from the parent:
+  // which graph, which run id, and whether this continued a paused one.
+  const finalChildState: WorkflowState = await withSpan(tracer, 'subgraph.run', async (span) => {
+    span.setAttribute('subgraph.id', config.subgraph_id);
+    span.setAttribute('subgraph.resumed', Boolean(stashed));
+    span.setAttribute('subgraph.depth', subgraphStack.length);
+
+    if (stashed) {
+      const resumedChild = reviveChildState(stashed);
+      span.setAttribute('subgraph.child_run_id', resumedChild.run_id);
+      const childRunner = new GraphRunner(childGraph, resumedChild, childOptions);
+      childRunner.applyHumanResponse({
+        decision: ctx.state.memory.human_decision as 'approved' | 'rejected' | 'edited',
+        data: ctx.state.memory.human_response,
+      });
+      return childRunner.run();
+    }
+
+    span.setAttribute('subgraph.child_run_id', childState.run_id);
     const childRunner = new GraphRunner(childGraph, childState, childOptions);
-    finalChildState = await childRunner.run();
-  }
+    return childRunner.run();
+  });
 
   // The child paused for a nested approval (tainted → sensitive action). Surface
   // it as a PARENT pause and stash the child checkpoint so resume continues it.
@@ -294,31 +282,14 @@ export async function executeSubgraphNode(
     throw new SubgraphIncompleteError(node.id, config.subgraph_id, finalChildState.status);
   }
 
-  // Map child outputs back to parent memory, carrying taint back across the
-  // boundary: data the child marked untrusted stays untrusted in the parent.
-  const outputUpdates: Record<string, unknown> = {};
-  const outputTaint: Record<string, TaintMetadata> = {};
-  const childRegistry = finalChildState.taint_registry ?? {};
-  for (const [childKey, parentKey] of Object.entries(config.output_mapping)) {
-    if (childKey in finalChildState.memory) {
-      const value = finalChildState.memory[childKey];
-      const decl = childGraph.outputs?.[childKey];
-      if (decl) {
-        const violation = boundaryViolation(decl.schema, value);
-        if (violation) {
-          throw new SubgraphInterfaceError(node.id, config.subgraph_id, 'output', childKey, violation);
-        }
-      }
-      outputUpdates[parentKey] = value;
-      const info = getTaintInfo(childRegistry, childKey);
-      if (info) outputTaint[parentKey] = info;
-    }
-  }
-  if (Object.keys(outputTaint).length > 0) {
-    // Wire encoding — only the NEW entries; the reducer's routing choke
-    // point appends them to `state.taint_registry`.
-    outputUpdates['_taint_registry'] = outputTaint;
-  }
+  // Crossing back OUT: same rules, same module.
+  const outputUpdates = mapOutbound(
+    finalChildState.memory,
+    finalChildState.taint_registry ?? {},
+    config.output_mapping,
+    childGraph.outputs,
+    fail,
+  );
   // Clear the resume stash now the child has completed.
   if (stashed) outputUpdates[resumeKey] = undefined;
 
@@ -326,9 +297,9 @@ export async function executeSubgraphNode(
   const childCompensation = finalChildState.compensation_stack;
   const compensationEntries = childCompensation.length > 0
     ? childCompensation.map(entry => ({
-        action_id: `subgraph:${node.id}:${entry.action_id}`,
-        compensation_action: entry.compensation_action,
-      }))
+      action_id: `subgraph:${node.id}:${entry.action_id}`,
+      compensation_action: entry.compensation_action,
+    }))
     : undefined;
 
   if (compensationEntries) {

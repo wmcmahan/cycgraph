@@ -9,10 +9,6 @@
  * `run()` can auto-wire `loadGraph` and register the child's agents — the
  * same reference pipeline `agent()` and `tool()` values use.
  *
- * A string child references a graph resolved elsewhere (a pre-registered
- * graph, or a third-party id). The caller supplies `loadGraph` for those
- * until the package resolver lands (Phase 2).
- *
  * @module authoring/subgraph
  */
 

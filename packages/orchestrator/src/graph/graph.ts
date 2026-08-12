@@ -43,6 +43,7 @@ export const NodeTypeSchema = z.enum([
   'evolution',
   'verifier',
   'reflection',
+  'a2a',
 ]);
 
 export type NodeType = z.infer<typeof NodeTypeSchema>;
@@ -676,6 +677,45 @@ export const SubgraphConfigSchema = z.object({
 
 export type SubgraphConfig = z.infer<typeof SubgraphConfigSchema>;
 
+/**
+ * Configuration for an `a2a` node: delegate a unit of work to a remote
+ * agent over the Agent2Agent protocol.
+ *
+ * Sibling to {@link SubgraphConfigSchema}, and deliberately shaped like it:
+ * both delegate to something opaque and map memory across a boundary. The
+ * guarantees differ, which is exactly why they are different node types. A
+ * subgraph child inherits the parent's remaining budget and runs under its
+ * capability ceiling; a remote agent runs on someone else's infrastructure
+ * and can do neither.
+ */
+export const A2AConfigSchema = z.object({
+  /**
+   * Registry id of the remote server. Never a URL: endpoints and
+   * credentials live in the trusted A2A server registry so a graph cannot
+   * name an arbitrary host.
+   */
+  server_id: z.string().min(1),
+  /**
+   * Which advertised skill this node intends to invoke.
+   *
+   * Documentation rather than protocol: nothing in the A2A client surface
+   * takes a skill id, so this records intent for readers and tooling and is
+   * not sent on the wire.
+   */
+  skill_id: z.string().optional(),
+  /** Parent memory key → remote message part. */
+  input_mapping: z.record(z.string(), z.string()).default({}),
+  /** Remote artifact name → parent memory key. */
+  output_mapping: z.record(z.string(), z.string()).default({}),
+  /**
+   * Per-node override of how long to wait for the task to reach a terminal
+   * state. Falls back to the registry entry's `task_timeout_ms`.
+   */
+  max_wait_ms: z.number().int().positive().max(86_400_000).optional(),
+});
+
+export type A2AConfig = z.infer<typeof A2AConfigSchema>;
+
 // ─── Graph Node ─────────────────────────────────────────────────────
 
 /**
@@ -702,6 +742,8 @@ export const GraphNodeSchema = z.object({
   subgraph_id: z.string().optional(),
   /** Subgraph config (for `subgraph` nodes). */
   subgraph_config: SubgraphConfigSchema.optional(),
+  /** Remote-agent config (for `a2a` nodes). */
+  a2a_config: A2AConfigSchema.optional(),
   /** Supervisor config (for `supervisor` nodes). */
   supervisor_config: SupervisorConfigSchema.optional(),
   /** Approval gate config (for `approval` nodes). */

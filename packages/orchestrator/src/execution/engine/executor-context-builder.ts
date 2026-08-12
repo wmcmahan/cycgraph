@@ -24,6 +24,8 @@ import type { ContextCompressor } from '../../memory/context-compressor.js';
 import type { MemoryRetriever } from '../../memory/memory-retriever.js';
 import type { SecurityPolicy } from '../../security/security-policy.js';
 import type { MemoryWriter } from '../../memory/memory-writer.js';
+import type { A2AServerRegistry } from '../../a2a/schema.js';
+import type { A2AClient } from '../../a2a/client.js';
 import type { FactSanitizer } from '../../security/fact-sanitizer.js';
 import type { FitnessFunction } from '../nodes/fitness-function.js';
 import type { RateLimiter } from '../../agents/rate-limiter.js';
@@ -60,6 +62,8 @@ export interface ExecutorContextRunner {
   contextCompressor?: ContextCompressor;
   memoryRetriever?: MemoryRetriever;
   memoryWriter?: MemoryWriter;
+  a2aRegistry?: A2AServerRegistry;
+  a2aClient?: A2AClient;
   factSanitizer?: FactSanitizer;
   factSanitizerFailMode?: 'drop' | 'pass';
   fitnessFunction?: FitnessFunction;
@@ -184,6 +188,8 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     memoryRetriever: runner.memoryRetriever,
     securityPolicy: runner.securityPolicy,
     memoryWriter: runner.memoryWriter,
+    a2aRegistry: runner.a2aRegistry,
+    a2aClient: runner.a2aClient,
     factSanitizer: runner.factSanitizer,
     factSanitizerFailMode: runner.factSanitizerFailMode,
     fitnessFunction: runner.fitnessFunction,

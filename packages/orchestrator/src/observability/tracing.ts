@@ -19,7 +19,7 @@
  * @module observability/tracing
  */
 
-import { trace, type Tracer, type Span, SpanStatusCode } from '@opentelemetry/api';
+import { trace, propagation, context, type Tracer, type Span, SpanStatusCode } from '@opentelemetry/api';
 import { initMetrics } from './metrics.js';
 
 let initialized = false;
@@ -130,4 +130,27 @@ export async function withSpan<T>(
 }
 
 // Re-export for convenience
-export { SpanStatusCode, context, type Span } from '@opentelemetry/api';
+export { SpanStatusCode, type Span } from '@opentelemetry/api';
+export { context };
+
+/**
+ * Inject the active trace context into outbound request headers as W3C
+ * `traceparent` / `tracestate`.
+ *
+ * This is what makes a call to another system appear in the SAME trace as
+ * the run that made it, rather than as two unrelated traces nobody can
+ * correlate. Without it, "where did the time go" stops at our own boundary.
+ *
+ * A no-op when tracing is not configured, so callers can inject
+ * unconditionally.
+ *
+ * Note that this DISCLOSES the trace id to the receiver. That is normal for
+ * distributed tracing inside one system, and a deliberate choice across an
+ * organisational boundary — callers should gate it per destination rather
+ * than assume it everywhere.
+ */
+export function injectTraceContext(headers: Record<string, string>): Record<string, string> {
+  const carrier: Record<string, string> = {};
+  propagation.inject(context.active(), carrier);
+  return { ...headers, ...carrier };
+}

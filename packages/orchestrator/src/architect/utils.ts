@@ -9,12 +9,21 @@
  */
 
 import { z } from 'zod';
-import type { Graph } from '../graph/graph.js';
+import type { Graph, NodeType } from '../graph/graph.js';
 import { GraphSchema } from '../graph/graph.js';
 import { LLMGraphSchema } from './schemas.js';
 
 /** Inferred type of an LLM-generated graph (before runtime fields are added). */
 export type LLMGraph = z.infer<typeof LLMGraphSchema>;
+
+/**
+ * A graph rendered for the architect prompt. Structurally an
+ * {@link LLMGraph}, but `type` accepts every engine node type rather than
+ * only the ones the LLM is permitted to author.
+ */
+export type LLMGraphSnapshot = Omit<LLMGraph, 'nodes'> & {
+  nodes: Array<Omit<LLMGraph['nodes'][number], 'type'> & { type: NodeType }>;
+};
 
 /**
  * Convert an LLM-generated graph to a full runtime {@link Graph}.
@@ -63,9 +72,17 @@ export function llmGraphToGraph(llm: LLMGraph, existingId?: string): Graph {
  * Used in modification mode to provide context to the architect LLM.
  *
  * @param graph - The runtime graph to convert.
- * @returns An {@link LLMGraph} suitable for embedding in a prompt.
+ * The return type widens `node.type` to the full {@link NodeType} union.
+ * The GENERATION schema deliberately allows fewer types than the engine
+ * supports — an LLM may not author an `a2a` node, because delegating to a
+ * remote agent is an operator decision — but a snapshot must still be able
+ * to REPRESENT a graph that contains one. Narrowing here instead would make
+ * the architect silently drop such a node while modifying the graph around
+ * it.
+ *
+ * @returns A snapshot suitable for embedding in a prompt.
  */
-export function graphToLLMSnapshot(graph: Graph): LLMGraph {
+export function graphToLLMSnapshot(graph: Graph): LLMGraphSnapshot {
   return {
     name: graph.name,
     description: graph.description,
