@@ -57,6 +57,8 @@ import type { ModelResolver } from '../../agents/models/model-resolver.js';
 import type { ContextCompressor } from '../../memory/context-compressor.js';
 import type { MemoryRetriever } from '../../memory/memory-retriever.js';
 import type { MemoryWriter } from '../../memory/memory-writer.js';
+import type { A2AServerRegistry } from '../../a2a/schema.js';
+import type { A2AClient } from '../../a2a/client.js';
 import type { FactSanitizer } from '../../security/fact-sanitizer.js';
 import type { FitnessFunction } from '../nodes/fitness-function.js';
 import type { RateLimiter } from '../../agents/rate-limiter.js';
@@ -284,6 +286,16 @@ export interface GraphRunnerOptions {
    */
   memoryWriter?: MemoryWriter;
   /**
+   * Trusted registry resolving `a2a` node `server_id`s. Required for any
+   * graph containing an `a2a` node.
+   */
+  a2aRegistry?: A2AServerRegistry;
+  /**
+   * A2A transport. The engine owns the port and takes no dependency on a
+   * protocol SDK; supply an implementation to run `a2a` nodes.
+   */
+  a2aClient?: A2AClient;
+  /**
    * Optional pre-write hook applied to every fact emitted by reflection
    * nodes before it reaches `memoryWriter`. Use to redact PII, drop
    * policy-violating content, or substitute wording. Returning `null`
@@ -442,6 +454,8 @@ export class GraphRunner extends EventEmitter {
 
   // Memory writer for persisting facts from reflection nodes (optional)
   private readonly memoryWriter?: MemoryWriter;
+  readonly a2aRegistry?: A2AServerRegistry;
+  readonly a2aClient?: A2AClient;
 
   // Optional pre-write sanitizer applied to reflection facts before persistence
   private readonly factSanitizer?: FactSanitizer;
@@ -524,6 +538,8 @@ export class GraphRunner extends EventEmitter {
     this.contextCompressor = options?.contextCompressor;
     this.memoryRetriever = options?.memoryRetriever;
     this.memoryWriter = options?.memoryWriter;
+    this.a2aRegistry = options?.a2aRegistry;
+    this.a2aClient = options?.a2aClient;
     this.factSanitizer = options?.factSanitizer;
     this.factSanitizerFailMode = options?.factSanitizerFailMode ?? 'drop';
     this.fitnessFunction = options?.fitnessFunction;
@@ -671,6 +687,8 @@ export class GraphRunner extends EventEmitter {
       get memoryRetriever() { return self.memoryRetriever; },
       get securityPolicy() { return self.securityPolicy; },
       get memoryWriter() { return self.memoryWriter; },
+      get a2aRegistry() { return self.a2aRegistry; },
+      get a2aClient() { return self.a2aClient; },
       get factSanitizer() { return self.factSanitizer; },
       get factSanitizerFailMode() { return self.factSanitizerFailMode; },
       get fitnessFunction() { return self.fitnessFunction; },

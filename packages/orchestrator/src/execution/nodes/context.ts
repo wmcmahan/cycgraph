@@ -21,6 +21,8 @@ import type { ModelResolver, ModelResolutionResult, ModelTier } from '../../agen
 import type { ContextCompressor, ContextCompressionMetrics } from '../../memory/context-compressor.js';
 import type { MemoryRetriever } from '../../memory/memory-retriever.js';
 import type { MemoryWriter } from '../../memory/memory-writer.js';
+import type { A2AServerRegistry } from '../../a2a/schema.js';
+import type { A2AClient } from '../../a2a/client.js';
 import type { FactSanitizer } from '../../security/fact-sanitizer.js';
 import type { FitnessFunction } from './fitness-function.js';
 import type { RateLimiter } from '../../agents/rate-limiter.js';
@@ -199,6 +201,10 @@ export interface NodeExecutorContext {
   graph: Graph;
   /** Load a graph by ID (needed by the subgraph executor). */
   loadGraphFn?: (graphId: string) => Promise<Graph | null>;
+  /** Trusted registry resolving `a2a` node `server_id`s to endpoints and credentials. */
+  a2aRegistry?: A2AServerRegistry;
+  /** Host-supplied A2A transport. The engine owns the port, not the implementation. */
+  a2aClient?: A2AClient;
   /**
    * The tool resolver instance (from GraphRunnerOptions). Exposed so the
    * subgraph executor can propagate it into the child runner — otherwise a

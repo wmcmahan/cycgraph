@@ -81,3 +81,51 @@ export class SubgraphInterfaceError extends CycgraphError {
     this.name = 'SubgraphInterfaceError';
   }
 }
+
+/**
+ * Thrown when a value crossing an `a2a` boundary violates a declared
+ * schema. Mirrors {@link SubgraphInterfaceError}; kept distinct so a
+ * handler can tell a local composition failure from a remote one.
+ */
+export class A2AInterfaceError extends CycgraphError {
+  constructor(
+    public readonly nodeId: string,
+    public readonly serverId: string,
+    public readonly direction: 'input' | 'output',
+    public readonly key: string,
+    detail: string,
+  ) {
+    super(
+      `A2A server "${serverId}" ${direction} "${key}" violates the declared interface: ${detail}`,
+    );
+    this.name = 'A2AInterfaceError';
+  }
+}
+
+/**
+ * Thrown when a remote task ended in any state other than `completed`.
+ *
+ * `retryable` is `false` for `rejected`: the agent decided not to do the
+ * work, so re-issuing burns the retry budget on a decision that will not
+ * change. The runner short-circuits on `retryable === false`.
+ */
+export class A2ATaskFailedError extends CycgraphError {
+  readonly retryable?: boolean;
+  constructor(
+    public readonly nodeId: string,
+    public readonly serverId: string,
+    public readonly state: string,
+    public readonly taskId: string,
+    detail?: string,
+  ) {
+    super(
+      `A2A task ${taskId} on server "${serverId}" ended in state "${state}"` +
+      (detail ? `: ${detail}` : ''),
+    );
+    this.name = 'A2ATaskFailedError';
+    // `rejected` is a decision and `auth-required` is a credential the
+    // engine cannot change mid-run: re-issuing either spends the retry
+    // budget on an identical outcome.
+    if (state === 'rejected' || state === 'auth-required') this.retryable = false;
+  }
+}

@@ -403,6 +403,14 @@ function validateNodeByType(
       break;
     }
 
+    case 'a2a': {
+      if (!node.a2a_config) {
+        errors.push(`A2A node '${node.id}' is missing a2a_config`);
+      } else if (!node.a2a_config.server_id) {
+        errors.push(`A2A node '${node.id}' is missing a2a_config.server_id`);
+      }
+      break;
+    }
     case 'subgraph': {
       if (!node.subgraph_config) {
         errors.push(`Subgraph node '${node.id}' is missing subgraph_config`);

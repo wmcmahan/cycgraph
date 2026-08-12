@@ -63,6 +63,7 @@ export function computeHumanResponseOutcome(
     rejection_node_id?: string;
     policy_gate?: boolean;
     subgraph_node_id?: string;
+    a2a_node_id?: string;
   } | undefined;
 
   // Create and apply resume action
@@ -85,12 +86,14 @@ export function computeHumanResponseOutcome(
   let nextState = rootReducer(state, resumeAction);
   const dispatches: HumanResponseOutcome['dispatches'] = [];
 
-  // Nested subgraph approval: the decision belongs to the CHILD run, not the
-  // parent. `resume_from_human` already recorded human_decision/human_response
-  // in memory; re-enter the subgraph node (current_node never advanced) so its
-  // executor forwards the decision and continues the child. Do NOT advance or
-  // cancel the parent here.
-  if (pendingApproval?.subgraph_node_id) {
+  // Delegated pauses: the decision belongs to the far side, not to this
+  // graph's routing. `resume_from_human` already recorded
+  // human_decision/human_response in memory; re-enter the SAME node
+  // (current_node never advanced) so its executor forwards the answer —
+  // into the child run for a subgraph, or onto the remote task for a2a. Do
+  // NOT advance or cancel here, or the delegated work is abandoned
+  // mid-conversation.
+  if (pendingApproval?.subgraph_node_id || pendingApproval?.a2a_node_id) {
     return { state: nextState, resumeAction, dispatches };
   }
 

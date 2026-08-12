@@ -47,7 +47,10 @@ export function impliedActionPermissions(node: GraphNode): string[] {
       break;
     case 'approval':
     case 'subgraph':
-      // request_human_input (approval pause / nested-HITL pause) → control_flow.
+    case 'a2a':
+      // request_human_input → control_flow. An `a2a` node pauses for the
+      // same reason a subgraph does: the far side asked a human a question
+      // (`input-required`) and the run has to wait for the answer.
       implied.push('control_flow');
       break;
     case 'agent':
@@ -103,6 +106,12 @@ export function impliedResultKeys(node: GraphNode): string[] {
       break;
     case 'tool':
       keys.push(`${node.id}_result`);
+      break;
+    case 'a2a':
+      // Same reasoning as `subgraph`: the executor writes the parent-side
+      // keys of the output mapping, and the mapping that names them is the
+      // declaration.
+      keys.push(...Object.values(node.a2a_config?.output_mapping ?? {}));
       break;
     case 'subgraph':
       // The output mapping's PARENT-side keys. The subgraph executor writes

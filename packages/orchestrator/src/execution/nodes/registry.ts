@@ -24,6 +24,7 @@ import { executeToolNode } from './tool.js';
 import { executeRouterNode } from './router.js';
 import { executeSupervisorNode } from './supervisor.js';
 import { executeApprovalNode } from './approval.js';
+import { executeA2ANode } from './a2a.js';
 import { executeMapNode } from './map.js';
 import { executeVotingNode } from './voting.js';
 import { executeSynthesizerNode } from './synthesizer.js';
@@ -54,6 +55,7 @@ export const NODE_EXECUTORS: Record<NodeType, NodeExecutor> = {
   router: executeRouterNode,
   supervisor: executeSupervisorNode,
   approval: executeApprovalNode,
+  a2a: executeA2ANode,
   map: executeMapNode,
   voting: executeVotingNode,
   synthesizer: executeSynthesizerNode,

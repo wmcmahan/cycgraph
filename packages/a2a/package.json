@@ -1,0 +1,47 @@
+{
+  "name": "@cycgraph/a2a",
+  "version": "0.0.0",
+  "description": "Official Agent2Agent (A2A) adapter for @cycgraph/orchestrator. Implements the A2AClient port on @a2a-js/sdk.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@a2a-js/sdk": "^1.0.1"
+  },
+  "peerDependencies": {
+    "@cycgraph/orchestrator": ">=0.14.0 <1"
+  },
+  "devDependencies": {
+    "@cycgraph/orchestrator": "*",
+    "typescript": "7.0.2",
+    "vitest": "^4.0.18"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wmcmahan/cycgraph.git",
+    "directory": "packages/a2a"
+  }
+}
