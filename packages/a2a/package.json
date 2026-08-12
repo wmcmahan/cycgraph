@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/a2a",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Official Agent2Agent (A2A) adapter for @cycgraph/orchestrator. Implements the A2AClient port on @a2a-js/sdk.",
   "type": "module",
   "main": "./dist/index.js",
