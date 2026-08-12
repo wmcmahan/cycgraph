@@ -33,6 +33,14 @@ flowchart LR
 
 Taint metadata travels with mapped values in both directions, so untrusted data stays flagged across the boundary. Budgets are shared: the child spends from the parent's remaining token and cost budget, and its usage rolls back up. A child that pauses at a human approval gate pauses the parent, and resumes from the same checkpoint.
 
+### Grants on a subgraph node
+
+The two mappings are not symmetric in what they authorize.
+
+`outputs` **is** the write grant. Its parent-side keys are written by the subgraph executor copying child memory out, and the mapping that names them is the declaration, exactly as a verifier's `result_key` is. A subgraph node needs no `writes` entry for a key its `outputs` already names. Declaring one anyway is harmless.
+
+`reads` is still required, and deliberately so. It controls what the node can SEE of parent memory, which is the confidentiality boundary rather than a destination the author already chose. An input mapping that names a parent key the node cannot read simply seeds nothing, and the child then fails its own required-input check at the boundary if that key was declared required.
+
 ## Composing with the facade
 
 `subgraph()` is the connect primitive. Pass a `graph()` value and its placement, and `run()` wires everything: the child resolves automatically, and its agents and inline tools register into the run scope, grandchildren included.
@@ -55,7 +63,6 @@ const pipeline = graph({
     subgraph(research, {
       id: 'research',
       reads: ['topic'],
-      writes: 'findings',
       inputs:  { topic: 'goal_in' },     // parent key → child key
       outputs: { summary: 'findings' },  // child key → parent key
     }),
@@ -186,7 +193,6 @@ const pipeline = graph({
       id: 'research',
       inputs:  { topic: 'goal_in' },
       outputs: { summary: 'findings' },
-      writes: 'findings',
     }),
   ],
 });

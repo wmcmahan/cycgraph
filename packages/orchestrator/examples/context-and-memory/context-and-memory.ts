@@ -55,7 +55,7 @@ import {
   createExactDedupStage,
   createFuzzyDedupStage,
   createAllocatorStage,
-  serialize,
+  resolveModelProfile,
 } from '@cycgraph/context-engine';
 import type { PipelineState } from '@cycgraph/context-engine';
 
@@ -135,6 +135,13 @@ const compressionPipeline = createIncrementalPipeline({
   timeoutMs: 500, // hard cap to prevent runaway compression
 });
 
+/**
+ * Reserve when the agent declares no `maxOutputTokens`. The provider then
+ * applies its own default, which is typically the model's maximum, so
+ * assuming zero would build a budget the request cannot honour.
+ */
+const DEFAULT_OUTPUT_RESERVE = 8_192;
+
 let pipelineState: PipelineState | undefined;
 
 // ─── 3. Wire adapters for the orchestrator ──────────────────────────────
@@ -143,21 +150,23 @@ let pipelineState: PipelineState | undefined;
  * Context compressor: compresses memory data before injecting into prompts.
  * Uses the incremental pipeline so subsequent calls benefit from caching.
  */
-const contextCompressor: ContextCompressor = (sanitizedMemory, options) => {
-  const content = serialize(sanitizedMemory);
-
+const contextCompressor: ContextCompressor = (segments, options) => {
   const { result, state: nextState } = compressionPipeline.compress(
     {
-      segments: [{
-        id: 'memory',
-        content,
-        role: 'memory' as const,
-        priority: 1,
-        locked: false,
-      }],
+      // Stable segment ids are what make the incremental cache work: the
+      // system prompt and goal are unchanged for a whole run and hit cache
+      // on every node after the first, while memory and retrieved facts
+      // churn and recompute.
+      segments: segments.map((segment) => ({
+        id: segment.id,
+        content: segment.content,
+        role: segment.role,
+        priority: segment.priority ?? 1,
+        locked: segment.locked ?? false,
+      })),
       budget: {
-        maxTokens: options?.maxTokens ?? 8192,
-        outputReserve: 0,
+        maxTokens: options?.maxTokens ?? resolveModelProfile(options?.model)?.maxContextTokens ?? 8192,
+        outputReserve: options?.outputReserve ?? DEFAULT_OUTPUT_RESERVE,
       },
       model: options?.model,
     },
@@ -166,7 +175,7 @@ const contextCompressor: ContextCompressor = (sanitizedMemory, options) => {
   pipelineState = nextState;
 
   return {
-    compressed: result.segments[0].content,
+    segments: result.segments.map((segment) => ({ id: segment.id, content: segment.content })),
     metrics: {
       totalTokensIn: result.metrics.totalTokensIn,
       totalTokensOut: result.metrics.totalTokensOut,

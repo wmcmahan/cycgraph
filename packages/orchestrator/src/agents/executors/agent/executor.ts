@@ -205,6 +205,7 @@ export async function executeAgent(
       hasSaveToMemoryTool,
       retrievedMemory,
       effectiveWriteKeys: effectiveWrite,
+      ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
     });
     const taskPrompt = buildTaskPrompt(view, attempt);
 
@@ -233,6 +234,15 @@ export async function executeAgent(
     let steps: AgentStep[];
     let result: Awaited<ReturnType<typeof streamText>> | undefined;
 
+    // The provider error that actually killed the stream. `streamText` routes
+    // it here and then rejects the consuming await with a generic
+    // `NoOutputGeneratedError` whose `cause` is undefined, so without this
+    // capture the root cause is unrecoverable: the message degrades to "No
+    // output generated" and `classifyRetryable` cannot see the status code,
+    // making a definitively non-retryable failure (401, 400) burn every
+    // configured retry.
+    let streamError: unknown;
+
     try {
       result = await streamText({
         model,
@@ -241,6 +251,10 @@ export async function executeAgent(
         tools,
         stopWhen: isStepCount(config.maxSteps),
         abortSignal: combinedSignal,
+        // Omitted entirely when unset, so the provider's own default still
+        // applies and nothing changes for graphs that never configured it.
+        ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
+        onError: ({ error }) => { streamError = error; },
         ...(options?.temperatureOverride !== undefined
           ? { temperature: clampTemperature(options.temperatureOverride, effectiveConfig.provider, agentId) }
           : {}),
@@ -308,16 +322,22 @@ export async function executeAgent(
         throw new AgentTimeoutError(agentId, timeoutMs, partialUsage);
       }
 
+      // Prefer the error the stream reported over the generic wrapper the
+      // await rejected with. The abort check above deliberately stays on the
+      // thrown error, so a timeout is still a timeout even when an unrelated
+      // error was captured earlier in the stream.
+      const rootError = streamError ?? error;
+
       // Structured error handling — log and re-wrap
       const duration = Date.now() - startTime;
-      logger.error('agent_execution_failed', error, {
+      logger.error('agent_execution_failed', rootError, {
         agent_id: agentId,
         model: config.model,
         attempt,
         duration_ms: duration,
       });
-      span.setAttribute('agent.error', error instanceof Error ? error.message : String(error));
-      throw new AgentExecutionError(agentId, error, partialUsage, classifyRetryable(error));
+      span.setAttribute('agent.error', rootError instanceof Error ? rootError.message : String(rootError));
+      throw new AgentExecutionError(agentId, rootError, partialUsage, classifyRetryable(rootError));
     } finally {
       clearTimeout(timeoutId);
     }

@@ -70,6 +70,24 @@ export const AgentConfigSchema = z.object({
   maxSteps: z.number().min(1).max(50).default(10),
 
   /**
+   * Maximum tokens the model may GENERATE in one call.
+   *
+   * Deliberately has NO default. Any value we picked would become a
+   * truncation ceiling for graphs that already emit long output, so
+   * leaving it absent preserves the provider's behaviour exactly and
+   * makes the cap opt-in.
+   *
+   * Setting it is worth doing. Providers default this to the model's
+   * maximum, and because a request must fit prompt plus generation inside
+   * the context window, an unset cap silently reserves window an agent
+   * writing three sentences will never use.
+   *
+   * Not to be confused with `GraphNode.budget.max_tokens`, a spend cap
+   * that aborts the node. This one is passed to the provider.
+   */
+  maxOutputTokens: z.number().int().positive().optional(),
+
+  /**
    * Provider-specific options, namespaced by provider name.
    *
    * Passed through directly to the LLM call (e.g. `streamText`).

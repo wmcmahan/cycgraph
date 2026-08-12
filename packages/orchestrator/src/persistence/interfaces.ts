@@ -230,6 +230,19 @@ export interface AgentRegistryEntry {
   temperature: number;
   /** Maximum tool-call steps. */
   max_steps: number;
+  /**
+   * Maximum tokens the model may GENERATE in one call.
+   *
+   * Absent means the provider decides. Providers default this to the
+   * model's maximum, which is usually far more than a node needs and
+   * costs input context: an API requires prompt + generation to fit the
+   * window, so an unset cap on a 200k-window model can reserve 128k for
+   * output that never arrives.
+   *
+   * Unrelated to `GraphNode.budget.max_tokens`, which is a spend cap that
+   * aborts a node. This is a generation limit passed to the provider.
+   */
+  max_output_tokens?: number;
   /** Structured tool source declarations. */
   tools: ToolSource[];
   /** Provider-specific options, namespaced by provider name. */
