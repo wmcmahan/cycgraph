@@ -80,6 +80,7 @@ export async function evaluateQualityExecutor(
         instructions: systemPrompt,
         prompt,
         output: Output.object({ schema: EvaluationSchema }),
+        ...(agentConfig.maxOutputTokens !== undefined ? { maxOutputTokens: agentConfig.maxOutputTokens } : {}),
         ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
       });
       evaluation = result.output;

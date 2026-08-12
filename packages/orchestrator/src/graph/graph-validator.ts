@@ -82,6 +82,21 @@ export function validateGraph(graph: Graph): ValidationResult {
         `Node '${node.id}': write_keys includes '*' (can overwrite any memory key) — prefer explicit keys for least privilege`,
       );
     }
+
+    // A tool node's executor writes its result to `${id}_result` and nowhere
+    // else, so declared write keys are inert. Silence is the danger here: an
+    // author who writes `writes: 'notes'` reasonably expects the result under
+    // `notes`, and every downstream reader of it comes back empty. The
+    // wildcard case is left to the warning above rather than reported twice.
+    if (node.type === 'tool') {
+      const declared = node.write_keys.filter((key) => key !== '*');
+      if (declared.length > 0) {
+        warnings.push(
+          `Node '${node.id}': tool nodes write their result to '${node.id}_result' only — declared ` +
+          `write_keys [${declared.join(', ')}] are never written; read '${node.id}_result' downstream instead`,
+        );
+      }
+    }
   }
 
   // ── Start & end node existence ───────────────────────────────────────
@@ -256,8 +271,14 @@ export function validateGraph(graph: Graph): ValidationResult {
   if (!anyWildcardWriter) {
     const producible = new Set<string>(['goal', 'constraints']);
     for (const node of graph.nodes) {
-      for (const key of node.write_keys) {
-        if (key !== '*') producible.add(key);
+      // A tool node's executor writes ONLY `${id}_result` (an implied result
+      // key, added below). Its declared `write_keys` name no destination, so
+      // counting them here would vouch for keys nothing ever writes and
+      // suppress the very typo this analysis exists to catch.
+      if (node.type !== 'tool') {
+        for (const key of node.write_keys) {
+          if (key !== '*') producible.add(key);
+        }
       }
       for (const key of impliedResultKeys(node)) producible.add(key);
       if (node.default_write_key) producible.add(node.default_write_key);
@@ -274,6 +295,21 @@ export function validateGraph(graph: Graph): ValidationResult {
           warnings.push(
             `Node '${node.id}': read_keys entry '${key}' is not produced by any node in this graph — ` +
             `if it is not seeded via initial workflow memory, the node will see an empty value (possible typo)`,
+          );
+        }
+      }
+
+      // A reflection node reads its material through `source_keys`, not
+      // `read_keys`, and distils NOTHING when a source key is absent — no
+      // error, no empty-result signal, just a run that silently learns
+      // nothing. Same dangling analysis, applied to the key that actually
+      // feeds the extractor.
+      for (const key of node.reflection_config?.source_keys ?? []) {
+        const topLevel = key.split('.')[0];
+        if (!producible.has(topLevel)) {
+          warnings.push(
+            `Node '${node.id}': reflection source_keys entry '${key}' is not produced by any node in ` +
+            `this graph — if it is not seeded via initial workflow memory, the node will distil zero facts (possible typo)`,
           );
         }
       }

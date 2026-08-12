@@ -1,0 +1,153 @@
+{
+  "manifest": {
+    "name": "market-analysis-block",
+    "version": "1.2.0",
+    "description": "Analyzes a market sector against recent data and returns a written analysis.",
+    "source": "@acme/market-analysis-block",
+    "inputs": {
+      "sector": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "string",
+          "minLength": 2
+        },
+        "required": true,
+        "description": "The market sector to analyze"
+      },
+      "year": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "default": 2026,
+          "type": "integer",
+          "minimum": 2000,
+          "maximum": 2100
+        },
+        "required": false,
+        "description": "Calendar year to analyze"
+      }
+    },
+    "outputs": {
+      "analysis": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "string"
+        },
+        "description": "Written sector analysis"
+      }
+    },
+    "requires": {
+      "tools": [
+        {
+          "name": "fetch_market_data",
+          "input_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+              "sector": {
+                "type": "string",
+                "description": "Sector name, e.g. \"grid-scale storage\""
+              },
+              "year": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Calendar year to report on"
+              }
+            },
+            "required": [
+              "sector",
+              "year"
+            ],
+            "additionalProperties": false
+          },
+          "taints": true
+        }
+      ],
+      "mcp_servers": [],
+      "models": [
+        "claude-sonnet-4-6"
+      ]
+    }
+  },
+  "graph": {
+    "id": "63a029bc-569d-4f4d-94e6-427a1dc12056",
+    "name": "market-analysis-block",
+    "description": "Analyzes a market sector against recent data and returns a written analysis.",
+    "inputs": {
+      "sector": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "string",
+          "minLength": 2
+        },
+        "required": true,
+        "description": "The market sector to analyze"
+      },
+      "year": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "default": 2026,
+          "type": "integer",
+          "minimum": 2000,
+          "maximum": 2100
+        },
+        "required": false,
+        "description": "Calendar year to analyze"
+      }
+    },
+    "outputs": {
+      "analysis": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "string"
+        },
+        "description": "Written sector analysis"
+      }
+    },
+    "nodes": [
+      {
+        "id": "analyze",
+        "type": "agent",
+        "agent_id": "fa3da5a0-0b77-4e30-8bbb-d7f859ef8794",
+        "read_keys": [
+          "sector",
+          "year"
+        ],
+        "write_keys": [
+          "analysis"
+        ],
+        "failure_policy": {
+          "max_retries": 3,
+          "backoff_strategy": "exponential",
+          "initial_backoff_ms": 1000,
+          "max_backoff_ms": 60000
+        },
+        "requires_compensation": false
+      }
+    ],
+    "edges": [],
+    "start_node": "analyze",
+    "end_nodes": [
+      "analyze"
+    ],
+    "strict_taint": false
+  },
+  "agents": [
+    {
+      "id": "fa3da5a0-0b77-4e30-8bbb-d7f859ef8794",
+      "name": "fa3da5a0-0b77-4e30-8bbb-d7f859ef8794",
+      "description": null,
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "system_prompt": "You are a market analyst. Call fetch_market_data for the sector under study, then write a short analysis covering the demand trend, the price trend, and the single biggest risk.",
+      "tools": [
+        {
+          "type": "custom",
+          "name": "fetch_market_data"
+        }
+      ],
+      "permissions": null
+    }
+  ],
+  "graphs": []
+}

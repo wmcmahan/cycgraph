@@ -16,7 +16,8 @@
  * 2. **Executor-owned result keys implied by node config.** The verifier
  *    ALWAYS writes `${result_key}` and `${result_key}_passed`; reflection
  *    always writes its envelope; map/voting/evolution always write their
- *    aggregate keys; a tool node writes `${id}_result`. These writes are
+ *    aggregate keys; a tool node writes `${id}_result`; a subgraph node
+ *    writes the parent-side keys of its `output_mapping`. These writes are
  *    produced by the executor, not authored by an LLM — the config that
  *    names them is the grant.
  *
@@ -103,6 +104,15 @@ export function impliedResultKeys(node: GraphNode): string[] {
     case 'tool':
       keys.push(`${node.id}_result`);
       break;
+    case 'subgraph':
+      // The output mapping's PARENT-side keys. The subgraph executor writes
+      // them by copying the child's memory out at the boundary — executor
+      // machinery naming its own destinations, exactly like a verifier's
+      // `result_key`. The mapping is authored by the parent graph, never by
+      // an LLM and never by the child, so the config that names the key is
+      // the grant.
+      keys.push(...Object.values(node.subgraph_config?.output_mapping ?? {}));
+      break;
     case 'synthesizer':
       // The agent-less merge path writes `${id}_synthesis`. (The agent path
       // routes output through the agent's write keys like any agent node.)
@@ -138,7 +148,14 @@ export function effectiveReadKeys(node: GraphNode, graph: Graph): string[] {
   const derived = new Set<string>();
   for (const managedId of managed) {
     const managedNode = graph.nodes.find((n) => n.id === managedId);
+    // Declared writes PLUS implied result keys: a managed verifier / tool /
+    // map / subgraph node produces its result keys through implication, so
+    // deriving from `write_keys` alone would hide from the supervisor the
+    // very output it is supposed to route on. Action pseudo-keys
+    // (`control_flow`, `status`) are deliberately excluded — they gate
+    // dispatch, they are not memory a reader can slice.
     for (const key of managedNode?.write_keys ?? []) derived.add(key);
+    for (const key of managedNode ? impliedResultKeys(managedNode) : []) derived.add(key);
     derived.add(`${managedId}_output`);
   }
   return [...derived];

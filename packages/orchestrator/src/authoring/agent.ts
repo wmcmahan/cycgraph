@@ -48,6 +48,12 @@ export interface AgentSpec {
   temperature?: number;
   /** Maximum tool-call steps. */
   maxSteps?: number;
+  /**
+   * Maximum tokens the model may generate in one call. Omitted means the
+   * provider's default, which is typically the model's maximum and
+   * reserves context window this agent may never use.
+   */
+  maxOutputTokens?: number;
   /** Human-readable description, stored on the registry entry for humans and tooling. */
   description?: string;
   /** Capability-tier preference for budget-aware model resolution. */
@@ -153,6 +159,7 @@ export function toRegistryConfig(
     permissions: null,
     ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}),
     ...(spec.maxSteps !== undefined ? { maxSteps: spec.maxSteps } : {}),
+    ...(spec.maxOutputTokens !== undefined ? { maxOutputTokens: spec.maxOutputTokens } : {}),
     ...(spec.modelPreference ? { modelPreference: spec.modelPreference } : {}),
     ...(spec.providerOptions ? { providerOptions: spec.providerOptions } : {}),
   } as AgentRegistryConfig & { id: string };

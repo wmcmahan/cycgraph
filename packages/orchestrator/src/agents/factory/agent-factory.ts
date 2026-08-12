@@ -200,6 +200,7 @@ export class AgentFactory {
         system: dbAgent.system_prompt,
         temperature: dbAgent.temperature,
         maxSteps: dbAgent.max_steps,
+        ...(dbAgent.max_output_tokens !== undefined ? { maxOutputTokens: dbAgent.max_output_tokens } : {}),
         tools: dbAgent.tools,
         ...(dbAgent.provider_options ? { providerOptions: { [dbAgent.provider]: dbAgent.provider_options } } : {}),
         ...(dbAgent.model_preference ? { model_preference: dbAgent.model_preference } : {}),

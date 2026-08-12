@@ -326,6 +326,88 @@ describe('validateGraph', () => {
 
       expect(result.warnings.some(w => w.includes('start_output') && w.includes('not produced'))).toBe(false);
     });
+
+    it('does not treat a tool node declared write key as producible', () => {
+      const graph = createValidGraph();
+      graph.nodes[0] = node({ id: 'start', type: 'tool', tool_id: 't', write_keys: ['notes'] });
+      graph.nodes[1].read_keys = ['notes'];
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w => w.includes("'notes'") && w.includes('not produced by any node'))).toBe(true);
+    });
+
+    it('treats a tool node implied result key as producible', () => {
+      const graph = createValidGraph();
+      graph.nodes[0] = node({ id: 'start', type: 'tool', tool_id: 't' });
+      graph.nodes[1].read_keys = ['start_result'];
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w => w.includes('start_result') && w.includes('not produced'))).toBe(false);
+    });
+  });
+
+  describe('tool node write keys', () => {
+    it('warns that declared write keys on a tool node are never written', () => {
+      const graph = createValidGraph();
+      graph.nodes[0] = node({ id: 'start', type: 'tool', tool_id: 't', write_keys: ['notes'] });
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w => w.includes("declared write_keys [notes] are never written"))).toBe(true);
+    });
+
+    it('does not warn for a tool node that declares none', () => {
+      const graph = createValidGraph();
+      graph.nodes[0] = node({ id: 'start', type: 'tool', tool_id: 't' });
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w => w.includes('are never written'))).toBe(false);
+    });
+
+    it('leaves a wildcard tool node to the least-privilege warning alone', () => {
+      const graph = createValidGraph();
+      graph.nodes[0] = node({ id: 'start', type: 'tool', tool_id: 't', write_keys: ['*'] });
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w => w.includes('are never written'))).toBe(false);
+      expect(result.warnings.some(w => w.includes("write_keys includes '*'"))).toBe(true);
+    });
+  });
+
+  describe('reflection source key detection', () => {
+    const reflection = (sourceKeys: string[]): GraphNode => node({
+      id: 'reflect',
+      type: 'reflection',
+      reflection_config: {
+        source_keys: sourceKeys,
+        extractor: { type: 'rule_based', min_sentence_length: 25 },
+        tags: ['lesson'],
+      },
+    } as Partial<GraphNode>);
+
+    it('warns when a source key is produced by no node', () => {
+      const graph = createValidGraph();
+      graph.nodes[1] = reflection(['never_written']);
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w =>
+        w.includes('never_written') && w.includes('distil zero facts'))).toBe(true);
+    });
+
+    it('does not warn when a source key is written upstream', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].write_keys = ['notes'];
+      graph.nodes[1] = reflection(['notes']);
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w => w.includes('distil zero facts'))).toBe(false);
+    });
   });
 
   describe('agent nodes', () => {

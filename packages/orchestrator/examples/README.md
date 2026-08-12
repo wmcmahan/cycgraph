@@ -17,6 +17,8 @@ Runnable examples for `@cycgraph/orchestrator`.
 |---------|---------|-------------|
 | [research-and-write](./research-and-write/) | Linear | 2-node pipeline: Researcher gathers notes, Writer produces a polished summary |
 | [composition](./composition/) | Subgraph (Composition) | A research graph built once as a reusable block, embedded in a briefing workflow via `subgraph()` — isolated child state, mapped inputs/outputs, zero hand-wiring |
+| [graph-interface](./graph-interface/) | Typed Composition Boundary | A block declares `inputs`/`outputs` as Zod schemas — its type signature. The parent wires onto that signature with `subgraph()`, and injects memory + context compression that reach every node inside the block |
+| [graph-interop](./graph-interop/) | Distribution (Bundles) | Two files that never import each other: a publisher `bundle()`s a graph to JSON, a consumer `parseBundle()`s it, preflights `requires`, binds a tool by name, and composes with it |
 | [supervisor-routing](./supervisor-routing/) | Supervisor | 4-node cyclic hub-and-spoke: Supervisor dynamically routes between Research, Write, and Edit specialists |
 | [human-in-the-loop](./human-in-the-loop/) | Approval Gate | 3-node pipeline with approval gate: Writer drafts, human reviews, Publisher finalizes |
 | [map-reduce](./map-reduce/) | Map-Reduce | 4-node fan-out: Splitter decomposes a topic, Map fans out to parallel Researchers, Synthesizer merges results |
@@ -67,6 +69,11 @@ ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/prompt-builder/prompt-builder.ts
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/streaming/streaming.ts
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/context-and-memory/context-and-memory.ts
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/workflow-observer/run.ts
+ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/graph-interface/index.ts
+
+# Graph interop — publish writes the artifact, consume reads and runs it
+npx tsx examples/graph-interop/publish.ts
+ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/graph-interop/consume.ts
 
 # Ollama (no API key needed)
 npx tsx examples/ollama-local/ollama-local.ts

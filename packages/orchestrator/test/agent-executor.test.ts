@@ -6,7 +6,9 @@ vi.mock('ai', () => ({
   tool: vi.fn((def: any) => def),
   jsonSchema: vi.fn((def: any) => def),
   isStepCount: vi.fn((n: number) => ({ type: 'stepCount', count: n })),
-  APICallError: { isInstance: () => false },
+  APICallError: {
+    isInstance: (error: unknown) => (error as { __apiCallError?: boolean })?.__apiCallError === true,
+  },
 }));
 
 // Mock agent factory
@@ -736,6 +738,87 @@ describe('executeAgent — error and timeout handling', () => {
 
     await expect(executeAgent('test-agent', makeStateView(), {}, 1, { timeoutMs: 5 }))
       .rejects.toMatchObject({ name: 'AgentTimeoutError' });
+  });
+});
+
+describe('executeAgent — stream-reported provider errors', () => {
+  const NO_OUTPUT = 'No output generated. Check the stream for errors.';
+
+  function providerError(message: string, isRetryable: boolean) {
+    return Object.assign(new Error(message), { __apiCallError: true, isRetryable });
+  }
+
+  function mockStreamReporting(reported: unknown, thrown: unknown = new Error(NO_OUTPUT)) {
+    (streamText as any).mockImplementation((opts: any) => {
+      opts.onError?.({ error: reported });
+      return {
+        text: Promise.reject(thrown),
+        totalUsage: Promise.resolve(undefined),
+        steps: Promise.resolve([]),
+      };
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (agentFactory.loadAgent as any).mockResolvedValue(makeAgentConfig());
+  });
+
+  it('reports the provider error rather than the generic stream wrapper', async () => {
+    mockStreamReporting(providerError('API key is invalid.', false));
+
+    await expect(executeAgent('test-agent', makeStateView(), {}, 1)).rejects.toMatchObject({
+      name: 'AgentExecutionError',
+      message: 'Agent test-agent execution failed: API key is invalid.',
+    });
+  });
+
+  it('carries the provider error as the cause', async () => {
+    const reported = providerError('API key is invalid.', false);
+    mockStreamReporting(reported);
+
+    await expect(executeAgent('test-agent', makeStateView(), {}, 1)).rejects.toMatchObject({
+      cause: reported,
+    });
+  });
+
+  it('classifies a non-retryable provider error so the runner stops retrying', async () => {
+    mockStreamReporting(providerError('API key is invalid.', false));
+
+    await expect(executeAgent('test-agent', makeStateView(), {}, 1)).rejects.toMatchObject({
+      retryable: false,
+    });
+  });
+
+  it('classifies a retryable provider error as retryable', async () => {
+    mockStreamReporting(providerError('Overloaded', true));
+
+    await expect(executeAgent('test-agent', makeStateView(), {}, 1)).rejects.toMatchObject({
+      retryable: true,
+    });
+  });
+
+  it('leaves retryability unclassified when the stream reports nothing', async () => {
+    (streamText as any).mockReturnValue({
+      text: Promise.reject(new Error(NO_OUTPUT)),
+      totalUsage: Promise.resolve(undefined),
+      steps: Promise.resolve([]),
+    });
+
+    await expect(executeAgent('test-agent', makeStateView(), {}, 1)).rejects.toMatchObject({
+      name: 'AgentExecutionError',
+      retryable: undefined,
+    });
+  });
+
+  it('still reports a timeout as AgentTimeoutError when the stream also reported an error', async () => {
+    const abort = new Error('aborted');
+    abort.name = 'AbortError';
+    mockStreamReporting(providerError('Overloaded', true), abort);
+
+    await expect(executeAgent('test-agent', makeStateView(), {}, 1)).rejects.toMatchObject({
+      name: 'AgentTimeoutError',
+    });
   });
 });
 

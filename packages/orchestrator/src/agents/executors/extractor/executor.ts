@@ -86,6 +86,7 @@ export async function extractFactsExecutor(
         instructions: systemPrompt,
         prompt,
         output: Output.object({ schema: ExtractionSchema }),
+        ...(agentConfig.maxOutputTokens !== undefined ? { maxOutputTokens: agentConfig.maxOutputTokens } : {}),
         ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
       });
       extraction = result.output;

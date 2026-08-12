@@ -67,9 +67,11 @@ const briefing = graph({
     subgraph(researchBlock, {
       id: 'research',
       reads: ['research_topic'],
-      writes: 'findings',
       inputs:  { research_topic: 'topic' },  // parent key → child key
       outputs: { summary: 'findings' },      // child key → parent key
+      // No `writes` needed: the output mapping already names `findings` as a
+      // destination, and that config IS the write grant. `reads` stays
+      // explicit — visibility into parent memory is never inferred.
     }),
     brief,
   ],

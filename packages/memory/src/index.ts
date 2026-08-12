@@ -119,6 +119,17 @@ export type { EntityResolutionOptions, EntityResolutionReport, EntityResolutionL
 export { InMemoryOutcomeLedger, RunOutcomeSchema } from './consolidation/outcome-ledger.js';
 export type { OutcomeLedger, RunOutcome, FactStats, OutcomeBaseline } from './consolidation/outcome-ledger.js';
 
+export {
+  checkFactAdmission,
+  EMBEDDING_THRESHOLD,
+  LEXICAL_THRESHOLD,
+} from './consolidation/fact-admission.js';
+export type {
+  FactAdmissionOptions,
+  FactAdmissionVerdict,
+  FactRejectionReason,
+} from './consolidation/fact-admission.js';
+
 export { evaluateRetention, RetentionPolicySchema } from './consolidation/retention-gate.js';
 export type { RetentionPolicy, RetentionReport, RetentionEvidence, EvictionReason } from './consolidation/retention-gate.js';
 

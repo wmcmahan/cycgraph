@@ -69,6 +69,31 @@ describe('impliedResultKeys', () => {
   it('agent fallback output key is deliberately NOT implied', () => {
     expect(impliedResultKeys(node({ id: 'a', type: 'agent' }))).toEqual([]);
   });
+
+  it('subgraph implies the parent-side keys of its output mapping', () => {
+    const sub = node({
+      id: 'call',
+      type: 'subgraph',
+      subgraph_config: {
+        subgraph_id: 'child',
+        input_mapping: { seed: 'topic' },
+        output_mapping: { work_result: 'findings', notes: 'raw_notes' },
+        max_iterations: 10,
+      },
+    });
+
+    expect(impliedResultKeys(sub)).toEqual(['findings', 'raw_notes']);
+  });
+
+  it('subgraph with no output mapping implies no result keys', () => {
+    const sub = node({
+      id: 'call',
+      type: 'subgraph',
+      subgraph_config: { subgraph_id: 'child', input_mapping: {}, output_mapping: {}, max_iterations: 10 },
+    });
+
+    expect(impliedResultKeys(sub)).toEqual([]);
+  });
 });
 
 describe('validateAction with effective keys', () => {
@@ -99,6 +124,53 @@ describe('validateAction with effective keys', () => {
       metadata: { node_id: 'check', timestamp: new Date(), attempt: 1 },
     };
     expect(validateAction(action, effectiveWriteKeys(verifier))).toBe(true);
+  });
+
+  it('a subgraph with EMPTY write_keys passes its mapped output write', () => {
+    const sub = node({
+      id: 'call',
+      type: 'subgraph',
+      write_keys: [],
+      subgraph_config: {
+        subgraph_id: 'child',
+        input_mapping: { seed: 'topic' },
+        output_mapping: { work_result: 'findings' },
+        max_iterations: 10,
+      },
+    });
+    const action: Action = {
+      id: uuidv4(),
+      idempotency_key: uuidv4(),
+      type: 'update_memory',
+      payload: { updates: { findings: 'child produced this' } },
+      metadata: { node_id: 'call', timestamp: new Date(), attempt: 1 },
+    };
+
+    expect(validateAction(action, sub.write_keys)).toBe(false);
+    expect(validateAction(action, effectiveWriteKeys(sub))).toBe(true);
+  });
+
+  it('a subgraph may not write a key its output mapping never names', () => {
+    const sub = node({
+      id: 'call',
+      type: 'subgraph',
+      write_keys: [],
+      subgraph_config: {
+        subgraph_id: 'child',
+        input_mapping: {},
+        output_mapping: { work_result: 'findings' },
+        max_iterations: 10,
+      },
+    });
+    const action: Action = {
+      id: uuidv4(),
+      idempotency_key: uuidv4(),
+      type: 'update_memory',
+      payload: { updates: { unrelated_key: 'nope' } },
+      metadata: { node_id: 'call', timestamp: new Date(), attempt: 1 },
+    };
+
+    expect(validateAction(action, effectiveWriteKeys(sub))).toBe(false);
   });
 });
 
@@ -236,6 +308,84 @@ describe('effectiveReadKeys', () => {
     const research = graph.nodes.find((n) => n.id === 'research')!;
 
     expect(effectiveReadKeys(research, graph)).toBe(research.read_keys);
+  });
+
+  it('derives a managed tool node implied result key it never declared', () => {
+    const graph = createGraph({
+      name: 'team',
+      description: 'supervisor over a tool node',
+      nodes: [
+        {
+          id: 'supervisor',
+          type: 'supervisor',
+          agentId: uuidv4(),
+          supervisorConfig: { managedNodes: ['fetch'], maxIterations: 5 },
+        },
+        { id: 'fetch', type: 'tool', toolId: 'lookup' },
+      ],
+      edges: [{ source: 'supervisor', target: 'fetch' }],
+      startNode: 'supervisor',
+      endNodes: [],
+    });
+    const supervisor = graph.nodes.find((n) => n.id === 'supervisor')!;
+
+    expect([...effectiveReadKeys(supervisor, graph)].sort()).toEqual(
+      ['fetch_output', 'fetch_result'].sort(),
+    );
+  });
+
+  it('derives a managed subgraph node mapped output it never declared', () => {
+    const graph = createGraph({
+      name: 'team',
+      description: 'supervisor over a subgraph node',
+      nodes: [
+        {
+          id: 'supervisor',
+          type: 'supervisor',
+          agentId: uuidv4(),
+          supervisorConfig: { managedNodes: ['call'], maxIterations: 5 },
+        },
+        {
+          id: 'call',
+          type: 'subgraph',
+          subgraphConfig: {
+            subgraphId: 'child',
+            inputMapping: { seed: 'topic' },
+            outputMapping: { work_result: 'findings' },
+          },
+        },
+      ],
+      edges: [{ source: 'supervisor', target: 'call' }],
+      startNode: 'supervisor',
+      endNodes: [],
+    });
+    const supervisor = graph.nodes.find((n) => n.id === 'supervisor')!;
+
+    expect([...effectiveReadKeys(supervisor, graph)].sort()).toEqual(
+      ['call_output', 'findings'].sort(),
+    );
+  });
+
+  it('excludes action pseudo-keys from the derivation', () => {
+    const graph = createGraph({
+      name: 'team',
+      description: 'supervisor over an approval node',
+      nodes: [
+        {
+          id: 'supervisor',
+          type: 'supervisor',
+          agentId: uuidv4(),
+          supervisorConfig: { managedNodes: ['gate'], maxIterations: 5 },
+        },
+        { id: 'gate', type: 'approval', approvalConfig: { prompt: 'ok?' } },
+      ],
+      edges: [{ source: 'supervisor', target: 'gate' }],
+      startNode: 'supervisor',
+      endNodes: [],
+    });
+    const supervisor = graph.nodes.find((n) => n.id === 'supervisor')!;
+
+    expect(effectiveReadKeys(supervisor, graph)).toEqual(['gate_output']);
   });
 
   it('propagates a managed wildcard writer into the derivation', () => {

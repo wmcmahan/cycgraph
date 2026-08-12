@@ -80,6 +80,30 @@ The validator checks referential integrity, meaning edges, endpoints, and config
 - [validateGraph](#validategraph): Structural validation pass.
 - [ValidationResult](#validationresult): The errors-and-warnings result shape.
 
+## Declared interface
+
+A graph can declare a public signature: the memory keys it expects seeded and the keys it produces, each with a schema. Both are optional, and a graph without them composes exactly as it did before. Declare one when the graph is a contract other graphs depend on.
+
+```typescript
+import { z } from 'zod';
+
+const researchBlock = graph({
+  name: 'research-block',
+  nodes: [gather, summarize],
+  edges: [{ from: gather, to: summarize }],
+  inputs:  { topic: z.string().min(3) },
+  outputs: { summary: z.string() },
+});
+```
+
+You author the schemas as Zod and they serialize to JSON Schema, so a consumer holding nothing but the serialized graph still knows how to call it. This is what makes a declared interface useful across a boundary the authoring code does not cross, such as a graph loaded from the database or installed as a bundle.
+
+The declaration only takes effect where the graph is used as a child. A `subgraph` node's mappings are checked against it when the parent compiles, and values crossing the boundary are checked against the schemas at runtime in both directions. See [Subgraph](/docs/patterns/subgraph/) for both checks and the errors they raise.
+
+**Refs:**
+- [GraphInputDecl](#graphinputdecl): The input declaration shape.
+- [GraphOutputDecl](#graphoutputdecl): The output declaration shape.
+
 ## API
 
 ### `graph`
@@ -129,6 +153,20 @@ The authoring input to [graph](#graph).
 | `startNode` | `string \| NodeValue` | inferred | First node to execute. Required when more than one node has no inbound edge. |
 | `endNodes` | `(string \| NodeValue)[]` | inferred | Terminal nodes. Required when every node has an outbound edge. Pass `[]` for graphs that end by supervisor completion. |
 | `strictTaint` | `boolean` | `false` | Reject routing decisions that reference tainted memory keys. See [Taint Tracking](/docs/concepts/taint-tracking/). |
+| `inputs` | `Record<string, GraphInputSpec>` | — | The memory keys this graph expects seeded. Authored as Zod schemas, raw JSON Schema, or full declaration entries, and projected to [GraphInputDecl](#graphinputdecl) on the wire. |
+| `outputs` | `Record<string, GraphOutputSpec>` | — | The memory keys this graph produces, projected to [GraphOutputDecl](#graphoutputdecl) on the wire. |
+
+Each entry in `inputs` and `outputs` is either a bare schema or an entry object:
+
+```typescript
+inputs: {
+  topic: z.string().min(3),                                          // bare Zod schema
+  depth: { schema: z.enum(['brief', 'deep']), description: 'How much detail' },
+  payload: { type: 'object', properties: { n: { type: 'number' } } }, // raw JSON Schema
+}
+```
+
+Zod schemas are projected with `z.toJSONSchema`; raw JSON Schema passes through untouched. For inputs, `required` is derived rather than declared: a schema that accepts `undefined`, such as one that is `.optional()` or carries a `.default()`, is not required. Set `required` explicitly on an entry object to override that.
 
 ### Graph
 
@@ -144,6 +182,27 @@ A workflow definition.
 | `startNode` | `string` | *required* | ID of the first node to execute. |
 | `endNodes` | `string[]` | *required* | Terminal node IDs. Execution stops when one is reached. |
 | `strictTaint` | `boolean` | `false` | When `true`, reject routing decisions that reference tainted memory keys instead of only warning. See [Taint Tracking](/docs/concepts/taint-tracking/). |
+| `inputs` | `Record<string, GraphInputDecl>` | — | The graph's declared input keys. Absent when the graph declares no interface, and absent stays absent on the wire. Capped at 1,000 keys. |
+| `outputs` | `Record<string, GraphOutputDecl>` | — | The graph's declared output keys. Capped at 1,000 keys. |
+
+### GraphInputDecl
+
+The declaration of one input key on a built graph. Produced from a [GraphSpec](#graphspec) `inputs` entry.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `schema` | `Record<string, unknown>` | *required* | JSON Schema for the value seeded under this key. |
+| `required` | `boolean` | `true` | Whether the key must be provided. Derived from the authored schema unless set explicitly. |
+| `description` | `string?` | — | What the key is for. Surfaced to anyone reading the graph or a bundle manifest. |
+
+### GraphOutputDecl
+
+The declaration of one output key on a built graph.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `schema` | `Record<string, unknown>` | *required* | JSON Schema for the value the graph produces under this key. |
+| `description` | `string?` | — | What the key contains. |
 
 ### GraphEdge
 
