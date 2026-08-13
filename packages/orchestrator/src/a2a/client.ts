@@ -10,10 +10,8 @@
  * not a requirement — and keeping it out of core means the executor is
  * testable without a network or a live agent.
  *
- * Deliberately smaller than the protocol. Streaming, push notifications,
- * and task listing exist in A2A and are absent here, because the engine
- * does not need them to run a task to completion. Widen this when a phase
- * actually requires it.
+ * Smaller than the protocol on purpose: streaming, push notifications,
+ * and task listing are omitted until the engine needs them.
  *
  * @module a2a/client
  */

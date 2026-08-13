@@ -1,30 +1,19 @@
 /**
  * A2A Node Executor
  *
- * Delegates a unit of work to a remote agent over the Agent2Agent protocol.
- * Sibling to the subgraph executor: both cross a delegation boundary, and
- * both use `boundary.ts` for the crossing itself, so mapping, taint, and
- * interface enforcement cannot drift between them.
+ * Delegates a step to a remote agent. Boundary crossing (mapping, taint,
+ * interface enforcement) is shared with the subgraph executor via
+ * `boundary.ts`.
  *
- * What differs is everything in the middle, and the differences are the
- * reason this is its own node type:
+ * Guarantees at this boundary:
  *
- * - **Budget does not propagate.** A2A carries no cost field and we cannot
- *   enforce a token cap on someone else's infrastructure. Remote spend is
- *   unmetered; `max_wait_ms` and the failure policy are the only bounds.
- * - **Capability ceilings do not apply.** We constrain what we send and how
- *   we treat what returns, nothing more.
- * - **Returned data is always tainted.** It came from outside the trust
- *   boundary, so it is marked regardless of what the remote agent claims.
- *
- * The two interrupted states are handled differently on purpose:
- *
- * - `input-required` pauses the RUN for a human, exactly as an approval
- *   node does, and stashes the `taskId` so the answer continues the same
- *   remote task rather than starting a new one.
- * - `auth-required` does not pause. Credentials resolve from named
- *   environment variables, so re-sending the identical value cannot help;
- *   it fails non-retryably with a message naming the server.
+ * - Budget and capability ceilings do not extend to the remote agent;
+ *   `max_wait_ms` and the failure policy are the only bounds.
+ * - Every returned artifact is taint-tracked as external data.
+ * - `input-required` pauses the run and stashes the `taskId`; the human
+ *   response resumes the same remote task.
+ * - `auth-required` fails non-retryably: credentials are named env vars,
+ *   so re-sending the identical value cannot succeed.
  *
  * @module execution/nodes/a2a
  */
@@ -47,11 +36,7 @@ import type { TaintRegistry } from '../../state/state.js';
 const logger = createLogger('runner.node.a2a');
 const tracer = getTracer('orchestrator.a2a');
 
-/**
- * Everything a remote agent returns is external data. Marking it here —
- * rather than trusting a per-artifact hint — is what keeps a downstream
- * taint-gated node gated.
- */
+/** Taint every returned artifact as external data, keyed by artifact name. */
 function taintAll(artifacts: A2AArtifact[], serverId: string): TaintRegistry {
   let registry: TaintRegistry = {};
   for (const artifact of artifacts) {
@@ -96,8 +81,7 @@ export async function executeA2ANode(
     throw new NodeConfigError(node.id, 'a2a', `a2a server "${config.server_id}"`);
   }
 
-  // The registry is the authorization point: a node may only reach a server
-  // whose allowlist admits this graph's agent, when one is declared.
+  // Server allowlist: only listed agents may use this server.
   if (server.allowed_agents && node.agent_id && !server.allowed_agents.includes(node.agent_id)) {
     throw new NodeConfigError(
       node.id,
@@ -116,34 +100,24 @@ export async function executeA2ANode(
     throw new A2AInterfaceError(node.id, config.server_id, direction, key, detail);
   };
 
-  // Crossing OUT to the remote agent. No declared interface to validate
-  // against on this side: an Agent Card advertises MIME types, not schemas,
-  // so the mapping is the only contract we hold.
+  // An Agent Card carries no schemas, so the mapping is the only outbound contract.
   const { memory: input } = mapInbound(stateView, config.input_mapping);
 
-  // Auth first, then trace context when this server is trusted with it.
-  // `node.execute.a2a` already exists above us; this span is where the
-  // remote-specific attributes live, so latency can be sliced by server and
-  // a task can be found by id in a trace view rather than only in logs.
   const timeoutMs = config.max_wait_ms ?? server.task_timeout_ms;
   const client = ctx.a2aClient;
   const endpoint = server.agent_card_url;
 
-  // Auth first, then trace context when this server is trusted with it.
+  // Trace context is attached only for servers that opted in.
   const headers = server.propagate_trace_context
     ? injectTraceContext(resolveAuthHeaders(server.auth))
     : resolveAuthHeaders(server.auth);
 
-  // A stashed task id means a human already answered this node's question.
-  // Continue that task instead of re-issuing the work, which would both
-  // duplicate the remote side effect and discard the conversation.
+  // A stashed task id resumes that remote task instead of re-issuing the work.
   const resumingTaskId = stashed?.task_id;
 
   let result: A2ATaskResult;
   try {
-    // `node.execute.a2a` already wraps us; this span is where the remote
-    // attributes live, so latency can be sliced by server and a task found
-    // by id in a trace view rather than only in logs.
+    // Inner span carrying the remote-call attributes; `node.execute.a2a` wraps above.
     result = await withSpan(tracer, 'a2a.task', async (span) => {
       span.setAttribute('a2a.server_id', config.server_id);
       span.setAttribute('a2a.resumed', Boolean(resumingTaskId));
@@ -173,8 +147,7 @@ export async function executeA2ANode(
       return taskResult;
     });
   } catch (error) {
-    // A throw means the task could not be run at all. A task that ran and
-    // ended badly comes back as a state, not an exception.
+    // A throw is a transport failure; a task that ran and ended badly returns as a state.
     logger.error('a2a_transport_failed', error as Error, {
       node_id: node.id,
       server_id: config.server_id,
@@ -182,8 +155,7 @@ export async function executeA2ANode(
     throw error;
   }
 
-  // The remote agent needs a human. Surface it as a run-level pause and
-  // stash the task id, so resuming continues the same remote conversation.
+  // Surface the remote question as a run-level pause.
   if (result.state === 'input-required') {
     logger.info('a2a_paused_for_input', {
       node_id: node.id,
@@ -198,9 +170,7 @@ export async function executeA2ANode(
         waiting_for: 'human_approval',
         pending_approval: {
           node_id: node.id,
-          // Marks this as a DELEGATED pause so resume re-enters this node
-          // and continues the remote task, instead of routing onward as it
-          // would for a local approval gate.
+          // Marks a delegated pause: resume re-enters this node rather than routing onward.
           a2a_node_id: node.id,
           prompt_message: result.message ?? `Remote agent "${config.server_id}" requires input.`,
           a2a_server_id: config.server_id,
@@ -222,8 +192,7 @@ export async function executeA2ANode(
     throw new A2ATaskFailedError(node.id, config.server_id, result.state, result.taskId, result.message);
   }
 
-  // Crossing back IN. Artifacts arrive keyed by name, which is what
-  // `output_mapping` matches on, and all of it is tainted.
+  // Artifacts are keyed by name; `output_mapping` matches on it.
   const artifactMemory: Record<string, unknown> = {};
   for (const artifact of result.artifacts) {
     artifactMemory[artifact.name] = artifact.value;

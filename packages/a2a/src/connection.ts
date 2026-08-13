@@ -1,5 +1,10 @@
 /**
- * SDK client connection
+ * SDK client construction.
+ *
+ * A client is built per call because auth and trace headers are resolved
+ * per call; caching one would freeze the first caller's headers into every
+ * later request. The Agent Card is cached per URL: it is stable public
+ * metadata, resolved without per-call headers.
  *
  * @module connection
  */
@@ -13,9 +18,7 @@ export type CreateSdkClient = (
   headers: Record<string, string>,
 ) => Promise<SdkClient>;
 
-/**
- * Create a function that builds the SDK client one call runs against. Injectable for tests.
- */
+/** Default {@link CreateSdkClient}, with a per-URL Agent Card cache scoped to this factory. */
 export function sdkClientFactory(): CreateSdkClient {
   const cards = new Map<string, Promise<unknown>>();
 
@@ -24,8 +27,8 @@ export function sdkClientFactory(): CreateSdkClient {
       fetch(input, { ...init, headers: { ...(init?.headers as Record<string, string>), ...headers } });
 
     let card = cards.get(agentCardUrl);
-
     if (!card) {
+      // The promise is cached, so concurrent first calls share one fetch.
       card = new DefaultAgentCardResolver().resolve(agentCardUrl, '');
       cards.set(agentCardUrl, card);
     }
@@ -33,6 +36,7 @@ export function sdkClientFactory(): CreateSdkClient {
     const factory = new ClientFactory({
       transports: [new JsonRpcTransportFactory({ fetchImpl })],
     });
+    // Cast: the resolver returns parsed JSON; the factory validates it.
     return factory.createFromAgentCard((await card) as never);
   };
 }

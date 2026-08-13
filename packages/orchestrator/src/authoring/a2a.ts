@@ -21,18 +21,14 @@ export interface A2ASpec {
   /** Parent memory keys this node may read (the input slice). */
   reads?: string[];
   /**
-   * Parent memory key(s) this node may write.
-   *
-   * Usually unnecessary: the parent-side keys of `outputs` are implied
-   * grants, exactly as they are for `subgraph()`. Declare it only to add a
-   * key the mapping does not name.
+   * Parent memory key(s) this node may write. The parent-side keys of
+   * `outputs` are already implied grants; declare this only to add a key
+   * the mapping does not name.
    */
   writes?: string | string[];
   /**
-   * Which advertised skill this node intends to invoke.
-   *
-   * Records intent for readers and tooling. Nothing in the A2A client
-   * surface takes a skill id, so it is not sent on the wire.
+   * Which advertised skill this node intends to invoke. Recorded for
+   * readers and tooling; not sent on the wire.
    */
   skill?: string;
   /** Parent key → remote message part. */

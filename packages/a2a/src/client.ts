@@ -30,6 +30,7 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
     abortSignal?: AbortSignal,
   ): Promise<A2ATaskResult> {
     const client = await create(agentCardUrl, headers);
+    // Cast: the generated request type demands fields the server defaults.
     const task = await client.sendMessage({ message } as never);
     return toResult(await settle(client, task, timeoutMs, abortSignal));
   }
@@ -57,7 +58,11 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
   };
 }
 
-/** Build the outbound message. */
+/**
+ * Build the outbound message. Parts use the SDK's in-memory `$case` form;
+ * the SDK itself serializes to the wire's named-field form. A `taskId`
+ * marks the message as a continuation of that task rather than a new one.
+ */
 function userMessage(value: unknown, taskId?: string) {
   return {
     messageId: crypto.randomUUID(),
@@ -76,10 +81,6 @@ function userMessage(value: unknown, taskId?: string) {
  *
  * Gives up at `timeoutMs` or on abort, returning the last observed task so
  * the caller reports a real state rather than a transport error.
- *
- * This is the one path the scenario harness does not exercise: its agents
- * all answer immediately. It runs for real only against an agent that
- * returns early.
  */
 async function settle(
   client: SdkClient,

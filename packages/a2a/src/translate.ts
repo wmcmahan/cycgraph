@@ -77,7 +77,7 @@ function toArtifacts(artifacts: readonly WireArtifact[]): A2AArtifact[] {
   }));
 }
 
-/** The human-readable detail a non-completed task carrie. */
+/** The human-readable detail a non-completed task carries. */
 function statusMessage(task: WireTask): string | undefined {
   const parts = task.status?.message?.parts;
   if (!parts) return undefined;
