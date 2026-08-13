@@ -1,7 +1,7 @@
 /**
  * Custom error classes for the supervisor executor subsystem.
  *
- * @module supervisor-executor/errors
+ * @module agents/executors/supervisor/errors
  */
 
 import { CycgraphError } from '../../../errors.js';

@@ -18,30 +18,23 @@
  *   runs WITH the lesson and the leave-one-out baseline WITHOUT it.
  *   Promote when P(lift > promoteMargin) clears `promoteConfidence`;
  *   evict when P(lift < −evictMargin) clears `evictConfidence`.
- *   Benjamini–Hochberg controls the false-discovery rate across the
- *   many lessons tested in one pass. Margins keep their meaning as
- *   practical-significance floors; the confidences are the new
- *   statistical bar.
+ *   Benjamini–Hochberg controls the false-discovery rate across the many
+ *   lessons tested in one pass. Margins are practical-significance
+ *   floors; the confidences are the statistical bar.
  *
- * - `'margin'` — the original point-estimate comparison (mean vs
- *   leave-one-out mean against a fixed margin). Kept for callers that
- *   prefer fast verdicts over statistical guarantees, and as the
- *   pinned-behavior baseline in tests.
+ * - `'margin'` — point-estimate comparison of the mean against the
+ *   leave-one-out mean at a fixed margin. Faster verdicts, no statistical
+ *   guarantee.
  *
- * Honest limits, stated plainly: this is observational inference over
- * co-injected lessons — correlational, not causal. A genuine lesson
- * co-injected with a harmful one during a disaster run can be blamed
- * for it. The inference rule quantifies uncertainty; it does not remove
- * confounding. Use `gateOperatingCharacteristics` (validation/) to
- * measure realized error rates for your policy before trusting it.
+ * This is observational inference over co-injected lessons: correlational,
+ * not causal. A lesson co-injected with a harmful one during a bad run can
+ * be blamed for it. `gateOperatingCharacteristics` (validation/) measures
+ * realized error rates for a policy.
  *
- * Uses the same collect-then-apply mutation pattern and soft-delete
- * convention (`invalidated_by`) as `MemoryConsolidator`, so evicted
- * facts remain recoverable via `findFacts({ includeInvalidated: true })`.
- *
- * Re-running the gate is idempotent: promoted facts no longer carry the
- * candidate tag, and evicted facts are excluded from the default
- * `findFacts` listing.
+ * Evictions are soft deletes (`invalidated_by`), so evicted facts stay
+ * recoverable via `findFacts({ includeInvalidated: true })`. Re-running the
+ * gate is idempotent: promoted facts no longer carry the candidate tag and
+ * evicted facts are excluded from the default listing.
  *
  * @module consolidation/retention-gate
  */
@@ -106,16 +99,15 @@ export const RetentionPolicySchema = z.object({
    */
   multipleComparison: z.enum(['bh', 'none']).default('bh'),
   /**
-   * Sequential-testing control. Gating repeatedly as evidence trickles
-   * in is "peeking": a 90%-confidence test re-taken on every pass can
-   * easily triple its false-positive rate (our own simulator measured
-   * 25% before this control existed). `'doubling'` (default) spends the
-   * error budget across baseline-size brackets — a candidate is only
-   * tested when its baseline has 2, 4, 8, 16… runs, with the per-bracket
-   * threshold halving each time (union bound: total α stays ≤ 1 −
-   * confidence across unlimited looks; within-bracket re-looks share
-   * nearly identical data). `'none'` tests at every pass at the flat
-   * confidence — only sound if you gate once.
+   * Sequential-testing control. Gating repeatedly as evidence trickles in
+   * is "peeking": a 90%-confidence test re-taken on every pass can triple
+   * its false-positive rate, which `gateOperatingCharacteristics` will
+   * reproduce for a given policy. `'doubling'` (default) spends the error
+   * budget across baseline-size brackets, testing a candidate only when its
+   * baseline has 2, 4, 8, 16… runs and halving the per-bracket threshold
+   * each time, so total α stays ≤ 1 − confidence across unlimited looks.
+   * `'none'` tests at every pass at the flat confidence, sound only if you
+   * gate once.
    */
   sequentialControl: z.enum(['doubling', 'none']).default('doubling'),
 }).refine(

@@ -8,7 +8,7 @@
  * or a negative timeout.
  *
  * Domain constants (model identifiers, default prompts, etc.) live in
- * `agent/constants.ts` and aren't tunable at runtime and don't belong here.
+ * `agents/constants.ts` and aren't tunable at runtime and don't belong here.
  *
  * @module runtime-config
  */

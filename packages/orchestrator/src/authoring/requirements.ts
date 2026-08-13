@@ -1,16 +1,14 @@
 /**
  * computeRequirements() — a composition's dependency contract
  *
- * Walks a facade-authored composition (the graph plus its `subgraph()`
- * closure, the same walk `run()` uses to register) and collects what the
- * HOST must provide to run it: custom tool implementations, MCP servers,
- * and models (from which provider keys derive). This is the generated half
- * of the manifest's `requires` block — names and schemas, never implementations.
+ * Walks a composition (the graph plus its `subgraph()` closure) and collects
+ * what the host must provide: custom tool implementations, MCP servers, and
+ * models. This is the generated half of the manifest's `requires` block:
+ * names and schemas, never implementations.
  *
- * Built-in tools are excluded: the engine ships them, so they are not a
- * host requirement. Agents referenced by bare id (not authored inline)
- * contribute nothing here — their models are unknowable without a registry,
- * which is a documented limit of the pre-bundle path.
+ * Built-in tools are excluded, since the engine ships them. Agents
+ * referenced by bare id contribute nothing: their models are unknowable
+ * without a registry.
  *
  * @module authoring/requirements
  */

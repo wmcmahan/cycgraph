@@ -1,7 +1,7 @@
 /**
  * LLM error classification.
  *
- * @module agent-executor/error-classification
+ * @module agents/executors/agent/error-classification
  */
 
 import { APICallError } from 'ai';

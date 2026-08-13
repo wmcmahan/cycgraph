@@ -10,7 +10,7 @@
  *   missing (non-transient) or no registry is configured
  * - Propagate transient errors (DB down, network) so callers can retry
  *
- * @module agent-factory/agent-factory
+ * @module agents/factory/agent-factory
  */
 
 import type { LanguageModel } from 'ai';

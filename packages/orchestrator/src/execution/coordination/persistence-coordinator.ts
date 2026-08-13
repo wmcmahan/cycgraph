@@ -5,9 +5,7 @@
  * consecutive-failure tracking with the 3-strike halt rule, the
  * `state:persisted` stream event, and auto-compaction timing.
  *
- * ## Two distinct failure modes
- *
- * Persistence failures and compaction failures are treated very differently:
+ * Persistence and compaction failures are treated differently:
  *
  *   - **Persistence failure** → counted toward {@link MAX_PERSIST_FAILURES}.
  *     Three consecutive failures throw and halt the workflow. Reset to zero
@@ -16,8 +14,8 @@
  *     keeps running because compaction is best-effort and re-runs naturally
  *     on the next interval tick.
  *
- * Mixing these would either halt a healthy workflow on a transient compaction
- * issue or silently lose state. The coordinator's tests pin this distinction.
+ * Mixing them would either halt a healthy workflow on a transient compaction
+ * issue or silently lose state.
  *
  * @module execution/coordination/persistence-coordinator
  */

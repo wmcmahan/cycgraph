@@ -6,7 +6,7 @@
  * measures — the `<data>` boundary in the prompt template is the primary
  * barrier, and these sanitizers remove known injection vectors.
  *
- * @module agent-executor/sanitizers
+ * @module agents/executors/agent/sanitizers
  */
 
 /** Maximum recursion depth for {@link sanitizeValue} to prevent stack overflow. */

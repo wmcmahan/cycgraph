@@ -1,16 +1,12 @@
 /**
  * Observer Middleware
  *
- * Deterministic, zero-LLM-cost health checks that run inline via
- * `afterReduce`. Detects token waste, iteration budget pressure,
- * and supervisor routing stalls — emitting structured warnings
- * through the logger so operators can intervene before a workflow
- * fails.
+ * Deterministic health checks that run inline via `afterReduce`, with no
+ * LLM cost. Detects token waste, iteration budget pressure, and supervisor
+ * routing stalls, emitting structured warnings through the logger.
  *
- * Optionally runs a **diagnostic agent** on workflow completion
- * that analyzes the collected findings against the graph definition
- * and agent configs to explain *why* each issue occurred and what
- * to fix.
+ * Optionally runs a diagnostic agent on completion that analyzes the
+ * collected findings against the graph and agent configs.
  *
  * ```typescript
  * import { createObserverMiddleware } from '@cycgraph/orchestrator';

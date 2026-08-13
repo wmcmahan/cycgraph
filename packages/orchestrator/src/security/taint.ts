@@ -95,19 +95,16 @@ export function propagateDerivedTaint(
  * output keys.
  *
  * The fan-out executors (map / voting / evolution) bury each worker's memory
- * updates, including any wire-format `_taint_registry` the worker produced
- * from MCP or derived taint, under fresh parent keys (e.g. `${node}_results`,
- * `${node}_consensus`, `${node}_winner`). Without re-surfacing that taint, the
- * parent state records the aggregate key as trusted even though it holds data
- * derived from untrusted worker output, and downstream routing / taint gating
- * can't see it. Mirrors the child→parent carry-back the subgraph executor does.
+ * updates under fresh parent keys, including any wire-format
+ * `_taint_registry` the worker produced. Re-surfacing that taint is what
+ * stops the parent recording an aggregate key as trusted while it holds data
+ * derived from untrusted worker output.
  *
  * If any worker produced a non-empty taint registry, every `aggregateKeys`
- * entry is marked `derived`-tainted (attributed to the fan-out node).
+ * entry is marked `derived`-tainted, attributed to the fan-out node.
  *
- * Called at action-creation time; the resulting metadata is persisted in the
- * action and replayed verbatim, so the `created_at` timestamp is replay-safe
- * (same discipline as {@link propagateDerivedTaint} and MCP taint minting).
+ * Called at action-creation time, so the metadata is persisted in the action
+ * and replayed verbatim, keeping `created_at` replay-safe.
  *
  * @param workerUpdates - Each worker's memory-updates object (as found on its
  *   action payload); `null`/`undefined`/non-object entries are ignored.

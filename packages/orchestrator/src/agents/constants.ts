@@ -6,7 +6,7 @@
  * caps) live in `runtime-config.ts` and are re-exported below for backwards
  * compatibility.
  *
- * @module agent/constants
+ * @module agents/constants
  */
 
 export {

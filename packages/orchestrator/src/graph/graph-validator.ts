@@ -14,8 +14,8 @@
  * - Dead-end detection (non-end nodes with no outgoing edges)
  * - Cycle detection (iterative DFS with three-colour marking)
  *
- * Performance: All lookups use pre-built maps for O(1) access.
- * Total complexity is O(N + E) where N = nodes, E = edges.
+ * Complexity is O(N + E) over nodes and edges; lookups go through pre-built
+ * maps.
  *
  * @module graph/graph-validator
  */

@@ -14,7 +14,7 @@
  * `failure_policy`. The call is abortable via `options.abortSignal` so a
  * cancelled run doesn't hang waiting on a permit.
  *
- * @module agent/rate-limiter
+ * @module agents/rate-limiter
  */
 
 /** Which kind of LLM call is about to be issued. */

@@ -4,23 +4,20 @@
  * Convenience helper for registering a local Ollama instance as an
  * LLM provider in the orchestrator's {@link ProviderRegistry}.
  *
- * Uses a factory-injection pattern so the orchestrator package has
- * zero dependency on any external Ollama or OpenAI-compatible SDK.
- * Users pass in their preferred factory:
+ * Takes an injected factory, so the orchestrator depends on no Ollama or
+ * OpenAI-compatible SDK:
  *
  * ```typescript
- * // Option A: @ai-sdk/openai-compatible (official Vercel package)
  * import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
  * registerOllamaProvider(registry, ({ baseURL }) =>
  *   (modelId) => createOpenAICompatible({ name: 'ollama', baseURL, apiKey: 'ollama' }).chatModel(modelId),
  * );
  *
- * // Option B: ollama-ai-provider-v2 (Vercel-endorsed community package)
  * import { createOllama } from 'ollama-ai-provider-v2';
  * registerOllamaProvider(registry, ({ baseURL }) => createOllama({ baseURL }));
  * ```
  *
- * @module agent/ollama-provider
+ * @module agents/providers/ollama-provider
  */
 
 import type { LanguageModel } from 'ai';

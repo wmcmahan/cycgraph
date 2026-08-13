@@ -121,7 +121,7 @@ For CI scripts, the canonical pattern is to hard-fail on `1` and warn-only (or o
 
 By default the runner writes to stdout. CI mode additionally emits GitHub Actions annotations (`::error`, `::warning`) so failures appear inline on PRs.
 
-Future enhancements (deferred from Phase 1):
+Not currently emitted:
 - Structured `report.json` artifact
 - GitHub step summary
 - JUnit XML for test-result aggregators

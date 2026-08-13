@@ -2,11 +2,8 @@
  * Delegation Boundary
  *
  * The seam a node crosses when it hands work to something opaque and takes
- * the result back. Shared by every delegating node type, so the rules that
- * govern the crossing exist in exactly one place.
- *
- * Three rules, and they are the same regardless of what runs on the far
- * side:
+ * the result back. Shared by every delegating node type, so these rules
+ * hold regardless of what runs on the far side:
  *
  * 1. **Only mapped keys cross.** The delegate sees what `inputMapping`
  *    names and nothing else; the parent receives what `outputMapping`

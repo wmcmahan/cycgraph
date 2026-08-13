@@ -6,7 +6,7 @@
  * write key. When the agent explicitly calls `save_to_memory` (opt-in),
  * those structured writes take priority over the text output.
  *
- * @module agent-executor/memory
+ * @module agents/executors/agent/memory
  */
 
 import { createLogger } from '../../../observability/logger.js';

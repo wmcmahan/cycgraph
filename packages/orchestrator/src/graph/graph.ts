@@ -15,17 +15,9 @@ import { z } from 'zod';
 import { ToolSourceInputSchema } from '../tools/schema.js';
 import { type Camelize, camelToSnakeDeep } from '../utils/case-mapping.js';
 
-// ─── camelCase authoring layer ──────────────────────────────────────
-//
-// The schemas in this file define the *wire format*: snake_case keys that
-// are persisted to the DB, emitted/parsed by the architect, and read by the
-// engine. That stays snake_case on purpose — see the DB `definition` jsonb
-// column and `architect/prompts.ts`.
-//
-// Consumers author graphs in idiomatic camelCase TypeScript. The `Camelize<>`
-// mapped type (see `./case-mapping.ts`) derives the camelCase authoring types
-// directly from the snake schemas (so they never drift), and `createGraph`
-// runs a deep camel→snake remap before validation.
+// The schemas here define the wire format: snake_case keys persisted to the
+// DB and exchanged with the architect. `Camelize<>` derives the camelCase
+// authoring types from them, and `createGraph` remaps before validation.
 
 // ─── Node Types ─────────────────────────────────────────────────────
 
@@ -99,9 +91,8 @@ export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
 export const FailurePolicySchema = z.object({
   /**
    * Maximum retry attempts before the node fails. Bounded to [0, 10]: each
-   * attempt is an LLM call, so an unbounded value (`1e9`, `Infinity`) is the
-   * sharpest cost/budget-exhaustion lever a malicious or LLM-authored graph
-   * has. `.int()` also rejects `NaN`/floats.
+   * attempt is an LLM call, so an unbounded value is a budget-exhaustion
+   * lever for an untrusted graph.
    */
   max_retries: z.number().int().min(0).max(10).default(3),
   /** Backoff strategy between retries. */
@@ -132,17 +123,12 @@ export type FailurePolicy = z.infer<typeof FailurePolicySchema>;
 // ─── Node Budget ────────────────────────────────────────────────────
 
 /**
- * Per-node resource caps. Enforced after each successful node execution.
+ * Per-node resource caps, enforced after each successful node execution.
+ * Exceeding one throws `NodeBudgetExceededError` without retry, since a
+ * retry compounds the spend.
  *
- * When a cap is exceeded, the runner persists a failed state and throws
- * `NodeBudgetExceededError` — no retry, since a retry would just compound
- * the spend (`failure_policy` is not consulted). See
- * `cost/execution-accounting.ts`.
- *
- * Separate from the workflow-level `budget_usd` / `max_token_budget` on
- * `WorkflowState`: those guard the run as a whole; this guards a single
- * node from eating the entire budget (e.g. a runaway annealing loop or
- * an oversized LLM reflection extraction).
+ * The workflow-level `budget_usd` / `max_token_budget` guard the run as a
+ * whole; this guards one node from consuming all of it.
  */
 export const NodeBudgetSchema = z.object({
   /** Cap on tokens used by this node's execution (single attempt). */
@@ -223,18 +209,17 @@ export type AnnealingConfig = z.infer<typeof AnnealingConfigSchema>;
 // ─── Map-Reduce ─────────────────────────────────────────────────────
 
 /**
+ * Hard ceiling on items a single map node may fan out over.
+ * `max_concurrency` bounds how many run at once, but without a count cap an
+ * `items_path` resolving to a huge array still issues one LLM call per item.
+ */
+export const MAX_MAP_ITEMS = 1000;
+
+/**
  * Map-Reduce configuration.
  *
  * Fan-out to parallel workers, then fan-in via an optional synthesizer.
  */
-/**
- * Hard ceiling on the number of items a single map node may fan out over.
- * `max_concurrency` bounds how many run at once, but WITHOUT a count cap a
- * `items_path` resolving to a huge array still issues one LLM call per item —
- * unbounded spend / DoS. Callers needing more must chunk the input.
- */
-export const MAX_MAP_ITEMS = 1000;
-
 export const MapReduceConfigSchema = z.object({
   /** Node ID of the worker to fan out to. */
   worker_node_id: z.string(),
@@ -249,10 +234,9 @@ export const MapReduceConfigSchema = z.object({
   /** Maximum concurrent workers. Capped to bound parallel LLM fan-out. */
   max_concurrency: z.number().int().min(1).max(50).default(5),
   /**
-   * Hard cap on total items fanned out (both `static_items` and a resolved
-   * `items_path`). Defaults to — and can never exceed — {@link MAX_MAP_ITEMS}.
-   * A resolved item count above this fails the node loudly rather than issuing
-   * an unbounded number of LLM calls.
+   * Hard cap on total items fanned out, from `static_items` or a resolved
+   * `items_path`. Defaults to and cannot exceed {@link MAX_MAP_ITEMS};
+   * exceeding it fails the node.
    */
   max_items: z.number().int().min(1).max(MAX_MAP_ITEMS).default(MAX_MAP_ITEMS),
   /** Per-task timeout in milliseconds (guards against hung LLM calls). */
@@ -332,14 +316,9 @@ export const EvolutionConfigSchema = z.object({
   /** Maximum number of generations. Capped to bound total LLM spend (population × generations × 2). */
   max_generations: z.number().int().min(1).max(100).default(10),
   /**
-   * Fitness score for early exit. The evolution loop terminates as soon
-   * as the best candidate's fitness meets or exceeds this value.
-   *
-   * Fitness itself is conventionally in `[0, 1]`. Set the threshold above
-   * `1.0` (e.g. `1.5`) to disable early-fitness-exit entirely — useful when
-   * you want the loop to run all `max_generations` regardless of how good
-   * any single candidate is (for instrumentation, baselining, or proof-of-
-   * iteration runs).
+   * Fitness score for early exit: the loop stops once the best candidate
+   * meets or exceeds it. Fitness is conventionally in `[0, 1]`, so a
+   * threshold above `1.0` disables early exit and runs all generations.
    */
   fitness_threshold: z.number().min(0).default(0.9),
   /** Stop if no improvement for this many consecutive generations. */
@@ -364,14 +343,7 @@ export type EvolutionConfig = z.infer<typeof EvolutionConfigSchema>;
 
 // ─── Verifier ───────────────────────────────────────────────────────
 
-/**
- * Common fields shared by every verifier variant.
- *
- * `result_key` controls where the verification outcome lands in memory.
- * `throw_on_fail` opts into `failure_policy`-driven retry when verification
- * fails; the default is the explicit-edge-routing pattern where the verifier
- * always succeeds and downstream edges branch on the outcome.
- */
+/** Common fields shared by every verifier variant. */
 const VerifierCommonFields = {
   /**
    * Memory key prefix for the verification result. Defaults to
@@ -396,9 +368,6 @@ const VerifierCommonFields = {
 /**
  * LLM-as-judge verifier: an evaluator agent scores the target memory key
  * and the verifier passes when the score meets `pass_threshold`.
- *
- * Reuses the same `evaluateQualityExecutor` primitive that powers Evolution
- * fitness scoring and Annealing quality checks.
  */
 export const VerifierLLMJudgeConfigSchema = z.object({
   type: z.literal('llm_judge'),
@@ -475,11 +444,9 @@ export type VerifierJsonPathConfig = z.infer<typeof VerifierJsonPathConfigSchema
 /**
  * Verifier node configuration (discriminated union over verification flavour).
  *
- * Compound-systems primitive: every verifier returns a structured outcome
- * (`{ passed, score?, reasoning, ... }`) written to memory. Downstream
- * edges route on the `_passed` boolean (option b — explicit edge routing),
- * or the verifier throws on failure to trigger `failure_policy` retry
- * (option a — opt in via `throw_on_fail: true`).
+ * Every verifier writes a structured outcome to memory. Downstream edges
+ * route on the `_passed` boolean, or the verifier throws on failure to
+ * trigger `failure_policy` retry when `throw_on_fail` is set.
  */
 export const VerifierConfigSchema = z.discriminatedUnion('type', [
   VerifierLLMJudgeConfigSchema,
@@ -530,9 +497,8 @@ export const ReflectionRuleBasedExtractorSchema = z.object({
 export type ReflectionRuleBasedExtractor = z.infer<typeof ReflectionRuleBasedExtractorSchema>;
 
 /**
- * LLM reflection extractor: an evaluator-style agent distills lessons
- * from the source memory values. Uses the same `evaluator-executor`
- * primitive that powers verifier `llm_judge` and Evolution fitness.
+ * LLM reflection extractor: an evaluator-style agent distills lessons from
+ * the source memory values.
  */
 export const ReflectionLLMExtractorSchema = z.object({
   type: z.literal('llm'),
@@ -541,10 +507,8 @@ export const ReflectionLLMExtractorSchema = z.object({
   /** Custom instruction passed to the extractor (overrides the default lesson-distillation prompt). */
   instruction: z.string().optional(),
   /**
-   * Soft cap on the number of facts the LLM may return. The extractor
-   * trims the LLM's response to this value before persistence. Defaults
-   * to 10 — small enough that a future retrieval can include them all
-   * without blowing prompt budget.
+   * Soft cap on facts the LLM may return; the extractor trims to this
+   * before persistence.
    */
   max_facts: z.number().int().min(1).max(50).default(10),
 });
@@ -554,11 +518,9 @@ export type ReflectionLLMExtractor = z.infer<typeof ReflectionLLMExtractorSchema
 /**
  * Reflection node configuration.
  *
- * Compound-systems primitive: runs *after* productive work in a graph,
- * distills the run's outcome into `SemanticFacts`, and writes them to
- * the configured memory store via the injected `MemoryWriter`. Future
- * runs retrieve these facts (filtered by tags) through `memoryRetriever`
- * and compound knowledge over time.
+ * Runs after productive work, distills the outcome into `SemanticFacts`,
+ * and writes them via the injected `MemoryWriter`. Future runs retrieve
+ * them by tag through `memoryRetriever`.
  */
 export const ReflectionConfigSchema = z.object({
   /**
@@ -600,11 +562,7 @@ export const ReflectionConfigSchema = z.object({
 
 export type ReflectionConfig = z.infer<typeof ReflectionConfigSchema>;
 
-/**
- * Summary of a reflection node's output, written to memory at
- * `result_key`. Phases 2/3 populate `fact_ids` with the IDs of the
- * facts written; phase 1 writes only the structural envelope.
- */
+/** Summary of a reflection node's output, written to memory at `result_key`. */
 export const ReflectionResultSchema = z.object({
   /** Extractor variant that produced the facts. */
   extractor_type: z.enum(['rule_based', 'llm']),
@@ -681,12 +639,9 @@ export type SubgraphConfig = z.infer<typeof SubgraphConfigSchema>;
  * Configuration for an `a2a` node: delegate a unit of work to a remote
  * agent over the Agent2Agent protocol.
  *
- * Sibling to {@link SubgraphConfigSchema}, and deliberately shaped like it:
- * both delegate to something opaque and map memory across a boundary. The
- * guarantees differ, which is exactly why they are different node types. A
- * subgraph child inherits the parent's remaining budget and runs under its
- * capability ceiling; a remote agent runs on someone else's infrastructure
- * and can do neither.
+ * Shaped like {@link SubgraphConfigSchema}: both map memory across a
+ * delegation boundary. A subgraph child inherits the parent's remaining
+ * budget and capability ceiling; a remote agent inherits neither.
  */
 export const A2AConfigSchema = z.object({
   /**
@@ -696,11 +651,8 @@ export const A2AConfigSchema = z.object({
    */
   server_id: z.string().min(1),
   /**
-   * Which advertised skill this node intends to invoke.
-   *
-   * Documentation rather than protocol: nothing in the A2A client surface
-   * takes a skill id, so this records intent for readers and tooling and is
-   * not sent on the wire.
+   * Which advertised skill this node intends to invoke. Recorded for
+   * readers and tooling; not sent on the wire.
    */
   skill_id: z.string().optional(),
   /** Parent memory key → remote message part. */
@@ -816,20 +768,11 @@ export type GraphNode = z.infer<typeof GraphNodeSchema>;
 
 // ─── Graph ──────────────────────────────────────────────────────────
 
-/**
- * Complete graph definition.
- *
- * Validated at load time by the {@link GraphRunner}. The `start_node`
- * must reference a node in `nodes`, and all `end_nodes` must be
- * reachable from `start_node` via `edges`.
- */
 // ── Graph interface (composition contract) ──────────────────────────
-// Optional declarations of the memory keys a graph expects seeded and the
-// keys it produces. This is the graph's public signature at a subgraph
-// boundary: mappings are validated against it at compile time, and values
-// crossing the boundary are validated against the schemas at runtime. The `schema` payload is raw JSON Schema
-// (authored as Zod, projected at the facade boundary) and is opaque to
-// case mapping.
+// The memory keys a graph expects seeded and the keys it produces: its
+// public signature at a delegation boundary. Mappings are checked against
+// it at authoring time, values against the schemas at run time. `schema`
+// holds raw JSON Schema and is opaque to case mapping.
 
 /** Caps interface records so an untrusted graph can't declare unbounded keys. */
 const MAX_INTERFACE_KEYS = 1000;
@@ -857,6 +800,13 @@ export const GraphOutputDeclSchema = z.object({
 export type GraphInputDecl = z.infer<typeof GraphInputDeclSchema>;
 export type GraphOutputDecl = z.infer<typeof GraphOutputDeclSchema>;
 
+/**
+ * Complete graph definition.
+ *
+ * Validated at load time by the {@link GraphRunner}. The `start_node` must
+ * reference a node in `nodes`, and all `end_nodes` must be reachable from
+ * `start_node` via `edges`.
+ */
 export const GraphSchema = z.object({
   /** Unique graph identifier (auto-generated if omitted). */
   id: z.string().default(() => crypto.randomUUID()),
@@ -876,9 +826,8 @@ export const GraphSchema = z.object({
   }).optional(),
 
   // ── Structure ──
-  // Arrays are capped so an oversized (untrusted / LLM-authored) graph can't
-  // force O(N+E) validation + Map/Set allocation over an unbounded structure
-  // before any publish gate runs. 10k nodes/edges is far beyond any real graph.
+  // Capped so an untrusted graph can't force O(N+E) validation over an
+  // unbounded structure before any publish gate runs.
   /** All nodes in the graph. */
   nodes: z.array(GraphNodeSchema).max(10_000),
   /** Directed edges between nodes. */
@@ -910,36 +859,25 @@ export type GraphInput = z.input<typeof GraphSchema>;
 
 /**
  * camelCase authoring type for a single node, derived from
- * {@link GraphNodeSchema}. This is the public, documented Node interface
- * (see `docs/concepts/nodes`). Snake_case remains the wire/DB format —
- * `createGraph` remaps to it before validation.
+ * {@link GraphNodeSchema}. This is the public Node interface; snake_case
+ * remains the wire format.
  */
 export type NodeConfig = Camelize<z.input<typeof GraphNodeSchema>>;
 
 /** camelCase authoring type for a full graph. Accepted by {@link createGraph}. */
 export type GraphConfig = Camelize<GraphInput>;
 
-/**
- * Validate camelCase authoring input by deep-remapping to the snake_case
- * wire format, then running the unchanged {@link GraphSchema} for
- * structural validation and default-filling. The remap is idempotent on
- * snake_case keys, so wire-format input is tolerated at runtime too.
- */
+/** Deep-remaps camelCase authoring input to wire format, then validates. */
 const GraphAuthoringSchema = z
   .any()
   .transform((value) => camelToSnakeDeep(value))
   .pipe(GraphSchema);
 
 /**
- * Create a Graph from idiomatic camelCase authoring input ({@link GraphConfig}),
- * auto-generating `id` via `crypto.randomUUID()` when omitted.
- *
- * This is the public authoring entry point — every node field, including
- * nested config blocks (`budget`, `failurePolicy`, `supervisorConfig`, …), is
- * camelCase. To construct a Graph from the snake_case wire format (e.g. a
- * graph loaded from the database or produced by the architect), use
- * `GraphSchema.parse` directly. The runtime remap is idempotent on snake_case
- * keys, so wire-format objects are still tolerated if passed here.
+ * Create a Graph from camelCase authoring input ({@link GraphConfig}),
+ * auto-generating `id` when omitted. Every field is camelCase, including
+ * nested config blocks. For snake_case wire input use `GraphSchema.parse`;
+ * the remap is idempotent, so wire-format objects are tolerated here too.
  */
 export function createGraph(input: GraphConfig): Graph {
   return GraphAuthoringSchema.parse(input);

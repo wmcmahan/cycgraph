@@ -26,10 +26,10 @@ export interface FactFilter {
   entityId?: string;
   includeInvalidated?: boolean;
   /**
-   * Match facts carrying **any** of these tags (OR semantics). Pushed into
-   * SQL by DB-backed stores (a GIN-indexed `tags ?| array[...]` on Postgres)
-   * so tag-scoped retrieval — the reflection-loop hot path — no longer pages
-   * the whole table client-side. Empty/undefined means "no tag filter".
+   * Match facts carrying **any** of these tags (OR semantics). DB-backed
+   * stores push this into SQL (a GIN-indexed `tags ?| array[...]` on
+   * Postgres) so tag-scoped retrieval does not page the whole table
+   * client-side. Empty/undefined means "no tag filter".
    */
   tags?: readonly string[];
   /**

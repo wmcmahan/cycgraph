@@ -88,7 +88,7 @@ function baseState(memory: Record<string, unknown>): WorkflowState {
 function taintedState(key: string, value: unknown, source: 'tool_node' | 'mcp_tool' | 'derived' = 'tool_node'): () => WorkflowState {
   return () => {
     const state = baseState({ [key]: value });
-    // Taint lives on the first-class state field (schema v2).
+    // Taint lives on the first-class state field, not in memory.
     state.taint_registry = markTainted({}, key, { source, tool_name: 'external_input', created_at: new Date().toISOString() });
     return state;
   };

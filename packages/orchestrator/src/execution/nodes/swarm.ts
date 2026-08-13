@@ -58,7 +58,7 @@ export async function executeSwarmAgentNode(
     peer_nodes: config.peer_nodes,
   });
 
-  // First-class state field (schema v2).
+  // First-class state field, not a memory key.
   const handoffCount = ctx.state.swarm_handoff_count ?? 0;
 
   const swarmView: StateView = {

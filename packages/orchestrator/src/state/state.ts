@@ -305,15 +305,9 @@ export type WorkflowStateConfig = Camelize<WorkflowStateInput>;
 /**
  * Create a valid WorkflowState from idiomatic authoring input.
  *
- * Only `workflowId` and `goal` are required. All runtime-managed fields
- * (`runId`, `createdAt`, `status`, `iterationCount`, etc.) are auto-populated
- * via schema defaults. The freeform `memory` blackboard keeps arbitrary keys.
- *
- * The returned object is the runtime {@link WorkflowState} (the
- * engine and database format). To build state from a wire object
- * (e.g. loaded from persistence), use `WorkflowStateSchema.parse` /
- * `hydrateWorkflowState` directly. The runtime remap is idempotent on
- * snake_case keys, so wire objects are tolerated here too.
+ * Only `workflowId` and `goal` are required; runtime-managed fields are
+ * filled from schema defaults. For state loaded from persistence use
+ * {@link hydrateWorkflowState} instead.
  *
  * @example
  * ```typescript
@@ -396,10 +390,9 @@ const STATE_MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<
  * Hydrate a persisted WorkflowState at a load boundary.
  *
  * Persisted snapshots round-trip through JSON/jsonb, which turns every `Date`
- * into a string — comparing `new Date() >= waiting_timeout_at` against a
- * string silently never fires, and `.toISOString()` crashes. Every code path
- * that loads state from storage (checkpoints, snapshots, recovery) MUST pass
- * it through this function, which:
+ * into a string: comparing `new Date() >= waiting_timeout_at` against a string
+ * never fires, and `.toISOString()` crashes. Every path that loads state from
+ * storage MUST pass it through this function, which:
  *
  * 1. Runs any pending schema migrations (versions older than
  *    {@link CURRENT_STATE_SCHEMA_VERSION}).

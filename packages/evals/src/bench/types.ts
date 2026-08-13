@@ -137,9 +137,6 @@ export interface BenchReport {
   cells: CellResult[];
   /** Adapters that were requested but unavailable in this environment. */
   skippedAdapters: string[];
-  /**
-   * Engine version per adapter that ran (name → version). Absent in
-   * artifacts produced before this field existed.
-   */
+  /** Engine version per adapter that ran (name → version). Older artifacts omit it. */
   adapterVersions?: Record<string, string>;
 }

@@ -5,7 +5,7 @@
  * reliably `switch` on `error.name` without `instanceof` checks across
  * module boundaries.
  *
- * @module agent-executor/errors
+ * @module agents/executors/agent/errors
  */
 
 import { CycgraphError } from '../../../errors.js';

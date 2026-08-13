@@ -11,15 +11,13 @@
  * 6. Validate Zero Trust permissions
  * 7. Return an {@link Action} for the GraphRunner
  *
- * Security hardening:
- * - Prompt injection guards via sanitization + `<data>` boundaries
+ * Security properties:
+ * - Prompt injection guards via sanitization and `<data>` boundaries
  * - Internal metadata separated from agent memory
- * - AbortController with configurable timeout
- * - Bounded memory serialisation in prompts
- * - Tool call/result correlation by ID (not index)
- * - Zero Trust permission validation
+ * - Tool call/result correlation by id, never by index
+ * - Zero Trust permission validation on every memory write
  *
- * @module agent-executor/executor
+ * @module agents/executors/agent/executor
  */
 
 import { streamText, tool, isStepCount, jsonSchema } from 'ai';

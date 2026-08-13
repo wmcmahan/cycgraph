@@ -1,14 +1,14 @@
 /**
  * bundle() — assemble a portable graph artifact
  *
- * Lifts a composed graph into a {@link GraphBundle}: the manifest carries
- * the graph's declared interface and its computed host requirements, and
- * the bundle embeds everything that travels — the agent definitions and
- * the transitive child-graph closure. `JSON.stringify(bundle)` is the
- * complete distribution artifact; `parseBundle()` validates one arriving
- * from an untrusted source. Implementations never travel: inline `tool()`
- * code stays behind and appears in `requires.tools` instead, for the host
- * to supply by name.
+ * Lifts a composed graph into a {@link GraphBundle}. The manifest carries
+ * the declared interface and computed host requirements; the bundle embeds
+ * the agent definitions and the transitive child-graph closure.
+ * `JSON.stringify(bundle)` is the complete artifact, and `parseBundle()`
+ * validates one arriving from an untrusted source.
+ *
+ * Implementations never travel: inline `tool()` code appears in
+ * `requires.tools` for the host to supply by name.
  *
  * @module authoring/bundle
  */

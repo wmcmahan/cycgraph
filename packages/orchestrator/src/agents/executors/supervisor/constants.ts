@@ -1,7 +1,7 @@
 /**
  * Supervisor Executor Constants
  *
- * @module supervisor-executor/constants
+ * @module agents/executors/supervisor/constants
  */
 
 /**

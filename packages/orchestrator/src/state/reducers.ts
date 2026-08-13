@@ -15,7 +15,7 @@
  *
  * All reducers are pure: they never mutate the input state.
  *
- * @module reducers
+ * @module state/reducers
  */
 
 import type { WorkflowState, Action, WaitingReason, InternalActionType } from './state.js';

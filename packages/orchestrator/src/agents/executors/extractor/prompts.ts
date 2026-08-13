@@ -5,7 +5,7 @@
  * by the `reflection` node's `llm` variant. All untrusted source content
  * is sanitised before embedding to prevent prompt injection.
  *
- * @module extractor-executor/prompts
+ * @module agents/executors/extractor/prompts
  */
 
 import type { AgentConfig } from '../../types.js';

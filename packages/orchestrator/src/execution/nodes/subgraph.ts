@@ -95,7 +95,7 @@ export async function executeSubgraphNode(
   logger.info('subgraph_executing', { node_id: node.id, subgraph_id: config.subgraph_id });
 
   // Cycle detection: prevent A → B → A recursion. Reads the ancestor chain
-  // from the first-class `subgraph_stack` state field (schema v2).
+  // from the first-class `subgraph_stack` state field.
   const subgraphStack = ctx.state.subgraph_stack ?? [];
   if (subgraphStack.includes(config.subgraph_id)) {
     throw new NodeConfigError(node.id, 'subgraph', `non-cyclic graph (cycle: ${[...subgraphStack, config.subgraph_id].join(' -> ')})`);
@@ -163,7 +163,7 @@ export async function executeSubgraphNode(
     lesson_provenance: {},
     policy_approvals: {},
     subgraph_checkpoints: {},
-    // Ancestor chain for cycle/depth detection in the child (schema v2 field).
+    // Ancestor chain for cycle/depth detection in the child.
     subgraph_stack: [...subgraphStack, ctx.graph.id],
     swarm_handoff_count: 0,
     total_tokens_used: 0,
@@ -184,14 +184,12 @@ export async function executeSubgraphNode(
   // Lazy import to avoid circular dependency (GraphRunner → subgraph → GraphRunner)
   const { GraphRunner } = await import('../engine/graph-runner.js');
 
-  // Propagate the parent's guardrails into the child runner — INCLUDING the
-  // security policy, so a tainted→sensitive action inside the subgraph is gated
-  // exactly as in the parent. Without this the composition boundary silently
-  // dropped toolResolver/factSanitizer/securityPolicy/etc.
-  // Capability ceiling for the child: the ceiling its bundle manifest
-  // declared (if any), intersected with THIS runner's own ceiling so a
-  // nested bundle is capped by every enclosing manifest. A child with no
-  // declared ceiling inherits the parent's — nesting can never escape a cap.
+  // The child runs under the parent's guardrails, including the security
+  // policy, so a tainted→sensitive action inside the subgraph is gated
+  // exactly as it would be in the parent.
+  // The child's declared ceiling intersected with this runner's own, so a
+  // nested bundle is capped by every enclosing manifest and nesting can
+  // never escape a cap.
   const declaredCeiling = ctx.capabilityCeilings?.[config.subgraph_id];
   const childCeiling =
     declaredCeiling && ctx.capabilityCeiling
@@ -223,13 +221,11 @@ export async function executeSubgraphNode(
     ...(ctx.rateLimiter ? { rateLimiter: ctx.rateLimiter } : {}),
   };
 
-  // Resume support: a prior run of THIS node paused its child for human
-  // approval (a nested gate) and stashed the child checkpoint in
-  // `state.subgraph_checkpoints` (schema v2 field). On resume, rehydrate it
-  // (z.coerce.date revives the JSON-round-tripped Dates) and forward the
-  // human decision instead of starting the child over. On the wire, the
-  // stash still travels as a `_subgraph_resume_<node>` key inside
-  // `memory_updates`; the reducer routes it to the field.
+  // A prior run of this node paused its child for human approval and
+  // stashed the child checkpoint in `state.subgraph_checkpoints`. On resume,
+  // rehydrate it and forward the human decision rather than restarting the
+  // child. On the wire the stash travels as a `_subgraph_resume_<node>` key
+  // inside `memory_updates`, which the reducer routes to the field.
   const resumeKey = `_subgraph_resume_${node.id}`;
   const stashed = ctx.state.subgraph_checkpoints?.[node.id];
 

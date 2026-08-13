@@ -3,7 +3,7 @@
  *
  * Applies a runner-supplied model override onto a loaded agent config.
  *
- * @module agent/model-override
+ * @module agents/models/model-override
  */
 
 import type { AgentConfig } from '../types.js';

@@ -13,7 +13,7 @@
  * 5. Validate the decision against the `managed_nodes` allowlist
  * 6. Return a `handoff` or `set_status` action
  *
- * @module supervisor-executor/executor
+ * @module agents/executors/supervisor/executor
  */
 
 import { generateText, Output } from 'ai';

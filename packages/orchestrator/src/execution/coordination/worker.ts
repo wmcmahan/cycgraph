@@ -340,12 +340,11 @@ export class WorkflowWorker extends EventEmitter {
             runnerOptions,
           );
         } catch (err) {
-          // A sequence gap (a lost append) makes replay unsafe, so recover()
-          // refuses. But the state SNAPSHOT is authoritative on its own — the
-          // event log is only the replay *path*, not the source of truth. If a
-          // valid snapshot exists, resume from it instead of dead-lettering a
-          // run whose progress we can still recover. With no snapshot the run
-          // is genuinely unrecoverable — rethrow.
+          // A sequence gap makes replay unsafe, so recover() refuses. The
+          // snapshot is authoritative on its own: the event log is the replay
+          // path, not the source of truth. Resume from a valid snapshot rather
+          // than dead-lettering recoverable progress; without one the run is
+          // genuinely unrecoverable.
           if (err instanceof EventLogCorruptionError && latestSnapshot) {
             logger.warn('recovery_event_log_corrupt_using_snapshot', {
               job_id: job.id,

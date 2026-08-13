@@ -10,7 +10,7 @@
  * `WorkflowState` fields only, never from `memory`.
  * All resolver-internal memory keys use `_` prefix.
  *
- * @module agent/model-resolver
+ * @module agents/models/model-resolver
  */
 
 import { z } from 'zod';

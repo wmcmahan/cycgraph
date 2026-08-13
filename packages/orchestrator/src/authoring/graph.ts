@@ -1,18 +1,15 @@
 /**
  * graph() — the compiler of the authoring facade
  *
- * Takes inert `node()` values (or raw node configs), resolves every branded
- * reference — {@link AgentValue}s to minted registry ids (on `agent` or deep
- * inside config blocks: `candidateAgentId`, `evaluatorAgentId`,
- * `voterAgentIds`, …), {@link NodeValue}s to their node ids (edge
- * `from`/`to`, `startNode`/`endNodes`, `managedNodes`) — expands edge
- * sugar, infers start/end when unambiguous, and emits the serializable
- * snake_case wire `Graph` via {@link createGraph}. The topology stays fully
- * explicit.
+ * Takes inert `node()` values and resolves every branded reference:
+ * {@link AgentValue}s to minted registry ids, including deep inside config
+ * blocks, and {@link NodeValue}s to their node ids. Expands edge sugar,
+ * infers start/end when unambiguous, and emits the snake_case wire `Graph`
+ * via {@link createGraph}.
  *
- * The agent configs a graph references are stashed in a WeakMap keyed by
- * the returned `Graph`, so the graph itself stays pure JSON while `run()`
- * can register the agents into a run-scoped registry.
+ * Referenced agent configs are stashed in a WeakMap keyed by the returned
+ * `Graph`, so the graph stays pure JSON while `run()` can register them
+ * into a run-scoped registry.
  *
  * @module authoring/graph
  */

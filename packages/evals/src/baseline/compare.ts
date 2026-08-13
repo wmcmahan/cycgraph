@@ -2,16 +2,14 @@
  * Baseline Comparison
  *
  * Computes the delta between a current run's snapshot and the prior
- * baseline. Designed to surface regressions that the absolute drift
- * ceiling would otherwise miss — e.g., a suite going from 0% drift to
- * 4% drift (still below a 5% ceiling) is a meaningful regression worth
- * flagging.
+ * baseline, surfacing regressions the absolute drift ceiling misses: a suite
+ * going from 0% to 4% drift is meaningful even under a 5% ceiling.
  *
  * The default noise floor (1 percentage point) absorbs sample-to-sample LLM
- * jitter while staying well BELOW the absolute drift ceiling (~5%). A noise
- * floor equal to the ceiling was a blind spot: a suite drifting 0% → 4.9% was
- * neither a regression (< floor) nor a ceiling failure (< ceiling), so
- * sub-ceiling regressions were invisible.
+ * jitter. It must stay below the absolute drift ceiling (~5%): were the two
+ * equal, a suite drifting 0% → 4.9% would be neither a regression (< floor)
+ * nor a ceiling failure (< ceiling), and sub-ceiling regressions would be
+ * invisible.
  *
  * @module baseline/compare
  */

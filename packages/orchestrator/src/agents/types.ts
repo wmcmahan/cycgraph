@@ -8,7 +8,7 @@
  * Security: Both `read_keys` and `write_keys` default to `[]` (deny-all).
  * Permissions must be explicitly granted in the agent registry.
  *
- * @module agent/types
+ * @module agents/types
  */
 
 import { z } from 'zod';
@@ -70,29 +70,23 @@ export const AgentConfigSchema = z.object({
   maxSteps: z.number().min(1).max(50).default(10),
 
   /**
-   * Maximum tokens the model may GENERATE in one call.
+   * Maximum tokens the model may generate in one call. No default: any
+   * value would become a truncation ceiling, so the cap is opt-in and an
+   * unset value keeps the provider's own behaviour.
    *
-   * Deliberately has NO default. Any value we picked would become a
-   * truncation ceiling for graphs that already emit long output, so
-   * leaving it absent preserves the provider's behaviour exactly and
-   * makes the cap opt-in.
+   * Worth setting. Providers default it to the model's maximum, and a
+   * request must fit prompt plus generation inside the context window, so
+   * an unset cap reserves window that a short-output agent never uses.
    *
-   * Setting it is worth doing. Providers default this to the model's
-   * maximum, and because a request must fit prompt plus generation inside
-   * the context window, an unset cap silently reserves window an agent
-   * writing three sentences will never use.
-   *
-   * Not to be confused with `GraphNode.budget.max_tokens`, a spend cap
-   * that aborts the node. This one is passed to the provider.
+   * Distinct from `GraphNode.budget.max_tokens`, which is a spend cap that
+   * aborts the node; this is passed to the provider.
    */
   maxOutputTokens: z.number().int().positive().optional(),
 
   /**
-   * Provider-specific options, namespaced by provider name.
-   *
-   * Passed through directly to the LLM call (e.g. `streamText`).
-   * Allows configuring provider-native features without coupling
-   * the schema to any specific provider SDK.
+   * Provider-specific options, namespaced by provider name and passed
+   * through to the LLM call. Configures provider-native features without
+   * coupling the schema to a provider SDK.
    *
    * @example
    * ```json

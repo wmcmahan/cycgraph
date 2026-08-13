@@ -9,10 +9,9 @@
  *   - **token channel**: async tokens streamed from an in-flight LLM call,
  *     interleaved with action resolution via a single-slot notify primitive.
  *
- * The channel deliberately doesn't expose its internal arrays — every queue
- * mutation goes through a named method so the relative order of pushes and
- * drains is auditable. This is the bookkeeping primitive behind the
- * runner's streaming-order invariant; touching it requires care.
+ * The internal arrays are not exposed: every queue mutation goes through a
+ * named method so the relative order of pushes and drains stays auditable,
+ * which is what upholds the runner's streaming-order invariant.
  *
  * @module execution/streaming/stream-channel
  */
