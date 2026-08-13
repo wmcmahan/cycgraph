@@ -1,20 +1,10 @@
 /**
- * Task-state translation
+ * Task-state translation.
  *
- * The protocol's `TaskState` is a protobuf enum, and it reaches this
- * adapter in three spellings depending on the server and the path the value
- * took:
- *
- * - the enum **number** — `Task.fromJSON` yields `7`, not the name. The
- *   live-server harness caught every task normalizing to `failed` when this
- *   table was keyed by names alone.
- * - the proto **name** — `TASK_STATE_REJECTED`
- * - the JSON wire **spelling** — `rejected`, which is also the engine's own
- *   state name
- *
- * Each state appears exactly once below, with its number and proto name on
- * the same row, so the correspondence is checkable at a glance instead of
- * across three separate blocks.
+ * The protocol's `TaskState` is a protobuf enum and may arrive in any of
+ * three spellings: the enum number (`Task.fromJSON` yields `7`, not a
+ * name), the proto name (`TASK_STATE_REJECTED`), or the JSON wire form
+ * (`rejected`), which matches the engine's own state name.
  *
  * @module task-state
  */
@@ -31,10 +21,7 @@ const STATE_SPELLINGS: Record<A2ATaskState, readonly [code: string, protoName: s
   'auth-required':  ['8', 'TASK_STATE_AUTH_REQUIRED'],
 };
 
-/**
- * The two running states, in the same three spellings. They mean "poll
- * again", never "done" — see `settle` in `client.ts`.
- */
+/** Running states, in the same three spellings. A task in one of these is polled, not read as an outcome. */
 const PENDING_SPELLINGS = new Set([
   '1', 'TASK_STATE_SUBMITTED', 'submitted',
   '2', 'TASK_STATE_WORKING', 'working',
@@ -48,11 +35,8 @@ for (const [state, [code, protoName]] of Object.entries(STATE_SPELLINGS) as Arra
 }
 
 /**
- * Normalize a protocol task state to the engine's vocabulary.
- *
- * An unknown state maps to `failed` rather than being passed through: a
- * state we cannot interpret is one we cannot handle correctly, and success
- * would be the dangerous direction to guess in.
+ * Normalize a protocol task state to the engine's vocabulary. Unknown
+ * states map to `failed`, never to success.
  */
 export function normalizeState(state: unknown): A2ATaskState {
   return STATE_BY_SPELLING.get(String(state)) ?? 'failed';

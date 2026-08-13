@@ -10,20 +10,10 @@
  * core carries no A2A dependency. A serving package serves what this
  * returns.
  *
- * ## The projection is lossy, and only in one direction
- *
- * A graph's declared interface is a STRONGER contract than a card can
- * express. `inputs` / `outputs` carry per-key JSON Schema with derived
- * `required`; `AgentSkill` carries `inputModes` / `outputModes`, which are
- * MIME types. Modality, not shape.
- *
- * So a caller reading the card learns less than the graph actually
- * guarantees, and nothing here can fix that without inventing a protocol
- * extension. What this module does instead is refuse to *pretend*: the
- * declared schemas are rendered into the skill description, where a human
- * or an LLM choosing an agent will at least see them, and
- * {@link agentCardFidelity} reports what could not be expressed so a
- * publisher can decide whether that matters.
+ * The projection is lossy: a card carries MIME modes, not per-key schemas,
+ * so it can express less than a declared graph interface guarantees.
+ * Declared schemas are rendered into the skill description as text, and
+ * {@link agentCardFidelity} reports what could not be expressed.
  *
  * @module a2a/agent-card
  */
@@ -78,13 +68,7 @@ export interface AgentCardOptions {
 /** MIME types a graph boundary speaks: JSON for data, text for prose. */
 const DEFAULT_MODES = ['application/json', 'text/plain'];
 
-/**
- * Render a declared interface as readable lines for the skill description.
- *
- * This is the only place the schemas survive into the card at all, so it is
- * worth being explicit rather than terse: a caller cannot validate against
- * them, but can at least see what is expected.
- */
+/** Render a declared interface as readable lines for the skill description. */
 function describeInterface(graph: Graph): string {
   const lines: string[] = [];
 
@@ -120,12 +104,9 @@ function schemaSummary(schema: Record<string, unknown>): string {
 }
 
 /**
- * Project a graph, or a bundle, into an Agent Card.
- *
- * A graph publishes exactly ONE skill. Skills are how a card advertises
- * alternative capabilities, and a graph is a single unit of work with one
- * declared interface — splitting it would imply a choice the graph does not
- * offer.
+ * Project a graph, or a bundle, into an Agent Card. A graph publishes
+ * exactly one skill: it is a single unit of work with one declared
+ * interface, so multiple skills would advertise a choice it does not offer.
  *
  * @param source - The graph to publish, or a bundle wrapping it.
  * @param options - Endpoint, version, and provenance the graph lacks.
@@ -183,15 +164,9 @@ export interface AgentCardFidelity {
 }
 
 /**
- * Report what {@link toAgentCard} could not express.
- *
- * Every declared key is currently unexpressed, because no version of the
- * card format carries per-key schemas. That is not a defect to fix here; it
- * is a fact a publisher should be able to see before deciding to expose a
- * graph whose correctness depends on callers respecting those schemas.
- *
- * A graph declaring no interface is trivially lossless: there was nothing
- * to lose.
+ * Report what {@link toAgentCard} could not express. The card format
+ * carries no per-key schemas, so every declared key is unexpressed; a
+ * graph declaring no interface is trivially lossless.
  */
 export function agentCardFidelity(source: Graph | GraphBundle): AgentCardFidelity {
   const graph = isGraphBundle(source) ? source.graph : (source as Graph);

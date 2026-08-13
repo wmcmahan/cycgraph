@@ -16,13 +16,10 @@
  *    steps run ungated. A value the delegate marked untrusted stays
  *    untrusted on the way back.
  * 3. **Declared interfaces are enforced at the seam.** A required input
- *    must be present and every present value must satisfy its schema,
- *    checked on arrival rather than discovered three steps deeper.
+ *    must be present and every present value must satisfy its schema.
  *
- * What runs between the two crossings is NOT here: resolving the delegate,
- * executing it, and deciding what a pause means all differ per node type.
- * Callers own their own error types through the `fail` callback, so this
- * module never has to know which node is crossing.
+ * Resolving and executing the delegate is the caller's business; callers
+ * also supply their own error type through the `fail` callback.
  *
  * @module execution/nodes/boundary
  */
@@ -89,11 +86,8 @@ export function mapInbound(
 }
 
 /**
- * Enforce a declared input interface against what actually crossed.
- *
- * Fires on every path, including a delegate resolved by id at run time that
- * never saw an authoring-time mapping check. A delegate declaring no
- * interface validates nothing, so adoption is incremental.
+ * Enforce a declared input interface against what actually crossed. A
+ * delegate declaring no interface validates nothing.
  *
  * @param declared - The delegate's declared inputs, if it has any.
  * @param memory - The mapped input from {@link mapInbound}.

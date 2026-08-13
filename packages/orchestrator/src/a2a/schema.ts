@@ -62,10 +62,8 @@ function safeAgentCardUrl() {
  * therefore holds no secret, so a database dump, a log line, or a
  * `listServers()` response cannot leak one.
  *
- * The limitation is deliberate and worth stating: a multi-tenant deployment
- * holding per-tenant credentials in a database cannot express that here.
- * Extending this union is the intended path, rather than relaxing it to
- * accept literal tokens.
+ * Per-tenant credentials from a database are not expressible here; extend
+ * this union rather than relaxing it to accept literal tokens.
  */
 export const A2AAuthSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }),
@@ -164,10 +162,8 @@ export interface A2AServerRegistry {
 
 /**
  * Resolve an entry's auth to request headers, reading env at call time.
- *
- * Returns an empty object for `none`, and throws when a named variable is
- * absent: failing loudly at the boundary beats sending an unauthenticated
- * request and reading a 401 three retries later.
+ * Returns an empty object for `none`; throws when a named variable is
+ * absent rather than sending an unauthenticated request.
  */
 export function resolveAuthHeaders(auth: A2AAuth): Record<string, string> {
   switch (auth.type) {

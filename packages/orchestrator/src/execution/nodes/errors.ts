@@ -104,10 +104,8 @@ export class A2AInterfaceError extends CycgraphError {
 
 /**
  * Thrown when a remote task ended in any state other than `completed`.
- *
- * `retryable` is `false` for `rejected`: the agent decided not to do the
- * work, so re-issuing burns the retry budget on a decision that will not
- * change. The runner short-circuits on `retryable === false`.
+ * `retryable` is `false` for states a retry cannot change; the runner
+ * short-circuits on it.
  */
 export class A2ATaskFailedError extends CycgraphError {
   readonly retryable?: boolean;
@@ -123,9 +121,7 @@ export class A2ATaskFailedError extends CycgraphError {
       (detail ? `: ${detail}` : ''),
     );
     this.name = 'A2ATaskFailedError';
-    // `rejected` is a decision and `auth-required` is a credential the
-    // engine cannot change mid-run: re-issuing either spends the retry
-    // budget on an identical outcome.
+    // A refusal and a bad credential produce identical outcomes on retry.
     if (state === 'rejected' || state === 'auth-required') this.retryable = false;
   }
 }
