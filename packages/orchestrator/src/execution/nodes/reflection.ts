@@ -1,26 +1,20 @@
 /**
  * Reflection Executor
  *
- * Compound-systems primitive that closes the learning loop: after
- * productive work in a graph, this node distills the run's output into
- * atomic facts and persists them via the injected `MemoryWriter`. Future
- * runs retrieve those facts (filtered by tags) through `memoryRetriever`,
- * so agents compound knowledge across runs.
+ * Distills a run's output into atomic facts and persists them via the
+ * injected `MemoryWriter`. Future runs retrieve those facts by tag through
+ * `memoryRetriever`.
  *
  * Two extractor variants:
  *
- *   - `rule_based` — deterministic sentence-level extraction. Splits the
- *     concatenated source memory values into sentences, filters by
- *     `min_sentence_length`, dedupes (normalised), and emits one fact per
- *     unique sentence. No LLM call — free and predictable. Intentionally
- *     simpler than `@cycgraph/memory`'s `RuleBasedExtractor` because the
- *     orchestrator does not depend on the memory package; richer
- *     extraction belongs in the `llm` variant or a user-supplied
- *     `MemoryWriter` that post-processes.
- *   - `llm`        — uses the {@link extractFactsExecutor} primitive to
- *     ask an LLM to distill lessons from the source memory values. The
- *     LLM returns up to `max_facts` atomic sentences; the executor
- *     persists them with `provenance.source === 'agent'`.
+ *   - `rule_based` — deterministic sentence-level extraction: splits the
+ *     concatenated source values, filters by `min_sentence_length`,
+ *     dedupes, and emits one fact per unique sentence. Simpler than
+ *     `@cycgraph/memory`'s `RuleBasedExtractor` because the orchestrator
+ *     does not depend on the memory package.
+ *   - `llm` — uses {@link extractFactsExecutor} to distill lessons,
+ *     returning up to `max_facts` sentences persisted with
+ *     `provenance.source === 'agent'`.
  *
  * Outcomes are written as a {@link ReflectionResult} envelope to
  * `result_key` (default `{node.id}_reflection`).

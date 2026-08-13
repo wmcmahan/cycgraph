@@ -1,13 +1,11 @@
 /**
  * subgraph() — compose a child graph into a parent topology
  *
- * The connect primitive of composable graphs.
- * Returns a {@link NodeValue} whose config
- * carries only the child's id string, so the compiled wire is identical to a
- * hand-authored `subgraph` node. When the child is a `Graph` value in scope,
- * it rides on a brand symbol OUTSIDE the config; `graph()` collects it so
- * `run()` can auto-wire `loadGraph` and register the child's agents — the
- * same reference pipeline `agent()` and `tool()` values use.
+ * Returns a {@link NodeValue} whose config carries only the child's id, so
+ * the compiled wire is identical to a hand-authored `subgraph` node. A child
+ * `Graph` value in scope rides on a brand symbol outside the config, where
+ * `graph()` collects it so `run()` can auto-wire `loadGraph` and register
+ * the child's agents.
  *
  * @module authoring/subgraph
  */

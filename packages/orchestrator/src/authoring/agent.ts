@@ -1,13 +1,13 @@
 /**
  * Core agent authoring utilities.
  *
- * An agent value is a CAPABILITY only: model, instructions, tools, sampling.
- * It carries no topology — placement in a graph (node id, state grants) is
- * `node()`'s job — and no registry id: `graph()` mints one when it compiles,
- * and `run()` registers the config into a run-scoped registry.
+ * An agent value is a capability only: model, instructions, tools, sampling.
+ * It carries no topology, which is `node()`'s job, and no registry id:
+ * `graph()` mints one when it compiles and `run()` registers the config into
+ * a run-scoped registry.
  *
  * The pipeline: `agent()`/`node()` produce inert values, `graph()` compiles
- * them to the serializable wire Graph, `run()` executes it.
+ * them to the wire Graph, `run()` executes it.
  *
  * @module authoring/agent
  */

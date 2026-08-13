@@ -1,18 +1,15 @@
 /**
  * sandboxed_js — WASM-sandboxed JavaScript evaluation
  *
- * Runtime model: untrusted code is
- * interpreted by QuickJS compiled to WebAssembly, so its entire world is a
- * bounds-checked linear memory with no host imports beyond a string-only
- * log bridge. That WASM engine runs inside a `worker_threads` worker the
- * parent terminates at the deadline, because `evalCode` is synchronous and
- * the in-engine interrupt handler needs an outside-the-engine backstop.
+ * Untrusted code is interpreted by QuickJS compiled to WebAssembly, so its
+ * entire world is a bounds-checked linear memory with no host imports beyond
+ * a string-only log bridge. That WASM engine runs inside a `worker_threads`
+ * worker the parent terminates at the deadline, because `evalCode` is
+ * synchronous and the in-engine interrupt handler needs a backstop outside
+ * the engine.
  *
- * WASM decides what the code can touch; the worker decides what it can
- * block and how it dies.
- *
- * Security-review checklist lives in the design doc; the escape-probe and
- * limit tests in test/sandboxed-js.test.ts pin each item.
+ * WASM decides what the code can touch; the worker decides what it can block
+ * and how it dies.
  *
  * @module sandbox/sandboxed-js
  */

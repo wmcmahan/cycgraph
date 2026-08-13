@@ -6,7 +6,7 @@
  * with structured output to produce a normalised score (0–1),
  * reasoning, and optional improvement suggestions.
  *
- * @module evaluator-executor/executor
+ * @module agents/executors/evaluator/executor
  */
 
 import { generateText, Output } from 'ai';

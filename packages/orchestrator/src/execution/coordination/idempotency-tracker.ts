@@ -2,33 +2,24 @@
  * Idempotency Tracker
  *
  * Tracks which `(nodeId, iteration)` actions have already been applied to a
- * workflow run, so a resumed/recovered run never re-executes a node whose
- * action was reduced into state before a crash.
+ * run, so a resumed run never re-executes a node whose action was reduced
+ * into state before a crash.
  *
- * ## Key space
- *
- * One key space everywhere: `${nodeId}:${iteration}` where `iteration` is
+ * Keys are `${nodeId}:${iteration}`, where `iteration` is
  * `state.iteration_count` at the moment the node executed (pre-increment).
- * The same keys are produced by:
- *   - the main loop (`add()` after a successful reduce),
- *   - event-log replay in `recover.ts` (each replayed action at its
- *     replay-time iteration), and
- *   - `rebuildFromEventLog()` on snapshot resume (crash-window detection).
+ * The main loop, event-log replay, and snapshot resume all produce them.
  *
- * ## The crash window
+ * The crash window: per step the runner appends `action_dispatched`,
+ * reduces, persists a snapshot, then `_increment_iteration`, `_advance`,
+ * and persists again. A crash between the first persist and `_advance`
+ * leaves a snapshot that already contains the action's effects while
+ * `current_node` still points at the node that produced it, and resuming it
+ * must not re-execute that node. Whether an action's effects are inside a
+ * snapshot is decided by the snapshot's `_last_event_sequence_id`
+ * high-water mark: events at or below it were durable before the snapshot
+ * committed.
  *
- * Per step the runner does: append `action_dispatched` → reduce → persist
- * snapshot → `_increment_iteration` → `_advance` → persist. A crash between
- * the first persist and `_advance` leaves a snapshot that already CONTAINS
- * the action's effects while `current_node` still points at the node that
- * produced it. Resuming such a snapshot must NOT re-execute the node.
- *
- * Whether a logged action's effects are inside a snapshot is decided with
- * the snapshot's `_last_event_sequence_id` high-water mark: events at or
- * below the mark were durable before the snapshot committed.
- *
- * The tracker **does not own `sequenceId`** — sequence numbering is the
- * runner's responsibility (single-writer rule).
+ * Sequence numbering belongs to the runner (single-writer rule), not here.
  *
  * @module execution/coordination/idempotency-tracker
  */
@@ -99,11 +90,8 @@ export class IdempotencyTracker {
     runId: string,
     resumedState: ResumedStateInfo,
   ): Promise<IdempotencyRebuildResult> {
-    // Load only the tail after the latest checkpoint instead of the entire
-    // history. Compaction already deletes events behind the checkpoint, so the
-    // tail is information-equivalent to a full load (and only ever shorter) —
-    // this just avoids re-scanning a long log on every snapshot resume. With no
-    // checkpoint we fall back to the full load (identical to before).
+    // Compaction deletes events behind the checkpoint, so the tail after it
+    // is information-equivalent to the full history. No checkpoint: full load.
     let events;
     let baseSequenceId = 0;
     try {

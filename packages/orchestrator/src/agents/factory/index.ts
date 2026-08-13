@@ -5,7 +5,7 @@
  * {@link configureAgentFactory} startup helper. All agent-factory
  * internals are accessed through this module.
  *
- * @module agent-factory
+ * @module agents/factory/index
  */
 
 import { AgentFactory } from './agent-factory.js';

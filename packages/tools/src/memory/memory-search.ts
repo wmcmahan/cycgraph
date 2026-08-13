@@ -8,10 +8,9 @@
  * configured). Fact ids are included in the result so callers can attribute
  * run outcomes to consulted facts.
  *
- * Note: tool-initiated retrieval is not recorded in
- * `state.lesson_provenance` — that field tracks prompt-injected facts. If
- * eval-gated learning should see tool-driven consultation, record the
- * returned fact ids caller-side.
+ * Tool-initiated retrieval is not recorded in `state.lesson_provenance`,
+ * which tracks prompt-injected facts only. For eval-gated learning to see
+ * tool-driven consultation, record the returned fact ids caller-side.
  *
  * By default results are untainted (memory is first-party state). Set
  * `untrusted: true` when the store holds externally-derived content so

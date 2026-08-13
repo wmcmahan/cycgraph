@@ -15,7 +15,7 @@
  * For multi-node graphs with distinct fitness needs, dispatch on
  * `goal` or other state inside your callback.
  *
- * @module agent/fitness-function
+ * @module execution/nodes/fitness-function
  */
 
 /** Result of a deterministic fitness evaluation. */

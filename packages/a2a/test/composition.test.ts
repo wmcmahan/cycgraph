@@ -3,11 +3,9 @@
  * scenario servers in `@cycgraph/test-servers`.
  *
  * Every value here crosses two delegation boundaries each way — parent →
- * child graph → remote agent and back — so these prove what the unit tests
+ * child graph → remote agent and back — so these cover what the unit tests
  * structurally cannot: that the wiring, taint, interface validation, and
- * nested pause machinery survive being stacked. The first draft of this
- * suite caught the subgraph executor not forwarding `a2aRegistry` /
- * `a2aClient` to its child runner at all.
+ * nested pause machinery survive being stacked.
  *
  * Gated like the postgres suite: SKIPS unless `A2A_SCENARIO_SERVER` names
  * a running scenario server. To run:

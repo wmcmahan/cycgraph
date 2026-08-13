@@ -4,7 +4,7 @@ Performance benchmarks for the cycgraph orchestrator. **Private — never publis
 
 ## Why this exists
 
-Until now the perf claims in the docs ("handles 1000-node graphs", "streaming has acceptable overhead") were unverified. This package pins them.
+The docs make perf claims: "handles 1000-node graphs", "streaming has acceptable overhead". This package measures them so they stay honest.
 
 The benchmarks isolate three layers:
 

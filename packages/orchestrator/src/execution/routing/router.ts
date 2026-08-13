@@ -2,12 +2,11 @@
  * Graph Router
  *
  * Pure routing primitives for the runner: where to go next, what's current,
- * and whether the loop should keep iterating. All functions are pure with
- * respect to their arguments — no internal state, no side effects beyond
- * logging.
+ * and whether the loop should keep iterating. No internal state, no side
+ * effects beyond logging.
  *
- * Edge conditions are evaluated via {@link evaluateCondition} from
- * `execution/routing/conditions.ts` (filtrex-based). Routing semantics:
+ * Edge conditions are evaluated via {@link evaluateCondition}. Routing
+ * semantics:
  *
  *   - Walk outgoing edges in declaration order
  *   - Return the target node of the first edge whose condition evaluates `true`

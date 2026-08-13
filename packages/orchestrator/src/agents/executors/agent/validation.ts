@@ -9,7 +9,7 @@
  * by the executor itself and are stripped before validation to avoid
  * false rejections.
  *
- * @module agent-executor/validation
+ * @module agents/executors/agent/validation
  */
 
 import type { Action } from '../../../state/state.js';

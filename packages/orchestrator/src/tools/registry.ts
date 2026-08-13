@@ -4,20 +4,18 @@
  * Builds the runner's tool-resolution pipeline from the single
  * `GraphRunnerOptions.tools` array: built-in catalog → `defineTool()`
  * registrations → `ToolResolver` entries (typically an MCPConnectionManager).
- * The composed object itself implements {@link ToolResolver}, so the rest of
- * the engine (executor context, node executors) is unchanged.
+ * The composed object implements {@link ToolResolver}, so the rest of the
+ * engine sees one resolver.
  *
  * Taint attribution: the composed resolver keeps a per-resolution collector
- * for tainting custom tools and delegates MCP taint to each resolver leg
- * with that leg's own toolset handle — preserving the race-free
- * per-execution attribution the MCP manager provides under concurrent
- * executions (voting / evolution / map).
+ * for custom tools and delegates MCP taint to each leg with that leg's own
+ * toolset handle, preserving race-free per-execution attribution under
+ * concurrent fan-out.
  *
  * Multi-resolver semantics: MCP sources are forwarded as one batch to each
- * resolver in array order until one resolves them all. A resolver that does
- * not know one of the declared servers fails the whole batch for that
- * resolver. Each node's declared servers must therefore all be owned by a
- * single resolver — the realistic deployment shape (one connection manager).
+ * resolver in array order until one resolves them all, and a resolver that
+ * does not know one declared server fails the whole batch. A node's declared
+ * servers must therefore all be owned by a single resolver.
  *
  * @module tools/registry
  */

@@ -6,7 +6,7 @@
  * current memory state. All untrusted content is sanitized before
  * embedding to prevent prompt injection.
  *
- * @module supervisor-executor/prompts
+ * @module agents/executors/supervisor/prompts
  */
 
 import type { SupervisorConfig } from '../../../graph/graph.js';

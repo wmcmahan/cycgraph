@@ -9,7 +9,7 @@
  * {@link registerBuiltInProviders}. API keys are resolved lazily at
  * model-resolution time (not at registration time).
  *
- * @module agent/provider-registry
+ * @module agents/providers/provider-registry
  */
 
 import type { LanguageModel } from 'ai';

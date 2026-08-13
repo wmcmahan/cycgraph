@@ -185,12 +185,10 @@ export async function executeEvolutionNode(
   // untrusted data, so the aggregate keys must be marked tainted too.
   const taintedWorkerUpdates: Record<string, unknown>[] = [];
 
-  // Elitism: the top `elite_count` candidates of each generation are carried
-  // UNCHANGED into the next generation's pool — not re-generated and not
-  // re-scored. This guarantees the best-so-far can never be lost to a noisy
-  // generation, so per-generation best fitness is monotonic non-decreasing
-  // (and it saves the LLM calls those slots would have cost). Clamped to leave
-  // at least one fresh candidate per generation; `elite_count: 0` disables it.
+  // Elitism: the top `elite_count` candidates carry into the next generation
+  // unchanged, neither re-generated nor re-scored, so the best-so-far cannot
+  // be lost to a noisy generation and per-generation best fitness is
+  // monotonic non-decreasing. Clamped to leave at least one fresh candidate.
   const eliteCount = Math.min(config.elite_count, config.population_size - 1);
   let elites: ScoredCandidate[] = [];
 

@@ -27,7 +27,7 @@
  *   Option A: @ai-sdk/openai-compatible (official Vercel package)
  *     npm install @ai-sdk/openai-compatible
  *
- *   Option B: ollama-ai-provider-v2 (Vercel-endorsed community package)
+ *   Option B: ollama-ai-provider-v2 (community package)
  *     npm install ollama-ai-provider-v2
  *
  * This example uses @ai-sdk/openai pointed at Ollama's /v1 endpoint

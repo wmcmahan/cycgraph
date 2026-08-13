@@ -5,13 +5,9 @@
  * These use well-known official MCP reference servers and can be registered
  * into any {@link MCPServerRegistry} via {@link registerDefaultMCPServers}.
  *
- * Servers are started as child processes via stdio transport:
- * - **web-search** — npm package via `npx` (@modelcontextprotocol/server-brave-search)
- * - **fetch** — Python package via `uvx` (mcp-server-fetch)
- *
- * Available defaults:
- * - **web-search** — Web search via Brave Search API
- * - **fetch** — Fetch and extract content from URLs
+ * Servers are started as child processes over stdio transport:
+ * - **web-search** — Brave Search API, npm package via `npx`
+ * - **fetch** — URL content extraction, Python package via `uvx`
  *
  * @module mcp/default-servers
  */
@@ -122,9 +118,7 @@ export interface RegisterDefaultMCPServersOptions {
 /**
  * Register default MCP server configurations into a registry.
  *
- * Registers pre-configured entries for common capabilities (web search,
- * URL fetching). Servers use stdio transport — web-search via `npx`
- * (npm) and fetch via `uvx` (Python). Packages are resolved on-the-fly.
+ * Packages are resolved on-the-fly when a server starts.
  *
  * @param registry - The MCP server registry to register into.
  * @param options - Optional filtering and configuration overrides.
@@ -141,11 +135,6 @@ export interface RegisterDefaultMCPServersOptions {
  * registerDefaultMCPServers(mcpRegistry, {
  *   only: ['web-search'],
  *   braveApiKey: 'BSA-...',
- * });
- *
- * // Register all except web-search (fetch only)
- * registerDefaultMCPServers(mcpRegistry, {
- *   exclude: ['web-search'],
  * });
  * ```
  */

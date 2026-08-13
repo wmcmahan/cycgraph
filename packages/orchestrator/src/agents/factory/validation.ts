@@ -4,7 +4,7 @@
  * Validates agent IDs before they reach the database layer to prevent
  * PostgreSQL "invalid input syntax for type uuid" errors.
  *
- * @module agent-factory/validation
+ * @module agents/factory/validation
  */
 
 /** RFC 4122 UUID pattern (case-insensitive). */

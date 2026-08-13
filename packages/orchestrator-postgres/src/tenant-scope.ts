@@ -3,13 +3,14 @@
  *
  * The control-plane seam: given a {@link TenantContext} (resolved from an API
  * key by the HTTP layer, or read from `job.tenant_id` by a worker), build the
- * complete set of adapters already bound to that tenant. Every read/write
- * through a scope is isolated — the app-level `tenant_id` filter today, and
- * Postgres RLS once `APP_DATABASE_URL` points at the `cycgraph_app` role.
+ * complete set of adapters already bound to that tenant. Every read and write
+ * through a scope is isolated by an app-level `tenant_id` filter, and
+ * additionally by Postgres RLS when `APP_DATABASE_URL` points at the
+ * `cycgraph_app` role.
  *
- * The engine stays tenant-agnostic: a worker wires `scope.persistence` /
+ * The engine stays tenant-agnostic: a worker wires `scope.persistence` and
  * `scope.eventLog` into `GraphRunnerOptions` exactly as it would the
- * single-tenant adapters — the tenant boundary is entirely inside the scope.
+ * single-tenant adapters, so the tenant boundary lives entirely in the scope.
  *
  * Two scopes, matching the two planes (see {@link module:tenancy}):
  *   - {@link createTenantScope} — the tenant plane (RLS-subject).

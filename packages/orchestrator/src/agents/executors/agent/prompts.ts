@@ -8,7 +8,7 @@
  * Memory is serialised as JSON and bounded to {@link MAX_MEMORY_PROMPT_BYTES}
  * to prevent context-window overflow and cost explosion.
  *
- * @module agent-executor/prompts
+ * @module agents/executors/agent/prompts
  */
 
 import type { AgentConfig } from '../../types.js';

@@ -1,20 +1,18 @@
 /**
  * run() and state() — one-call execution
  *
- * `run()` collapses the setup a raw run needs — agent registry, provider
- * config, workflow state, persistence, runner — into a single call. It
+ * `run()` collapses the setup a raw run needs (agent registry, provider
+ * config, workflow state, persistence, runner) into a single call and
  * returns the final workflow memory.
  *
- * `run()` scopes the graph's agents and providers into the run via
- * `GraphRunnerOptions.registry`/`providers` — no process-global mutation, so
- * concurrent facade runs never contaminate each other.
+ * Agents and providers are scoped into the run via
+ * `GraphRunnerOptions.registry`/`providers`, never process globals, so
+ * concurrent runs cannot contaminate each other.
  *
- * Composition: the wiring is TRANSITIVE.
- * `subgraph()` children collected by `graph()` are resolved through an
- * auto-built `loadGraph`, and each child's own agents/tools/grandchildren
- * are folded into the same run scope — the multi-graph closure. A
- * caller-supplied `loadGraph` wins for ids it resolves; the stash covers
- * the rest (the Phase 2 package-resolver seam).
+ * The wiring is transitive: `subgraph()` children are resolved through an
+ * auto-built `loadGraph`, and each child's own agents, tools, and
+ * grandchildren fold into the same run scope. A caller-supplied `loadGraph`
+ * wins for ids it resolves.
  *
  * @module authoring/run
  */

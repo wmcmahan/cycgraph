@@ -9,7 +9,7 @@
  * same sanitisation, same `generateText` + `Output.object` extraction —
  * but returns a fact list instead of a quality score.
  *
- * @module extractor-executor/executor
+ * @module agents/executors/extractor/executor
  */
 
 import { generateText, Output } from 'ai';

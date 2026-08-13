@@ -2,8 +2,7 @@
  * Workflow Recovery
  *
  * Reconstructs a `GraphRunner` from its event log via deterministic replay.
- * Used by `WorkflowWorker` for crash recovery and by the public
- * `GraphRunner.recover()` static method (which delegates here).
+ * Used by `WorkflowWorker` for crash recovery and by `GraphRunner.recover()`.
  *
  * Algorithm:
  *   1. Load the most recent checkpoint, if any. Replay only events after it.
@@ -11,14 +10,14 @@
  *      internal_dispatched — otherwise the log is corrupt.
  *   3. Build a runner with the start state (checkpoint or minimal).
  *   4. Replay events through the same `rootReducer` / `internalReducer` used
- *      at runtime. No LLM calls — the stored `Action` objects already contain
+ *      at runtime. No LLM calls: the stored `Action` objects already contain
  *      the agent outputs.
  *   5. Atomically rehydrate the runner with the final state,
  *      idempotency Set, and next sequenceId.
  *
- * The atomic rehydrate (single `_rehydrate` call) is critical: applying
- * state/idempotency/sequenceId separately would let a consumer observe
- * partially-recovered state.
+ * The rehydrate is a single `_rehydrate` call: applying state, idempotency,
+ * and sequenceId separately would let a consumer observe partially-recovered
+ * state.
  *
  * @module execution/coordination/recover
  */

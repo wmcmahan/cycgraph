@@ -7,16 +7,13 @@
  * run, `getInjectedFactIds(finalState)` yields the fact IDs to feed an
  * outcome ledger (`@cycgraph/memory`'s eval-gated retention).
  *
- * Entries are minted inside action payloads at execution time (like
- * `TaintMetadata.created_at`), so event-log replay reproduces them
- * verbatim. Inside payloads the wire encoding keeps the legacy
- * `_lesson_provenance` key ({@link LESSON_PROVENANCE_KEY}); reducers
- * route it to the state field, merging append-only with
- * `trimLessonProvenance` — both pure and deterministic.
+ * Entries are minted inside action payloads at execution time, so event-log
+ * replay reproduces them verbatim. On the wire the payload carries the
+ * `_lesson_provenance` key ({@link LESSON_PROVENANCE_KEY}); reducers route it
+ * to the state field, merging append-only via `trimLessonProvenance`.
  *
- * As a first-class state field, the registry is structurally outside
- * every node's StateView and outside write-permission checks — no
- * prefix convention involved.
+ * As a first-class state field, the registry sits outside every node's
+ * StateView and outside write-permission checks.
  *
  * @module memory/lesson-provenance
  */

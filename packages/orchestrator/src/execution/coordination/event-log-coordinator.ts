@@ -6,7 +6,7 @@
  * consecutive-failure tracking with the 3-strike halt rule, the fatal
  * split-brain latch, and deferred appends for pre-run dispatches.
  *
- * ## Failure semantics
+ * Failure semantics:
  *
  *   - **Append failure** → recorded per-append; surfaced at the next
  *     `flush()`. Three consecutive flushes containing failures throw and
@@ -16,12 +16,10 @@
  *     Latched as fatal on the append and re-thrown by the next `flush()`
  *     regardless of the consecutive-failure budget.
  *
- * ## Deferred appends
- *
- * Events recorded before `sequenceId` is known to be past the run's
- * existing log (e.g. `applyHumanResponse()` runs before `run()` on
- * resume, when a fresh runner still has sequenceId 0) would collide with
- * existing events. `withDeferredAppends()` buffers them;
+ * Deferred appends: events recorded before `sequenceId` is known to be past
+ * the run's existing log would collide with it. This happens when
+ * `applyHumanResponse()` runs before `run()` on resume and a fresh runner
+ * still has sequenceId 0. `withDeferredAppends()` buffers them;
  * `replayDeferred()` re-appends them once the resume path has advanced
  * the sequence via `advanceSequenceTo()`.
  *

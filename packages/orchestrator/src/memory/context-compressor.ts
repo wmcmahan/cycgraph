@@ -2,11 +2,9 @@
  * Context Compressor Type
  *
  * Narrow adapter interface for optional context compression in prompts.
- * The orchestrator owns this type; `@cycgraph/context-engine` is one implementation.
- *
- * Follows the `ModelResolver` pattern: a pure function type configured on
- * `GraphRunnerOptions`, injected through `NodeExecutorContext`, used in
- * prompt builders with graceful fallback when absent.
+ * The orchestrator owns this type; `@cycgraph/context-engine` is one
+ * implementation. Configured on `GraphRunnerOptions.contextCompressor`;
+ * absent means every segment keeps its default serialization.
  *
  * @module memory/context-compressor
  */
@@ -58,10 +56,9 @@ export interface PromptSegmentInput {
   /** Relative importance. Higher keeps more budget under contention. */
   priority?: number;
   /**
-   * When true the content must be returned byte-identical. Instructions and
-   * the goal are locked: rewriting them changes what the agent was told to
-   * do. The builder REJECTS a result that modifies a locked segment and
-   * falls back, so this is enforced rather than trusted.
+   * The content must be returned byte-identical. Set on instructions and
+   * the goal, where a rewrite would change what the agent was told to do.
+   * Enforced: the builder discards a result that modifies a locked segment.
    */
   locked?: boolean;
 }
@@ -80,20 +77,12 @@ export interface ContextCompressionResult {
 /**
  * Pure function that compresses a prompt's variable-size segments.
  *
- * Called in `buildSystemPrompt()` and `buildSupervisorSystemPrompt()` when
- * configured on `GraphRunnerOptions.contextCompressor`. When absent, every
- * segment keeps its default serialization and byte cap.
+ * Segments arrive sanitized and everything returned is re-sanitized: a
+ * compressor is third-party code and its output is untrusted. Injection
+ * boundary markers (`<data>` tags, DATA ONLY warnings) are emitted around
+ * segments rather than inside them, so no stage can strip a guard.
  *
- * Every segment arrives AFTER sanitization, and everything returned is
- * re-sanitized before it reaches the prompt. A compressor is third-party
- * code and its output is treated as untrusted.
- *
- * Prompt-injection boundary markers are NOT part of any segment. The
- * builder emits `<data>` tags and DATA ONLY warnings as structure around
- * segments, so no compression stage can strip a guard.
- *
- * Return `null` to explicitly fall back to default serialization for every
- * segment.
+ * Return `null` to fall back to default serialization for every segment.
  *
  * @param segments - The prompt's compressible sections, plus locked ones
  *   for budget accounting.
@@ -106,30 +95,22 @@ export type ContextCompressor = (
     /** Model identifier for model-aware token counting. */
     model?: string;
     /**
-     * Token budget for the whole prompt when the caller knows it.
-     * Usually absent: the orchestrator does not track model context
-     * windows, so an implementation should derive its own ceiling from
-     * `model` rather than assume a number on the caller's behalf.
+     * Token budget for the whole prompt. Usually absent — the orchestrator
+     * does not track model context windows, so implementations should
+     * derive a ceiling from `model`.
      */
     maxTokens?: number;
     /**
-     * Tokens the agent is permitted to generate, from its
-     * `maxOutputTokens`. A request must fit prompt plus generation inside
-     * the context window, so the real input budget is the window minus
-     * this.
-     *
-     * Absent means the agent set no cap and the provider will apply its
-     * own, typically the model's maximum. An implementation that cares
-     * about a true ceiling should treat absence as "reserve unknown" and
-     * be conservative rather than assume zero.
+     * Tokens the agent may generate, from its `maxOutputTokens`. Prompt
+     * plus generation must fit the context window, so the input budget is
+     * the window minus this. Absent means no cap was set; treat it as
+     * unknown, not zero.
      */
     outputReserve?: number;
     /**
-     * The task this context will be used for — the SANITIZED workflow
-     * goal. Enables query-aware compression: the context engine's
-     * relevance allocation concentrates budget on goal-relevant memory
-     * (measured: retains 82% vs 57% of downstream-answerable content at
-     * 3.6x compression). Implementations may ignore it.
+     * The sanitized workflow goal, enabling query-aware compression:
+     * budget concentrates on goal-relevant content. Implementations may
+     * ignore it.
      */
     query?: string;
   },

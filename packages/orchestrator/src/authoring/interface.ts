@@ -1,13 +1,11 @@
 /**
  * Graph interface authoring — Zod in, JSON Schema on the wire
  *
- * A graph's `inputs`/`outputs` declare its public signature at a subgraph
- * boundary. They are authored as Zod schemas
- * (or raw JSON Schema, or full declaration entries) and projected to the
- * wire form via `z.toJSONSchema`, the same projection tool `parameters`
- * already use. This module owns that conversion plus the compile-time
- * validation of a subgraph node's mappings against a child's declared
- * interface.
+ * A graph's `inputs`/`outputs` declare its public signature at a delegation
+ * boundary. They are authored as Zod schemas, raw JSON Schema, or full
+ * declaration entries, and projected to the wire form via `z.toJSONSchema`.
+ * This module owns that conversion and the authoring-time validation of a
+ * subgraph node's mappings against a child's declared interface.
  *
  * @module authoring/interface
  */

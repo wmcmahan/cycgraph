@@ -119,7 +119,7 @@ export async function runDeterministic(): Promise<TestCaseResults[]> {
   // Test 7: Format stability (idempotency)
   results.push(runFormatStabilityTest());
 
-  // ── Phase 2 Tests ──
+  // ── Pruning & dedup ──
 
   // Test 8: CoT distillation removes reasoning traces
   results.push(runCotDistillationEval());
@@ -139,7 +139,7 @@ export async function runDeterministic(): Promise<TestCaseResults[]> {
   // Test 13: Heuristic pruning reduces verbose prose
   results.push(runHeuristicReductionEval());
 
-  // ── Phase 3 Tests ──
+  // ── Format selection ──
 
   // Test 14: Hierarchy formatter reduction vs JSON
   results.push(runHierarchyFormatterEval());
@@ -150,7 +150,7 @@ export async function runDeterministic(): Promise<TestCaseResults[]> {
   // Test 16: Model-aware format selection for small models
   results.push(runModelFormatSelectionEval());
 
-  // ── Phase 4 Tests ──
+  // ── Budget & optimizer ──
 
   // Test 17: Circuit breaker bypasses inefficient stages
   results.push(runCircuitBreakerEval());
@@ -372,7 +372,7 @@ function runFormatStabilityTest(): TestCaseResults {
   };
 }
 
-// ─── Phase 2 Deterministic Helpers ─────────────────────────────────
+// ─── Pruning & dedup helpers ───────────────────────────────────────
 
 function runCotDistillationEval(): TestCaseResults {
   const reasoning = '<think>Let me carefully consider all the options. First option A. Then option B. After careful analysis of all factors. Therefore: Option B is optimal.</think>';
@@ -546,7 +546,7 @@ function runHeuristicReductionEval(): TestCaseResults {
   };
 }
 
-// ─── Phase 3 Deterministic Helpers ─────────────────────────────────
+// ─── Format selection helpers ──────────────────────────────────────
 
 function runHierarchyFormatterEval(): TestCaseResults {
   const payload: MemoryPayload = {
@@ -637,7 +637,7 @@ function runModelFormatSelectionEval(): TestCaseResults {
   };
 }
 
-// ─── Phase 4 Deterministic Helpers ─────────────────────────────────
+// ─── Budget & optimizer helpers ────────────────────────────────────
 
 function runCircuitBreakerEval(): TestCaseResults {
   const tracker = createLatencyTracker();

@@ -3,15 +3,13 @@
  *
  * A bundle carries everything about a composition that is data and can
  * travel: the entry graph, the transitive child-graph closure, and the
- * agent definitions they reference. Its manifest declares the two
- * contracts a consumer needs (docs/plans/graph-bundles.md): the interface
- * (input/output memory keys with schemas) and the host requirements
- * (custom tools, MCP servers, models — code and credentials the bundle
- * must NOT carry).
+ * agent definitions they reference. Its manifest declares two contracts:
+ * the interface (input/output keys with schemas) and the host requirements
+ * (custom tools, MCP servers, models), which are the code and credentials
+ * a bundle must never carry.
  *
- * The bundle is a serialization boundary, so everything here is
- * snake_case wire format, schema-validated because bundles arrive from
- * untrusted sources (npm packages, files, registries).
+ * A serialization boundary, so everything here is snake_case wire format
+ * and schema-validated: bundles arrive from untrusted sources.
  *
  * @module authoring/bundle-schema
  */

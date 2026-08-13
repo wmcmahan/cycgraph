@@ -6,12 +6,11 @@
  * failed-attempt usage accounting, node lifecycle events (in
  * non-streaming mode), and dispatch to the node-executor registry.
  *
- * The driver holds the per-node AbortController: a NODE-level timeout
- * aborts only this node's in-flight work instead of poisoning parallel
- * siblings via the shared workflow controller. A WORKFLOW-level timeout
- * still aborts the shared controller (the whole run is over).
- * {@link NodeExecutionDriver.nodeAbortSignal} combines both for the
- * signal handed to node executors.
+ * The driver holds the per-node AbortController: a node-level timeout
+ * aborts only this node's in-flight work, leaving parallel siblings on the
+ * shared workflow controller untouched. A workflow-level timeout aborts the
+ * shared controller. {@link NodeExecutionDriver.nodeAbortSignal} combines
+ * both for the signal handed to node executors.
  *
  * @module execution/engine/node-execution-driver
  */

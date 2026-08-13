@@ -338,7 +338,7 @@ describe('GraphRunner — reflection dispatch', () => {
   });
 });
 
-// ─── rule_based extractor (phase 2) ─────────────────────────────────
+// ─── rule_based extractor ───────────────────────────────────────────
 
 describe('rule_based reflection extractor', () => {
   const drafty = [
@@ -500,7 +500,7 @@ describe('rule_based reflection extractor', () => {
   });
 });
 
-// ─── llm extractor (phase 3) ────────────────────────────────────────
+// ─── llm extractor ──────────────────────────────────────────────────
 
 function makeLLMReflectGraph(overrides: {
   agent_id?: string;

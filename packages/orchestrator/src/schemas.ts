@@ -5,7 +5,7 @@
  * leaf schema file does NOT silently enter the package's public/semver
  * surface — adding one here is a deliberate act. See the root `src/index.ts`.
  *
- * @module types
+ * @module schemas
  */
 
 // ─── Case mapping ──────────────────────────────────────────────────────

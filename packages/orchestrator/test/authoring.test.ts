@@ -1,5 +1,5 @@
 /**
- * Tests for the authoring facade v2 (src/authoring/): the agent/node split
+ * Tests for the authoring facade (src/authoring/): the agent/node split
  * (agent = capability, node = placement), automatic agent ids, by-value
  * node references, deep agent-reference resolution in config blocks, edge
  * sugar, start/end inference, and the proof that a facade-authored graph

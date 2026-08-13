@@ -47,10 +47,10 @@ export interface AllocatorStageOptions {
    *   relevant documents instead of 30% of each of 10. Falls back to
    *   proportional when no query is present or nothing matches it.
    *
-   * Granularity note (measured): in relevance mode the query is used ONLY
-   * for cross-segment allocation; within-segment condensing stays
-   * entity-driven — token-level query weighting drops answer-bearing
-   * tokens that don't overlap the question's words.
+   * In relevance mode the query drives cross-segment allocation only.
+   * Within-segment condensing stays entity-driven, because token-level query
+   * weighting drops answer-bearing tokens that do not overlap the question's
+   * own words.
    */
   allocation?: 'proportional' | 'relevance';
   /**

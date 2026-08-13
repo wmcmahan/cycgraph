@@ -1,13 +1,11 @@
 /**
- * taint-hardening.test.ts
- *
- * Phase 2 security fixes for the taint subsystem:
- *  - H1: standalone tool nodes taint their MCP output (drain from the
- *        per-resolution collector).
- *  - race: concurrent resolveTools()/drain() cycles don't cross-attribute
- *        taint (per-toolset WeakMap collector).
- *  - M5: a crafted update_memory cannot clear _taint_registry (reducer
- *        merges it append-only).
+ * Taint subsystem invariants:
+ *  - standalone tool nodes taint their MCP output, draining from the
+ *    per-resolution collector
+ *  - concurrent resolveTools()/drain() cycles do not cross-attribute taint,
+ *    via the per-toolset WeakMap collector
+ *  - a crafted update_memory cannot clear _taint_registry, since the reducer
+ *    merges it append-only
  */
 import { describe, it, expect, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';

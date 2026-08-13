@@ -5,7 +5,7 @@
  * reliably `switch` on `error.name` without `instanceof` checks across
  * module boundaries.
  *
- * @module agent-factory/errors
+ * @module agents/factory/errors
  */
 
 import { CycgraphError } from '../../errors.js';

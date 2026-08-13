@@ -1,33 +1,28 @@
 /**
  * Effective Write Permissions
  *
- * Derives the write grants a node holds BEYOND its declared `write_keys`.
- * Two families are implied rather than hand-written, because in both cases
- * the node's type or config already IS the declaration of intent:
+ * Derives the write grants a node holds beyond its declared `write_keys`.
+ * Two families are implied rather than hand-written, because the node's type
+ * or config already is the declaration of intent:
  *
- * 1. **Action permissions implied by node type.** A `supervisor` node exists
- *    to route (`handoff` → `control_flow`) and to complete the run
- *    (`set_status` → `status`); an `approval` or `subgraph` node exists to
- *    pause for a human (`request_human_input` → `control_flow`); an agent
- *    node with `swarm_config` exists to hand off to peers. Requiring authors
- *    to also spell these out as pseudo-keys in `write_keys` was the single
- *    most common way to ship a graph that could not run.
+ * 1. **Action permissions implied by node type.** A `supervisor` routes
+ *    (`handoff` → `control_flow`) and completes the run (`set_status` →
+ *    `status`); an `approval` or `subgraph` node pauses for a human
+ *    (`request_human_input` → `control_flow`); an agent node with
+ *    `swarm_config` hands off to peers.
  *
- * 2. **Executor-owned result keys implied by node config.** The verifier
- *    ALWAYS writes `${result_key}` and `${result_key}_passed`; reflection
- *    always writes its envelope; map/voting/evolution always write their
- *    aggregate keys; a tool node writes `${id}_result`; a subgraph node
- *    writes the parent-side keys of its `output_mapping`. These writes are
- *    produced by the executor, not authored by an LLM — the config that
- *    names them is the grant.
+ * 2. **Executor-owned result keys implied by node config.** A verifier
+ *    writes `${result_key}` and `${result_key}_passed`; reflection writes
+ *    its envelope; map/voting/evolution write their aggregate keys; a tool
+ *    node writes `${id}_result`; a subgraph node writes the parent-side keys
+ *    of its `output_mapping`. The executor produces these, so the config
+ *    naming them is the grant.
  *
- * `write_keys` remains the authority for what the node's AGENT may write
- * (its LLM-authored output). Redundantly declaring an implied key is
- * harmless.
+ * `write_keys` remains the authority for what the node's agent may write.
+ * Redundantly declaring an implied key is harmless.
  *
- * Lives in `validation/` so both the load-time validator (dangling-read
- * analysis) and the runner (dispatch-time permission check) can share it
- * without a `validation → runner` dependency.
+ * Shared by the load-time validator and the runner's dispatch-time
+ * permission check.
  *
  * @module security/effective-permissions
  */

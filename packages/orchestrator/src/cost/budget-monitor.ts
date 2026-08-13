@@ -4,19 +4,15 @@
  * Tracks cost accrual and fires threshold alerts as a workflow approaches
  * its `budget_usd` ceiling. Throws {@link BudgetExceededError} at 100%.
  *
- * ## Contract: push-via-callback (do not return arrays)
+ * Events are pushed through callbacks (`dispatch`, `push`, `emit`) rather
+ * than returned as an array: the runner drains its pending-events queue
+ * between `checkThresholds` and the following `action:applied` yield, so a
+ * returned array could be drained out of order and break the
+ * streaming-order invariant.
  *
- * The runner drains its pending-events queue *between* `checkThresholds` and
- * the subsequent `action:applied` yield. Returning events as an array would
- * let a future caller drain them out of order and silently break the
- * streaming-order invariant tests assert. Instead the monitor takes callbacks
- * (`dispatch`, `push`, `emit`) and the runner stays in control of when each
- * fires.
- *
- * Idempotency of threshold emissions is enforced by the
- * `_fire_cost_threshold` internal action — the monitor calls `dispatch()`
- * which mutates `state._cost_alert_thresholds_fired`. Subsequent calls skip
- * thresholds already in that array.
+ * Threshold emissions are idempotent through the `_fire_cost_threshold`
+ * internal action, which records each fired threshold in
+ * `state._cost_alert_thresholds_fired`; later calls skip those.
  *
  * @module cost/budget-monitor
  */

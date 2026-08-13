@@ -1,20 +1,19 @@
 /**
  * Security Policy Port
  *
- * A taint-aware enforcement hook consulted by the {@link GraphRunner} BEFORE a
- * node executes. The engine owns the enforcement MECHANISM (block the run, or
- * pause it for human approval); the host application owns the POLICY (what
- * counts as a "sensitive" node, and what to do when untrusted data reaches it).
+ * A taint-aware enforcement hook consulted by the {@link GraphRunner} before
+ * a node executes. The engine owns the mechanism (block the run, or pause it
+ * for human approval); the host owns the policy: what counts as a sensitive
+ * node, and what to do when untrusted data reaches one.
  *
- * This is the same injection pattern as the other runner ports
- * (`factSanitizer`, `rateLimiter`, `memoryRetriever`): the engine defines the
- * type, the caller provides the implementation. It lets the platform enforce a
- * "untrusted data + sensitive action ⇒ approval/deny" rule on EVERY graph
- * automatically — the graph author does not have to wire an approval node.
+ * Like the other runner ports, the engine defines the type and the caller
+ * provides the implementation. This lets a platform apply an "untrusted data
+ * plus sensitive action means approval or deny" rule to every graph, without
+ * the graph author wiring an approval node.
  *
- * Enforcement is PRE-execution by design: an agent's tool calls run inside its
- * own LLM loop, so the only point at which the runner can *prevent* untrusted
- * data from reaching an egress/secret tool is before the node runs at all.
+ * Enforcement is pre-execution: an agent's tool calls run inside its own LLM
+ * loop, so the last point at which the runner can prevent untrusted data from
+ * reaching an egress or secret tool is before the node runs.
  *
  * @module security/security-policy
  */

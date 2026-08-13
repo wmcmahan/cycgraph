@@ -5,7 +5,7 @@
  * All untrusted content (goal text, agent output) is sanitized before
  * embedding to prevent prompt injection.
  *
- * @module evaluator-executor/prompts
+ * @module agents/executors/evaluator/prompts
  */
 
 import type { AgentConfig } from '../../types.js';

@@ -240,9 +240,9 @@ function partitionStages(stages: CompressionStage[]): {
  * segment's per-segment output changes, while per-segment stages
  * cache individually.
  *
- * NOTE: stages run in two phases — all per-segment stages, then all
- * cross-segment stages (see module docs). Configs that interleave scopes
- * diverge from the batch pipeline and trigger a construction-time warning.
+ * Stages run in two passes: all per-segment stages, then all cross-segment
+ * stages. A config that interleaves the two scopes diverges from the batch
+ * pipeline and triggers a construction-time warning.
  *
  * @example
  * ```ts
