@@ -1,56 +1,30 @@
 /**
- * Evolution with Deterministic Fitness — Runnable Example (authoring facade)
+ * Evolution with deterministic fitness — evolve a regex matching HTTP 4xx
+ * except 401, 403, and 404. Scoring runs the candidate against fixed test
+ * cases, so there is no judge variance and no scoring tokens.
  *
- * The same `evolution` node, but the LLM-as-judge is replaced by a
- * deterministic `fitnessFunction` that scores each candidate by running
- * the produced regex against a fixed set of test cases. Score is
- * computed mechanically — no judge variance, no token cost for scoring.
- *
- * Task: evolve a regex that **matches** HTTP 4xx status codes (`400`–`499`)
- * **except** the three most-common ones — `401`, `403`, `404` — and
- * **rejects** everything else.
- *
- * The exclusion list is what makes this hard. The naive first attempt
- * `^4\d{2}$` catches every 4xx but lets `401`, `403`, `404` through.
- * Refining the pattern requires either negative lookahead (e.g.
- * `^4(?!01|03|04)\d{2}$`) or explicit enumeration — neither is the
- * model's first instinct. Generation 0 typically lands around 0.86,
- * and a generation or two of parent-context feedback closes the gap.
- *
- * Uses Haiku 4.5 as the candidate model to keep cost low. Sonnet works
- * too — with Sonnet the climb tends to be one generation shorter.
- *
- * Demonstrates: evolution node, `fitnessFunction` callback, deterministic
- * scoring on tasks with verifiable answers, visibly clean fitness climb.
- *
- * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
- * through an explicit GraphRunner because the deterministic scorer is a JS
- * function — it rides on GraphRunnerOptions, not the serializable graph — and
- * the example inspects the final WorkflowState (status, tokens, cost).
- *
- * Usage:
- *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/evolution-regex/evolution-regex.ts
+ * Run:  CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/evolution-regex/evolution-regex.ts
+ * See:  ./README.md for why the exclusion list makes this hard.
  */
 
 import {
   agent,
-  node,
   graph,
   state,
   agentsForGraph,
   GraphRunner,
   InMemoryAgentRegistry,
   createLogger,
+  evolution,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 import type { FitnessFunction } from '@cycgraph/orchestrator';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error(
-    'Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/evolution-regex/evolution-regex.ts',
-  );
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -141,10 +115,8 @@ const fitnessFunction: FitnessFunction = async (output) => {
 const candidate = agent({
   name: 'Regex Generator',
   description: 'Generates regex candidates that match HTTP 4xx codes except 401, 403, 404',
-  // Haiku is intentionally chosen over Sonnet/Opus — it keeps the cost
-  // low and produces recognisable first-pass attempts. Strong models work
-  // too; with them the climb is just shorter.
-  model: 'claude-haiku-4-5-20251001',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are an expert at writing regular expressions in JavaScript.',
     'Output ONLY a single regex pattern as plain text — no backticks, no explanation, no labels.',
@@ -163,36 +135,30 @@ const candidate = agent({
 // `candidateAgentId` accepts the agent() value directly — graph() deep-resolves
 // it to the same registry id the node's `agent` field mints, so it registers once.
 
-const evolve = node({
+const evolve = evolution(candidate, {
   id: 'evolve',
-  type: 'evolution',
-  agent: candidate,
   reads: ['*'],
-  writes: '*',
-  evolutionConfig: {
-    candidateAgentId: candidate,
-    // evaluatorAgentId intentionally omitted — fitnessFunction handles scoring.
-    populationSize: 4,
-    maxGenerations: 4,
-    eliteCount: 1,
-    // Threshold deliberately set above 1.0 so the loop never exits
-    // early. Modern LLMs (Haiku, Sonnet, Opus) one-shot the canonical
-    // regex even for unusual exclusion patterns, which would terminate
-    // the loop on generation 0 and prove nothing about the engine
-    // actually iterating. By running all max_generations we get
-    // visible proof that parent context is propagated, temperature
-    // anneals, and the parallel fan-out fires every generation.
-    fitnessThreshold: 1.5,
-    // Stagnation also disabled so identical-fitness generations
-    // don't trigger early exit.
-    stagnationGenerations: 99,
-    selectionStrategy: 'rank',
-    initialTemperature: 1.0,
-    finalTemperature: 0.3,
-    maxConcurrency: 4,
-    errorStrategy: 'best_effort',
-    taskTimeoutMs: 30_000,
-  },
+  // evaluatorAgentId intentionally omitted — fitnessFunction handles scoring.
+  populationSize: 4,
+  maxGenerations: 4,
+  eliteCount: 1,
+  // Threshold deliberately set above 1.0 so the loop never exits
+  // early. Modern LLMs (Haiku, Sonnet, Opus) one-shot the canonical
+  // regex even for unusual exclusion patterns, which would terminate
+  // the loop on generation 0 and prove nothing about the engine
+  // actually iterating. By running all max_generations we get
+  // visible proof that parent context is propagated, temperature
+  // anneals, and the parallel fan-out fires every generation.
+  fitnessThreshold: 1.5,
+  // Stagnation also disabled so identical-fitness generations
+  // don't trigger early exit.
+  stagnationGenerations: 99,
+  selection: 'rank',
+  initialTemperature: 1.0,
+  finalTemperature: 0.3,
+  concurrency: 4,
+  onError: 'best_effort',
+  taskTimeoutMs: 30_000,
   failurePolicy: { maxRetries: 2, maxBackoffMs: 30_000 },
 });
 
@@ -235,7 +201,7 @@ async function main() {
     maxExecutionTimeMs: 180_000,
   });
 
-  const runner = new GraphRunner(workflow, initialState, { registry, fitnessFunction });
+  const runner = new GraphRunner(workflow, initialState, { registry, fitnessFunction, providers: exampleProviders() });
 
   try {
     const finalState = await runner.run();

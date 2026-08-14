@@ -1,37 +1,19 @@
 /**
- * Graph Interop: publish — Runnable Example (1 of 2)
+ * Graph Interop: publish (1 of 2) — lift a composed graph into a portable
+ * artifact. Implementations stay behind; the manifest names what a host must
+ * supply.
  *
- * The publisher's half. A graph is authored with a declared interface, then
- * lifted into a `bundle()`: a self-contained artifact carrying the graph,
- * its agent definitions, its transitive child-graph closure, and a manifest
- * that states the contract in both directions.
- *
- *   - `manifest.inputs` / `manifest.outputs` — what callers must supply and
- *     what they get back, as JSON Schema.
- *   - `manifest.requires` — what the HOST must provide: models, MCP servers,
- *     and custom tools by name.
- *
- * Implementations never travel. The `fetch_market_data` tool below is real
- * code the publisher uses to author and test the block, but only its name
- * and argument schema go into the artifact. Whoever runs the bundle binds
- * their own data source to that name.
- *
- * `JSON.stringify(bundle)` is the complete distribution artifact — the thing
- * you publish to npm, drop in an object store, or serve from a registry.
- *
- * Usage:
- *   npx tsx examples/graph-interop/publish.ts
- *
- * No API key needed: publishing does not run the graph.
+ * Run:  npx tsx examples/graph-interop/publish.ts
+ * See:  ./README.md for what travels and what does not.
  */
 
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { agent, node, graph, tool, bundle } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER } from '../_model.js';
 
 const BUNDLE_PATH = join(import.meta.dirname, 'market-analysis.bundle.json');
-const MODEL = 'claude-sonnet-4-6';
 
 // ─── The publisher's own tool implementation ─────────────────────────────
 // A development stub. It stays behind: the bundle records the NAME and the
@@ -62,6 +44,7 @@ const analyze = node({
   id: 'analyze',
   agent: agent({
     model: MODEL,
+    provider: PROVIDER,
     instructions:
       'You are a market analyst. Call fetch_market_data for the sector under study, then write a ' +
       'short analysis covering the demand trend, the price trend, and the single biggest risk.',

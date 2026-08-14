@@ -40,6 +40,31 @@ export type WidenRefs<T> = T extends (infer U)[]
       }
     : T;
 
+/**
+ * Fields every node accepts whatever its type: where it sits and how it
+ * behaves under failure. Each node-type spec extends this, so resilience and
+ * cost controls are available from every authoring entry point rather than
+ * only from `node()`.
+ *
+ * `writes` is deliberately absent. Node types whose executor owns its result
+ * keys imply those grants, and their specs do not accept a declaration that
+ * could disagree with what the executor writes.
+ */
+export interface NodeCommon {
+  /** Node id in the topology. */
+  id: string;
+  /** Memory keys this node may read. Omitted → least privilege. */
+  reads?: string[];
+  /** Retry and backoff behaviour. */
+  failurePolicy?: NodeConfig['failurePolicy'];
+  /** Per-node token and cost caps. Breaching one fails the node without retry. */
+  budget?: NodeConfig['budget'];
+  /** Whether this node pushes a compensating action for saga rollback. */
+  requiresCompensation?: boolean;
+  /** Arbitrary metadata for tooling. */
+  metadata?: Record<string, unknown>;
+}
+
 /** Authoring spec for a node: placement + grants + agent reference. */
 export type NodeSpec = Omit<WidenRefs<NodeConfig>, 'type' | 'readKeys' | 'writeKeys'> & {
   /** Node type. Defaults to `'agent'` when an `agent` is given. */

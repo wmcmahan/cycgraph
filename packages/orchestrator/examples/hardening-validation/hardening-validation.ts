@@ -15,15 +15,24 @@
  *   neither, so this workflow could not produce the canned answer.
  *
  * Usage (local models, no API key — requires `ollama serve` + a pulled model):
- *   npx tsx examples/hardening-validation.ts
- *   OLLAMA_MODEL=qwen2.5:7b npx tsx examples/hardening-validation.ts
+ *   npx tsx examples/hardening-validation/hardening-validation.ts
+ *   OLLAMA_MODEL=qwen2.5:7b npx tsx examples/hardening-validation/hardening-validation.ts
  */
 
 import { z } from 'zod';
 import {
-  agent, node, graph, run, tool,
-  GraphRunner, createGraph, createWorkflowState, InMemoryAgentRegistry,
-  createProviderRegistry, registerOllamaProvider,
+  agent,
+  node,
+  graph,
+  run,
+  tool,
+  GraphRunner,
+  createGraph,
+  createWorkflowState,
+  InMemoryAgentRegistry,
+  createProviderRegistry,
+  registerOllamaProvider,
+  supervisor,
 } from '@cycgraph/orchestrator';
 import type { SecurityPolicy } from '@cycgraph/orchestrator';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -78,18 +87,16 @@ const writer = agent({
 
 const research = node({ id: 'research', agent: researcher, reads: ['goal'], writes: 'notes' });
 const write = node({ id: 'write', agent: writer, reads: ['goal', 'notes'], writes: 'draft' });
-const supervisor = node({
-  id: 'supervisor',
-  type: 'supervisor',
-  agent: agent({
+const lead = supervisor(
+  agent({
     model: MODEL,
     provider: 'ollama',
     instructions:
       'You coordinate a research-then-write pipeline. Delegate to research first, then write, ' +
       'then finish once a complete draft exists in memory.',
   }),
-  supervisorConfig: { managedNodes: [research, write], maxIterations: 6 },
-});
+  { id: 'supervisor', manages: [research, write], maxIterations: 6 },
+);
 
 const policyObservations: Array<{ nodeId: string; taintedKeys: string[] }> = [];
 const securityPolicy: SecurityPolicy = (ctx) => {
@@ -99,14 +106,14 @@ const securityPolicy: SecurityPolicy = (ctx) => {
 
 const pipeline = graph({
   name: 'hardening-validation-supervisor',
-  nodes: [supervisor, research, write],
+  nodes: [lead, research, write],
   edges: [
-    { from: supervisor, to: research },
-    { from: supervisor, to: write },
-    { from: research, to: supervisor },
-    { from: write, to: supervisor },
+    { from: lead, to: research },
+    { from: lead, to: write },
+    { from: research, to: lead },
+    { from: write, to: lead },
   ],
-  startNode: supervisor,
+  startNode: lead,
   endNodes: [],
 });
 

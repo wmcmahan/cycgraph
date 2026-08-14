@@ -9,12 +9,16 @@
  * @module evals/linear-completion
  */
 
-import { graph, node, type EvalSuite } from '@cycgraph/orchestrator';
+import {
+  graph,
+  type EvalSuite,
+  runTool,
+} from '@cycgraph/orchestrator';
 
 const retryOnce = { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
 
-const fetchData = node({ id: 'fetch', type: 'tool', toolId: 'mock_fetch', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
-const transform = node({ id: 'transform', type: 'tool', toolId: 'mock_transform', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
+const fetchData = runTool('mock_fetch', { id: 'fetch', reads: ['*'], failurePolicy: retryOnce });
+const transform = runTool('mock_transform', { id: 'transform', reads: ['*'], failurePolicy: retryOnce });
 
 const linearGraph = graph({
   name: 'Linear Completion Eval',

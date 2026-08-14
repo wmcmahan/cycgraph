@@ -10,20 +10,25 @@
  * @module evals/supervisor-routing
  */
 
-import { graph, node, type EvalSuite } from '@cycgraph/orchestrator';
+import {
+  graph,
+  type EvalSuite,
+  router,
+  runTool,
+} from '@cycgraph/orchestrator';
 
 const retryOnce = { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
 
-const router = node({ id: 'router', type: 'router', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
-const worker = node({ id: 'worker', type: 'tool', toolId: 'mock_worker', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
-const done = node({ id: 'done', type: 'tool', toolId: 'mock_done', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
+const dispatch = router({ id: 'router', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
+const worker = runTool('mock_worker', { id: 'worker', reads: ['*'], failurePolicy: retryOnce });
+const done = runTool('mock_done', { id: 'done', reads: ['*'], failurePolicy: retryOnce });
 
 const supervisorGraph = graph({
   name: 'Supervisor Routing Eval',
   description: 'Router dispatches to tool node then completes',
-  nodes: [router, worker, done],
+  nodes: [dispatch, worker, done],
   edges: [
-    { from: router, to: worker },
+    { from: dispatch, to: worker },
     { from: worker, to: done },
   ],
 });

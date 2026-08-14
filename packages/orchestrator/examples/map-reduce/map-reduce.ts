@@ -28,13 +28,16 @@ import {
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
   createLogger,
+  mapReduce,
+  synthesizer,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/map-reduce/map-reduce.ts');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -47,7 +50,8 @@ const logger = createLogger('example');
 const splitterAgent = agent({
   name: 'Splitter Agent',
   description: 'Decomposes a broad topic into focused sub-topics for parallel research',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a topic decomposition specialist.',
     'Given a research goal, break it down into 4-5 focused sub-topics that together cover the full scope.',
@@ -63,7 +67,8 @@ const splitterAgent = agent({
 const researcherAgent = agent({
   name: 'Researcher Agent',
   description: 'Investigates a specific sub-topic and produces research notes',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a research specialist focused on a single sub-topic.',
     'Your assigned sub-topic is provided as map_item in the Task Context section of your prompt. The broader goal is in the goal field.',
@@ -77,7 +82,8 @@ const researcherAgent = agent({
 const synthesizerAgent = agent({
   name: 'Synthesizer Agent',
   description: 'Merges parallel research results into a unified summary',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a synthesis specialist.',
     'You receive parallel research results in mapper_results (an array of objects with "updates" containing research notes).',
@@ -98,17 +104,13 @@ const splitter = node({
   failurePolicy: { maxRetries: 2 },
 });
 
-const mapper = node({
+// The four result keys are implied by the node type, so no writes here.
+const mapper = mapReduce('researcher', {
   id: 'mapper',
-  type: 'map',
-  mapReduceConfig: {
-    workerNodeId: 'researcher',
-    itemsPath: '$.memory.topics',
-    maxConcurrency: 5,
-    errorStrategy: 'best_effort',
-  },
+  items: '$.memory.topics',
+  concurrency: 5,
+  onError: 'best_effort',
   reads: ['*'],
-  writes: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
   failurePolicy: { maxRetries: 1 },
 });
 
@@ -121,9 +123,10 @@ const researcher = node({
   failurePolicy: { maxRetries: 2 },
 });
 
-const synthesizer = node({
+// An agent-backed synthesizer authors its output, so `writes` is required:
+// the implied `<id>_synthesis` key only applies to the agentless merge.
+const combine = synthesizer({
   id: 'synthesizer',
-  type: 'synthesizer',
   agent: synthesizerAgent,
   reads: ['goal', 'mapper_results', 'mapper_count'],
   writes: ['summary'],
@@ -135,13 +138,13 @@ const synthesizer = node({
 const workflow = graph({
   name: 'Fan-Out Map-Reduce',
   description: 'Parallel research with LLM-powered synthesis: split → map → synthesize',
-  nodes: [splitter, mapper, researcher, synthesizer],
+  nodes: [splitter, mapper, researcher, combine],
   edges: [
     { from: splitter, to: mapper },
-    { from: mapper, to: synthesizer },
+    { from: mapper, to: combine },
   ],
   startNode: splitter,
-  endNodes: [synthesizer],
+  endNodes: [combine],
 });
 
 // ─── 3. Set up registry, state, persistence, and runner ──────────────────
@@ -159,6 +162,7 @@ const initialState = state({
 const persistence = new InMemoryPersistenceProvider();
 
 const runner = new GraphRunner(workflow, initialState, {
+  providers: exampleProviders(),
   registry,
   persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });

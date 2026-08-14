@@ -1,27 +1,9 @@
 /**
- * Postgres Persistence — Runnable Example (authoring facade)
+ * Postgres Persistence — durable state, event log, and usage tracking.
  *
- * Demonstrates how to use the `@cycgraph/orchestrator-postgres` adapter for
- * durable state persistence, event sourcing, and usage tracking with a
- * real PostgreSQL database.
- *
- * Demonstrates: DrizzlePersistenceProvider, DrizzleEventLogWriter,
- * DrizzleUsageRecorder, DrizzleAgentRegistry, state checkpointing,
- * event replay, and cost/token tracking.
- *
- * The graph is authored with the facade (`node` / `graph`), then run through
- * an explicit GraphRunner because the example inspects the final WorkflowState
- * and verifies persistence. Agents are registered in the Postgres-backed
- * DrizzleAgentRegistry directly, so nodes reference them by their stored id —
- * that idempotent, restart-surviving registration is the feature on show.
- *
- * Prerequisites:
- *   docker-compose up -d   # Start Postgres on localhost:5433
- *   npm run db:migrate      # Apply schema migrations
- *
- * Usage:
- *   DATABASE_URL=postgres://... ANTHROPIC_API_KEY=sk-ant-... \
- *     npx tsx examples/postgres-persistence/postgres-persistence.ts
+ * Run:  docker-compose up -d && DATABASE_URL=... ANTHROPIC_API_KEY=... \
+ *         npx tsx examples/postgres-persistence/postgres-persistence.ts
+ * See:  ./README.md for the tables written and how replay differs from resume.
  */
 
 import {
@@ -31,6 +13,7 @@ import {
   GraphRunner,
   createLogger,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 import {
   getDb,
@@ -50,8 +33,9 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -85,7 +69,8 @@ async function ensureAgentsRegistered() {
   const RESEARCHER_ID = await agentRegistry.register({
     name: 'PG Research Agent',
     description: 'Researches topics (Postgres-persisted)',
-    model: 'claude-sonnet-4-6',
+    model: MODEL,
+    provider: PROVIDER,
     provider: 'anthropic',
     systemPrompt: [
       'You are a research specialist.',
@@ -103,7 +88,8 @@ async function ensureAgentsRegistered() {
   const WRITER_ID = await agentRegistry.register({
     name: 'PG Writer Agent',
     description: 'Writes articles from research (Postgres-persisted)',
-    model: 'claude-sonnet-4-6',
+    model: MODEL,
+    provider: PROVIDER,
     provider: 'anthropic',
     systemPrompt: [
       'You are a professional writer.',
@@ -171,6 +157,7 @@ async function main() {
 
   // Create runner with Postgres persistence + event log
   const runner = new GraphRunner(workflow, initialState, {
+  providers: exampleProviders(),
     // Scope the Postgres-backed agent registry to this run
     registry: agentRegistry,
     // State is persisted to Postgres after every step (enables crash recovery)

@@ -1,26 +1,8 @@
 /**
- * Workflow Observer — Dogfood Example (authoring facade)
+ * Workflow Observer — one workflow triages another's event log, read-only.
  *
- * Demonstrates a "triage observer" pattern: a completely separate workflow
- * that reads another workflow's event log and state, then produces a
- * structured triage report — without modifying the target workflow.
- *
- * Both graphs are authored with the facade (`agent` / `node` / `graph`). They
- * run through an explicit GraphRunner / WorkflowWorker: the observer needs the
- * shared event log and middleware, and the target runs on the durable queue.
- *
- *   1. A target workflow runs (simple supervisor → researcher → writer)
- *   2. After the target completes, the observer workflow analyzes its events
- *   3. Specialist agents triage: token burn, stall detection, error classification
- *   4. A report writer synthesizes findings into a structured triage report
- *
- * Patterns: Supervisor, Read-Only Observation, Middleware Data Injection
- *
- * Prerequisites:
- *   - ANTHROPIC_API_KEY for Claude Sonnet agents
- *
- * Usage:
- *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/workflow-observer/run.ts
+ * Run:  ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/workflow-observer/run.ts
+ * See:  ./README.md for the two graphs and why this needs a capable model.
  */
 
 import {
@@ -37,13 +19,15 @@ import {
   state,
   createLogger,
   type WorkflowState,
+  supervisor,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 // ─── 0. Fail fast if no API key ─────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/workflow-observer/run.ts');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -65,7 +49,8 @@ const queue = new InMemoryWorkflowQueue();
 const targetSupervisorAgent = agent({
   name: 'Target Supervisor',
   description: 'Routes between researcher and writer',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You supervise a research-and-write workflow with two team members:',
     '  - "researcher": Produces research notes on the given topic.',
@@ -83,7 +68,8 @@ const targetSupervisorAgent = agent({
 const researcherAgent = agent({
   name: 'Researcher',
   description: 'Produces research notes on a topic using existing knowledge',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a research specialist. Produce detailed research notes on the topic in the goal.',
     'Cover key concepts, recent developments, and practical applications.',
@@ -95,7 +81,8 @@ const researcherAgent = agent({
 const writerAgent = agent({
   name: 'Writer',
   description: 'Writes a polished summary from research notes',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a writer. Read the research_notes and produce a concise, polished summary.',
   ].join('\n'),
@@ -108,7 +95,8 @@ const writerAgent = agent({
 const observerSupervisorAgent = agent({
   name: 'Observer Supervisor',
   description: 'Routes between triage specialist agents',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are an observer supervisor triaging a completed workflow run.',
     'You have three specialists and a report writer:',
@@ -127,7 +115,8 @@ const observerSupervisorAgent = agent({
 const tokenAnalystAgent = agent({
   name: 'Token Analyst',
   description: 'Analyzes token usage patterns for waste or anomalies',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You analyze token usage from a completed workflow run.',
     'You receive target_events (event log) and target_snapshot (state summary) in memory.',
@@ -148,7 +137,8 @@ const tokenAnalystAgent = agent({
 const stallDetectorAgent = agent({
   name: 'Stall Detector',
   description: 'Detects routing loops, stalls, or anomalous patterns',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You detect stalls and routing anomalies in a completed workflow run.',
     'You receive target_events and target_snapshot in memory.',
@@ -169,7 +159,8 @@ const stallDetectorAgent = agent({
 const errorClassifierAgent = agent({
   name: 'Error Classifier',
   description: 'Classifies errors from the workflow run',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You classify errors from a completed workflow run.',
     'You receive target_events and target_snapshot in memory.',
@@ -192,7 +183,8 @@ const errorClassifierAgent = agent({
 const reportWriterAgent = agent({
   name: 'Triage Report Writer',
   description: 'Synthesizes triage findings into a structured report',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You synthesize triage findings into a final structured report.',
     'You receive token_analysis, stall_analysis, and error_analysis in memory.',
@@ -229,14 +221,10 @@ const writer = node({
   failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
 });
 
-const targetSupervisor = node({
+const targetSupervisor = supervisor(targetSupervisorAgent, {
   id: 'supervisor',
-  type: 'supervisor',
-  agent: targetSupervisorAgent,
-  supervisorConfig: {
-    managedNodes: [researcher, writer],
-    maxIterations: 10,
-  },
+  manages: [researcher, writer],
+  maxIterations: 10,
   failurePolicy: { maxRetries: 1, maxBackoffMs: 30000 },
 });
 
@@ -288,14 +276,10 @@ const reportWriter = node({
   failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
 });
 
-const observerSupervisor = node({
+const observerSupervisor = supervisor(observerSupervisorAgent, {
   id: 'observer_supervisor',
-  type: 'supervisor',
-  agent: observerSupervisorAgent,
-  supervisorConfig: {
-    managedNodes: [tokenAnalyst, stallDetector, errorClassifier, reportWriter],
-    maxIterations: 8,
-  },
+  manages: [tokenAnalyst, stallDetector, errorClassifier, reportWriter],
+  maxIterations: 8,
   failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
 });
 
@@ -403,6 +387,7 @@ async function runObserverWorkflow(targetRunId: string): Promise<WorkflowState> 
   // it reads from the shared eventLog and persistence but never writes
   // to the target's state.
   const runner = new GraphRunner(observerGraph, observerState, {
+  providers: exampleProviders(),
     registry: agentRegistry,
     persistState: async (s) => { await persistence.saveWorkflowSnapshot(s); },
     eventLog,

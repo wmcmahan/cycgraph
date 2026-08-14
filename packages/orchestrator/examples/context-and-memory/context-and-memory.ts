@@ -34,6 +34,7 @@ import {
   InMemoryAgentRegistry,
   createLogger,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 import type { ContextCompressor } from '@cycgraph/orchestrator';
 import type { MemoryRetriever } from '@cycgraph/orchestrator';
 
@@ -61,9 +62,9 @@ import type { PipelineState } from '@cycgraph/context-engine';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/context-and-memory/context-and-memory.ts');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -223,7 +224,8 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
 const researcher = agent({
   name: 'Research Agent',
   description: 'Gathers background information on a topic',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+    provider: PROVIDER,
   instructions: [
     'You are a research specialist.',
     'Given a goal, produce concise, factual research notes.',
@@ -237,7 +239,8 @@ const researcher = agent({
 const writer = agent({
   name: 'Writer Agent',
   description: 'Produces a polished draft from research notes and memory',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+    provider: PROVIDER,
   instructions: [
     'You are a professional writer.',
     'Using the provided research notes and any relevant memory context, produce a clear and engaging summary.',
@@ -353,6 +356,7 @@ async function main() {
   logger.info('  memoryRetriever: hierarchical top-down retrieval\n');
 
   const runner = new GraphRunner(workflow, initialState, {
+  providers: exampleProviders(),
     registry,
     contextCompressor,
     memoryRetriever,

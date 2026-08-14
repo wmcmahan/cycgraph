@@ -6,12 +6,14 @@
  */
 
 import { run, validateGraph, SubgraphInterfaceError } from '@cycgraph/orchestrator';
+import { exampleProviders, missingCredentials } from '../_model.js';
 import { briefingGraph } from './briefingGraph';
 import { contextCompressor } from './context';
 import { memoryRetriever, memoryWriter } from './memory';
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY is required');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -34,7 +36,7 @@ try {
       goal,
       memory: { research_topic: topic, research_depth: 'brief' },
     },
-    { runner: { memoryRetriever, memoryWriter, contextCompressor } },
+    { runner: { providers: exampleProviders(), memoryRetriever, memoryWriter, contextCompressor } },
   );
 
   console.log('\n── Executive Brief ──\n' + (executive_brief ?? '(none)'));

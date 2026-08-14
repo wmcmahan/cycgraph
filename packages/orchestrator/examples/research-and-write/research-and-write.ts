@@ -1,31 +1,28 @@
 /**
- * Research & Write — Runnable Example (authoring facade)
+ * Research & Write — the smallest useful graph: gather notes, then write.
  *
- * A 2-node linear workflow: a Researcher agent gathers notes, then a Writer
- * agent produces a polished draft. Authored with the facade vocabulary —
- * `agent` (a capability), `node` (a placement), `graph` (the compiler),
- * `run` (the executor) — which compiles to the exact same wire as the raw
- * graph API. For the explicit, fully-wired version (custom persistence,
- * event listeners, provider registries), see the other examples.
- *
- * Usage:
- *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/research-and-write/research-and-write.ts
+ * Run:  CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/research-and-write/research-and-write.ts
+ * See:  ./README.md
  */
 
 import { agent, node, graph, run } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY is required');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
 const researcher = agent({
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: 'You are a research specialist. Produce concise, factual research notes as bullet points.',
 });
 
 const writer = agent({
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: 'You are a professional writer. Turn the research notes into a clear summary under 300 words.',
 });
 
@@ -41,7 +38,7 @@ const workflow = graph({
 const { research_notes, draft } = await run(workflow, {
   goal: 'Explain how large language models work, including transformers, attention, and training data.',
   constraints: ['Keep the final draft under 300 words', 'Use plain language'],
-});
+}, { runner: { providers: exampleProviders() } });
 
 console.log('\n═══ Research Notes ═══\n' + (research_notes ?? '(none)'));
 console.log('\n═══ Final Draft ═══\n' + (draft ?? '(none)'));

@@ -6,7 +6,7 @@ This example shows the **deterministic-fitness path**: a `fitnessFunction` callb
 
 Result: a visibly clean fitness climb across generations, ending with a regex that classifies all 14 test cases correctly.
 
-## What it does
+## Graph
 
 Evolves a regex that matches HTTP 4xx status codes (`400`–`499`) **except** the three most common — `401`, `403`, `404` — and rejects everything else.
 
@@ -40,11 +40,11 @@ If your downstream use case involves:
 
 Fitness = `correctly classified / total` (23 test cases).
 
-### Model choice
+### Model
 
 The example uses `claude-haiku-4-5-20251001` to keep cost low. Stronger models work the same way.
 
-## Run it
+## Run
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/evolution-regex/evolution-regex.ts

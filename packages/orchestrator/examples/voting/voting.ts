@@ -1,53 +1,39 @@
 /**
- * Voting / Consensus — Runnable Example (authoring facade)
+ * Voting — three specialists vote in parallel, a strategy aggregates.
  *
- * Multiple agents independently vote on a decision. A strategy aggregates
- * the results (majority vote, weighted vote, or LLM judge).
- *
- * This example uses 3 voter agents with different expertise areas to
- * evaluate a technical proposal, then aggregates via majority vote.
- *
- * Demonstrates: voting node, parallel agent execution, majority vote
- * aggregation, quorum enforcement, and per-task timeout.
- *
- * Authored with the facade vocabulary (`agent` / `node` / `graph`). The
- * voting node takes the agent() values directly on `voterAgentIds` — graph()
- * deep-resolves them to registry ids. It runs through an explicit GraphRunner
- * because the example inspects the final WorkflowState (status, token/cost
- * totals), which the one-call `run()` helper does not expose.
- *
- * Usage:
- *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/voting/voting.ts
+ * Run:  CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/voting/voting.ts
+ * See:  ./README.md for quorum behaviour and the other strategies.
  */
 
 import {
   agent,
-  node,
   graph,
   state,
   agentsForGraph,
   GraphRunner,
   InMemoryAgentRegistry,
   createLogger,
+  voting,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/voting/voting.ts');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
 const logger = createLogger('example.voting');
 
 // ─── 1. Define voter agents ──────────────────────────────────────────────
-// Each voter has a different perspective/expertise to provide diverse opinions.
 
 const securityVoter = agent({
   name: 'Security Reviewer',
   description: 'Reviews proposals from a security perspective',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a security expert reviewing a technical proposal.',
     'Evaluate the proposal for security implications: authentication, authorization,',
@@ -61,7 +47,8 @@ const securityVoter = agent({
 const performanceVoter = agent({
   name: 'Performance Reviewer',
   description: 'Reviews proposals from a performance perspective',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a performance engineer reviewing a technical proposal.',
     'Evaluate for scalability, latency impact, resource usage, and efficiency.',
@@ -74,7 +61,8 @@ const performanceVoter = agent({
 const architectureVoter = agent({
   name: 'Architecture Reviewer',
   description: 'Reviews proposals from an architecture perspective',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a software architect reviewing a technical proposal.',
     'Evaluate for design patterns, maintainability, extensibility, and technical debt.',
@@ -85,21 +73,15 @@ const architectureVoter = agent({
 });
 
 // ─── 2. Define the graph ────────────────────────────────────────────────
-// A single voting node handles parallel execution and aggregation internally.
-// The agent() voters sit directly on voterAgentIds; graph() resolves them.
 
-const reviewVote = node({
+// `<id>_consensus` and `<id>_votes` are implied grants, so no writes here.
+const reviewVote = voting([securityVoter, performanceVoter, architectureVoter], {
   id: 'review-vote',
-  type: 'voting',
+  strategy: 'majority_vote',
+  voteKey: 'vote',
+  quorum: 2,             // At least 2 of 3 voters must respond
+  taskTimeoutMs: 30_000, // Per-voter timeout
   reads: ['*'],
-  writes: ['*'],
-  votingConfig: {
-    voterAgentIds: [securityVoter, performanceVoter, architectureVoter],
-    strategy: 'majority_vote',
-    voteKey: 'vote',
-    quorum: 2,            // At least 2 of 3 voters must respond
-    taskTimeoutMs: 30_000, // Per-voter timeout
-  },
   failurePolicy: { maxRetries: 2, maxBackoffMs: 30000 },
 });
 
@@ -136,7 +118,7 @@ async function main() {
     maxExecutionTimeMs: 120_000,
   });
 
-  const runner = new GraphRunner(workflow, initialState, { registry });
+  const runner = new GraphRunner(workflow, initialState, { registry, providers: exampleProviders() });
 
   try {
     const finalState = await runner.run();
@@ -146,7 +128,7 @@ async function main() {
 
     // Voting node outputs are stored with the node ID prefix
     const votes = finalState.memory['review-vote_votes'] as Array<{ agent_id: string; vote: unknown }> | undefined;
-    const result = finalState.memory['review-vote_result'];
+    const result = finalState.memory['review-vote_consensus'];
 
     if (votes) {
       console.log('\nIndividual Votes:');
@@ -155,7 +137,7 @@ async function main() {
       }
     }
 
-    console.log('\nAggregated Result:');
+    console.log('\nConsensus:');
     console.log(JSON.stringify(result, null, 2));
 
     console.log(`\nTokens used: ${finalState.total_tokens_used}`);

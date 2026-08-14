@@ -28,12 +28,13 @@ import {
   InMemoryPersistenceProvider,
   createLogger,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/eval-loop/eval-loop.ts');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -46,7 +47,8 @@ const logger = createLogger('example');
 const writerAgent = agent({
   name: 'Writer Agent',
   description: 'Writes or refines a draft based on feedback',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a skilled writer.',
     'Your task: write a concise, engaging explanation of the given topic for a general audience.',
@@ -61,7 +63,8 @@ const writerAgent = agent({
 const evaluatorAgent = agent({
   name: 'Evaluator Agent',
   description: 'Scores a draft on quality and provides feedback',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a writing evaluator.',
     'Read the draft and score it on clarity, accuracy, engagement, and conciseness.',
@@ -80,7 +83,8 @@ const evaluatorAgent = agent({
 const publisherAgent = agent({
   name: 'Publisher Agent',
   description: 'Produces the final polished version',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a publishing editor.',
     'Take the approved draft and produce a final, polished version.',
@@ -163,6 +167,7 @@ const initialState = state({
 const persistence = new InMemoryPersistenceProvider();
 
 const runner = new GraphRunner(workflow, initialState, {
+  providers: exampleProviders(),
   registry,
   persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
