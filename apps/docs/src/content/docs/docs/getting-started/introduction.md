@@ -15,6 +15,35 @@ Most agent frameworks treat multi-agent execution as linear chains or unconstrai
 - **Durable Execution:** State and event logs are persisted step-by-step, guaranteeing crash recovery and time-travel debugging.
 - **Production Guardrails:** Enforce cost, token, iteration, and execution time limits at the engine level.
 
+## What you get
+
+- **Cyclic graph engine.** Loops, retries, conditional routing, nested subgraphs, parallel fan-out.
+- **Durable execution.** Every action is persisted, so runs survive crashes via event-sourced replay.
+- **Zero-trust security.** Per-node `reads` / `writes` grants, taint tracking on all external data, an allowlist for MCP servers and remote agents.
+- **Budget guardrails.** Token, cost, iteration, and wall-clock limits, all enforced at the engine.
+- **Production observability.** OpenTelemetry tracing, structured events, real-time streaming via async iterables.
+- **Pluggable persistence.** In-memory by default, with a Postgres adapter for production durability.
+
+## Built-in patterns
+
+Each is a first-class node type with a dedicated authoring helper, not a recipe you assemble yourself.
+
+| Pattern | What it does |
+|---------|--------------|
+| [Supervisor](/docs/patterns/supervisor/) | An LLM routes work to a team of nodes until the goal is met. |
+| [Swarm](/docs/patterns/swarm/) | Peer agents hand off to each other without a central router. |
+| [Evolution](/docs/patterns/evolution/) | Population-based selection: generate, score, breed, repeat. |
+| [Reflection](/docs/patterns/reflection/) | Distills a run's output into facts a later run retrieves. |
+| [Self-Annealing](/docs/patterns/self-annealing/) | Refines against a critic's score until it clears a threshold. |
+| [Voting / Consensus](/docs/patterns/voting/) | Several agents answer independently; a strategy aggregates. |
+| [Verifier](/docs/patterns/verifier/) | Gates output on an LLM judge, an expression, or a JSONPath assertion. |
+| [Map-Reduce](/docs/patterns/map-reduce/) | Fans out over a collection in parallel, then fans back in. |
+| [Human-in-the-Loop](/docs/patterns/human-in-the-loop/) | Pauses the run for a human decision and resumes where it stopped. |
+| [Subgraph](/docs/patterns/subgraph/) | Embeds a whole graph as one node, with isolated state. |
+| [A2A](/docs/patterns/a2a/) | Delegates a step to a remote agent over the Agent2Agent protocol. |
+
+Alongside these, `router`, `synthesizer`, and `tool` nodes are the primitives for composing your own.
+
 ## Core Concepts
 
 Every workflow in cycgraph is constructed from a few fundamental building blocks:
@@ -30,4 +59,4 @@ Every workflow in cycgraph is constructed from a few fundamental building blocks
 
 - [Your First Workflow](/docs/guides/first-workflow/): Install `@cycgraph/orchestrator` and run a workflow in under 5 minutes.
 - [Concepts Overview](/docs/concepts/overview/): Deep dive into the architecture and execution model.
-- [Workflow Patterns](/docs/patterns/supervisor/): Explore pre-built patterns like Supervisor, Swarm, Evolution, and Human-in-the-Loop.
+- [Workflow Patterns](/docs/patterns/supervisor/): Explore the built-in patterns above in depth.

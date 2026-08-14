@@ -8,10 +8,7 @@ import mdx from '@astrojs/mdx';
 import vercel from '@astrojs/vercel';
 import tailwindcss from '@tailwindcss/vite';
 
-// Docs moved from `/` to `/docs`. Build concrete per-page redirects from the
-// actual content files so each destination is a real Starlight route (Astro 6
-// rejects spread-param redirects that resolve via Starlight's catch-all).
-// The old root `/` is NOT redirected — it is now the marketing landing page.
+
 function buildDocsRedirects() {
   const docsRoot = fileURLToPath(new URL('./src/content/docs/docs', import.meta.url));
   const redirects = {};
@@ -25,12 +22,15 @@ function buildDocsRedirects() {
           .replace(/\\/g, '/')
           .replace(/\.mdx?$/, '')
           .replace(/\/index$/, '');
-        if (slug === 'index' || slug === '') continue; // `/docs/` itself, no old URL
+        if (slug === 'index' || slug === '') continue;
         redirects[`/${slug}`] = `/docs/${slug}/`;
       }
     }
   };
   walk(docsRoot);
+
+  redirects['/docs'] = '/docs/getting-started/introduction/';
+
   return redirects;
 }
 
@@ -42,7 +42,7 @@ export default defineConfig({
   redirects: buildDocsRedirects(),
 
   integrations: [
-    mermaid({ autoTheme: true }), // must come before starlight
+    mermaid({ autoTheme: true }),
     starlight({
       customCss: ['./src/styles/starlight-theme.css'],
       head: [
@@ -144,6 +144,7 @@ export default defineConfig({
             { label: 'Human-in-the-Loop', slug: 'docs/patterns/human-in-the-loop' },
             { label: 'Map-Reduce', slug: 'docs/patterns/map-reduce' },
             { label: 'Subgraph (Composition)', slug: 'docs/patterns/subgraph' },
+            { label: 'A2A', slug: 'docs/patterns/a2a' },
           ],
         },
         {
@@ -192,8 +193,5 @@ export default defineConfig({
     mdx(),
   ],
 
-  // Tailwind v4 via the Vite plugin (Astro 6 dropped @astrojs/tailwind).
-  // Preflight is scoped to marketing/blog pages by import location: the entry
-  // stylesheet is imported only in SiteLayout.astro, never in Starlight's CSS.
   vite: { plugins: [tailwindcss()] },
 });

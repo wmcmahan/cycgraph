@@ -9,18 +9,7 @@ This is the classic remedy for high-variance tasks such as classification, extra
 
 ## How it works
 
-```mermaid
-flowchart TB
-    Task(["Task"]) --> V1["Voter A"]
-    Task --> V2["Voter B"]
-    Task --> V3["Voter C"]
-    V1 --> Agg{"Aggregate<br/>strategy"}
-    V2 --> Agg
-    V3 --> Agg
-    Agg --> Consensus(["Consensus"])
-```
-
-1. **Fan out**: every agent in `voterAgentIds` runs the task in parallel, each writing its answer to `voteKey`.
+1. **Fan out**: every agent passed to `voting()` runs the task in parallel, each writing its answer to `voteKey`.
 2. **Collect**: the node gathers each voter's payload (votes are compared by a canonical, order-independent serialization, so structurally-equal answers count as equal).
 3. **Aggregate**: the chosen `strategy` reduces the votes to a single consensus.
 4. **Write**: the result is written back to memory for downstream nodes.
@@ -38,28 +27,24 @@ flowchart TB
 The `voting` node type requires a `votingConfig` block listing the voters and the aggregation strategy.
 
 ```typescript
-{
+voting([classifierA, classifierB, classifierC], {
   id: 'classify',
-  type: 'voting',
-  readKeys: ['ticket_text'],
-  votingConfig: {
-    voterAgentIds: [CLASSIFIER_A, CLASSIFIER_B, CLASSIFIER_C],
-    strategy: 'majority_vote',
-    voteKey: 'category',
-    quorum: 2,
-  },
-}
+  reads: ['ticket_text'],
+  strategy: 'majority_vote',
+  voteKey: 'category',
+  quorum: 2,
+})
 ```
 
-For a `weighted_vote`, supply `weights` keyed by agent ID; for `llm_judge`, supply a `judgeAgentId`:
+For a `weighted_vote`, supply `weights` keyed by agent id; for `llm_judge`, supply a `judge`:
 
 ```typescript
-votingConfig: {
-  voterAgentIds: [JUNIOR, SENIOR, STAFF],
+voting([junior, senior, staff], {
+  id: 'review',
   strategy: 'weighted_vote',
   voteKey: 'verdict',
-  weights: { [JUNIOR]: 1, [SENIOR]: 2, [STAFF]: 3 },
-}
+  weights: { junior: 1, senior: 2, staff: 3 },
+})
 ```
 
 :::note

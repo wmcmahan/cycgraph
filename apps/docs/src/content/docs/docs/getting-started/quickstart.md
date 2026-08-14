@@ -23,7 +23,7 @@ The graph topology stays fully explicit; the facade only removes ceremony, and i
 ## A multi-agent workflow
 
 ```typescript
-import { agent, node, graph, run } from '@cycgraph/orchestrator';
+import { agent, node, graph, run, supervisor, runTool, subgraph } from '@cycgraph/orchestrator';
 
 const research = node({
   id: 'research',
@@ -80,15 +80,14 @@ Some patterns reference agents from *config* rather than placing them as nodes �
 ```typescript
 const brain = agent({ model: 'claude-sonnet-4-6', instructions: 'Route work to the right specialist…' });
 
-const supervisor = node({
+const lead = supervisor(brain, {
   id: 'supervisor',
-  type: 'supervisor',
-  agent: brain,
-  supervisorConfig: { managedNodes: [research, write], maxIterations: 10 },
+  manages: [research, write],
+  maxIterations: 10,
 });
 ```
 
-No grants needed: a supervisor's permissions derive from its role. Routing (`handoff`) and completion (`set_status`) are implied by the node type, and its reads derive from its team — a supervisor with no declared `reads` sees `goal`, `constraints`, and everything its `managedNodes` write, nothing else. Declare `reads` explicitly only to widen or narrow that.
+No grants needed: a supervisor's permissions derive from its role. Routing (`handoff`) and completion (`set_status`) are implied by the node type, and its reads derive from its team — a supervisor with no declared `reads` sees `goal`, `constraints`, and everything its `manages` set writes, nothing else. Declare `reads` explicitly only to widen or narrow that.
 
 `graph()` resolves every agent reference — on nodes or deep inside config blocks like `evolutionConfig.candidateAgentId` — and `run()` registers them all.
 
@@ -97,7 +96,7 @@ No grants needed: a supervisor's permissions derive from its role. Routing (`han
 Every node type is authored the same way — `node()` with its `type`:
 
 ```typescript
-const lookup = node({ id: 'lookup', type: 'tool', toolId: 'web_fetch', tools: ['web_fetch'], reads: ['goal'] });
+const lookup = runTool('web_fetch', { id: 'lookup', reads: ['goal'] });
 ```
 
 ## Composing graphs

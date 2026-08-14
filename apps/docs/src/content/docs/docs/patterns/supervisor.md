@@ -16,7 +16,7 @@ flowchart TB
     Researcher --> |"Returns results"| Sup
     Sup --> |"Delegates"| Writer["Writer Agent"]
     Writer --> |"Returns draft"| Sup
-    Sup --> |"Goal complete"| Done(["✓"])
+    Sup --> |"Goal complete"| Done([""])
 ```
 
 1. **Initial Goal**: The workflow receives an open-ended goal (e.g., "Write a comprehensive report").
@@ -34,7 +34,7 @@ This example demonstrates a supervisor routing between three specialists: a rese
 The agent powering the supervisor should be instructed to act as a manager. It evaluates the current state and identifies the single best next worker to delegate to.
 
 ```typescript
-import { agent } from '@cycgraph/orchestrator';
+import { agent, supervisor } from '@cycgraph/orchestrator';
 
 const brain = agent({
   model: 'claude-sonnet-4-6',
@@ -89,18 +89,14 @@ const edit = node({
   writes: 'final_draft' 
 });
 
-const supervisor = node({
+const lead = supervisor(brain, {
   id: 'supervisor',
-  type: 'supervisor',
-  agent: brain,
-  supervisorConfig: {
-    managedNodes: [research, write, edit],
-    maxIterations: 10,
-  },
+  manages: [research, write, edit],
+  maxIterations: 10,
 });
 ```
 
-The supervisor declares no grants at all. They derive from its role. Its routing (`handoff`) and completion (`set_status`) permissions are implied by the `supervisor` node type, and its reads derive from its team: with no declared `reads`, it sees `goal`, `constraints`, and everything its `managedNodes` write (here `research_notes`, `draft`, and `final_draft`), nothing else. That keeps routing informed while staying least-privilege, tainted memory outside the team's outputs never reaches the routing prompt. Declare `reads` explicitly only when the supervisor needs more or less than its team's work.
+The supervisor declares no grants at all. They derive from its role. Its routing (`handoff`) and completion (`set_status`) permissions are implied by the `supervisor` node type, and its reads derive from its team: with no declared `reads`, it sees `goal`, `constraints`, and everything its `manages` set writes (here `research_notes`, `draft`, and `final_draft`), nothing else. That keeps routing informed while staying least-privilege, tainted memory outside the team's outputs never reaches the routing prompt. Declare `reads` explicitly only when the supervisor needs more or less than its team's work.
 
 ### 3. The Cyclic edges
 

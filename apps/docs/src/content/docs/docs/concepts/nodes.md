@@ -34,6 +34,7 @@ The full field reference is in [Interfaces](#nodespec) below.
 | `synthesizer` | Merges parallel outputs into a single result using an LLM agent. |
 | `voting` | Multiple agents vote on a decision to reach consensus. |
 | `subgraph` | Delegates to a nested graph with isolated state and input/output mapping. |
+| `a2a` | Delegates to a remote agent over the Agent2Agent protocol. |
 | `evolution` | Population-based selection: runs N candidates, scores fitness, breeds the next generation. |
 | `verifier` | Gates a target memory key against a verification predicate. |
 | `reflection` | Distills source memory keys into atomic facts and persists them via a memory writer. |
@@ -73,11 +74,10 @@ Every node carries a failure policy that controls how the runner handles a failu
 A node can also declare a budget that caps the tokens or USD a single execution may spend. This guards against a runaway annealing loop or an oversized reflection extraction eating the whole workflow budget. Breaching either cap throws `NodeBudgetExceededError` and stops the workflow immediately with no retry, since a retry would just compound the spend. Workflow-level budgets (`WorkflowState.budgetUsd`, `maxTokenBudget`) remain enforced independently.
 
 ```typescript
-const reflect = node({
+const reflect = reflection(['notes'], {
   id: 'reflect',
-  type: 'reflection',
   reads: ['notes'],
-  reflectionConfig: { /* … */ },
+  extractor: { type: 'rule_based' },
   budget: {
     maxTokens: 20_000,
     maxCostUsd: 0.10,
@@ -102,6 +102,177 @@ node(spec: NodeSpec): NodeValue
 ##### Options
 
 The input is a [NodeSpec](#nodespec).
+
+Every node type has a helper that leads with what it delegates to and takes its config flat, rather than nested under a `*Config` block. All of them return a `NodeValue` and compile to the same wire shape `node()` produces, so they can be mixed freely. Fields common to every node — `id`, `reads`, `failurePolicy`, `budget`, `metadata`, `requiresCompensation` — are accepted by all of them.
+
+### `supervisor`
+
+Route work to other nodes with an LLM. See the [Supervisor pattern](/docs/patterns/supervisor/).
+
+```typescript
+supervisor(brain: AgentValue | string, spec: SupervisorSpec): NodeValue
+```
+
+| Field | Maps to | Description |
+|-------|---------|-------------|
+| `manages` | `managedNodes` | Nodes it may delegate to, by value or id. |
+| `maxIterations` | `maxIterations` | Routing turns before forced completion. |
+| `writes` | `writeKeys` | Keys the supervisor's agent may write. |
+| `memoryQuery` | `memoryQuery` | Retrieval directive applied before the routing prompt. |
+
+Omit `reads` to derive them from the managed nodes' writes.
+
+### `mapReduce`
+
+Fan out over a collection, then fan back in. See the [Map-Reduce pattern](/docs/patterns/map-reduce/).
+
+```typescript
+mapReduce(worker: NodeValue | string, spec: MapReduceSpec): NodeValue
+```
+
+| Field | Maps to | Description |
+|-------|---------|-------------|
+| `items` | `itemsPath` / `staticItems` | A JSONPath into memory, or a literal array. The form decides which. |
+| `into` | `synthesizerNodeId` | Synthesizer the results fan into. |
+| `concurrency` | `maxConcurrency` | Workers in flight at once. |
+| `maxItems` | `maxItems` | Hard cap on items fanned out. |
+| `onError` | `errorStrategy` | `'fail_fast'` or `'best_effort'`. |
+
+### `voting`
+
+Run several agents on the same task and aggregate. See the [Voting pattern](/docs/patterns/voting/).
+
+```typescript
+voting(voters: (AgentValue | string)[], spec: VotingSpec): NodeValue
+```
+
+| Field | Maps to | Description |
+|-------|---------|-------------|
+| `strategy` | `strategy` | `'majority_vote'`, `'weighted_vote'`, or `'llm_judge'`. |
+| `voteKey` | `voteKey` | Key each voter writes its vote to. |
+| `quorum` | `quorum` | Votes required before a result counts. |
+| `judge` | `judgeAgentId` | Arbitrating agent. Required by `'llm_judge'`. |
+| `weights` | `weights` | Per-agent weights for `'weighted_vote'`. |
+
+### `evolution`
+
+Population-based selection over generations. See the [Evolution pattern](/docs/patterns/evolution/).
+
+```typescript
+evolution(candidate: AgentValue | string, spec: EvolutionSpec): NodeValue
+```
+
+| Field | Maps to | Description |
+|-------|---------|-------------|
+| `evaluator` | `evaluatorAgentId` | Scoring agent. Omit only when a `fitnessFunction` is wired on the runner. |
+| `populationSize` | `populationSize` | Candidates per generation. |
+| `maxGenerations` | `maxGenerations` | Generations before the loop stops. |
+| `fitnessThreshold` | `fitnessThreshold` | Early exit. Above `1.0` disables it. |
+| `selection` | `selectionStrategy` | `'rank'`, `'tournament'`, or `'roulette'`. |
+| `concurrency` | `maxConcurrency` | Candidates evaluated at once. |
+| `criteria` | `evaluationCriteria` | Extra instruction for the evaluator. |
+| `onError` | `errorStrategy` | `'fail_fast'` or `'best_effort'`. |
+
+Also accepts `eliteCount`, `stagnationGenerations`, `initialTemperature`, `finalTemperature`, `tournamentSize`, and `taskTimeoutMs`, which map by name.
+
+### `verifier`
+
+Check a memory value and record a structured outcome. Three variants on one namespace, all writing the same pair of keys. See the [Verifier pattern](/docs/patterns/verifier/).
+
+```typescript
+verifier.llmJudge(judge: AgentValue | string, spec): NodeValue
+verifier.expression(expression: string, spec): NodeValue
+verifier.jsonPath(target: string, spec): NodeValue
+```
+
+| Field | Variant | Description |
+|-------|---------|-------------|
+| `target` | `llmJudge` | Memory key whose value is scored. |
+| `threshold` | `llmJudge` | Pass when the score is at or above this. |
+| `criteria` | `llmJudge` | Extra instruction for the judge. |
+| `path`, `assertion` | `jsonPath` | JSONPath and the assertion applied to the result. |
+| `resultKey` | all | Key prefix for the outcome. Defaults to `${id}_verification`. |
+| `throwOnFail` | all | Throw on failure to trigger retry, instead of routing on `_passed`. |
+
+### `reflection`
+
+Distill memory into facts a later run can retrieve. See the [Reflection pattern](/docs/patterns/reflection/).
+
+```typescript
+reflection(sources: string[], spec: ReflectionSpec): NodeValue
+```
+
+| Field | Maps to | Description |
+|-------|---------|-------------|
+| `extractor` | `extractor` | `{ type: 'rule_based' }` or `{ type: 'llm', agentId }`. |
+| `tags` | `tags` | Applied to every written fact. Namespace them. |
+| `entityKeys` | `entityKeys` | Keys naming entities the facts relate to. |
+| `resultKey` | `resultKey` | Pins the envelope key. Defaults to `${id}_reflection`. |
+
+### `runTool`
+
+Run one tool as a deterministic step, with no model involved. The node's `reads` slice is passed to the tool as its argument object.
+
+```typescript
+runTool(toolId: string, spec: RunToolSpec): NodeValue
+```
+
+### `approval`
+
+Pause until a human decides. See the [Human-in-the-Loop pattern](/docs/patterns/human-in-the-loop/).
+
+```typescript
+approval(spec: ApprovalSpec): NodeValue
+```
+
+| Field | Maps to | Description |
+|-------|---------|-------------|
+| `prompt` | `promptMessage` | Message shown to the reviewer. |
+| `reviewKeys` | `reviewKeys` | Memory keys the reviewer sees. |
+| `timeoutMs` | `timeoutMs` | How long before the gate auto-rejects. |
+| `onReject` | `rejectionNodeId` | Where a rejection routes. Without it, a rejected run fails. |
+
+### `subgraph`
+
+Embed a child graph as one node. See the [Subgraph pattern](/docs/patterns/subgraph/).
+
+```typescript
+subgraph(child: Graph | GraphBundle | string, spec: SubgraphSpec): NodeValue
+```
+
+| Field | Maps to | Description |
+|-------|---------|-------------|
+| `inputs` | `inputMapping` | Parent key → child key. |
+| `outputs` | `outputMapping` | Child key → parent key. Also the write grant. |
+| `maxIterations` | `maxIterations` | Iteration cap for the child. |
+
+### `a2a`
+
+Delegate to a remote agent. See the [A2A pattern](/docs/patterns/a2a/).
+
+```typescript
+a2a(serverId: string, spec: A2ASpec): NodeValue
+```
+
+| Field | Maps to | Description |
+|-------|---------|-------------|
+| `inputs` | `inputMapping` | Memory key → message part. |
+| `outputs` | `outputMapping` | Artifact name → memory key. Also the write grant. |
+| `skill` | `skillId` | Which advertised skill this node intends to invoke. |
+| `maxWaitMs` | `maxWaitMs` | How long to wait for a terminal state. |
+
+`budget` is not accepted here: a remote agent reports no usage, so a per-node cap could never fire.
+
+### `router` and `synthesizer`
+
+Neither takes a config block.
+
+```typescript
+router(spec: RouterSpec): NodeValue
+synthesizer(spec: SynthesizerSpec): NodeValue
+```
+
+`router` is a branch point; its routing lives on the outgoing edges' conditions. `synthesizer` merges fan-out results, deterministically when no `agent` is given and as a written synthesis when one is. An agent-backed synthesizer authors its own output, so it needs `writes`.
 
 ## Interfaces
 
@@ -151,7 +322,7 @@ The common shape shared by every node. Type-specific behavior comes from the opt
 
 ### NodeType
 
-A string enum of the executor kinds. Each value is described in [Node types](#node-types) above: `agent`, `tool`, `router`, `supervisor`, `approval`, `map`, `synthesizer`, `voting`, `subgraph`, `evolution`, `verifier`, `reflection`.
+A string enum of the executor kinds. Each value is described in [Node types](#node-types) above: `agent`, `tool`, `router`, `supervisor`, `approval`, `map`, `synthesizer`, `voting`, `subgraph`, `a2a`, `evolution`, `verifier`, `reflection`.
 
 ### FailurePolicy
 
@@ -208,6 +379,20 @@ Used by subgraph nodes. Executes an entire child graph as a single step, with is
 | `maxIterations` | `number` | `50` | Iteration cap for the child workflow. |
 
 The child gets a fresh, isolated `WorkflowState`. Only mapped keys cross the boundary. The child inherits the parent's remaining token budget. The `subgraphStack` state field prevents cyclic nesting, so `A → B → A` throws immediately.
+
+### A2AConfig
+
+Used by `a2a` nodes. Delegates a step to a remote agent over the Agent2Agent protocol. The endpoint and credentials are resolved from the trusted A2A server registry, never from the graph. See the [A2A pattern](/docs/patterns/a2a/) and the `a2a()` authoring helper.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `serverId` | `string` | *required* | Registry id of the remote server. Never a URL. |
+| `inputMapping` | `Record<string, string>` | `{}` | Maps memory keys to outbound message parts. |
+| `outputMapping` | `Record<string, string>` | `{}` | Maps returned artifact names to memory keys. |
+| `skillId` | `string` | — | Which advertised skill this node intends to invoke. Recorded for readers; not sent on the wire. |
+| `maxWaitMs` | `number` | — | How long to wait for a terminal state. Falls back to the registry entry's `taskTimeoutMs`. |
+
+Everything the remote agent returns is taint-tracked as external data. Budget and capability ceilings stop at the network, so `maxWaitMs` and the failure policy are the only bounds. A task ending `rejected` or `auth-required` is not retried; one stopping at `input-required` pauses the workflow and resumes the same remote task.
 
 ### ApprovalGateConfig
 

@@ -81,7 +81,7 @@ The LLM extractor falls back to `RuleBasedExtractor` automatically on any failur
 Inject a `memoryRetriever` into `GraphRunner` so agents receive relevant memory in their prompts:
 
 ```typescript
-import { GraphRunner } from '@cycgraph/orchestrator';
+import { GraphRunner, reflection } from '@cycgraph/orchestrator';
 import { retrieveMemory } from '@cycgraph/memory';
 
 const memoryRetriever = async (query, options) => {
@@ -188,16 +188,11 @@ const workflow = graph({
       writes: 'research_notes',
       memoryQuery: { tags: ['lesson'], maxFacts: 10 },
     }),
-    node({
+    reflection(['research_notes'], {
       id: 'reflect',
-      type: 'reflection',
       reads: ['research_notes'],
-      writes: 'research_notes_reflection',
-      reflectionConfig: {
-        sourceKeys: ['research_notes'],
-        extractor: { type: 'rule_based', minSentenceLength: 25 },
-        tags: ['lesson', 'graph:research-v1'],
-      },
+      extractor: { type: 'rule_based', minSentenceLength: 25 },
+      tags: ['lesson', 'graph:research-v1'],
     }),
   ],
   edges: [{ from: 'researcher', to: 'reflect' }],

@@ -11,31 +11,11 @@ The loop continues across multiple generations until a fitness threshold is met 
 
 ```mermaid
 flowchart TB
-    Start([Start]) --> G0
-
-    subgraph G0["Generation 0"]
-        direction LR
-        A0["Candidate A"] ~~~ B0["Candidate B"] ~~~ C0["Candidate C"]
-    end
-
-    G0 --> Eval0["Evaluate All → Winner (0.72)"]
-    Eval0 --> G1
-
-    subgraph G1["Generation 1"]
-        direction LR
-        A1["Candidate A'"] ~~~ B1["Candidate B'"] ~~~ C1["Candidate C'"]
-    end
-
-    G1 --> Eval1["Evaluate All → Winner (0.85)"]
-    Eval1 --> G2
-
-    subgraph G2["Generation 2"]
-        direction LR
-        A2["Candidate A''"] ~~~ B2["Candidate B''"] ~~~ C2["Candidate C''"]
-    end
-
-    G2 --> Eval2["Evaluate All → Winner (0.91) ✓ Done"]
-    Eval2 --> Done([Done])
+    Start([Start]) --> Gen["Generate N candidates in parallel"]
+    Gen --> Score["Score each, keep the best"]
+    Score --> Check{"Threshold met,<br/>or stalled?"}
+    Check --> |"No — breed from the winner"| Gen
+    Check --> |"Yes"| Done(["Winner"])
 ```
 
 Each generation follows a strict loop:
@@ -92,24 +72,19 @@ const evaluator = agent({
 The `evolution` node type requires an `evolutionConfig` block that dictates the population size, selection strategy, and stopping conditions. The `candidateAgentId` and `evaluatorAgentId` fields accept the agent values directly; `graph()` resolves them to registry ids at compile time.
 
 ```typescript
-import { node, graph } from '@cycgraph/orchestrator';
+import { evolution, graph } from '@cycgraph/orchestrator';
 
-const evolve = node({
+const evolve = evolution(writer, {
   id: 'evolve-poem',
-  type: 'evolution',
   reads: ['*'],
-  writes: ['*'],
-  evolutionConfig: {
-    candidateAgentId: writer,
-    evaluatorAgentId: evaluator,
-    populationSize: 5,         // Parallel candidates per generation
-    maxGenerations: 10,        // Hard limit
-    fitnessThreshold: 0.9,     // Early exit score
-    stagnationGenerations: 3,  // Exit if no improvement
-    selectionStrategy: 'rank', // Always select the top scorer
-    initialTemperature: 1.0,   // Exploration (Generation 0)
-    finalTemperature: 0.3,     // Exploitation (Final Generation)
-  },
+  evaluator,
+  populationSize: 5,         // parallel candidates per generation
+  maxGenerations: 10,        // hard limit
+  fitnessThreshold: 0.9,     // early exit score
+  stagnationGenerations: 3,  // exit if no improvement
+  selection: 'rank',         // always select the top scorer
+  initialTemperature: 1.0,   // exploration (generation 0)
+  finalTemperature: 0.3,     // exploitation (final generation)
 });
 
 const workflow = graph({

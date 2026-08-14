@@ -61,29 +61,27 @@ When a conditional edge expression references a tainted memory key, the engine l
 Setting `strict_taint: true` on the graph upgrades warnings to hard rejections. When enabled, `evaluateCondition()` returns `false` for any condition that references a tainted key, forcing the workflow to take the fallback path instead of trusting external data:
 
 ```typescript
-const graph = graph({
+import { node, runTool, graph } from '@cycgraph/orchestrator';
+
+const strictGraph = graph({
   name: 'Strict Taint Example',
   description: 'Routes to a fallback agent when external (tainted) data would otherwise drive the decision.',
   strictTaint: true, // reject tainted data in routing
   nodes: [
-    { id: 'fetch', type: 'tool', toolId: 'web_search', readKeys: ['*'], writeKeys: ['search_results'] },
-    { id: 'analyze', type: 'agent', agentId: ANALYST_ID, readKeys: ['search_results'], writeKeys: ['analysis'] },
-    { id: 'fallback', type: 'agent', agentId: FALLBACK_ID, readKeys: ['goal'], writeKeys: ['analysis'] },
+    runTool('web_search', { id: 'fetch', reads: ['*'] }),
+    node({ id: 'analyze', agent: analyst, reads: ['fetch_result'], writes: 'analysis' }),
+    node({ id: 'fallback', agent: fallback, reads: ['goal'], writes: 'analysis' }),
   ],
   edges: [
-    {
-      source: 'fetch',
-      target: 'analyze',
-      condition: { type: 'conditional', condition: 'length(search_results) > 0' },
-    },
-    { source: 'fetch', target: 'fallback' }, // taken when strict_taint rejects the condition
+    { from: 'fetch', to: 'analyze', when: 'length(memory.fetch_result) > 0' },
+    { from: 'fetch', to: 'fallback' }, // taken when strictTaint rejects the condition
   ],
   startNode: 'fetch',
   endNodes: ['analyze', 'fallback'],
 });
 ```
 
-In this example, `search_results` is tainted (from an MCP tool). With `strict_taint: true`, the condition `search_results.length > 0` evaluates to `false` regardless of the actual value, and the workflow routes to `fallback`.
+In this example, `fetch_result` is tainted (it came from a tool). With `strictTaint: true`, the condition evaluates to `false` regardless of the actual value, and the workflow routes to `fallback`.
 
 ### Supervisor routing
 
