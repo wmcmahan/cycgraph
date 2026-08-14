@@ -24,6 +24,7 @@ import { effectiveWriteKeys, withEffectiveReads } from '../../security/effective
 import { ActionSchema } from '../../state/state.js';
 import { createLogger } from '../../observability/logger.js';
 import { runWithContext } from '../../utils/context.js';
+import type { LogSink } from '../../observability/logger.js';
 import { BudgetExceededError, WorkflowTimeoutError, NoMatchingEdgeError } from '../errors.js';
 import { applyUsageAndEnforceBudgets, type ExecutionAccountingRuntime } from '../../cost/execution-accounting.js';
 import {
@@ -329,6 +330,16 @@ export interface GraphRunnerOptions {
    * defines the type, you provide the policy.
    */
   rateLimiter?: RateLimiter;
+
+  /**
+   * Where this run's log entries go. Absent, they go to the process streams at
+   * the `LOG_LEVEL` default. Same injection pattern as the other ports: the
+   * engine builds the entry, you decide where it lands.
+   *
+   * Entries emitted outside a run — module load, registry calls before
+   * `run()` — have no run context and still go to the streams.
+   */
+  logger?: LogSink;
   /**
    * Number of events between automatic event log compactions.
    *
@@ -469,6 +480,9 @@ export class GraphRunner extends EventEmitter {
   // Optional rate-limiting hook awaited before every LLM call
   private readonly rateLimiter?: RateLimiter;
 
+  /** Destination for this run's log entries; the process streams when absent. */
+  private readonly logSink?: LogSink;
+
   // Optional taint-aware security policy consulted before each node executes
   private readonly securityPolicy?: SecurityPolicy;
 
@@ -544,6 +558,7 @@ export class GraphRunner extends EventEmitter {
     this.factSanitizerFailMode = options?.factSanitizerFailMode ?? 'drop';
     this.fitnessFunction = options?.fitnessFunction;
     this.rateLimiter = options?.rateLimiter;
+    this.logSink = options?.logger;
     this.securityPolicy = options?.securityPolicy;
     this.autoRollback = options?.autoRollback ?? false;
     this.allowImplicitCompletion = options?.allowImplicitCompletion ?? false;
@@ -590,6 +605,7 @@ export class GraphRunner extends EventEmitter {
     // `startTime`, and `isStreaming` are reassigned during the run.
     this.driver = new NodeExecutionDriver({
       getGraph: () => this.graph,
+      getLogSink: () => this.logSink,
       getState: () => this.state,
       getStartTime: () => this.startTime,
       isStreaming: () => this.isStreaming,
@@ -1508,7 +1524,7 @@ export class GraphRunner extends EventEmitter {
       // non-streaming / worker path. The `workflow.run` root span wraps the
       // entire run so node/agent spans nest under it in traces.
       await runWithContext(
-        { run_id: this.state.run_id, graph_id: this.graph.id },
+        { run_id: this.state.run_id, graph_id: this.graph.id, ...(this.logSink ? { logger: this.logSink } : {}) },
         () => withSpan(tracer, 'workflow.run', async (runSpan) => {
           runSpan.setAttribute('workflow.run_id', this.state.run_id);
           runSpan.setAttribute('graph.id', this.graph.id);

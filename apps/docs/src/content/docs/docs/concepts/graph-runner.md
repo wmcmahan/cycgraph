@@ -185,6 +185,8 @@ Constructor options. Every field is optional; the defaults give an in-memory, si
 | `fitnessFunction` | Deterministic fitness evaluator for `evolution` nodes. |
 | `rateLimiter` | Awaited before every LLM call to pace a run inside a provider budget. |
 | `securityPolicy` | Taint-aware policy consulted before each node runs. |
+| `a2aRegistry` / `a2aClient` | Trusted server registry and transport for [`a2a`](/docs/patterns/a2a/) nodes. Both required when the graph has one. |
+| `logger` | Where this run's log entries go. Absent, they go to the process streams. |
 | `middleware` | `beforeNodeExecute` / `afterReduce` hooks ([Middleware](/docs/concepts/middleware/)). |
 | `onToken` | Callback for each token delta from agent nodes. |
 | `autoRollback` | Run saga compensations on failure, transitioning to `cancelled` instead of `failed`. |

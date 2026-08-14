@@ -30,7 +30,7 @@ changes. `npm run smoke` runs the whole suite this way.
 | Example | Pattern | Description |
 |---------|---------|-------------|
 | [research-and-write](./research-and-write/) | Linear | 2-node pipeline: Researcher gathers notes, Writer produces a polished summary |
-| [composition](./composition/) | Subgraph (Composition) | A research graph built once as a reusable block, embedded in a briefing workflow via `subgraph()` — isolated child state, mapped inputs/outputs, zero hand-wiring |
+| [composition](./composition/) | Subgraph | A research graph built once as a reusable block, embedded in a briefing workflow via `subgraph()` — isolated child state, mapped inputs/outputs, zero hand-wiring |
 | [graph-interface](./graph-interface/) | Typed Composition Boundary | A block declares `inputs`/`outputs` as Zod schemas — its type signature. The parent wires onto that signature with `subgraph()`, and injects memory + context compression that reach every node inside the block |
 | [graph-interop](./graph-interop/) | Distribution (Bundles) | Two files that never import each other: a publisher `bundle()`s a graph to JSON, a consumer `parseBundle()`s it, preflights `requires`, binds a tool by name, and composes with it |
 | [supervisor-routing](./supervisor-routing/) | Supervisor | 4-node cyclic hub-and-spoke: Supervisor dynamically routes between Research, Write, and Edit specialists |
