@@ -13,16 +13,16 @@ The infrastructure under reflection is the same: `@cycgraph/memory`'s temporal k
 flowchart LR
     subgraph R1["RUN 1 — cold start"]
         direction LR
-        Goal1[Goal 1] --> Researcher1["🔬 Researcher\n(memoryQuery.tags)"]
-        Researcher1 -- "research_notes" --> Reflect1["🪞 Reflection\n(rule_based)"]
+        Goal1[Goal 1] --> Researcher1["Researcher\n(memoryQuery.tags)"]
+        Researcher1 -- "research_notes" --> Reflect1["Reflection\n(rule_based)"]
     end
 
     Reflect1 -- "writes facts (tags + provenance)" --> Store[(MemoryStore)]
 
     subgraph R2["RUN 2 — with prior knowledge"]
         direction LR
-        Goal2[Related Goal] --> Researcher2["🔬 Researcher"]
-        Researcher2 -- "research_notes" --> Reflect2["🪞 Reflection"]
+        Goal2[Related Goal] --> Researcher2["Researcher"]
+        Researcher2 -- "research_notes" --> Reflect2["Reflection"]
     end
 
     Store -- "memoryRetriever({ tags })" --> Researcher2
@@ -123,7 +123,7 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
 The researcher node carries `memoryQuery: { tags: [LESSON_TAG] }` so the retriever fires before its prompt. The reflection node lives after it and writes back with the same tag.
 
 ```typescript
-import { createGraph, GraphRunner } from '@cycgraph/orchestrator';
+import { createGraph, GraphRunner, reflection } from '@cycgraph/orchestrator';
 
 const graph = createGraph({
   name: 'Learning Research Agent',
@@ -137,17 +137,12 @@ const graph = createGraph({
       writeKeys: ['research_notes'],
       memoryQuery: { tags: [LESSON_TAG], maxFacts: 20 },
     },
-    {
+    reflection(['research_notes'], {
       id: 'reflect',
-      type: 'reflection',
-      readKeys: ['research_notes'],
-      writeKeys: ['research_notes_reflection'],
-      reflectionConfig: {
-        sourceKeys: ['research_notes'],
-        extractor: { type: 'rule_based', minSentenceLength: 25 },
-        tags: ['lesson', LESSON_TAG],
-      },
-    },
+      reads: ['research_notes'],
+      extractor: { type: 'rule_based', minSentenceLength: 25 },
+      tags: ['lesson', LESSON_TAG],
+    }),
   ],
   edges: [{ source: 'research', target: 'reflect' }],
   startNode: 'research',
@@ -230,20 +225,16 @@ LLM-based reflection (`extractor: { type: 'llm' }`) can run away on long source 
 
 ```typescript
 {
+reflection(['research_notes'], {
   id: 'reflect',
-  type: 'reflection',
-  readKeys: ['research_notes'],
-  writeKeys: ['reflect_reflection'],
-  reflectionConfig: {
-    sourceKeys: ['research_notes'],
-    extractor: { type: 'llm', agentId: REFLECTOR_ID, maxFacts: 5 },
-    tags: ['lesson'],
-  },
+  reads: ['research_notes'],
+  extractor: { type: 'llm', agentId: reflector, maxFacts: 5 },
+  tags: ['lesson'],
   budget: {
     maxTokens: 20_000,
     maxCostUsd: 0.05,
   },
-}
+})
 ```
 
 Breaching either cap throws `NodeBudgetExceededError`. The reflection fails fast, and downstream code can decide whether to skip persistence or retry with cheaper settings.

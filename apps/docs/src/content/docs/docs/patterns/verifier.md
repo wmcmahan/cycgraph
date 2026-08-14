@@ -12,7 +12,7 @@ It is the building block for self-correcting loops: pair a producer node with a 
 ```mermaid
 flowchart TB
     Draft["Producer"] --> Verify{"Verifier"}
-    Verify --> |"_passed = true"| Done(["✓ Accept"])
+    Verify --> |"_passed = true"| Done(["Accept"])
     Verify --> |"_passed = false"| Draft
 ```
 
@@ -23,32 +23,27 @@ flowchart TB
 
 ### Variants
 
-The `verifierConfig` is a discriminated union on `type`:
+Three variants, one per function on the `verifier` namespace:
 
 | Variant | Check | Cost |
 |---------|-------|------|
-| `llm_judge` | An evaluator agent scores `targetKey` (0–1); passes when the score ≥ `passThreshold`. | One LLM call |
-| `expression` | A [filtrex](https://github.com/m93a/filtrex) expression over `{ memory, goal }`; passes when truthy. | Free, deterministic |
-| `jsonpath` | Extracts a value via JSONPath, then applies a deterministic assertion (`gt`, `equals`, `matches`, `exists`, …). | Free, deterministic |
+| `verifier.llmJudge` | An evaluator agent scores `target` (0–1); passes when the score ≥ `threshold`. | One LLM call |
+| `verifier.expression` | A [filtrex](https://github.com/m93a/filtrex) expression over `{ memory, goal }`; passes when truthy. | Free, deterministic |
+| `verifier.jsonPath` | Extracts a value via JSONPath, then applies a deterministic assertion (`gt`, `equals`, `matches`, `exists`, …). | Free, deterministic |
 
 ## Implementation example
 
 **LLM-as-judge.** Score a draft for quality and loop back if it falls short:
 
 ```typescript
-{
+verifier.llmJudge(critic, {
   id: 'check_quality',
-  type: 'verifier',
-  readKeys: ['draft'],
-  verifierConfig: {
-    type: 'llm_judge',
-    targetKey: 'draft',
-    evaluatorAgentId: CRITIC_ID,
-    passThreshold: 0.8,
-    evaluationCriteria: 'Score for factual accuracy and clarity.',
-    resultKey: 'quality_verification',
-  },
-}
+  reads: ['draft'],
+  target: 'draft',
+  threshold: 0.8,
+  criteria: 'Score for factual accuracy and clarity.',
+  resultKey: 'quality_verification',
+})
 ```
 
 Then route on the boolean the verifier writes:
@@ -64,23 +59,23 @@ edges: [
 
 ```typescript
 // Expression: the draft must be substantial
-verifierConfig: {
-  type: 'expression',
-  expression: 'length(memory.draft) > 280',
-}
+verifier.expression('length(memory.draft) > 280', {
+  id: 'check_length',
+  reads: ['draft'],
+})
 
 // JSONPath assertion: every line item must be positive
-verifierConfig: {
-  type: 'jsonpath',
-  targetKey: 'extracted_invoice',
+verifier.jsonPath('extracted_invoice', {
+  id: 'check_amounts',
+  reads: ['extracted_invoice'],
   path: '$.line_items[*].amount',
   assertion: { op: 'gt', value: 0 },
-}
+})
 ```
 
 ## Outputs
 
-The node writes two keys. Both are implied write grants, so neither needs to appear in `writeKeys`:
+The node writes two keys. Both are implied write grants, so neither needs to appear in `writes`:
 
 - `{resultKey}` (defaults to `{nodeId}_verification`) is the structured `VerificationResult`: `{ type, passed, reasoning, score?, threshold?, extracted_value?, evaluated_at }`.
 - `{resultKey}_passed` is a flat boolean, for ergonomic edge conditions.

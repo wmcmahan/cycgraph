@@ -9,21 +9,6 @@ This cleanly bypasses the context window limits and slow latency of trying to pr
 
 ## How it works
 
-```mermaid
-flowchart TB
-    Input["Input list: ['Topic A', 'Topic B']"] --> Split{Fan Out}
-
-    Split --> W1["Map Worker 1"]
-    Split --> W2["Map Worker 2"]
-    Split --> WN["Map Worker N"]
-
-    W1 --> Reduce
-    W2 --> Reduce
-    WN --> Reduce
-
-    Reduce["Synthesizer"] --> Output(["Final Summary"])
-```
-
 1. **Input**: A list of data items (documents, URLs, sub-topics) is present in the workflow's state memory.
 2. **Fan Out (Map)**: The orchestrator launches a parallel worker agent for *each* item in the array simultaneously. Each worker receives just its single item as `map_item` in the `## Task Context` section of its prompt.
 3. **Wait**: The map node halts workflow progression until every single parallel task has either completed or timed out.
@@ -75,22 +60,17 @@ const synthesizer = agent({
 Next, place the agents and configure the graph combining the `map` and `synthesizer` node types.
 
 ```typescript
-import { node, graph } from '@cycgraph/orchestrator';
+import { node, mapReduce, graph } from '@cycgraph/orchestrator';
 
-const mapper = node({
+const mapper = mapReduce('researcher', {   // the node to fan out to
   id: 'mapper',
-  type: 'map',
   reads: ['*'],
-  writes: ['mapper_results', 'mapper_errors', 'mapper_count', 'mapper_error_count'],
-  mapReduceConfig: {
-    workerNodeId: 'researcher',         // The ID of the node to fan out to
-    itemsPath: '$.memory.topics',       // JSONPath to the input array
-    maxConcurrency: 5,                  // Parallel execution limit
-    errorStrategy: 'best_effort',       // Continue to synthesis even if some fail
-  },
+  items: '$.memory.topics',                // JSONPath to the input array
+  concurrency: 5,                          // parallel execution limit
+  onError: 'best_effort',                  // continue to synthesis even if some fail
 });
 
-// The worker node (targeted by workerNodeId). The map item arrives via
+// The worker node. The map item arrives via
 // Task Context, so no read key is needed for it.
 const worker = node({
   id: 'researcher',

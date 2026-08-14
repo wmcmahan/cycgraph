@@ -41,25 +41,20 @@ See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/pack
 Instead of managing complex pausing logic in code, you simply declare an `approval` node in your `createGraph` definition.
 
 ```typescript
-import { createGraph } from '@cycgraph/orchestrator';
+import { createGraph, approval } from '@cycgraph/orchestrator';
 
 const graph = createGraph({
   name: 'Human-in-the-Loop',
   nodes: [
     // ... writer agent node ...
-    {
+    // The pause permission is implied by the node type — no writes needed.
+    approval({
       id: 'review',
-      type: 'approval',
-      readKeys: ['*'],
-      // The pause permission is implied by the approval type — no writeKeys needed.
-      writeKeys: [],
-      approvalConfig: {
-        approvalType: 'human_review',
-        promptMessage: 'Please review the draft before publication.',
-        reviewKeys: ['draft'], // The specific memory keys the human needs to see
-        timeoutMs: 300_000,    // Hard timeout if the human never responds
-      },
-    },
+      reads: ['*'],
+      prompt: 'Please review the draft before publication.',
+      reviewKeys: ['draft'],  // the memory keys the human needs to see
+      timeoutMs: 300_000,     // hard timeout if the human never responds
+    }),
     // ... publisher agent node ...
   ],
   edges: [
@@ -130,15 +125,12 @@ If the workflow is resumed after the deadline has expired, the engine transition
 
 ```typescript
 {
+approval({
   id: 'review',
-  type: 'approval',
-  approvalConfig: {
-    approvalType: 'human_review',
-    promptMessage: 'Approve deployment to production?',
-    reviewKeys: ['deployment_plan'],
-    timeoutMs: 600_000,  // 10-minute deadline
-  },
-}
+  prompt: 'Approve deployment to production?',
+  reviewKeys: ['deployment_plan'],
+  timeoutMs: 600_000,  // 10-minute deadline
+})
 ```
 
 If no human responds within 10 minutes and a resume is attempted after that window, the workflow fails with `WorkflowTimeoutError`. To handle timeouts gracefully, check `state.status === 'timeout'` in your application code and trigger appropriate fallback logic.

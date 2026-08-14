@@ -138,26 +138,20 @@ Nodes with `requires_compensation: true` push an entry onto the `compensation_st
 const graph = graph({
   name: 'Saga Example',
   nodes: [
-    {
+    runTool('stripe_charge', {
       id: 'charge_payment',
-      type: 'tool',
-      toolId: 'stripe_charge',
-      readKeys: ['order'],
-      writeKeys: ['payment_result'],
+      reads: ['order'],
       requiresCompensation: true,
-    },
-    {
+    }),
+    runTool('inventory_reserve', {
       id: 'reserve_inventory',
-      type: 'tool',
-      toolId: 'inventory_reserve',
-      readKeys: ['order'],
-      writeKeys: ['reservation'],
+      reads: ['order'],
       requiresCompensation: true,
-    },
+    }),
     // ... more nodes ...
   ],
   edges: [
-    { source: 'charge_payment', target: 'reserve_inventory' },
+    { from: 'charge_payment', to: 'reserve_inventory' },
   ],
   startNode: 'charge_payment',
   endNodes: ['confirm_order'],

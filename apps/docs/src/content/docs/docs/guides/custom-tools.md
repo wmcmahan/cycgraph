@@ -8,7 +8,7 @@ MCP is the right tool layer for third-party integrations, but it's heavy machine
 ## Define
 
 ```typescript
-import { tool } from '@cycgraph/orchestrator';
+import { tool, runTool } from '@cycgraph/orchestrator';
 import { z } from 'zod';
 
 const lookupOrder = tool({
@@ -76,11 +76,8 @@ A name that matches a built-in resolves as a built-in; anything else resolves ag
 Custom tools also work in standalone `tool` nodes:
 
 ```typescript
-node({
+runTool('lookup_order', {
   id: 'fetch-order',
-  type: 'tool',
-  toolId: 'lookup_order',
-  tools: ['lookup_order'],
   reads: ['goal'],
 })
 ```

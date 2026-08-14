@@ -13,13 +13,13 @@ The child runs in a fresh, isolated `WorkflowState`. Memory crosses the boundary
 flowchart LR
     subgraph P["PARENT GRAPH"]
         direction LR
-        Plan["📋 plan"] --> Call["🧩 subgraph node"]
-        Call --> Format["✍️ format"]
+        Plan["plan"] --> Call["subgraph node"]
+        Call --> Format["format"]
     end
 
     subgraph C["CHILD GRAPH — isolated state"]
         direction LR
-        Research["🔬 research"] --> Summarize["📝 summarize"]
+        Research["research"] --> Summarize["summarize"]
     end
 
     Call -- "inputs: parent key → child key" --> C
