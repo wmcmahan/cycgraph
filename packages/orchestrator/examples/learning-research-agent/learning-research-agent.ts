@@ -1,34 +1,12 @@
 /**
- * Learning Research Agent — Runnable Example (authoring facade, hybrid)
+ * Learning Research Agent — compound learning across runs.
  *
- * Demonstrates compound learning across workflow runs using the
- * `reflection` node + `MemoryWriter` + `MemoryRetriever`.
+ * The same graph runs twice. Run 1 reflects its notes into atomic lessons and
+ * writes them to a memory store; run 2 retrieves them into the researcher's
+ * prompt before it starts. No manual injection anywhere.
  *
- * The same graph runs twice on related goals. After run 1 the reflection
- * node distills the researcher's notes into atomic lessons and writes
- * them to an `@cycgraph/memory` store. On run 2 the researcher node's
- * `memoryQuery` directive causes the runner to call `memoryRetriever`
- * before prompt construction; the returned lessons are rendered into a
- * `## Relevant Memory` section of the system prompt. Agents compound
- * knowledge with zero manual injection.
- *
- * The graph is authored with the facade vocabulary (`agent` · `node` ·
- * `graph` · `state`). Because the example inspects the final
- * `WorkflowState` (status, tokens, cost), it keeps an explicit
- * `GraphRunner` and registers the facade agents via `agentsForGraph`.
- *
- * Demonstrates:
- * - `reflection` node with `rule_based` extractor
- * - `MemoryWriter` adapter wired to `InMemoryMemoryStore`
- * - `MemoryRetriever` adapter using tag-only `retrieveMemory()`
- * - Per-node `memoryQuery: { tags }` directive
- * - Side-by-side comparison of run 1 vs run 2 outcomes
- *
- * Usage:
- *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/learning-research-agent/learning-research-agent.ts
- *
- * Production swap: replace `InMemoryMemoryStore` with `DrizzleMemoryStore`
- * from `@cycgraph/orchestrator-postgres` and lessons survive restarts.
+ * Run:  CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/learning-research-agent/learning-research-agent.ts
+ * See:  ./README.md for the cross-run flow and how to verify it worked.
  */
 
 import {
@@ -40,7 +18,9 @@ import {
   GraphRunner,
   InMemoryAgentRegistry,
   createLogger,
+  reflection,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 import type {
   MemoryWriter,
   MemoryRetriever,
@@ -55,19 +35,16 @@ import type { SemanticFact, Provenance } from '@cycgraph/memory';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error(
-    'Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/learning-research-agent/learning-research-agent.ts',
-  );
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
 const logger = createLogger('learning-research');
 
-// Tag used by the reflection node and the in-loop retrieval — the
-// namespace keeps lessons from this graph distinct from lessons from
-// other graphs sharing the same memory store.
+// Namespaced so lessons from this graph stay distinct from any other graph
+// sharing the same store.
 const LESSON_TAG = 'graph:learning-research-v1';
 
 // ─── 1. Memory store + writer ───────────────────────────────────────────
@@ -131,7 +108,8 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
 const researcher = agent({
   name: 'Research Agent',
   description: 'Gathers concise research notes on a topic',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a research specialist.',
     'Given a goal, produce 5–8 bullet-style research notes.',
@@ -149,10 +127,8 @@ const research = node({
   agent: researcher,
   reads: ['goal', 'constraints'],
   writes: 'research_notes',
-  // Per-node memory retrieval directive. The runner calls
-  // `memoryRetriever({ tags: [LESSON_TAG] }, …)` before building this
-  // node's prompt and renders the result into a `## Relevant Memory`
-  // section. Zero manual injection required.
+  // This directive is what activates retrieval: without it the runner never
+  // calls memoryRetriever for this node, however it is wired.
   memoryQuery: {
     tags: [LESSON_TAG],
     maxFacts: 20,
@@ -160,19 +136,14 @@ const research = node({
   failurePolicy: { maxRetries: 2 },
 });
 
-const reflect = node({
+const reflect = reflection(['research_notes'], {
   id: 'reflect',
-  type: 'reflection',
   reads: ['research_notes'],
-  writes: 'research_notes_reflection',
-  reflectionConfig: {
-    sourceKeys: ['research_notes'],
-    extractor: { type: 'rule_based', minSentenceLength: 25 },
-    tags: ['lesson', LESSON_TAG],
-    // The result key is an implied write grant; pin it because the code
-    // below reads this specific name from final memory.
-    resultKey: 'research_notes_reflection',
-  },
+  extractor: { type: 'rule_based', minSentenceLength: 25 },
+  tags: ['lesson', LESSON_TAG],
+  // The result key is an implied write grant; pin it because the code below
+  // reads this specific name from final memory.
+  resultKey: 'research_notes_reflection',
   failurePolicy: { maxRetries: 1, initialBackoffMs: 500, maxBackoffMs: 5000 },
 });
 
@@ -216,6 +187,7 @@ async function runOnce(goal: string, constraints: string[]): Promise<RunOutcome>
   });
 
   const runner = new GraphRunner(workflow, initialState, {
+  providers: exampleProviders(),
     registry,
     memoryWriter,
     memoryRetriever,

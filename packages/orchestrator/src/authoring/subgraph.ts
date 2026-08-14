@@ -12,7 +12,7 @@
 
 import type { Graph } from '../graph/graph.js';
 import { isGraphBundle, type GraphBundle } from './bundle-schema.js';
-import { NODE_BRAND, type NodeValue } from './node.js';
+import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /**
  * Brand carrying an in-scope child `Graph` on a subgraph node value.
@@ -29,11 +29,7 @@ export const SUBGRAPH_CHILD: unique symbol = Symbol('cycgraph.authoring.subgraph
 export const SUBGRAPH_BUNDLE: unique symbol = Symbol('cycgraph.authoring.subgraph-bundle');
 
 /** Authoring spec for {@link subgraph}: placement, grants, and memory mappings. */
-export interface SubgraphSpec {
-  /** Node id in the parent topology. */
-  id: string;
-  /** Parent memory keys this node may read (the input slice). */
-  reads?: string[];
+export interface SubgraphSpec extends NodeCommon {
   /** Parent memory key(s) this node may write. */
   writes?: string | string[];
   /** Parent key → child key seeding of the child's isolated memory. */

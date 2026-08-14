@@ -30,13 +30,15 @@ import {
   createLogger,
   type HumanResponse,
   type WorkflowState,
+  approval,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/human-in-the-loop/human-in-the-loop.ts');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -49,7 +51,8 @@ const logger = createLogger('example');
 const writerAgent = agent({
   name: 'Writer Agent',
   description: 'Produces a draft article on a given topic',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+    provider: PROVIDER,
   instructions: [
     'You are a professional writer.',
     'Given a goal, produce a clear and engaging draft article.',
@@ -62,7 +65,8 @@ const writerAgent = agent({
 const publisherAgent = agent({
   name: 'Publisher Agent',
   description: 'Finalizes and formats an approved draft for publication',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+    provider: PROVIDER,
   instructions: [
     'You are a publishing editor.',
     'Take the approved draft and produce a final version with a headline,',
@@ -85,17 +89,15 @@ const write = node({
   failurePolicy: { maxRetries: 2 },
 });
 
-const review = node({
+// `control_flow` is an implied grant on an approval node: pausing for a human
+// is what the type does, so it needs no declaration.
+const review = approval({
   id: 'review',
-  type: 'approval',
-  approvalConfig: {
-    approvalType: 'human_review',
-    promptMessage: 'Please review the draft before publication.',
-    reviewKeys: ['draft'],
-    timeoutMs: 300_000, // 5 minutes
-  },
+  prompt: 'Please review the draft before publication.',
+  reviewKeys: ['draft'],
+  timeoutMs: 300_000, // 5 minutes
   reads: ['*'],
-  writes: ['*', 'control_flow'],
+  writes: ['*'],
   failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 1000 },
 });
 
@@ -138,6 +140,7 @@ const persistence = new InMemoryPersistenceProvider();
 
 function createRunner(workflowState: WorkflowState): GraphRunner {
   const runner = new GraphRunner(workflow, workflowState, {
+  providers: exampleProviders(),
     registry,
     persistState: async (s) => {
       await persistence.saveWorkflowState(s);

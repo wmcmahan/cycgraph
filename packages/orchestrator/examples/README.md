@@ -4,10 +4,24 @@ Runnable examples for `@cycgraph/orchestrator`.
 
 ## Prerequisites
 
-- Node.js 24+
-- `ANTHROPIC_API_KEY` environment variable (get one at [console.anthropic.com](https://console.anthropic.com))
+- Node.js 22+
+- `ANTHROPIC_API_KEY` ([console.anthropic.com](https://console.anthropic.com)), or a local model
 
-> To use OpenAI instead, change `provider` to `'openai'`, update the `model` field (e.g. `'gpt-4o'`), and set `OPENAI_API_KEY`. Both providers are built-in. For other providers (Groq, Ollama, Mistral, etc.), register them via `ProviderRegistry` — see the [Custom LLM Providers](../README.md#custom-llm-providers) section.
+### Running against a local model
+
+Every example resolves its model through `_model.ts`. Point `CYCGRAPH_MODEL` at
+an Ollama tag to run any of them with no API key and no cost:
+
+```bash
+CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/supervisor-routing/supervisor-routing.ts
+```
+
+The graph, the helpers, and the engine path are identical; only the model
+changes. `npm run smoke` runs the whole suite this way.
+
+> For OpenAI, set `provider: 'openai'` and a `gpt-*` model with `OPENAI_API_KEY`.
+> Both are built in. Other providers register through `ProviderRegistry` — see
+> [Custom LLM Providers](../README.md#custom-llm-providers).
 
 ## Available Examples
 
@@ -84,6 +98,37 @@ BRAVE_API_KEY=... ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/mcp-integration/
 # Postgres (needs docker-compose up -d + npm run db:migrate)
 ANTHROPIC_API_KEY=sk-ant-... DATABASE_URL=postgresql://... npx tsx examples/postgres-persistence/postgres-persistence.ts
 ```
+
+## Conventions
+
+Every example is a folder containing a `README.md` and one entry `.ts` named
+after it. Examples that demonstrate composition (`graph-interface`,
+`graph-interop`, `evals`) span several files, because being split across
+modules is the thing they show.
+
+The division of labour: the README carries the prose — what the example
+demonstrates, the topology, expected output, caveats, and variants. The source
+carries a short header (what it does, how to run it, a pointer to the README)
+and inline comments only where a line would puzzle someone who already knows
+the engine. Design rationale belongs in the README, not above the imports.
+
+READMEs follow one shape:
+
+```
+# <Name>            one paragraph: what this demonstrates and why
+## Graph            topology
+## Lifecycle & State  which keys each node reads and writes
+## Run              both the hosted and local commands
+## Expected Output  trimmed real output
+## Notes            caveats, variants, what to watch for
+```
+
+`Graph` and `Run` are required of anything runnable. `Notes` appears only when
+there is something to say; an empty section is worse than none.
+
+Three READMEs are deliberately shaped differently, because they are not single
+runnable examples: `evals` indexes the eval suites, and `graph-interface` and
+`graph-interop` are guides to a boundary that spans several files.
 
 ## Next Steps
 

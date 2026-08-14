@@ -1,30 +1,9 @@
 /**
- * MCP Integration — Runnable Example
+ * MCP Integration — agents calling tools from MCP servers, with taint tracking.
  *
- * Demonstrates how to use the built-in default MCP servers (web search
- * and web fetch) with agents. Uses `registerDefaultMCPServers()` for
- * one-line setup, then declares tool references via `ToolSource[]`.
- *
- * Web search uses @modelcontextprotocol/server-brave-search (npm/npx).
- * Fetch uses mcp-server-fetch (Python/uvx).
- *
- * Demonstrates: registerDefaultMCPServers, MCPConnectionManager,
- * ToolSource declarations, taint tracking, connection lifecycle.
- *
- * The graph is authored with the facade vocabulary (`agent` · `node` ·
- * `graph` · `state`); an agent's `tools` array takes `{ mcp: 'server-id' }`
- * references directly. Because the example inspects the final WorkflowState
- * (taint registry, visited nodes) and wires the MCPConnectionManager plus
- * tool-call event listeners onto the runner, it keeps an explicit GraphRunner
- * and registers the facade agents via `agentsForGraph`.
- *
- * Prerequisites:
- *   - BRAVE_API_KEY for web search (get one at https://brave.com/search/api/)
- *   - ANTHROPIC_API_KEY for the LLM agents
- *
- * Usage:
- *   BRAVE_API_KEY=BSA-... ANTHROPIC_API_KEY=sk-ant-... \
- *     npx tsx examples/mcp-integration/mcp-integration.ts
+ * Run:  BRAVE_API_KEY=BSA-... ANTHROPIC_API_KEY=sk-ant-... \
+ *         npx tsx examples/mcp-integration/mcp-integration.ts
+ * See:  ./README.md for what the servers are and how taint propagates.
  */
 
 import {
@@ -40,11 +19,13 @@ import {
   registerDefaultMCPServers,
   createLogger,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 // ─── 0. Fail fast if no API keys ────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -56,31 +37,22 @@ if (!process.env.BRAVE_API_KEY) {
 const logger = createLogger('example.mcp');
 
 // ─── 1. Register MCP servers with one call ──────────────────────────────
-// registerDefaultMCPServers() sets up pre-configured servers for:
-//   - web-search: Brave Search via @modelcontextprotocol/server-brave-search (npx)
-//   - fetch: URL content extraction via mcp-server-fetch (uvx)
-//
-// Servers use stdio transport — packages are resolved on-the-fly.
 
 const mcpRegistry = new InMemoryMCPServerRegistry();
 const registered = await registerDefaultMCPServers(mcpRegistry);
 logger.info(`Registered MCP servers: ${registered.join(', ')}`);
 
-// You can also register selectively or with overrides:
-//   registerDefaultMCPServers(mcpRegistry, { only: ['fetch'] });
-//   registerDefaultMCPServers(mcpRegistry, { braveApiKey: 'BSA-...' });
-//   registerDefaultMCPServers(mcpRegistry, { allowedAgents: ['<agent-id>'] });
 
 // ─── 2. Define agents with MCP tool references ──────────────────────────
-// An agent's `tools` array takes `{ mcp: 'server-id' }` references — the
-// MCPConnectionManager resolves them at execution time by connecting to the
+// The MCPConnectionManager resolves these at execution time by connecting to the
 // registered servers.
 
 // Research agent: uses web-search MCP server + fetch MCP server
 const researcher = agent({
   name: 'Web Research Agent',
   description: 'Researches topics using web search and URL fetching',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+    provider: PROVIDER,
   instructions: [
     'You are a research agent with access to web search and URL fetching.',
     'Use brave_web_search to find current information about the topic.',
@@ -99,7 +71,8 @@ const researcher = agent({
 const writer = agent({
   name: 'Summary Writer',
   description: 'Writes concise summaries from research notes',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+    provider: PROVIDER,
   instructions: [
     'You are a writer. Using the research notes, produce a clear, well-structured summary.',
     'Include key facts and cite sources when available.',
@@ -160,6 +133,7 @@ async function main() {
   });
 
   const runner = new GraphRunner(workflow, initialState, {
+  providers: exampleProviders(),
     registry: agentRegistry,
     tools: [mcpManager],
   });

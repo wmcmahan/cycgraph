@@ -12,14 +12,18 @@
  * @module authoring/a2a
  */
 
-import { NODE_BRAND, type NodeValue } from './node.js';
+import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
-/** Authoring spec for {@link a2a}: placement, grants, and mappings. */
-export interface A2ASpec {
-  /** Node id in the topology. */
-  id: string;
-  /** Parent memory keys this node may read (the input slice). */
-  reads?: string[];
+/**
+ * Authoring spec for {@link a2a}: placement, grants, and mappings.
+ *
+ * `budget` is deliberately absent. A per-node cap is measured against the
+ * tokens and cost a node reports, and a remote agent reports none: its spend
+ * happens on infrastructure this engine cannot meter. Accepting the field
+ * would promise a cap that could never fire. `maxWaitMs` and the failure
+ * policy are the bounds that do apply.
+ */
+export interface A2ASpec extends Omit<NodeCommon, 'budget'> {
   /**
    * Parent memory key(s) this node may write. The parent-side keys of
    * `outputs` are already implied grants; declare this only to add a key

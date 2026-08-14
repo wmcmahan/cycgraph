@@ -1,29 +1,9 @@
 /**
- * Verifier Fix-Loop — Runnable Example (authoring facade)
+ * Verifier Fix-Loop — a generator's output checked by a deterministic verifier,
+ * with failures routed back for another pass.
  *
- * A 3-node compound-systems workflow demonstrating the
- * generator → verifier → fixer loop:
- *
- *   extract       (LLM generator: noisy email → structured purchase order)
- *      ↓ always
- *   verify_email  (deterministic JSONPath verifier on the extracted email)
- *      ↓ passed == false
- *   fix           (LLM fixer: re-extracts with verifier feedback)
- *      ↓ always
- *   verify_email  (loop)
- *
- * When the verifier passes, no outgoing edge matches and the workflow
- * terminates naturally. The deterministic verifier ensures the final
- * output meets a structural invariant even when the generator misses
- * on the first try — the heart of the compound-systems pattern.
- *
- * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
- * through an explicit GraphRunner because the example inspects the final
- * WorkflowState (verification outcome, iteration count, cost) and attaches
- * event listeners, which the one-call `run()` helper does not expose.
- *
- * Usage:
- *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/verifier-fix-loop/verifier-fix-loop.ts
+ * Run:  CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/verifier-fix-loop/verifier-fix-loop.ts
+ * See:  ./README.md for how verifier results land in memory.
  */
 
 import {
@@ -36,13 +16,16 @@ import {
   InMemoryAgentRegistry,
   InMemoryPersistenceProvider,
   createLogger,
+  verifier,
+  router,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/verifier-fix-loop/verifier-fix-loop.ts');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -55,7 +38,8 @@ const logger = createLogger('example');
 const extractorAgent = agent({
   name: 'Purchase Order Extractor',
   description: 'Extracts a structured purchase order from a noisy customer email',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a strict data extraction agent.',
     'Given the text in memory key `email_text`, extract a purchase order and write it to memory key `purchase_order` as a JSON object with these fields:',
@@ -72,7 +56,8 @@ const extractorAgent = agent({
 const fixerAgent = agent({
   name: 'Purchase Order Fixer',
   description: 'Re-extracts a purchase order using verifier feedback',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a data correction agent.',
     'The previous extraction failed verification. Read:',
@@ -97,18 +82,13 @@ const extract = node({
   writes: 'purchase_order',
 });
 
-const verifyEmail = node({
+// The verifier's target must be readable; its result keys are implied.
+const verifyEmail = verifier.jsonPath('purchase_order', {
   id: 'verify_email',
-  type: 'verifier',
-  verifierConfig: {
-    type: 'jsonpath',
-    targetKey: 'purchase_order',
-    path: '$.customer_email',
-    // A real email has at least one `@` and one `.`, no whitespace.
-    // Catches model outputs like "not provided", null, or junk strings.
-    assertion: { op: 'matches', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$' },
-  },
-  // The verifier's target_key must be readable; its result keys are implied.
+  path: '$.customer_email',
+  // A real email has at least one `@` and one `.`, no whitespace.
+  // Catches model outputs like "not provided", null, or junk strings.
+  assertion: { op: 'matches', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$' },
   reads: ['purchase_order'],
 });
 
@@ -119,23 +99,27 @@ const fix = node({
   writes: 'purchase_order',
 });
 
-// The verifier's success path is implicit: when it passes, no outgoing edge
-// matches and the runner completes the workflow. That means every node has an
-// outbound edge, so end nodes cannot be inferred — pass them explicitly.
+// Both verifier outcomes need an explicit edge. An end node terminates before
+// its edges are evaluated, so the verifier cannot be one and still branch:
+// success routes to a terminal `done` node instead.
+//
+// Conditions use the bare truthy form. filtrex has no boolean literals, so
+// `== false` compares against an undefined property — it is false when the
+// value IS false and true when the key is missing, the exact inverse.
+const done = router({ id: 'done', reads: ['purchase_order'] });
+
 const workflow = graph({
   name: 'Verifier Fix-Loop',
   description: 'Generator → deterministic verifier → fixer loop for reliable structured extraction',
-  nodes: [extract, verifyEmail, fix],
+  nodes: [extract, verifyEmail, fix, done],
   edges: [
-    // Always: extract → verify
     { from: extract, to: verifyEmail },
-    // Failure path: verify → fix
-    { from: verifyEmail, to: fix, when: 'memory.verify_email_verification_passed == false' },
-    // Loop: fix → verify
+    { from: verifyEmail, to: fix, when: 'not memory.verify_email_verification_passed' },
+    { from: verifyEmail, to: done, when: 'memory.verify_email_verification_passed' },
     { from: fix, to: verifyEmail },
   ],
   startNode: extract,
-  endNodes: [],
+  endNodes: [done],
 });
 
 // ─── 3. Set up registry, state, and runner ───────────────────────────────
@@ -177,6 +161,7 @@ const initialState = state({
 const persistence = new InMemoryPersistenceProvider();
 
 const runner = new GraphRunner(workflow, initialState, {
+  providers: exampleProviders(),
   registry,
   persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });

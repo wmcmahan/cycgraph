@@ -26,13 +26,15 @@ import {
   InMemoryAgentRegistry,
   InMemoryPersistenceProvider,
   createLogger,
+  supervisor,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
+// ─── 0. Fail fast if the run can't reach a model ─────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/supervisor-routing/supervisor-routing.ts');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -45,7 +47,8 @@ const logger = createLogger('example');
 const supervisorAgent = agent({
   name: 'Supervisor Agent',
   description: 'Routes tasks between specialist agents to produce a polished article',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a project supervisor coordinating a team of specialists to produce a high-quality article.',
     'You have three team members: "research" (gathers facts), "write" (produces drafts), and "edit" (polishes prose).',
@@ -60,7 +63,8 @@ const supervisorAgent = agent({
 const researcherAgent = agent({
   name: 'Research Agent',
   description: 'Gathers background information on a topic',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a research specialist.',
     'Given a goal, produce concise, factual research notes.',
@@ -74,7 +78,8 @@ const researcherAgent = agent({
 const writerAgent = agent({
   name: 'Writer Agent',
   description: 'Produces a draft article from research notes',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a professional writer.',
     'Using the provided research notes, produce a clear and engaging article draft.',
@@ -87,7 +92,8 @@ const writerAgent = agent({
 const editorAgent = agent({
   name: 'Editor Agent',
   description: 'Polishes a draft into a final article',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a meticulous editor.',
     'Review the draft for clarity, grammar, flow, and factual accuracy.',
@@ -125,17 +131,13 @@ const edit = node({
   failurePolicy: { maxRetries: 2 },
 });
 
-const supervisor = node({
+// No reads declared: a supervisor derives its reads from the managed nodes'
+// writes, and its routing/completion permissions are implied by the node type.
+// Goal and constraints are always visible.
+const lead = supervisor(supervisorAgent, {
   id: 'supervisor',
-  type: 'supervisor',
-  agent: supervisorAgent,
-  // No reads declared: a supervisor derives its reads from the managed
-  // nodes' writes, and its routing/completion permissions are implied by
-  // the node type. Goal and constraints are always visible.
-  supervisorConfig: {
-    managedNodes: [research, write, edit],
-    maxIterations: 10,
-  },
+  manages: [research, write, edit],
+  maxIterations: 10,
   failurePolicy: { maxRetries: 2 },
 });
 
@@ -144,18 +146,18 @@ const supervisor = node({
 const workflow = graph({
   name: 'Supervisor Routing',
   description: 'Cyclic hub-and-spoke workflow with LLM-powered dynamic routing',
-  nodes: [supervisor, research, write, edit],
+  nodes: [lead, research, write, edit],
   edges: [
     // Supervisor → specialists (outbound)
-    { from: supervisor, to: research },
-    { from: supervisor, to: write },
-    { from: supervisor, to: edit },
+    { from: lead, to: research },
+    { from: lead, to: write },
+    { from: lead, to: edit },
     // Specialists → supervisor (return)
-    { from: research, to: supervisor },
-    { from: write, to: supervisor },
-    { from: edit, to: supervisor },
+    { from: research, to: lead },
+    { from: write, to: lead },
+    { from: edit, to: lead },
   ],
-  startNode: supervisor,
+  startNode: lead,
   endNodes: [], // Termination via __done__ sentinel
 });
 
@@ -177,6 +179,7 @@ const persistence = new InMemoryPersistenceProvider();
 
 const runner = new GraphRunner(workflow, initialState, {
   registry,
+  providers: exampleProviders(),
   persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 

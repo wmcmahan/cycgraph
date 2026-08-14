@@ -1,29 +1,9 @@
 /**
- * Prompt Builder with Self-Annealing Loop — Runnable Example (authoring facade)
+ * Prompt Builder — a critic-scored annealing loop that enriches a vague goal
+ * before a supervisor routes any real work.
  *
- * A 7-node workflow where a Prompt Builder agent transforms vague user
- * goals into structured instructions, then a Prompt Critic scores the
- * quality. If the score is below threshold, the builder refines using
- * the critic's feedback — iterating until the instructions are strong
- * enough to hand off to the supervisor.
- *
- * Graph:
- *   prompt_builder → prompt_critic ──[score >= 0.8]──→ supervisor ⇄ [research, write, edit]
- *                         │
- *                         └──[score < 0.8]──→ prompt_builder (refine)
- *
- * Demonstrates: self-annealing prompt enrichment, conditional edges,
- * iterative refinement with critic feedback, goal decomposition, and
- * structured constraint injection before supervisor routing.
- *
- * Authored with the facade vocabulary (`agent` / `node` / `graph`), then run
- * through an explicit GraphRunner because the example attaches event listeners
- * and inspects the final WorkflowState (annealing rounds, routing history,
- * token/cost totals), which the one-call `run()` helper does not expose. The
- * graph is cyclic, so start/end are passed explicitly.
- *
- * Usage:
- *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/prompt-builder/prompt-builder.ts
+ * Run:  ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/prompt-builder/prompt-builder.ts
+ * See:  ./README.md for the topology and why this needs a capable model.
  */
 
 import {
@@ -36,13 +16,15 @@ import {
   InMemoryPersistenceProvider,
   InMemoryAgentRegistry,
   createLogger,
+  supervisor,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 // ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/prompt-builder/prompt-builder.ts');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -54,7 +36,8 @@ const logger = createLogger('example');
 const promptBuilderAgent = agent({
   name: 'Prompt Builder Agent',
   description: 'Transforms vague user goals into structured, actionable instructions',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a prompt engineering specialist. Your job is to take a raw user goal and transform it into structured, actionable instructions that a team of AI agents can execute effectively.',
     '',
@@ -88,7 +71,8 @@ const promptBuilderAgent = agent({
 const promptCriticAgent = agent({
   name: 'Prompt Critic Agent',
   description: 'Evaluates the quality of structured prompt instructions and provides feedback',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a prompt quality evaluator. Your job is to assess whether structured instructions are clear, specific, and actionable enough for a team of AI agents to execute.',
     '',
@@ -121,7 +105,8 @@ const promptCriticAgent = agent({
 const supervisorAgent = agent({
   name: 'Supervisor Agent',
   description: 'Routes tasks between specialist agents using the structured plan',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a project supervisor coordinating a team of specialists.',
     'You have three team members: "research" (gathers facts), "write" (produces drafts), and "edit" (polishes prose).',
@@ -142,7 +127,8 @@ const supervisorAgent = agent({
 const researcherAgent = agent({
   name: 'Research Agent',
   description: 'Gathers background information guided by the structured plan',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a research specialist.',
     'Read the "refined_goal" and "task_plan" from the workflow state — these contain your specific research instructions.',
@@ -156,7 +142,8 @@ const researcherAgent = agent({
 const writerAgent = agent({
   name: 'Writer Agent',
   description: 'Produces a draft article guided by the structured plan',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a professional writer.',
     'Read the "refined_goal", "task_plan", and "quality_criteria" from the workflow state.',
@@ -171,7 +158,8 @@ const writerAgent = agent({
 const editorAgent = agent({
   name: 'Editor Agent',
   description: 'Polishes a draft using the quality criteria as a checklist',
-  model: 'claude-sonnet-4-6',
+  model: MODEL,
+  provider: PROVIDER,
   instructions: [
     'You are a meticulous editor.',
     'Read the "quality_criteria" from the workflow state — this is your checklist.',
@@ -215,16 +203,12 @@ const promptCritic = node({
 // The supervisor reads the enrichment outputs (refined_goal, task_plan,
 // quality_criteria), which are not managed-node writes, so reads stay
 // explicit rather than derived.
-const supervisor = node({
+const lead = supervisor(supervisorAgent, {
   id: 'supervisor',
-  type: 'supervisor',
-  agent: supervisorAgent,
+  manages: ['research', 'write', 'edit'],
+  maxIterations: 10,
   reads: ['*'],
   writes: ['*'],
-  supervisorConfig: {
-    managedNodes: ['research', 'write', 'edit'],
-    maxIterations: 10,
-  },
   failurePolicy: { maxRetries: 2 },
 });
 
@@ -257,22 +241,22 @@ const edit = node({
 const workflow = graph({
   name: 'Prompt Builder with Self-Annealing Loop',
   description: 'Iterative prompt enrichment with critic feedback before supervisor-routed execution',
-  nodes: [promptBuilder, promptCritic, supervisor, research, write, edit],
+  nodes: [promptBuilder, promptCritic, lead, research, write, edit],
   edges: [
     // Phase 1: Self-annealing loop
     { from: promptBuilder, to: promptCritic },
     // Loop back if prompt quality is below threshold
     { from: promptCritic, to: promptBuilder, when: 'number(memory.prompt_score) < 0.8' },
     // Graduate to execution when prompt quality passes
-    { from: promptCritic, to: supervisor, when: 'number(memory.prompt_score) >= 0.8' },
+    { from: promptCritic, to: lead, when: 'number(memory.prompt_score) >= 0.8' },
 
     // Phase 2: Supervisor ⇄ specialists
-    { from: supervisor, to: research },
-    { from: supervisor, to: write },
-    { from: supervisor, to: edit },
-    { from: research, to: supervisor },
-    { from: write, to: supervisor },
-    { from: edit, to: supervisor },
+    { from: lead, to: research },
+    { from: lead, to: write },
+    { from: lead, to: edit },
+    { from: research, to: lead },
+    { from: write, to: lead },
+    { from: edit, to: lead },
   ],
   startNode: promptBuilder,
   endNodes: [], // Termination via __done__ sentinel
@@ -296,6 +280,7 @@ const initialState = state({
 const persistence = new InMemoryPersistenceProvider();
 
 const runner = new GraphRunner(workflow, initialState, {
+  providers: exampleProviders(),
   registry,
   persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });

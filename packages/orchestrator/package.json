@@ -58,7 +58,8 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "lint": "tsc --noEmit",
-    "check:pricing": "tsx scripts/check-model-pricing.ts"
+    "check:pricing": "tsx scripts/check-model-pricing.ts",
+    "smoke": "tsx examples/smoke.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",

@@ -1,27 +1,12 @@
 /**
- * Graph Interop: consume — Runnable Example (2 of 2)
+ * Graph Interop: consume (2 of 2) — compose with a graph you did not write.
  *
- * The consumer's half, and the point of the example: this file never imports
- * publish.ts. It reads a JSON file — the same thing an npm package, an object
- * store, or a registry would hand you — and composes with it.
+ * This file never imports publish.ts. It reads a JSON artifact, the same thing
+ * an npm package or a registry would hand you, and composes with it.
  *
- * The sequence a host should follow with any graph it did not write:
- *
- *   1. `parseBundle()` rather than `JSON.parse()`. It validates the artifact
- *      AND cross-checks the manifest against what the bundle actually does,
- *      so a manifest that under-declares its dependencies is rejected before
- *      anything runs.
- *   2. Read the manifest. Interface and requirements are both data, so the
- *      whole contract is inspectable without executing a node.
- *   3. `checkRequirements()` to preflight: fail fast with a missing list
- *      instead of deep in a run.
- *   4. Bind implementations to the required names, then `subgraph()` it in.
- *      The declared interface is validated against your mapping at compile
- *      time, exactly as it would be for a local child graph.
- *
- * Usage:
- *   npx tsx examples/graph-interop/publish.ts        # writes the artifact
- *   ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/graph-interop/consume.ts
+ * Run:  npx tsx examples/graph-interop/publish.ts   # writes the artifact
+ *       CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/graph-interop/consume.ts
+ * See:  ./README.md for the sequence a host should follow and what it defends against.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -39,12 +24,13 @@ import {
   BundleIntegrityError,
   GraphSpecError,
 } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 const BUNDLE_PATH = join(import.meta.dirname, 'market-analysis.bundle.json');
-const MODEL = 'claude-sonnet-4-6';
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY is required');
+const missing = missingCredentials();
+if (missing) {
+  console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
@@ -160,6 +146,7 @@ const memoNode = node({
   id: 'memo',
   agent: agent({
     model: MODEL,
+    provider: PROVIDER,
     instructions:
       'Turn the sector analysis into a two-sentence investment memo: one sentence on the thesis, ' +
       'one on the risk.',
@@ -194,7 +181,7 @@ const result = await run(
     goal: 'Produce an investment memo on grid-scale storage.',
     memory: { target_sector: 'grid-scale storage', target_year: 2026 },
   },
-  { runner: { tools: [marketData] } },
+  { runner: { providers: exampleProviders(), tools: [marketData] } },
 );
 
 console.log('═══ Sector analysis (from the third-party block) ═══\n' + (result.sector_analysis ?? '(none)'));

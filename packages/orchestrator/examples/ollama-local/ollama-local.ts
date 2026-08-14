@@ -1,38 +1,8 @@
 /**
- * Ollama Local — Runnable Example (authoring facade)
+ * Ollama Local — a two-node pipeline against a local model, no API key.
  *
- * A 2-node linear workflow demonstrating the registerOllamaProvider()
- * integration. Runs against a local Ollama instance with any model.
- *
- * Authored with the facade vocabulary (`agent` / `node` / `graph`). The local
- * provider is registered onto a run-scoped ProviderRegistry and passed via
- * GraphRunnerOptions.providers — no process-global mutation. The example runs
- * through an explicit GraphRunner because it attaches event listeners and
- * inspects the final WorkflowState (status, tokens, cost).
- *
- * Prerequisites:
- *   1. Install Ollama: https://ollama.com
- *   2. Pull a model: ollama pull gemma2:9b
- *   3. Ensure Ollama is running: ollama serve
- *
- * Usage:
- *   npx tsx examples/ollama-local/ollama-local.ts
- *
- * Environment variables:
- *   OLLAMA_BASE_URL  — Ollama server URL (default: http://localhost:11434)
- *   OLLAMA_MODEL     — Model to use (default: gemma2:9b)
- *
- * Provider options — pick ONE:
- *
- *   Option A: @ai-sdk/openai-compatible (official Vercel package)
- *     npm install @ai-sdk/openai-compatible
- *
- *   Option B: ollama-ai-provider-v2 (community package)
- *     npm install ollama-ai-provider-v2
- *
- * This example uses @ai-sdk/openai pointed at Ollama's /v1 endpoint
- * (Ollama exposes an OpenAI-compatible API). For production use,
- * prefer @ai-sdk/openai-compatible or ollama-ai-provider-v2.
+ * Run:  ollama serve && npx tsx examples/ollama-local/ollama-local.ts
+ * See:  ./README.md for provider-client options and running any example locally.
  */
 
 import {
@@ -51,10 +21,6 @@ import {
 
 import { createOpenAI } from '@ai-sdk/openai';
 
-// ─── To use @ai-sdk/openai-compatible instead: ─────────────────────
-// import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-// ─── To use ollama-ai-provider-v2 instead: ─────────────────────────
-// import { createOllama } from 'ollama-ai-provider-v2';
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'qwen2.5:7b';
@@ -151,9 +117,7 @@ for (const config of agentsForGraph(workflow)) registry.register(config);
 
 const providers = createProviderRegistry();
 
-// Using @ai-sdk/openai pointed at Ollama's OpenAI-compatible /v1 endpoint.
-// This works because Ollama exposes an OpenAI-compatible API.
-//
+// @ai-sdk/openai works here because Ollama exposes an OpenAI-compatible /v1.
 // Alternative factories (swap into registerOllamaProvider):
 //
 //   @ai-sdk/openai-compatible:

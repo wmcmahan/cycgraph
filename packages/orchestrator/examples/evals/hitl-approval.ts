@@ -10,20 +10,24 @@
  * @module evals/hitl-approval
  */
 
-import { graph, node, type EvalSuite } from '@cycgraph/orchestrator';
+import {
+  graph,
+  type EvalSuite,
+  runTool,
+  approval,
+} from '@cycgraph/orchestrator';
 
 const retryOnce = { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
 
-const prepare = node({ id: 'prepare', type: 'tool', toolId: 'mock_prepare', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
-const review = node({
+const prepare = runTool('mock_prepare', { id: 'prepare', reads: ['*'], failurePolicy: retryOnce });
+const review = approval({
   id: 'review',
-  type: 'approval',
-  approvalConfig: { promptMessage: 'Please review the prepared data.' },
+  prompt: 'Please review the prepared data.',
   reads: ['*'],
   writes: ['*'],
   failurePolicy: retryOnce,
 });
-const finalize = node({ id: 'finalize', type: 'tool', toolId: 'mock_finalize', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
+const finalize = runTool('mock_finalize', { id: 'finalize', reads: ['*'], failurePolicy: retryOnce });
 
 const hitlGraph = graph({
   name: 'HITL Approval Eval',

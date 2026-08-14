@@ -16,7 +16,7 @@ flowchart LR
     research -- always --> reflect
 ```
 
-## Cross-run flow
+## Lifecycle & State
 
 ```mermaid
 sequenceDiagram
@@ -73,7 +73,7 @@ Tokens used:         run1=...  run2=...
 
 The expected pattern is that run 2's notes reference the run-1 lessons in parentheses ("(applying: cite primary sources)"). The exact lessons depend on what the LLM writes for run 1 — that's the point: the system extracts whatever generalisable knowledge run 1 produced and feeds it forward.
 
-## How it works
+## Notes
 
 1. **InMemoryMemoryStore + InMemoryMemoryIndex** from `@cycgraph/memory` hold the lessons.
 2. **`memoryWriter`** is a small adapter that maps cycgraph's `MemoryWriterFact` shape onto `SemanticFact` and calls `memoryStore.putFact`.

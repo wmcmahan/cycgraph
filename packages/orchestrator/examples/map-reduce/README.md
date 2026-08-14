@@ -2,7 +2,7 @@
 
 Parallel research with LLM-powered synthesis. A Splitter decomposes a topic, a Map node fans out to parallel Researcher workers, and a Synthesizer merges everything into a unified summary.
 
-## Graph Topology
+## Graph
 
 ```mermaid
 flowchart LR
@@ -43,7 +43,7 @@ sequenceDiagram
   Syn->>Syn: Produce unified summary
 ```
 
-## State Flow
+## Lifecycle & State
 
 ```
 ┌─────────────┐     ┌──────────────────────────────────────┐     ┌──────────────┐
@@ -81,7 +81,7 @@ cd packages/orchestrator
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/map-reduce/map-reduce.ts
 ```
 
-## Key Concepts
+## Notes
 
 - **Map node**: Resolves items via JSONPath (`$.memory.topics`), fans out to a worker node in parallel
 - **Worker injection**: Each worker receives `map_item`, `map_index`, `map_total` in the `## Task Context` section of its prompt

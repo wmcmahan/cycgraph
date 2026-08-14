@@ -5,19 +5,18 @@ gates an LLM extraction and routes failures back to a fixer that uses the
 verifier's feedback to correct itself.
 
 ```
-   ┌───────────┐         ┌──────────────┐         ┌────────┐
-   │  extract  │ ──────▶ │ verify_email │ ──┬───▶ │  fix   │
-   └───────────┘         └──────────────┘   │     └────────┘
-                                            │          │
-                       passed == false ─────┘          │
-                                                       │
-                       passed == true  ──────▶ (done)  │
-                       ▲                               │
-                       └───────────────────────────────┘
-                                  loop back
+  ┌─────────┐      ┌──────────────┐   not passed   ┌───────┐
+  │ extract │ ───▶ │ verify_email │ ─────────────▶ │  fix  │
+  └─────────┘      └──────────────┘                └───────┘
+                      │       ▲                        │
+               passed │       └───── loop back ────────┘
+                      ▼
+                ┌──────────┐
+                │   done   │  (end node)
+                └──────────┘
 ```
 
-## Why this matters
+## Notes
 
 This is the canonical compound-AI-systems pattern in one screen of code.
 A frontier model called once can still emit `"customer_email": "not
@@ -36,7 +35,7 @@ Three properties this demonstrates:
 3. **Reliability compounds.** A 90%-per-step generator with one
    verifier-loop pass reaches ~99% end-to-end on the verified property.
 
-## What the graph looks like
+## Graph
 
 | Node | Type | Role |
 |---|---|---|
@@ -47,14 +46,21 @@ Three properties this demonstrates:
 Edges:
 
 - `extract → verify_email` (always)
-- `verify_email → fix` (conditional: `memory.verify_email_verification_passed == false`)
+- `verify_email → fix` when `not memory.verify_email_verification_passed`
+- `verify_email → done` when `memory.verify_email_verification_passed`
 - `fix → verify_email` (always — loops back)
 
-The graph has no explicit `end_nodes`. When verification passes, no outgoing
-edge condition matches and the runner completes the workflow naturally.
-`max_iterations` is the loop safeguard.
+**Both outcomes need an explicit edge.** An end node terminates before its
+edges are evaluated, so the verifier cannot both be terminal and branch.
+Success routes to a `done` node instead, which is the end node.
 
-## How verifier output lands in memory
+**Conditions use the bare truthy form.** filtrex has no boolean literals, so
+`memory.x == false` compares against an undefined property: it is false when
+the value IS false, and true when the key is missing — the exact inverse of
+the intent. The graph validator warns about this at load time.
+`max_iterations` remains the loop safeguard.
+
+## Lifecycle & State
 
 After every `verify_email` execution, the verifier writes two keys:
 
@@ -76,7 +82,7 @@ The flat `_passed` boolean is what edges route on (filtrex handles flat
 properties well). The structured object is what the fixer reads to produce
 a better attempt.
 
-## Running it
+## Run
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/verifier-fix-loop/verifier-fix-loop.ts
