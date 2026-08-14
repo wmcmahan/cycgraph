@@ -15,7 +15,7 @@
 import { z } from 'zod';
 import { defineTool, type DefinedTool } from '@cycgraph/orchestrator';
 
-/** Options for {@link createCsvParseTool}. */
+/** Options for {@link csvParseTool}. */
 export interface CsvParseToolOptions {
   /** Cap on accepted CSV input size in bytes. @default 5 MiB */
   maxInputBytes?: number;
@@ -82,7 +82,7 @@ export function parseCsv(input: string, delimiter: string): string[][] {
 /**
  * Create the `csv_parse` tool.
  */
-export function createCsvParseTool(options: CsvParseToolOptions = {}): DefinedTool {
+export function csvParseTool(options: CsvParseToolOptions = {}): DefinedTool {
   const maxInputBytes = options.maxInputBytes ?? 5 * 1024 * 1024;
   const maxRows = options.maxRows ?? 1000;
 

@@ -27,7 +27,7 @@ import type { MemoryStore, MemoryIndex } from '@cycgraph/memory';
 /** Embedding hook enabling free-text queries. */
 export type EmbedFn = (text: string) => Promise<number[]>;
 
-/** Options for {@link createMemorySearchTool}. */
+/** Options for {@link memorySearchTool}. */
 export interface MemorySearchToolOptions {
   /** The memory store to search. */
   store: MemoryStore;
@@ -52,7 +52,7 @@ export interface MemorySearchToolOptions {
 /**
  * Create the `memory_search` tool for a store/index pair.
  */
-export function createMemorySearchTool(options: MemorySearchToolOptions): DefinedTool {
+export function memorySearchTool(options: MemorySearchToolOptions): DefinedTool {
   const maxResults = options.maxResults ?? 10;
 
   return defineTool({

@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { GraphRunner, createGraph, createWorkflowState } from '@cycgraph/orchestrator';
-import { createJsonTransformTool } from '../src/data/json-transform.js';
+import { jsonTransformTool } from '../src/data/json-transform.js';
 
 describe('GraphRunner integration', () => {
   it('executes a tools-package tool inside a tool node', async () => {
@@ -33,7 +33,7 @@ describe('GraphRunner integration', () => {
       memory: { data: { orders: [{ id: 'o-1', total: 42 }] }, path: 'orders[0].total' },
     });
     const runner = new GraphRunner(graph, state, {
-      tools: [createJsonTransformTool()],
+      tools: [jsonTransformTool()],
     });
 
     const finalState = await runner.run();

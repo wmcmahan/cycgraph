@@ -5,9 +5,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { createCsvParseTool, parseCsv } from '../src/data/csv-parse.js';
-import { createStatsTool } from '../src/data/stats.js';
-import { createTextExtractTool } from '../src/data/text-extract.js';
+import { csvParseTool, parseCsv } from '../src/data/csv-parse.js';
+import { statsTool } from '../src/data/stats.js';
+import { textExtractTool } from '../src/data/text-extract.js';
 
 type CsvResult = {
   headers: string[] | null;
@@ -49,8 +49,8 @@ describe('parseCsv', () => {
   });
 });
 
-describe('createCsvParseTool', () => {
-  const tool = createCsvParseTool();
+describe('csvParseTool', () => {
+  const tool = csvParseTool();
 
   it('returns object rows keyed by header by default', async () => {
     const result = (await tool.execute({ csv: 'name,age\nAda,36\nGrace,44' })) as CsvResult;
@@ -94,14 +94,14 @@ describe('createCsvParseTool', () => {
   });
 
   it('rejects oversized input', async () => {
-    const small = createCsvParseTool({ maxInputBytes: 10 });
+    const small = csvParseTool({ maxInputBytes: 10 });
 
     await expect(small.execute({ csv: 'a,b\n1,2\n3,4' })).rejects.toThrow(/exceeds/);
   });
 });
 
-describe('createStatsTool', () => {
-  const tool = createStatsTool();
+describe('statsTool', () => {
+  const tool = statsTool();
 
   it('computes the full summary over a known dataset', async () => {
     const result = (await tool.execute({ values: [4, 1, 3, 2] })) as StatsResult;
@@ -135,8 +135,8 @@ describe('createStatsTool', () => {
   });
 });
 
-describe('createTextExtractTool', () => {
-  const tool = createTextExtractTool();
+describe('textExtractTool', () => {
+  const tool = textExtractTool();
 
   it('extracts all matches with the g flag', async () => {
     const result = (await tool.execute({
@@ -169,7 +169,7 @@ describe('createTextExtractTool', () => {
   });
 
   it('caps matches and flags truncation', async () => {
-    const capped = createTextExtractTool({ maxMatches: 2 });
+    const capped = textExtractTool({ maxMatches: 2 });
 
     const result = (await capped.execute({
       text: 'x x x x x',
@@ -190,7 +190,7 @@ describe('createTextExtractTool', () => {
   });
 
   it('terminates catastrophic backtracking at the deadline', async () => {
-    const guarded = createTextExtractTool({ regexTimeoutMs: 200 });
+    const guarded = textExtractTool({ regexTimeoutMs: 200 });
 
     await expect(
       guarded.execute({

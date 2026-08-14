@@ -25,7 +25,7 @@ export interface ExtractedMatch {
   named: Record<string, string>;
 }
 
-/** Options for {@link createTextExtractTool}. */
+/** Options for {@link textExtractTool}. */
 export interface TextExtractToolOptions {
   /** Deadline for regex execution; the worker is terminated when it passes. @default 2000 */
   regexTimeoutMs?: number;
@@ -95,7 +95,7 @@ function execInWorker(
 /**
  * Create the `text_extract` tool.
  */
-export function createTextExtractTool(options: TextExtractToolOptions = {}): DefinedTool {
+export function textExtractTool(options: TextExtractToolOptions = {}): DefinedTool {
   const regexTimeoutMs = options.regexTimeoutMs ?? 2_000;
   const maxMatches = options.maxMatches ?? 100;
 

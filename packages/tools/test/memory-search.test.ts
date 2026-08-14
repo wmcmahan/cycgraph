@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { InMemoryMemoryStore, InMemoryMemoryIndex } from '@cycgraph/memory';
 import type { SemanticFact } from '@cycgraph/memory';
-import { createMemorySearchTool } from '../src/memory/memory-search.js';
+import { memorySearchTool } from '../src/memory/memory-search.js';
 
 type SearchResult = {
   facts: Array<{ id: string; content: string; validFrom: string; tags?: string[] }>;
@@ -44,10 +44,10 @@ async function seededStore() {
   return { store, index };
 }
 
-describe('createMemorySearchTool', () => {
+describe('memorySearchTool', () => {
   it('retrieves facts by tag with ids and validity timestamps', async () => {
     const { store, index } = await seededStore();
-    const tool = createMemorySearchTool({ store, index });
+    const tool = memorySearchTool({ store, index });
 
     const result = (await tool.execute({ tags: ['lesson'] })) as SearchResult;
 
@@ -63,7 +63,7 @@ describe('createMemorySearchTool', () => {
 
   it('ANDs factory scope tags onto every search', async () => {
     const { store, index } = await seededStore();
-    const tool = createMemorySearchTool({ store, index, scopeTags: ['graph:research-v1'] });
+    const tool = memorySearchTool({ store, index, scopeTags: ['graph:research-v1'] });
 
     const scoped = (await tool.execute({ tags: ['other'] })) as SearchResult;
 
@@ -72,21 +72,21 @@ describe('createMemorySearchTool', () => {
 
   it('rejects an empty search with guidance', async () => {
     const { store, index } = await seededStore();
-    const tool = createMemorySearchTool({ store, index });
+    const tool = memorySearchTool({ store, index });
 
     await expect(tool.execute({})).rejects.toThrow(/query, entityIds, or tags/);
   });
 
   it('rejects free-text queries when no embed hook is configured', async () => {
     const { store, index } = await seededStore();
-    const tool = createMemorySearchTool({ store, index });
+    const tool = memorySearchTool({ store, index });
 
     await expect(tool.execute({ query: 'backoff' })).rejects.toThrow(/embed hook/);
   });
 
   it('supports free-text queries through the embed hook', async () => {
     const { store, index } = await seededStore();
-    const tool = createMemorySearchTool({
+    const tool = memorySearchTool({
       store,
       index,
       embed: async () => QUERY_EMBEDDING,
@@ -109,7 +109,7 @@ describe('createMemorySearchTool', () => {
       created_at: new Date('2026-01-01T00:00:00.000Z'),
       updated_at: new Date('2026-01-01T00:00:00.000Z'),
     } as never);
-    const tool = createMemorySearchTool({ store, index });
+    const tool = memorySearchTool({ store, index });
 
     const result = (await tool.execute({ entityIds: [entityId] })) as SearchResult;
 
@@ -127,7 +127,7 @@ describe('createMemorySearchTool', () => {
       embedding: QUERY_EMBEDDING,
     } as never);
     await index.rebuild(store);
-    const tool = createMemorySearchTool({ store, index, embed: async () => QUERY_EMBEDDING });
+    const tool = memorySearchTool({ store, index, embed: async () => QUERY_EMBEDDING });
 
     const result = (await tool.execute({ query: 'resilience lessons' })) as SearchResult;
 
@@ -136,7 +136,7 @@ describe('createMemorySearchTool', () => {
 
   it('caps the limit at the factory maximum', async () => {
     const { store, index } = await seededStore();
-    const tool = createMemorySearchTool({ store, index, maxResults: 1 });
+    const tool = memorySearchTool({ store, index, maxResults: 1 });
 
     const result = (await tool.execute({ tags: ['lesson', 'other'], limit: 50 })) as SearchResult;
 
@@ -147,7 +147,7 @@ describe('createMemorySearchTool', () => {
     const store = new InMemoryMemoryStore();
     const index = new InMemoryMemoryIndex();
 
-    expect(createMemorySearchTool({ store, index }).taints).toBe(false);
-    expect(createMemorySearchTool({ store, index, untrusted: true }).taints).toBe(true);
+    expect(memorySearchTool({ store, index }).taints).toBe(false);
+    expect(memorySearchTool({ store, index, untrusted: true }).taints).toBe(true);
   });
 });

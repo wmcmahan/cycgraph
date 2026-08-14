@@ -10,8 +10,8 @@ import { ToolDefinitionError } from '@cycgraph/orchestrator';
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('node:dns/promises', () => ({ lookup }));
 
-const { createWebFetchTool } = await import('../src/web/web-fetch.js');
-const { createHttpRequestTool } = await import('../src/web/http-request.js');
+const { webFetchTool } = await import('../src/web/web-fetch.js');
+const { httpRequestTool } = await import('../src/web/http-request.js');
 
 type FetchResult = { url: string; status: number; contentType: string; body: string; truncated: boolean };
 
@@ -24,9 +24,9 @@ afterEach(() => {
   lookup.mockReset();
 });
 
-describe('createWebFetchTool', () => {
+describe('webFetchTool', () => {
   it('declares taint and the web_fetch name', () => {
-    const tool = createWebFetchTool();
+    const tool = webFetchTool();
 
     expect(tool.name).toBe('web_fetch');
     expect(tool.taints).toBe(true);
@@ -39,7 +39,7 @@ describe('createWebFetchTool', () => {
         headers: { 'content-type': 'text/html' },
       }),
     ));
-    const tool = createWebFetchTool();
+    const tool = webFetchTool();
 
     const result = (await tool.execute({ url: 'https://example.com/page' })) as FetchResult;
 
@@ -51,7 +51,7 @@ describe('createWebFetchTool', () => {
 
   it('truncates oversized bodies and flags it', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('x'.repeat(64), { status: 200 })));
-    const tool = createWebFetchTool({ maxResponseBytes: 16 });
+    const tool = webFetchTool({ maxResponseBytes: 16 });
 
     const result = (await tool.execute({ url: 'https://example.com/big' })) as FetchResult;
 
@@ -62,7 +62,7 @@ describe('createWebFetchTool', () => {
   it('rejects hosts outside the allowlist without a network call', async () => {
     const fetchStub = vi.fn();
     vi.stubGlobal('fetch', fetchStub);
-    const tool = createWebFetchTool({ allowedHosts: ['example.com'] });
+    const tool = webFetchTool({ allowedHosts: ['example.com'] });
 
     await expect(tool.execute({ url: 'https://evil.example.org/' })).rejects.toThrow(
       /not in this tool's allowed hosts/,
@@ -71,7 +71,7 @@ describe('createWebFetchTool', () => {
   });
 
   it('rejects invalid URL arguments via the schema', async () => {
-    const tool = createWebFetchTool();
+    const tool = webFetchTool();
 
     await expect(tool.execute({ url: 'not a url' })).rejects.toThrow();
   });
@@ -79,7 +79,7 @@ describe('createWebFetchTool', () => {
   it('sends the configured user agent', async () => {
     const fetchStub = vi.fn(async () => new Response('ok', { status: 200 }));
     vi.stubGlobal('fetch', fetchStub);
-    const tool = createWebFetchTool({ userAgent: 'cycgraph-test/1.0' });
+    const tool = webFetchTool({ userAgent: 'cycgraph-test/1.0' });
 
     await tool.execute({ url: 'https://example.com/' });
 
@@ -88,13 +88,13 @@ describe('createWebFetchTool', () => {
   });
 });
 
-describe('createHttpRequestTool', () => {
+describe('httpRequestTool', () => {
   it('refuses construction without an allowlist', () => {
-    expect(() => createHttpRequestTool({ allowedHosts: [] })).toThrow(ToolDefinitionError);
+    expect(() => httpRequestTool({ allowedHosts: [] })).toThrow(ToolDefinitionError);
   });
 
   it('declares taint and the http_request name', () => {
-    const tool = createHttpRequestTool({ allowedHosts: ['api.example.com'] });
+    const tool = httpRequestTool({ allowedHosts: ['api.example.com'] });
 
     expect(tool.name).toBe('http_request');
     expect(tool.taints).toBe(true);
@@ -103,7 +103,7 @@ describe('createHttpRequestTool', () => {
   it('performs a POST with body and merged headers, defaults winning', async () => {
     const fetchStub = vi.fn(async () => new Response('{"ok":true}', { status: 201 }));
     vi.stubGlobal('fetch', fetchStub);
-    const tool = createHttpRequestTool({
+    const tool = httpRequestTool({
       allowedHosts: ['api.example.com'],
       defaultHeaders: { authorization: 'Bearer config-secret' },
     });
@@ -125,7 +125,7 @@ describe('createHttpRequestTool', () => {
   it('overrides case-varied LLM headers with lowercase-normalized defaults', async () => {
     const fetchStub = vi.fn(async () => new Response('ok', { status: 200 }));
     vi.stubGlobal('fetch', fetchStub);
-    const tool = createHttpRequestTool({
+    const tool = httpRequestTool({
       allowedHosts: ['api.example.com'],
       defaultHeaders: { Authorization: 'Bearer config-secret' },
     });
@@ -140,7 +140,7 @@ describe('createHttpRequestTool', () => {
   });
 
   it('rejects hosts outside the allowlist', async () => {
-    const tool = createHttpRequestTool({ allowedHosts: ['api.example.com'] });
+    const tool = httpRequestTool({ allowedHosts: ['api.example.com'] });
 
     await expect(
       tool.execute({ url: 'https://other.example.com/x' }),
@@ -148,7 +148,7 @@ describe('createHttpRequestTool', () => {
   });
 
   it('rejects methods outside the allowed set', async () => {
-    const tool = createHttpRequestTool({ allowedHosts: ['api.example.com'] });
+    const tool = httpRequestTool({ allowedHosts: ['api.example.com'] });
 
     await expect(
       tool.execute({ url: 'https://api.example.com/x', method: 'DELETE' }),
@@ -158,7 +158,7 @@ describe('createHttpRequestTool', () => {
   it('drops the body on GET requests', async () => {
     const fetchStub = vi.fn(async () => new Response('ok', { status: 200 }));
     vi.stubGlobal('fetch', fetchStub);
-    const tool = createHttpRequestTool({ allowedHosts: ['api.example.com'] });
+    const tool = httpRequestTool({ allowedHosts: ['api.example.com'] });
 
     await tool.execute({ url: 'https://api.example.com/x', body: 'ignored' });
 

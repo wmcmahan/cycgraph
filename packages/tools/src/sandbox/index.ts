@@ -4,5 +4,5 @@
  * @module sandbox
  */
 
-export { createSandboxedJsTool } from './sandboxed-js.js';
+export { sandboxedJsTool } from './sandboxed-js.js';
 export type { SandboxedJsToolOptions } from './sandboxed-js.js';

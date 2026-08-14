@@ -7,14 +7,14 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { ToolDefinitionError } from '@cycgraph/orchestrator';
-import { createCurrentTimeTool } from '../src/data/current-time.js';
-import { convertHtml, createHtmlToMarkdownTool } from '../src/web/html-to-markdown.js';
+import { currentTimeTool } from '../src/data/current-time.js';
+import { convertHtml, htmlToMarkdownTool } from '../src/web/html-to-markdown.js';
 
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('node:dns/promises', () => ({ lookup }));
 
-const { createWebSearchTool } = await import('../src/web/web-search.js');
-const { createWebFetchTool } = await import('../src/web/web-fetch.js');
+const { webSearchTool } = await import('../src/web/web-search.js');
+const { webFetchTool } = await import('../src/web/web-fetch.js');
 
 beforeEach(() => {
   lookup.mockResolvedValue([{ address: '93.184.216.34' }]);
@@ -25,12 +25,12 @@ afterEach(() => {
   lookup.mockReset();
 });
 
-describe('createCurrentTimeTool', () => {
+describe('currentTimeTool', () => {
   type TimeResult = { iso: string; unixMs: number; timezone: string; human: string };
 
   it('returns the current instant in ISO, epoch, and human forms', async () => {
     const before = Date.now();
-    const result = (await createCurrentTimeTool().execute({})) as TimeResult;
+    const result = (await currentTimeTool().execute({})) as TimeResult;
 
     expect(result.unixMs).toBeGreaterThanOrEqual(before);
     expect(new Date(result.iso).getTime()).toBe(result.unixMs);
@@ -39,7 +39,7 @@ describe('createCurrentTimeTool', () => {
   });
 
   it('localizes to a requested IANA timezone', async () => {
-    const result = (await createCurrentTimeTool().execute({
+    const result = (await currentTimeTool().execute({
       timezone: 'America/New_York',
     })) as TimeResult;
 
@@ -47,19 +47,19 @@ describe('createCurrentTimeTool', () => {
   });
 
   it('uses the factory default timezone when none is requested', async () => {
-    const result = (await createCurrentTimeTool({ timezone: 'Europe/Berlin' }).execute({})) as TimeResult;
+    const result = (await currentTimeTool({ timezone: 'Europe/Berlin' }).execute({})) as TimeResult;
 
     expect(result.timezone).toBe('Europe/Berlin');
   });
 
   it('rejects an unknown timezone', async () => {
     await expect(
-      createCurrentTimeTool().execute({ timezone: 'Mars/Olympus_Mons' }),
+      currentTimeTool().execute({ timezone: 'Mars/Olympus_Mons' }),
     ).rejects.toThrow(/Unknown timezone/);
   });
 });
 
-describe('createWebSearchTool', () => {
+describe('webSearchTool', () => {
   type SearchResult = {
     provider: string;
     query: string;
@@ -67,13 +67,13 @@ describe('createWebSearchTool', () => {
   };
 
   it('refuses construction without an API key', () => {
-    expect(() => createWebSearchTool({ provider: 'brave', apiKey: '' })).toThrow(
+    expect(() => webSearchTool({ provider: 'brave', apiKey: '' })).toThrow(
       ToolDefinitionError,
     );
   });
 
   it('declares taint and the web_search name', () => {
-    const tool = createWebSearchTool({ provider: 'brave', apiKey: 'k' });
+    const tool = webSearchTool({ provider: 'brave', apiKey: 'k' });
 
     expect(tool.name).toBe('web_search');
     expect(tool.taints).toBe(true);
@@ -89,7 +89,7 @@ describe('createWebSearchTool', () => {
       ),
     );
     vi.stubGlobal('fetch', fetchStub);
-    const tool = createWebSearchTool({ provider: 'brave', apiKey: 'brave-key' });
+    const tool = webSearchTool({ provider: 'brave', apiKey: 'brave-key' });
 
     const result = (await tool.execute({ query: 'cycgraph' })) as SearchResult;
 
@@ -108,7 +108,7 @@ describe('createWebSearchTool', () => {
         { status: 200 },
       ),
     ));
-    const tool = createWebSearchTool({ provider: 'tavily', apiKey: 'tav-key' });
+    const tool = webSearchTool({ provider: 'tavily', apiKey: 'tav-key' });
 
     const result = (await tool.execute({ query: 'cycgraph' })) as SearchResult;
 
@@ -118,7 +118,7 @@ describe('createWebSearchTool', () => {
   it('caps requested result counts at the factory maximum', async () => {
     const fetchStub = vi.fn(async () => new Response(JSON.stringify({ web: { results: [] } }), { status: 200 }));
     vi.stubGlobal('fetch', fetchStub);
-    const tool = createWebSearchTool({ provider: 'brave', apiKey: 'k', maxResults: 3 });
+    const tool = webSearchTool({ provider: 'brave', apiKey: 'k', maxResults: 3 });
 
     await tool.execute({ query: 'q', maxResults: 20 });
 
@@ -128,14 +128,14 @@ describe('createWebSearchTool', () => {
 
   it('surfaces provider errors as tool failures', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 429 })));
-    const tool = createWebSearchTool({ provider: 'brave', apiKey: 'k' });
+    const tool = webSearchTool({ provider: 'brave', apiKey: 'k' });
 
     await expect(tool.execute({ query: 'q' })).rejects.toThrow(/status 429/);
   });
 
   it('surfaces Tavily errors as tool failures', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 500 })));
-    const tool = createWebSearchTool({ provider: 'tavily', apiKey: 'k' });
+    const tool = webSearchTool({ provider: 'tavily', apiKey: 'k' });
 
     await expect(tool.execute({ query: 'q' })).rejects.toThrow(/status 500/);
   });
@@ -144,7 +144,7 @@ describe('createWebSearchTool', () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       new Response(JSON.stringify({ web: { results: [{}] } }), { status: 200 }),
     ));
-    const tool = createWebSearchTool({ provider: 'brave', apiKey: 'k' });
+    const tool = webSearchTool({ provider: 'brave', apiKey: 'k' });
 
     const result = (await tool.execute({ query: 'q' })) as SearchResult;
 
@@ -153,7 +153,7 @@ describe('createWebSearchTool', () => {
 
   it('handles a Tavily payload with no results array', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })));
-    const tool = createWebSearchTool({ provider: 'tavily', apiKey: 'k' });
+    const tool = webSearchTool({ provider: 'tavily', apiKey: 'k' });
 
     const result = (await tool.execute({ query: 'q' })) as SearchResult;
 
@@ -208,9 +208,9 @@ describe('convertHtml', () => {
   });
 });
 
-describe('createHtmlToMarkdownTool', () => {
+describe('htmlToMarkdownTool', () => {
   it('converts via the tool surface', async () => {
-    const tool = createHtmlToMarkdownTool();
+    const tool = htmlToMarkdownTool();
 
     const result = (await tool.execute({ html: '<h1>Hi</h1>' })) as { content: string };
 
@@ -219,20 +219,20 @@ describe('createHtmlToMarkdownTool', () => {
   });
 
   it('rejects oversized input', async () => {
-    const tool = createHtmlToMarkdownTool({ maxInputBytes: 10 });
+    const tool = htmlToMarkdownTool({ maxInputBytes: 10 });
 
     await expect(tool.execute({ html: '<p>12345678901</p>' })).rejects.toThrow(/exceeds/);
   });
 });
 
-describe('createWebFetchTool extract option', () => {
+describe('webFetchTool extract option', () => {
   function htmlResponse(body: string) {
     return new Response(body, { status: 200, headers: { 'content-type': 'text/html' } });
   }
 
   it('converts HTML bodies to markdown when extract is set', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => htmlResponse('<h1>Page</h1><p>Body</p>')));
-    const tool = createWebFetchTool({ extract: 'markdown' });
+    const tool = webFetchTool({ extract: 'markdown' });
 
     const result = (await tool.execute({ url: 'https://example.com/' })) as { body: string };
 
@@ -243,7 +243,7 @@ describe('createWebFetchTool extract option', () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       new Response('{"a":1}', { status: 200, headers: { 'content-type': 'application/json' } }),
     ));
-    const tool = createWebFetchTool({ extract: 'markdown' });
+    const tool = webFetchTool({ extract: 'markdown' });
 
     const result = (await tool.execute({ url: 'https://example.com/api' })) as { body: string };
 
@@ -252,7 +252,7 @@ describe('createWebFetchTool extract option', () => {
 
   it('returns raw HTML when extract is not configured', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => htmlResponse('<h1>Page</h1>')));
-    const tool = createWebFetchTool();
+    const tool = webFetchTool();
 
     const result = (await tool.execute({ url: 'https://example.com/' })) as { body: string };
 

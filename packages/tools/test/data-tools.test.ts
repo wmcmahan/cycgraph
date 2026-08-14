@@ -4,14 +4,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { createCalculatorTool } from '../src/data/calculator.js';
-import { createJsonTransformTool } from '../src/data/json-transform.js';
+import { calculatorTool } from '../src/data/calculator.js';
+import { jsonTransformTool } from '../src/data/json-transform.js';
 
 type CalcResult = { result: number | boolean };
 type TransformResult = { result: unknown };
 
-describe('createCalculatorTool', () => {
-  const tool = createCalculatorTool();
+describe('calculatorTool', () => {
+  const tool = calculatorTool();
 
   it('declares the calculator name without taint', () => {
     expect(tool.name).toBe('calculator');
@@ -145,8 +145,8 @@ describe('createCalculatorTool', () => {
   });
 });
 
-describe('createJsonTransformTool', () => {
-  const tool = createJsonTransformTool();
+describe('jsonTransformTool', () => {
+  const tool = jsonTransformTool();
   const order = { id: 'o-1', total: 42, customer: { name: 'Ada' } };
 
   it('declares the json_transform name without taint', () => {

@@ -11,18 +11,18 @@ npm install @cycgraph/tools
 
 ```typescript
 import { GraphRunner } from '@cycgraph/orchestrator';
-import { createWebFetchTool, createHttpRequestTool } from '@cycgraph/tools/web';
-import { createCalculatorTool, createJsonTransformTool } from '@cycgraph/tools/data';
+import { webFetchTool, httpRequestTool } from '@cycgraph/tools/web';
+import { calculatorTool, jsonTransformTool } from '@cycgraph/tools/data';
 
 const runner = new GraphRunner(graph, state, {
   tools: [
-    createWebFetchTool(),
-    createHttpRequestTool({
+    webFetchTool(),
+    httpRequestTool({
       allowedHosts: ['api.example.com'],
       defaultHeaders: { authorization: `Bearer ${process.env.API_KEY}` },
     }),
-    createCalculatorTool(),
-    createJsonTransformTool(),
+    calculatorTool(),
+    jsonTransformTool(),
   ],
 });
 ```
@@ -43,7 +43,7 @@ The web tools are taint-tracked (`taints: true`): their results land in `state.t
 Provider-pluggable search returning normalized `{ title, url, snippet }` results. Backends: Brave and Tavily; the API key is factory config and never visible to the model. This also covers the hosted-deployment gap: the default Brave MCP server runs over an `npx` stdio transport, exactly what `MCP_STDIO_DISABLED` locks down, while this tool is a plain HTTPS call.
 
 ```typescript
-createWebSearchTool({ provider: 'brave', apiKey: process.env.BRAVE_API_KEY! })
+webSearchTool({ provider: 'brave', apiKey: process.env.BRAVE_API_KEY! })
 ```
 
 | Option | Default | Description |
@@ -140,9 +140,9 @@ Regex extraction returning each match with its index, positional groups, and nam
 Agent-initiated retrieval over the temporal knowledge graph. The orchestrator's `memory_query` directive injects facts passively before the prompt; this tool makes retrieval active — the agent decides mid-task that it needs to consult memory and searches by tags, seed entity ids (expanding the surrounding subgraph), or free text when an `embed` hook is configured.
 
 ```typescript
-import { createMemorySearchTool } from '@cycgraph/tools/memory';
+import { memorySearchTool } from '@cycgraph/tools/memory';
 
-const memorySearch = createMemorySearchTool({
+const memorySearch = memorySearchTool({
   store,
   index,
   scopeTags: ['graph:research-v1'],   // namespace: facts must carry one of these
@@ -171,10 +171,10 @@ Evaluate agent-authored JavaScript against workflow data and return a JSON resul
 The sandbox is two nested boundaries. The code is interpreted by QuickJS compiled to WebAssembly, so its whole world is a bounds-checked linear memory with no host imports beyond a string-only `console.log` bridge: `require`, `process`, `fetch`, `import()`, timers, and `SharedArrayBuffer` are simply absent. That engine runs in a `worker_threads` worker terminated at the deadline, because `evalCode` is synchronous and the in-engine interrupt handler needs an outside-the-engine backstop. In short: WASM decides what the code can touch (nothing), the worker decides what it can block and how it dies.
 
 ```typescript
-import { createSandboxedJsTool } from '@cycgraph/tools/sandbox';
+import { sandboxedJsTool } from '@cycgraph/tools/sandbox';
 
 const runner = new GraphRunner(graph, state, {
-  tools: [createSandboxedJsTool()],
+  tools: [sandboxedJsTool()],
 });
 ```
 

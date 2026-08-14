@@ -11,7 +11,7 @@
 import { z } from 'zod';
 import { defineTool, type DefinedTool } from '@cycgraph/orchestrator';
 
-/** Options for {@link createJsonTransformTool}. */
+/** Options for {@link jsonTransformTool}. */
 export interface JsonTransformToolOptions {
   /** Per-call timeout forwarded to defineTool. @default 5000 */
   timeoutMs?: number;
@@ -57,7 +57,7 @@ function pickKeys(value: unknown, keys: string[]): unknown {
 /**
  * Create the `json_transform` tool.
  */
-export function createJsonTransformTool(options: JsonTransformToolOptions = {}): DefinedTool {
+export function jsonTransformTool(options: JsonTransformToolOptions = {}): DefinedTool {
   return defineTool({
     name: 'json_transform',
     description:

@@ -19,7 +19,7 @@ import { createRequire } from 'node:module';
 import { z } from 'zod';
 import { defineTool, type DefinedTool } from '@cycgraph/orchestrator';
 
-/** Options for {@link createSandboxedJsTool}. */
+/** Options for {@link sandboxedJsTool}. */
 export interface SandboxedJsToolOptions {
   /** Interrupt-handler deadline for guest execution. @default 2000 */
   deadlineMs?: number;
@@ -201,7 +201,7 @@ function runInSandboxWorker(
  * Create the `sandboxed_js` tool. See the design doc for the threat model,
  * limits rationale, and the exhaustive guest environment.
  */
-export function createSandboxedJsTool(options: SandboxedJsToolOptions = {}): DefinedTool {
+export function sandboxedJsTool(options: SandboxedJsToolOptions = {}): DefinedTool {
   const deadlineMs = options.deadlineMs ?? 2_000;
   const memoryLimitBytes = options.memoryLimitBytes ?? 64 * 1024 * 1024;
   const maxStackBytes = options.maxStackBytes ?? 512 * 1024;

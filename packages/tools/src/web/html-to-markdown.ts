@@ -8,7 +8,7 @@
  * htmlparser2's streaming parser; no DOM is constructed.
  *
  * Exposed both as a pure tool (`html_to_markdown`) and as the engine behind
- * `createWebFetchTool`'s `extract` option.
+ * `webFetchTool`'s `extract` option.
  *
  * @module web/html-to-markdown
  */
@@ -157,7 +157,7 @@ export function convertHtml(
   return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-/** Options for {@link createHtmlToMarkdownTool}. */
+/** Options for {@link htmlToMarkdownTool}. */
 export interface HtmlToMarkdownToolOptions {
   /** Per-call timeout forwarded to defineTool. @default 10000 */
   timeoutMs?: number;
@@ -168,7 +168,7 @@ export interface HtmlToMarkdownToolOptions {
 /**
  * Create the `html_to_markdown` tool.
  */
-export function createHtmlToMarkdownTool(options: HtmlToMarkdownToolOptions = {}): DefinedTool {
+export function htmlToMarkdownTool(options: HtmlToMarkdownToolOptions = {}): DefinedTool {
   const maxInputBytes = options.maxInputBytes ?? 5 * 1024 * 1024;
 
   return defineTool({

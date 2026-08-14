@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { defineTool, type DefinedTool } from '@cycgraph/orchestrator';
 
-/** Options for {@link createCalculatorTool}. */
+/** Options for {@link calculatorTool}. */
 export interface CalculatorToolOptions {
   /** Per-call timeout forwarded to defineTool. @default 5000 */
   timeoutMs?: number;
@@ -235,7 +235,7 @@ function evalNumber(node: Node, vars: Record<string, number>): number {
 /**
  * Create the `calculator` tool.
  */
-export function createCalculatorTool(options: CalculatorToolOptions = {}): DefinedTool {
+export function calculatorTool(options: CalculatorToolOptions = {}): DefinedTool {
   return defineTool({
     name: 'calculator',
     description:

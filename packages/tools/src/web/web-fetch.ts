@@ -17,7 +17,7 @@ import { convertHtml, type HtmlExtractMode } from './html-to-markdown.js';
 /** Default cap on fetched body size: 1 MiB of text is plenty for an LLM. */
 export const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
 
-/** Options for {@link createWebFetchTool}. */
+/** Options for {@link webFetchTool}. */
 export interface WebFetchToolOptions {
   /** Restrict fetches to these hostnames (exact match). Omit for any public host. */
   allowedHosts?: string[];
@@ -42,7 +42,7 @@ export interface WebFetchToolOptions {
  * Create the `web_fetch` tool. Register the result on
  * `GraphRunnerOptions.tools` and declare `'web_fetch'` on any agent or node.
  */
-export function createWebFetchTool(options: WebFetchToolOptions = {}): DefinedTool {
+export function webFetchTool(options: WebFetchToolOptions = {}): DefinedTool {
   const maxBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
 
   return defineTool({
