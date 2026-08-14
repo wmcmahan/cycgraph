@@ -21,7 +21,7 @@ export interface WebSearchResult {
   snippet: string;
 }
 
-/** Options for {@link createWebSearchTool}. */
+/** Options for {@link webSearchTool}. */
 export interface WebSearchToolOptions {
   /** Search backend. */
   provider: 'brave' | 'tavily';
@@ -88,7 +88,7 @@ async function tavilySearch(
  *
  * @throws {ToolDefinitionError} When `apiKey` is missing.
  */
-export function createWebSearchTool(options: WebSearchToolOptions): DefinedTool {
+export function webSearchTool(options: WebSearchToolOptions): DefinedTool {
   if (!options.apiKey) {
     throw new ToolDefinitionError('web_search requires an apiKey for the configured provider');
   }

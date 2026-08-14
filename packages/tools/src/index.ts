@@ -11,10 +11,10 @@
  */
 
 export {
-  createWebFetchTool,
-  createHttpRequestTool,
-  createWebSearchTool,
-  createHtmlToMarkdownTool,
+  webFetchTool,
+  httpRequestTool,
+  webSearchTool,
+  htmlToMarkdownTool,
   convertHtml,
   assertUrlPublic,
   guardedFetch,
@@ -33,13 +33,13 @@ export type {
 } from './web/index.js';
 
 export {
-  createCalculatorTool,
-  createJsonTransformTool,
-  createCurrentTimeTool,
-  createCsvParseTool,
+  calculatorTool,
+  jsonTransformTool,
+  currentTimeTool,
+  csvParseTool,
   parseCsv,
-  createStatsTool,
-  createTextExtractTool,
+  statsTool,
+  textExtractTool,
 } from './data/index.js';
 export type {
   CalculatorToolOptions,

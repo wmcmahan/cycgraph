@@ -26,21 +26,21 @@ npm install @cycgraph/tools @cycgraph/orchestrator
 Subpath imports keep dependencies scoped:
 
 ```typescript
-import { createWebFetchTool, createHttpRequestTool, createWebSearchTool } from '@cycgraph/tools/web';
-import { createCalculatorTool, createJsonTransformTool, createCurrentTimeTool } from '@cycgraph/tools/data';
-import { createMemorySearchTool } from '@cycgraph/tools/memory';
-import { createSandboxedJsTool } from '@cycgraph/tools/sandbox';
+import { webFetchTool, httpRequestTool, webSearchTool } from '@cycgraph/tools/web';
+import { calculatorTool, jsonTransformTool, currentTimeTool } from '@cycgraph/tools/data';
+import { memorySearchTool } from '@cycgraph/tools/memory';
+import { sandboxedJsTool } from '@cycgraph/tools/sandbox';
 ```
 
 ## Quick start
 
 ```typescript
 import { GraphRunner } from '@cycgraph/orchestrator';
-import { createWebFetchTool } from '@cycgraph/tools/web';
-import { createCalculatorTool } from '@cycgraph/tools/data';
+import { webFetchTool } from '@cycgraph/tools/web';
+import { calculatorTool } from '@cycgraph/tools/data';
 
 const runner = new GraphRunner(graph, state, {
-  tools: [createWebFetchTool(), createCalculatorTool()],
+  tools: [webFetchTool(), calculatorTool()],
 });
 ```
 

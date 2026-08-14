@@ -16,7 +16,7 @@ flowchart TB
     Researcher --> |"Returns results"| Sup
     Sup --> |"Delegates"| Writer["Writer Agent"]
     Writer --> |"Returns draft"| Sup
-    Sup --> |"Goal complete"| Done([""])
+    Sup --> |"Goal complete"| Done(["End"])
 ```
 
 1. **Initial Goal**: The workflow receives an open-ended goal (e.g., "Write a comprehensive report").

@@ -18,7 +18,7 @@ import { DEFAULT_MAX_RESPONSE_BYTES } from './web-fetch.js';
 const ALL_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 type HttpMethod = (typeof ALL_METHODS)[number];
 
-/** Options for {@link createHttpRequestTool}. */
+/** Options for {@link httpRequestTool}. */
 export interface HttpRequestToolOptions {
   /** Hostnames this tool may call (exact match). Required and non-empty. */
   allowedHosts: string[];
@@ -39,7 +39,7 @@ export interface HttpRequestToolOptions {
  *
  * @throws {ToolDefinitionError} When `allowedHosts` is missing or empty.
  */
-export function createHttpRequestTool(options: HttpRequestToolOptions): DefinedTool {
+export function httpRequestTool(options: HttpRequestToolOptions): DefinedTool {
   if (!options.allowedHosts || options.allowedHosts.length === 0) {
     throw new ToolDefinitionError(
       'http_request requires a non-empty allowedHosts list — an unrestricted HTTP tool is not supported',

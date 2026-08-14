@@ -11,7 +11,7 @@
 import { z } from 'zod';
 import { defineTool, type DefinedTool } from '@cycgraph/orchestrator';
 
-/** Options for {@link createStatsTool}. */
+/** Options for {@link statsTool}. */
 export interface StatsToolOptions {
   /** Per-call timeout forwarded to defineTool. @default 5000 */
   timeoutMs?: number;
@@ -29,7 +29,7 @@ function percentile(sorted: number[], p: number): number {
 /**
  * Create the `stats` tool.
  */
-export function createStatsTool(options: StatsToolOptions = {}): DefinedTool {
+export function statsTool(options: StatsToolOptions = {}): DefinedTool {
   return defineTool({
     name: 'stats',
     description:

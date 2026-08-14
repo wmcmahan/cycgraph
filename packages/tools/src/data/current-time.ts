@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { defineTool, type DefinedTool } from '@cycgraph/orchestrator';
 
-/** Options for {@link createCurrentTimeTool}. */
+/** Options for {@link currentTimeTool}. */
 export interface CurrentTimeToolOptions {
   /** Default IANA timezone when the model doesn't request one. @default 'UTC' */
   timezone?: string;
@@ -31,7 +31,7 @@ function formatIn(timezone: string, date: Date): string {
 /**
  * Create the `current_time` tool.
  */
-export function createCurrentTimeTool(options: CurrentTimeToolOptions = {}): DefinedTool {
+export function currentTimeTool(options: CurrentTimeToolOptions = {}): DefinedTool {
   const defaultTimezone = options.timezone ?? 'UTC';
 
   return defineTool({

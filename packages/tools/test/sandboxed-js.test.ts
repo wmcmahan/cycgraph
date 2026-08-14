@@ -7,17 +7,17 @@
 
 import { describe, it, expect } from 'vitest';
 import { GraphRunner, createGraph, createWorkflowState } from '@cycgraph/orchestrator';
-import { createSandboxedJsTool } from '../src/sandbox/sandboxed-js.js';
+import { sandboxedJsTool } from '../src/sandbox/sandboxed-js.js';
 
 type SandboxResult = { result: unknown; logs: string[] };
 
-const tool = createSandboxedJsTool();
+const tool = sandboxedJsTool();
 
 async function run(code: string, input?: unknown): Promise<SandboxResult> {
   return (await tool.execute({ code, ...(input !== undefined ? { input } : {}) })) as SandboxResult;
 }
 
-describe('createSandboxedJsTool', () => {
+describe('sandboxedJsTool', () => {
   describe('evaluation', () => {
     it('returns the last expression value', async () => {
       const { result } = await run('const x = 6; x * 7');
@@ -82,13 +82,13 @@ describe('createSandboxedJsTool', () => {
 
   describe('limits', () => {
     it('interrupts an infinite loop at the deadline', async () => {
-      const fast = createSandboxedJsTool({ deadlineMs: 300 });
+      const fast = sandboxedJsTool({ deadlineMs: 300 });
 
       await expect(fast.execute({ code: 'for(;;);' })).rejects.toThrow(/deadline|interrupted/);
     });
 
     it('errors at the memory limit on allocation bombs', async () => {
-      const small = createSandboxedJsTool({
+      const small = sandboxedJsTool({
         memoryLimitBytes: 4 * 1024 * 1024,
         deadlineMs: 2_000,
         terminateMarginMs: 1_000,
@@ -100,13 +100,13 @@ describe('createSandboxedJsTool', () => {
     }, 15_000);
 
     it('rejects oversized code before spawning a worker', async () => {
-      const capped = createSandboxedJsTool({ maxCodeBytes: 10 });
+      const capped = sandboxedJsTool({ maxCodeBytes: 10 });
 
       await expect(capped.execute({ code: '1 + 1 + 1 + 1' })).rejects.toThrow(/byte cap/);
     });
 
     it('rejects oversized input before spawning a worker', async () => {
-      const capped = createSandboxedJsTool({ maxInputBytes: 10 });
+      const capped = sandboxedJsTool({ maxInputBytes: 10 });
 
       await expect(
         capped.execute({ code: 'input', input: { big: 'x'.repeat(100) } }),
@@ -114,19 +114,19 @@ describe('createSandboxedJsTool', () => {
     });
 
     it('errors on results over the cap instead of truncating', async () => {
-      const capped = createSandboxedJsTool({ maxResultBytes: 100 });
+      const capped = sandboxedJsTool({ maxResultBytes: 100 });
 
       await expect(capped.execute({ code: '"x".repeat(1000)' })).rejects.toThrow(/exceeds the 100-byte cap/);
     });
 
     it('force-terminates via the worker backstop when the margin is exhausted', async () => {
-      const noMargin = createSandboxedJsTool({ deadlineMs: 1, terminateMarginMs: 0 });
+      const noMargin = sandboxedJsTool({ deadlineMs: 1, terminateMarginMs: 0 });
 
       await expect(noMargin.execute({ code: '1 + 1' })).rejects.toThrow(/terminated/);
     });
 
     it('caps captured log entries', async () => {
-      const capped = createSandboxedJsTool({ maxLogEntries: 2 });
+      const capped = sandboxedJsTool({ maxLogEntries: 2 });
 
       const { logs } = (await capped.execute({
         code: 'for (let i = 0; i < 10; i++) console.log(String(i)); 0',
@@ -191,7 +191,7 @@ describe('createSandboxedJsTool', () => {
         goal: 'compute',
         memory: { code: '[1, 2, 3, 4].reduce((a, b) => a + b, 0)' },
       });
-      const runner = new GraphRunner(graph, state, { tools: [createSandboxedJsTool()] });
+      const runner = new GraphRunner(graph, state, { tools: [sandboxedJsTool()] });
 
       const finalState = await runner.run();
 
