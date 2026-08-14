@@ -13,6 +13,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { LogSink } from '../observability/logger.js';
 
 /**
  * Correlation metadata propagated through async call chains.
@@ -26,6 +27,12 @@ export interface RunContext {
   api_key_id?: string;
   /** Graph being executed. */
   graph_id?: string;
+  /**
+   * Where log entries for this async chain go. Absent, they go to the process
+   * streams. Async-local rather than global, so concurrent runs can send to
+   * different destinations without interfering.
+   */
+  logger?: LogSink;
 }
 
 const storage = new AsyncLocalStorage<RunContext>();

@@ -1,5 +1,5 @@
 ---
-title: Subgraph (Composition)
+title: Subgraph
 description: Compose whole graphs as reusable blocks with typed boundaries, package them as bundles, and install ones you did not write under an enforced capability ceiling.
 ---
 

@@ -304,7 +304,7 @@ export type { ArchitectToolDeps } from './architect/tools.js';
 // ─── Utilities ──────────────────────────────────────────────────────
 
 export { createLogger, Logger } from './observability/logger.js';
-export type { LogLevel } from './observability/logger.js';
+export type { LogLevel, LogEntry, LogContext, LogSink } from './observability/logger.js';
 export { initTracing, getTracer, withSpan } from './observability/tracing.js';
 export { runWithContext, getCurrentContext } from './utils/context.js';
 export type { RunContext } from './utils/context.js';

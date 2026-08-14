@@ -23,6 +23,7 @@ All values are validated against `RuntimeConfigSchema` (`src/runtime-config.ts`)
 | `MAX_SUPERVISOR_HISTORY` | `100` | 10 – 100,000 | Ring-buffer cap on `state.supervisor_history` |
 | `MAX_MEMORY_DROPS` | `50` | 1 – 10,000 | Ring-buffer cap on `state.memory_drops` |
 | `FILTREX_CACHE_SIZE` | `256` | 8 – 100,000 | LRU cap on the filtrex expression compile cache |
+| `LOG_LEVEL` | `error` | `debug` \| `info` \| `warn` \| `error` \| `silent` | Minimum level the engine emits. Quiet by default so the package does not write to a host's stdout uninvited; raise it to see the full run trace. Resolved on first use, so it works whether set before launch or by a `.env` loader. |
 
 ### When to tune
 
@@ -55,7 +56,21 @@ Passed to `new GraphRunner(graph, state, options)`. Source: `runner/graph-runner
 | `compactionInterval` | `number` | `1000` | Events between automatic event-log compactions (checkpoint + delete-behind, recovery-safe) when an `eventLog` is wired. **Defaults on** so a long run can't grow the log unbounded; set `0` to retain full history and compact manually via `compactEvents()`. |
 | `persistDelta` | `(patch: StatePatch) => Promise<void>` | none | Differential persistence. When set with `persistState`, the runner sends patches here and full snapshots to `persistState`. A failed write rolls back the delta baseline so no patch is lost. |
 | `middleware` | `GraphRunnerMiddleware[]` | `[]` | `beforeNodeExecute` / `afterReduce` hooks |
+| `a2aRegistry` | `A2AServerRegistry` | none | Trusted source of remote-agent endpoints and credentials. Required when the graph contains an `a2a` node; a graph names a `server_id`, never a URL. |
+| `a2aClient` | `A2AClient` | none | Transport for A2A tasks. `createA2AClient()` from `@cycgraph/a2a` implements it; the orchestrator carries no protocol dependency. |
+| `capabilityCeiling` | `CapabilityCeiling` | none | Caps what this runner may reach: tool resolution refuses custom names and MCP server ids outside it, and the startup wiring check rejects a graph referencing beyond it. See [Subgraph](/docs/patterns/subgraph/#trust-the-capability-ceiling). |
+| `capabilityCeilings` | `Record<string, CapabilityCeiling>` | `{}` | Per-subgraph ceilings, keyed by subgraph id and derived from bundle manifests. Threaded down so a nested bundle is capped by the intersection of every enclosing manifest. |
+| `logger` | `(entry: LogEntry) => void` | process streams | Destination for this run's log entries. Called after `LOG_LEVEL` filtering, so it never sees entries the level suppressed. A throwing sink cannot fail the run, and a returned promise is not awaited. Entries emitted outside a run keep going to the streams. |
 | `allowImplicitCompletion` | `boolean` | `false` | When a non-end node has no outgoing edge whose condition matches, the runner fails the run with `NoMatchingEdgeError` (a dead-end is almost always a routing bug). Set `true` to restore the legacy behavior of silently completing the workflow at that node. |
+
+Logging is off unless asked for, matching tracing and metrics. Route it into a
+host transport with `logger`:
+
+```typescript
+new GraphRunner(graph, state, {
+  logger: (entry) => pino[entry.level](entry.context, entry.event),
+});
+```
 
 The former names `persistStateFn`, `loadGraphFn`, and `persistDeltaFn` remain as **deprecated aliases** of `persistState`, `loadGraph`, and `persistDelta`; the primary name wins when both are given, and the aliases will be removed in a later release.
 

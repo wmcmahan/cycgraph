@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Logger, createLogger } from '../src/observability/logger.js';
+import { Logger, createLogger, resetLogLevelCache } from '../src/observability/logger.js';
 
 // Mock context module
 vi.mock('../src/utils/context.js', () => ({
@@ -13,12 +13,14 @@ describe('Logger', () => {
   beforeEach(() => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    resetLogLevelCache();
   });
 
   afterEach(() => {
     stdoutSpy.mockRestore();
     stderrSpy.mockRestore();
     delete process.env.LOG_LEVEL;
+    resetLogLevelCache();
   });
 
   // ─── Level filtering ──────────────────────────────────────────────
@@ -179,18 +181,84 @@ describe('Logger', () => {
   });
 });
 
+describe('default level', () => {
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    resetLogLevelCache();
+  });
+
+  afterEach(() => {
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+    delete process.env.LOG_LEVEL;
+    resetLogLevelCache();
+  });
+
+  it('emits nothing below error without LOG_LEVEL', () => {
+    const logger = createLogger('test');
+
+    logger.debug('d');
+    logger.info('i');
+    logger.warn('w');
+
+    expect(stdoutSpy).not.toHaveBeenCalled();
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('still emits errors, so a failing run is never silent', () => {
+    createLogger('test').error('boom');
+
+    expect(stderrSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('LOG_LEVEL=silent suppresses errors too', () => {
+    process.env.LOG_LEVEL = 'silent';
+    resetLogLevelCache();
+
+    createLogger('test').error('boom');
+
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('LOG_LEVEL=info opts back into the verbose stream', () => {
+    process.env.LOG_LEVEL = 'info';
+    resetLogLevelCache();
+
+    createLogger('test').info('hello');
+
+    expect(stdoutSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('createLogger', () => {
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    resetLogLevelCache();
+  });
+
+  afterEach(() => {
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
   it('returns a Logger instance', () => {
     const logger = createLogger('test.component');
     expect(logger).toBeInstanceOf(Logger);
   });
 
   it('accepts optional default context', () => {
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const logger = createLogger('test', { req_id: '123' });
-    logger.info('event');
+    logger.error('event');
 
-    const output = stdoutSpy.mock.calls[0][0] as string;
+    const output = stderrSpy.mock.calls[0][0] as string;
     const parsed = JSON.parse(output);
     expect(parsed.context.req_id).toBe('123');
 

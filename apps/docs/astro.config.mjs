@@ -143,7 +143,7 @@ export default defineConfig({
             { label: 'Verifier', slug: 'docs/patterns/verifier' },
             { label: 'Human-in-the-Loop', slug: 'docs/patterns/human-in-the-loop' },
             { label: 'Map-Reduce', slug: 'docs/patterns/map-reduce' },
-            { label: 'Subgraph (Composition)', slug: 'docs/patterns/subgraph' },
+            { label: 'Subgraph', slug: 'docs/patterns/subgraph' },
             { label: 'A2A', slug: 'docs/patterns/a2a' },
           ],
         },
@@ -165,7 +165,7 @@ export default defineConfig({
           label: 'Observability',
           items: [
             { label: 'Tracing', slug: 'docs/observability/tracing' },
-            { label: 'Graph Assertions (in-app runEval)', slug: 'docs/observability/evals' },
+            { label: 'Graph Assertions', slug: 'docs/observability/evals' },
           ],
         },
         {

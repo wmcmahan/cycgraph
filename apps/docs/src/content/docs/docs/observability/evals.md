@@ -1,5 +1,5 @@
 ---
-title: Graph Assertions (runEval)
+title: Graph Assertions
 description: Verify workflow behavior with the orchestrator's built-in per-graph eval framework.
 ---
 

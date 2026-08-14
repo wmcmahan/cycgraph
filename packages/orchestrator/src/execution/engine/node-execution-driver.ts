@@ -28,6 +28,7 @@ import { WorkflowTimeoutError, UnsupportedNodeTypeError } from '../errors.js';
 import { calculateCost } from '../../cost/pricing.js';
 import { createLogger } from '../../observability/logger.js';
 import { runWithContext } from '../../utils/context.js';
+import type { LogSink } from '../../observability/logger.js';
 import { getTracer, withSpan } from '../../observability/tracing.js';
 
 const logger = createLogger('runner.node-execution-driver');
@@ -36,6 +37,8 @@ const tracer = getTracer('orchestrator.runner');
 /** Constructor dependencies — live accessors into the owning runner. */
 export interface NodeExecutionDriverDeps {
   getGraph: () => Graph;
+  /** Log destination for this run, re-established per node under `stream()`. */
+  getLogSink?: () => LogSink | undefined;
   getState: () => WorkflowState;
   /** The runner's run start time (undefined before execution begins). */
   getStartTime: () => number | undefined;
@@ -95,7 +98,10 @@ export class NodeExecutionDriver {
   async executeWithTimeout(node: GraphNode): Promise<Action> {
     const state = this.deps.getState();
     return runWithContext(
-      { run_id: state.run_id, graph_id: this.deps.getGraph().id },
+      (() => {
+        const sink = this.deps.getLogSink?.();
+        return { run_id: state.run_id, graph_id: this.deps.getGraph().id, ...(sink ? { logger: sink } : {}) };
+      })(),
       () => withSpan(tracer, `node.execute.${node.type}`, (nodeSpan) => {
         nodeSpan.setAttribute('node.id', node.id);
         nodeSpan.setAttribute('node.type', node.type);
