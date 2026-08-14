@@ -1,5 +1,55 @@
 # @cycgraph/orchestrator
 
+## 0.15.0
+
+### Minor Changes
+
+- 08847b5: Terse authoring helpers for every node type.
+
+  `subgraph()` and `a2a()` were the only node types with a dedicated helper;
+  the other eleven went through `node({ type, xConfig })` with a nested config
+  block. Each type now has its own helper, leading with the thing it delegates
+  to where it has one:
+
+      supervisor(brain,     { id, manages, maxIterations })
+      mapReduce(worker,     { id, items, into, concurrency })
+      runTool('fetch_data', { id, reads })
+      voting([a, b, c],     { id, strategy, quorum })
+      evolution(candidate,  { id, evaluator, populationSize })
+      reflection(['notes'], { id, extractor, tags })
+      verifier.llmJudge(judge, { id, target, threshold })
+      verifier.expression(expr, { id })
+      verifier.jsonPath(target, { id, path, assertion })
+      approval({ id, prompt, reviewKeys, onReject })
+      router({ id, reads })
+      synthesizer({ id, reads, agent, writes })
+
+  Additive: `node()` remains, and is still the path for dynamic or generated
+  graphs. Helpers compile to the same snake_case wire nodes, so persisted
+  graphs, the architect, and existing consumers are unaffected.
+
+  Helpers omit `writes` for the types whose executor owns its result keys, so
+  an author cannot declare grants that disagree with what the node actually
+  writes. `synthesizer` keeps `writes`, because with an agent it authors output
+  like an agent node and only the agentless merge uses the implied key.
+
+### Patch Changes
+
+- 08847b5: Fix: `subgraph()` and `a2a()` rejected the common node fields.
+
+  Both helpers shipped accepting only their own mapping options, so a node
+  authored through them could not declare `failurePolicy`, `budget`,
+  `metadata`, or `requiresCompensation` — fields `node()` has always accepted.
+  Setting a retry policy on a subgraph or remote-agent node meant abandoning the
+  helper and hand-authoring the node. Every spec now extends a shared
+  `NodeCommon` base, which is a widening and breaks nothing.
+
+  `A2ASpec` deliberately excludes `budget`. A per-node cap is measured against
+  the tokens and cost a node reports, and the a2a executor reports none: a
+  remote agent's spend happens on infrastructure this engine cannot meter, so
+  the cap could never fire. `maxWaitMs` and the failure policy are the bounds
+  that do apply there.
+
 ## 0.14.0
 
 ### Minor Changes
