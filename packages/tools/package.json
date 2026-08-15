@@ -80,7 +80,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@cycgraph/orchestrator": "^0.16.0",
+    "@cycgraph/orchestrator": "^0.17.0",
     "@cycgraph/memory": "^0.7.0",
     "typescript": "7.0.2",
     "vitest": "^4.0.18"
