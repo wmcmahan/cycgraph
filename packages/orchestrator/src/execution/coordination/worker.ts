@@ -150,7 +150,7 @@ export class WorkflowWorker extends EventEmitter {
           logger.info('reclaimed_expired_jobs', { count, worker_id: this.workerId });
         }
       } catch (err) {
-        logger.error('reclaim_error', { error: (err as Error).message });
+        logger.error('reclaim_error', err);
       }
     }, this.reclaimIntervalMs);
 
@@ -265,7 +265,7 @@ export class WorkflowWorker extends EventEmitter {
           try {
             await this.queue.heartbeat(job.id, undefined, this.workerId);
           } catch (err) {
-            logger.error('heartbeat_error', { job_id: job.id, error: (err as Error).message });
+            logger.error('heartbeat_error', err, { job_id: job.id });
           }
         }, this.heartbeatIntervalMs);
 
@@ -275,7 +275,7 @@ export class WorkflowWorker extends EventEmitter {
           promise,
         });
       } catch (err) {
-        logger.error('poll_error', { error: (err as Error).message });
+        logger.error('poll_error', err);
         await this.sleep(this.pollIntervalMs);
       }
     }
@@ -439,10 +439,9 @@ export class WorkflowWorker extends EventEmitter {
       }
     } catch (err) {
       const errorMsg = (err as Error).message ?? String(err);
-      logger.error('job_processing_error', {
+      logger.error('job_processing_error', err, {
         job_id: job.id,
         run_id: job.run_id,
-        error: errorMsg,
       });
 
       // A stale claim / sequence conflict means another worker owns this run
@@ -469,7 +468,7 @@ export class WorkflowWorker extends EventEmitter {
           this.emit('job:failed', { jobId: job.id, runId: job.run_id, error: errorMsg });
         }
       } catch (nackErr) {
-        logger.error('nack_error', { job_id: job.id, error: (nackErr as Error).message });
+        logger.error('nack_error', nackErr, { job_id: job.id });
       }
     } finally {
       // Cleanup

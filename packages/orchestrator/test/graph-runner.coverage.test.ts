@@ -64,6 +64,8 @@ vi.mock('../src/observability/logger', () => ({
 vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
+  startSpan: () => ({ setAttribute: vi.fn(), end: vi.fn() }),
+  inSpanContext: (_span: any, fn: () => any) => fn(),
 }));
 
 import { GraphRunner } from '../src/execution/engine/graph-runner';
@@ -124,9 +126,9 @@ describe('GraphRunner node failure propagation', () => {
     const failedSpy = vi.fn();
     runner.on('node:failed', failedSpy);
 
-    await expect(runner.run()).rejects.toThrow(/failed after 0 retries/);
+    await expect(runner.run()).rejects.toThrow(/agent exploded/);
     expect(failedSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ node_id: 'only', error: expect.stringContaining('failed after 0 retries') }),
+      expect.objectContaining({ node_id: 'only', error: expect.stringContaining('agent exploded') }),
     );
   });
 

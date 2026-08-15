@@ -16,6 +16,7 @@ import { rootReducer, internalReducer, validateAction, REPLAY_VERSION } from '..
 import { getNextNode, getCurrentNode, shouldContinue, buildEdgeMap } from '../routing/router.js';
 import { IdempotencyTracker } from '../coordination/idempotency-tracker.js';
 import { buildExecutorContext as buildExecutorContextFn, type ExecutorContextRunner } from '../engine/executor-context-builder.js';
+import { attemptOf } from '../engine/node-execution-driver.js';
 import { StreamChannel } from '../streaming/stream-channel.js';
 import { BudgetMonitor } from '../../cost/budget-monitor.js';
 import { PersistenceCoordinator } from '../coordination/persistence-coordinator.js';
@@ -23,7 +24,7 @@ import { validateGraph } from '../../graph/graph-validator.js';
 import { effectiveWriteKeys, withEffectiveReads } from '../../security/effective-permissions.js';
 import { ActionSchema } from '../../state/state.js';
 import { createLogger } from '../../observability/logger.js';
-import { runWithContext } from '../../utils/context.js';
+import { runWithContext, type RunContext } from '../../utils/context.js';
 import type { LogSink } from '../../observability/logger.js';
 import { BudgetExceededError, WorkflowTimeoutError, NoMatchingEdgeError } from '../errors.js';
 import { applyUsageAndEnforceBudgets, type ExecutionAccountingRuntime } from '../../cost/execution-accounting.js';
@@ -47,7 +48,7 @@ import { StateDeltaTracker, type StatePatch } from '../../persistence/delta-trac
 
 // Re-export error classes for backward compatibility
 export { BudgetExceededError, WorkflowTimeoutError };
-import { getTracer, withSpan } from '../../observability/tracing.js';
+import { getTracer, inSpanContext, startSpan, withSpan } from '../../observability/tracing.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { GraphRunnerMiddleware, MiddlewareContext } from '../middleware/middleware.js';
 
@@ -90,6 +91,8 @@ export interface GraphRunnerEvents {
   'workflow:timeout': { workflow_id: string; run_id: string; elapsed_ms: number };
   /** Emitted when the workflow pauses for human input (HITL). */
   'workflow:waiting': { workflow_id: string; run_id: string; waiting_for: string };
+  /** Emitted when the workflow stops on purpose rather than finishing or failing. */
+  'workflow:cancelled': { workflow_id: string; run_id: string };
   /** Emitted when compensation actions are executed (saga rollback). */
   'workflow:rollback': { workflow_id: string; run_id: string };
   /** Emitted before a node begins execution. */
@@ -709,6 +712,7 @@ export class GraphRunner extends EventEmitter {
       get factSanitizerFailMode() { return self.factSanitizerFailMode; },
       get fitnessFunction() { return self.fitnessFunction; },
       get rateLimiter() { return self.rateLimiter; },
+      get logSink() { return self.logSink; },
       get toolResolver() { return self.toolResolver; },
       get agentFactory() { return self.agentFactory; },
       get registry() { return self.registry; },
@@ -831,6 +835,25 @@ export class GraphRunner extends EventEmitter {
     // Detect resume: if state already has visited nodes, we're resuming from a checkpoint
     const isResume = this.state.visited_nodes.length > 0 && this.state.current_node;
     if (isResume) {
+      // Advance sequenceId past the existing log before anything appends: a
+      // checkpoint-constructed runner starts at 0, and every branch below
+      // dispatches, so a stale id would collide with an existing event and
+      // surface as a spurious split-brain error.
+      const rebuild = await this.idempotency.rebuildFromEventLog(
+        this.eventLog,
+        this.state.run_id,
+        {
+          current_node: this.state.current_node,
+          iteration_count: this.state.iteration_count,
+          _last_event_sequence_id: this.state._last_event_sequence_id,
+        },
+      );
+      // The tracker doesn't own sequenceId — advance it ourselves so the event
+      // log stays continuous after replay.
+      if (rebuild.maxSequenceId !== null) {
+        this.events.advanceSequenceTo(rebuild.maxSequenceId + 1);
+      }
+
       // Check for expired approval gate timeout BEFORE re-entering the loop.
       // If the workflow was paused at an approval node and the timeout has
       // expired since the last run, transition directly to 'timeout'.
@@ -872,24 +895,6 @@ export class GraphRunner extends EventEmitter {
         iteration: this.state.iteration_count,
         visited: this.state.visited_nodes.length,
       });
-      // Advance sequenceId past the existing log BEFORE dispatching anything:
-      // a checkpoint-constructed runner starts at sequenceId 0, and appending
-      // the resume _init with a stale id would collide with an existing event
-      // (rejected by the writer → spurious split-brain error).
-      const rebuild = await this.idempotency.rebuildFromEventLog(
-        this.eventLog,
-        this.state.run_id,
-        {
-          current_node: this.state.current_node,
-          iteration_count: this.state.iteration_count,
-          _last_event_sequence_id: this.state._last_event_sequence_id,
-        },
-      );
-      // The tracker doesn't own sequenceId — advance it ourselves so the event
-      // log stays continuous after replay.
-      if (rebuild.maxSequenceId !== null) {
-        this.events.advanceSequenceTo(rebuild.maxSequenceId + 1);
-      }
       this.dispatchInternal('_init', { resume: true });
     } else {
       this.dispatchInternal('_init', { start_node: this.graph.start_node });
@@ -1076,10 +1081,10 @@ export class GraphRunner extends EventEmitter {
                 node_id: currentNode.id,
                 node_type: currentNode.type,
                 error: errorMessage,
-                attempt: currentNode.failure_policy.max_retries,
+                attempt: attemptOf(nodeError, currentNode),
                 timestamp: Date.now(),
               };
-              this.emit('node:failed', { node_id: currentNode.id, type: currentNode.type, error: errorMessage, attempt: currentNode.failure_policy.max_retries });
+              this.emit('node:failed', { node_id: currentNode.id, type: currentNode.type, error: errorMessage, attempt: attemptOf(nodeError, currentNode) });
               throw nodeError;
             }
 
@@ -1400,6 +1405,33 @@ export class GraphRunner extends EventEmitter {
         };
       }
 
+      // Failures that leave the loop by breaking rather than returning —
+      // iteration cap, an unresolvable current node, a dead end on the replay
+      // path — arrive here having set the status but emitted nothing. Without
+      // this a streaming consumer sees the generator stop with no terminal
+      // event, which is indistinguishable from a run that vanished.
+      if (this.state.status === 'failed') {
+        // The event only reports; it does not decide whether `run()` throws.
+        // These paths return a failed state rather than raising, and a
+        // streaming consumer learning about the failure must not change that.
+        const message = this.state.last_error ?? 'Workflow failed';
+        incrementWorkflowsFailed({ graph_id: this.graph.id });
+        recordWorkflowDuration(durationMs, { status: 'failed', graph_id: this.graph.id });
+        this.emit('workflow:failed', {
+          workflow_id: this.state.workflow_id,
+          run_id: this.state.run_id,
+          error: message,
+        });
+        yield {
+          type: 'workflow:failed',
+          workflow_id: this.state.workflow_id,
+          run_id: this.state.run_id,
+          error: message,
+          state: this.state,
+          timestamp: Date.now(),
+        };
+      }
+
       // cancel() dispatches `_cancel` AFTER the loop's last per-step persist,
       // so without this the durable snapshot would show the run as 'running'
       // forever. Best-effort — the run is over either way.
@@ -1410,6 +1442,17 @@ export class GraphRunner extends EventEmitter {
           });
         });
         yield* this.drainPendingEvents();
+        this.emit('workflow:cancelled', {
+          workflow_id: this.state.workflow_id,
+          run_id: this.state.run_id,
+        });
+        yield {
+          type: 'workflow:cancelled',
+          workflow_id: this.state.workflow_id,
+          run_id: this.state.run_id,
+          state: this.state,
+          timestamp: Date.now(),
+        };
       }
     } catch (error) {
       // If aborted via cancel(), don't overwrite the cancelled status — but
@@ -1506,7 +1549,37 @@ export class GraphRunner extends EventEmitter {
       }
     }
     this.isStreaming = true;
-    yield* this.executeLoop();
+
+    // A generator cannot yield across a callback, so the run context and the
+    // root span are applied per step rather than around the whole loop: each
+    // resumption of `executeLoop` runs inside them, and the values come back
+    // out to the consumer untouched. Without this, runner-level log lines
+    // would miss the configured sink and every node span would be the root of
+    // its own trace.
+    const runContext: RunContext = {
+      run_id: this.state.run_id,
+      graph_id: this.graph.id,
+      ...(this.logSink ? { logger: this.logSink } : {}),
+    };
+    const runSpan = startSpan(tracer, 'workflow.run', {
+      'workflow.run_id': this.state.run_id,
+      'graph.id': this.graph.id,
+    });
+
+    const loop = this.executeLoop();
+    try {
+      for (;;) {
+        const next = await inSpanContext(runSpan, () =>
+          runWithContext(runContext, () => loop.next()));
+        if (next.done) return;
+        yield next.value;
+      }
+    } finally {
+      // `return()` propagates a consumer's early `break` into the loop's own
+      // `finally` blocks, which is where cleanup lives.
+      await loop.return(undefined as never).catch(() => undefined);
+      runSpan.end();
+    }
   }
 
   /**
@@ -1556,6 +1629,21 @@ export class GraphRunner extends EventEmitter {
    * Called by the worker before run() on HITL resume.
    */
   applyHumanResponse(response: HumanResponse): void {
+    // A decision arriving after the gate's deadline is not applied. Doing so
+    // would clear `waiting` and with it the only evidence the deadline
+    // existed, so the expiry check on resume would never see it and a late
+    // approval would be indistinguishable from a timely one. Left as-is, the
+    // run resumes into the expired-gate branch and times out.
+    if (this.state.status === 'waiting' && this.state.waiting_timeout_at
+        && new Date() >= this.state.waiting_timeout_at) {
+      logger.warn('human_response_after_timeout', {
+        run_id: this.state.run_id,
+        waiting_timeout_at: this.state.waiting_timeout_at.toISOString(),
+        decision: response.decision,
+      });
+      return;
+    }
+
     // Defer event appends until run()/stream() resumes: this method is
     // called before execution, when a freshly-constructed runner's
     // sequenceId hasn't been advanced past the run's existing event log yet.

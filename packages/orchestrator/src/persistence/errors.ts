@@ -32,3 +32,29 @@ export class StaleClaimError extends CycgraphError {
     this.name = 'StaleClaimError';
   }
 }
+
+/**
+ * Thrown when a durable write references a run that was never persisted.
+ *
+ * A relational adapter keys events, state snapshots, and usage to the run row,
+ * and the run row to its graph. Executing without persisting those first makes
+ * every append fail, and the run halts once the event log stops retrying —
+ * with a symptom (repeated flush failures) that says nothing about the cause.
+ *
+ * Persist the graph and the run before executing:
+ * `saveGraph(graph)` then `saveWorkflowRun(state)`.
+ */
+export class MissingRunRecordError extends CycgraphError {
+  constructor(
+    public readonly runId: string,
+    /** The table whose foreign key was violated. */
+    public readonly table: string,
+  ) {
+    super(
+      `Cannot write ${table} for run ${runId}: no workflow run record exists. ` +
+      `Persist the run before executing it — saveGraph(graph), then ` +
+      `saveWorkflowRun(state) — so durable writes have a row to reference.`,
+    );
+    this.name = 'MissingRunRecordError';
+  }
+}

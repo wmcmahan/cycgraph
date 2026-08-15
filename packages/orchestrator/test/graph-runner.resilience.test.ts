@@ -113,6 +113,8 @@ vi.mock('../src/observability/logger', () => ({
 vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
+  startSpan: () => ({ setAttribute: vi.fn(), end: vi.fn() }),
+  inSpanContext: (_span: any, fn: () => any) => fn(),
 }));
 
 vi.mock('../src/execution/engine/helpers', async (importOriginal) => {
@@ -271,6 +273,68 @@ describe('GraphRunner — Retry Behavior', () => {
     await expect(runner.run()).rejects.toThrow('always-fail');
 
     expect(agentCallCounts.get('always-fail')).toBe(2);
+  });
+
+  it('reports the attempt a non-retryable failure happened on', async () => {
+    const graph: Graph = {
+      id: uuidv4(), name: 'Non-retryable attempt', description: '',
+      nodes: [
+        makeNode({
+          id: 'perm-fail', type: 'agent', agent_id: 'non-retryable',
+          failure_policy: { max_retries: 5, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        }),
+      ],
+      edges: [],
+      start_node: 'perm-fail',
+      end_nodes: ['perm-fail'],
+    };
+
+    const failures: number[] = [];
+    const runner = new GraphRunner(graph, createState());
+    runner.on('node:failed', (event) => failures.push(event.attempt as number));
+
+    await expect(runner.run()).rejects.toThrow(/context length/);
+
+    expect(failures).toEqual([1]);
+  });
+
+  it('executes a node once when max_retries is 0', async () => {
+    const graph: Graph = {
+      id: uuidv4(), name: 'No Retries', description: '',
+      nodes: [
+        makeNode({
+          id: 'once', type: 'agent', agent_id: 'fail-then-succeed',
+          failure_policy: { max_retries: 0, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        }),
+      ],
+      edges: [],
+      start_node: 'once',
+      end_nodes: ['once'],
+    };
+
+    await expect(new GraphRunner(graph, createState()).run()).rejects.toThrow(/transient failure/);
+
+    expect(agentCallCounts.get('fail-then-succeed')).toBe(1);
+  });
+
+  it('completes on the single attempt max_retries 0 allows', async () => {
+    const graph: Graph = {
+      id: uuidv4(), name: 'No Retries Success', description: '',
+      nodes: [
+        makeNode({
+          id: 'once', type: 'agent', agent_id: 'healthy',
+          failure_policy: { max_retries: 0, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+        }),
+      ],
+      edges: [],
+      start_node: 'once',
+      end_nodes: ['once'],
+    };
+
+    const final = await new GraphRunner(graph, createState()).run();
+
+    expect(final.status).toBe('completed');
+    expect(agentCallCounts.get('healthy')).toBe(1);
   });
 
   /**

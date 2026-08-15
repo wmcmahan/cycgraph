@@ -53,4 +53,4 @@ export { InMemoryWorkflowQueue, retryBackoffDelayMs } from './in-memory-queue.js
 export type { WorkflowQueueOptions } from './in-memory-queue.js';
 
 // ─── Errors ────────────────────────────────────────────────────────────
-export { StaleClaimError } from './errors.js';
+export { StaleClaimError, MissingRunRecordError } from './errors.js';

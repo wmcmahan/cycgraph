@@ -13,9 +13,10 @@ import type { WorkflowStateJson } from './schema.js';
 import { eq, and, desc, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { withTenant, type Tx, type TenantContext } from './tenancy.js';
+import { isForeignKeyViolation, isUniqueViolation } from './pg-errors.js';
 import type { EventLogWriter } from '@cycgraph/orchestrator';
 import type { NewWorkflowEvent, WorkflowEvent, Action, WorkflowState } from '@cycgraph/orchestrator';
-import { hydrateWorkflowState, EventSequenceConflictError, StaleClaimError } from '@cycgraph/orchestrator';
+import { hydrateWorkflowState, EventSequenceConflictError, MissingRunRecordError, StaleClaimError } from '@cycgraph/orchestrator';
 
 /** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
 type Queryer = typeof db | Tx;
@@ -142,6 +143,12 @@ export class DrizzleEventLogWriter implements EventLogWriter {
       // silently dropping the event, which would mask split-brain executions.
       if (isUniqueViolation(error)) {
         throw new EventSequenceConflictError(event.run_id, event.sequence_id);
+      }
+      // The run row is this table's foreign key. Without the specific error
+      // the caller sees only repeated flush failures and then a halt, which
+      // describes the symptom and not the missing row.
+      if (isForeignKeyViolation(error)) {
+        throw new MissingRunRecordError(event.run_id, 'workflow_events');
       }
       throw error;
     }
@@ -292,10 +299,3 @@ function toSerializable(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
 }
 
-/** Postgres unique-constraint violation (SQLSTATE 23505), possibly wrapped. */
-function isUniqueViolation(error: unknown): boolean {
-  if (error === null || typeof error !== 'object') return false;
-  const err = error as { code?: string; cause?: unknown };
-  if (err.code === '23505') return true;
-  return isUniqueViolation(err.cause);
-}

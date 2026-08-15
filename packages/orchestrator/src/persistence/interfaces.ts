@@ -152,7 +152,17 @@ export interface PersistenceProvider {
 
   // ── Workflow Run Operations ──
 
-  /** Save or upsert a workflow run record from the current state. */
+  /**
+   * Save or upsert a workflow run record from the current state.
+   *
+   * A relational implementation may key state snapshots, event-log entries,
+   * and usage records to this row, and the row itself to the graph. So a run
+   * that will be persisted must call {@link PersistenceProvider.saveGraph}
+   * and then this, before executing: otherwise the first event append is
+   * rejected and the run halts once the event log gives up retrying. An
+   * in-memory implementation has no such constraint, which is what makes the
+   * ordering easy to omit until a durable backend is wired.
+   */
   saveWorkflowRun(state: WorkflowState): Promise<void>;
 
   /** Load a workflow run by ID. Returns `null` if not found. */

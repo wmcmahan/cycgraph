@@ -75,7 +75,12 @@ export async function executeWorkerWithStateView(
       if (!toolDef?.execute) {
         throw new NodeConfigError(node.id, 'tool', `resolvable tool "${toolId}"`);
       }
-      const raw = await toolDef.execute(stateView.memory);
+      // A tool worker has no prompt, so the per-item context that an agent
+      // worker receives as a rendered section is merged into its arguments
+      // instead. Without this a fan-out runs the same item-blind call N
+      // times. Item keys go last so a same-named memory key cannot shadow
+      // the item the worker was actually given.
+      const raw = await toolDef.execute({ ...stateView.memory, ...(stateView.taskContext ?? {}) });
       const resultKey = `${node.id}_result`;
       return {
         id: uuidv4(),
@@ -190,7 +195,12 @@ export async function executeMapNode(
   const results = await executeParallel(
     tasks,
     async (task, taskSignal) => executeWorkerWithStateView(task.node, task.stateView, 1, ctx, taskSignal),
-    { maxConcurrency: config.max_concurrency, errorStrategy: config.error_strategy, taskTimeoutMs: config.task_timeout_ms },
+    {
+      maxConcurrency: config.max_concurrency,
+      errorStrategy: config.error_strategy,
+      taskTimeoutMs: config.task_timeout_ms,
+      ...(ctx.abortSignal ? { signal: ctx.abortSignal } : {}),
+    },
   );
 
   const successResults = results.filter(r => r.success).map(r => ({

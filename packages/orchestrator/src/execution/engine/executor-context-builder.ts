@@ -28,6 +28,7 @@ import type { A2AServerRegistry } from '../../a2a/schema.js';
 import type { A2AClient } from '../../a2a/client.js';
 import type { FactSanitizer } from '../../security/fact-sanitizer.js';
 import type { FitnessFunction } from '../nodes/fitness-function.js';
+import type { LogSink } from '../../observability/logger.js';
 import type { RateLimiter } from '../../agents/rate-limiter.js';
 import { createStateView } from '../../state/state-view.js';
 import { withEffectiveReads } from '../../security/effective-permissions.js';
@@ -68,6 +69,7 @@ export interface ExecutorContextRunner {
   factSanitizerFailMode?: 'drop' | 'pass';
   fitnessFunction?: FitnessFunction;
   rateLimiter?: RateLimiter;
+  logSink?: LogSink;
   toolResolver?: ToolResolver;
   securityPolicy?: SecurityPolicy;
   /** Run-scoped agent factory. The executors use this instead of the global. */
@@ -194,6 +196,7 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     factSanitizerFailMode: runner.factSanitizerFailMode,
     fitnessFunction: runner.fitnessFunction,
     rateLimiter,
+    logger: runner.logSink,
     remainingBudgetUsd,
     getRemainingBudgetUsd: () => {
       return (runner.state.budget_usd && runner.state.budget_usd > 0)

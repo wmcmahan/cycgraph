@@ -52,10 +52,13 @@ vi.mock('../src/observability/logger', () => ({
 vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_t: any, _n: string, fn: (s: any) => any) => fn({ setAttribute: vi.fn() }),
+  startSpan: () => ({ setAttribute: vi.fn(), end: vi.fn() }),
+  inSpanContext: (_span: any, fn: () => any) => fn(),
 }));
 
 import { GraphRunner } from '../src/execution/engine/graph-runner.js';
 import { executeMapNode, executeWorkerWithStateView } from '../src/execution/nodes/map.js';
+import { executeParallel } from '../src/execution/engine/parallel-executor.js';
 import type { Graph, GraphNode } from '../src/graph/graph.js';
 import type { WorkflowState, StateView, Action } from '../src/state/state.js';
 import type { NodeExecutorContext, ExecutorDependencies } from '../src/execution/nodes/context.js';
@@ -470,6 +473,57 @@ describe('executeWorkerWithStateView', () => {
 
     expect(execute).toHaveBeenCalledWith({ k: 'v' });
     expect((action.payload.updates as Record<string, unknown>)['tool-worker_result']).toEqual({ fetched: true });
+  });
+
+  it('stops claiming tasks once the workflow signal aborts', async () => {
+    const controller = new AbortController();
+    const started: number[] = [];
+
+    const results = await executeParallel(
+      Array.from({ length: 8 }, (_, index) => ({
+        node: { id: `w-${index}`, type: 'tool' } as never,
+        stateView: {} as never,
+      })),
+      async (_task, _signal) => {
+        started.push(started.length);
+        if (started.length === 2) controller.abort();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { id: 'a', idempotency_key: 'i', type: 'update_memory', payload: { updates: {} },
+          metadata: { node_id: 'w', timestamp: new Date(), attempt: 1 } } as never;
+      },
+      { maxConcurrency: 1, errorStrategy: 'best_effort', signal: controller.signal },
+    );
+
+    expect(started.length).toBe(2);
+    expect(results).toHaveLength(2);
+  });
+
+  it('passes the per-item context to a tool worker alongside memory', async () => {
+    const execute = vi.fn().mockResolvedValue({ ok: true });
+    const deps = makeDeps({ resolveTools: vi.fn().mockResolvedValue({ fetch: { execute } }) });
+    const node = toolNode({ tools: [{ type: 'builtin', name: 'fetch' }] as any });
+    const stateView = {
+      ...makeStateView({ k: 'v' }),
+      taskContext: { map_item: 'alpha', map_index: 2, map_total: 5 },
+    };
+
+    await executeWorkerWithStateView(node, stateView, 1, makeCtx({ deps }));
+
+    expect(execute).toHaveBeenCalledWith({ k: 'v', map_item: 'alpha', map_index: 2, map_total: 5 });
+  });
+
+  it('gives the per-item context precedence over a same-named memory key', async () => {
+    const execute = vi.fn().mockResolvedValue({ ok: true });
+    const deps = makeDeps({ resolveTools: vi.fn().mockResolvedValue({ fetch: { execute } }) });
+    const node = toolNode({ tools: [{ type: 'builtin', name: 'fetch' }] as any });
+    const stateView = {
+      ...makeStateView({ map_item: 'stale' }),
+      taskContext: { map_item: 'fresh', map_index: 0, map_total: 1 },
+    };
+
+    await executeWorkerWithStateView(node, stateView, 1, makeCtx({ deps }));
+
+    expect(execute).toHaveBeenCalledWith({ map_item: 'fresh', map_index: 0, map_total: 1 });
   });
 
   it('throws when a tool worker has no tool_id', async () => {
