@@ -75,6 +75,8 @@ vi.mock('../src/observability/logger', () => ({
 vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
+  startSpan: () => ({ setAttribute: vi.fn(), end: vi.fn() }),
+  inSpanContext: (_span: any, fn: () => any) => fn(),
 }));
 
 vi.mock('../src/security/taint', () => ({

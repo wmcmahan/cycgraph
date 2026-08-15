@@ -39,6 +39,31 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # A2A + MCP scenario servers, for the playground and the gated a2a suite.
+  # Start with: docker-compose --profile playground up -d
+  scenario-servers:
+    build:
+      context: ./packages/test-servers
+    ports:
+      - "${A2A_PORT:-4001}:4001"
+      - "${MCP_PORT:-4002}:4002"
+    environment:
+      # Bind every interface so the ports are reachable from the host, but
+      # publish a host-reachable URL in the Agent Cards.
+      TEST_SERVER_HOST: 0.0.0.0
+      A2A_PUBLIC_URL: ${A2A_PUBLIC_URL:-http://127.0.0.1:4001}
+    volumes:
+      # Mounted so editing a scenario does not need an image rebuild.
+      - ./packages/test-servers/src:/app/src
+    restart: unless-stopped
+    profiles:
+      - playground
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # Optional dev tools — start with: docker-compose --profile tools up -d
   postgres-admin:
     image: dpage/pgadmin4:latest

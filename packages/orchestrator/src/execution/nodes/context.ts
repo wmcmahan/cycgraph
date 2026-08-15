@@ -25,6 +25,7 @@ import type { A2AServerRegistry } from '../../a2a/schema.js';
 import type { A2AClient } from '../../a2a/client.js';
 import type { FactSanitizer } from '../../security/fact-sanitizer.js';
 import type { FitnessFunction } from './fitness-function.js';
+import type { LogSink } from '../../observability/logger.js';
 import type { RateLimiter } from '../../agents/rate-limiter.js';
 import type { AgentRegistry } from '../../persistence/interfaces.js';
 import type { ProviderRegistry } from '../../agents/providers/provider-registry.js';
@@ -253,6 +254,13 @@ export interface NodeExecutorContext {
   fitnessFunction?: FitnessFunction;
   /** Optional rate-limiting hook awaited before every LLM call (from GraphRunnerOptions). */
   rateLimiter?: RateLimiter;
+  /**
+   * Where this run's log entries go (from GraphRunnerOptions). Carried so a
+   * node that starts a nested run gives the child the same destination —
+   * otherwise a host with a configured sink still loses every child line to
+   * the process streams.
+   */
+  logger?: LogSink;
   /** Callback fired when context compression runs on a prompt's memory section. */
   onContextCompressed?: (event: { tokensIn: number; tokensOut: number; reductionPercent: number; durationMs: number }, nodeId: string) => void;
   /** Remaining workflow budget in USD, or `undefined` if unlimited (static snapshot — prefer getRemainingBudgetUsd). */

@@ -42,6 +42,7 @@ import type { AgentValue } from '../src/authoring/agent.js';
 import type { Graph } from '../src/graph/graph.js';
 import { GraphRunner } from '../src/execution/engine/graph-runner.js';
 import { InMemoryAgentRegistry } from '../src/persistence/in-memory.js';
+import { SubgraphInterfaceError } from '../src/execution/nodes/errors.js';
 
 const CHILD_INSTRUCTIONS = 'child researcher instructions';
 
@@ -249,6 +250,37 @@ describe('run — subgraph boundary validation', () => {
     await expect(runToFinalState(parent, { topic: 'volcanoes' })).rejects.toThrow(
       /output "out" violates the declared interface/,
     );
+  });
+
+  it('does not retry an interface violation', async () => {
+    const child = interfaceChild({ inputs: { goal_in: z.string() }, outputs: { out: z.number() } });
+    const retries = { maxRetries: 4, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
+    const attempts: number[] = [];
+    const parent = graph({
+      name: 'parent',
+      nodes: [
+        subgraph(child, {
+          id: 'call', reads: ['topic'], writes: 'result',
+          inputs: { topic: 'goal_in' }, outputs: { out: 'result' },
+          failurePolicy: retries,
+        }),
+      ],
+    });
+
+    const registry = new InMemoryAgentRegistry();
+    for (const config of agentsForGraph(parent)) registry.register(config);
+    for (const embedded of graphsForGraph(parent)) {
+      for (const config of agentsForGraph(embedded)) registry.register(config);
+    }
+    const runner = new GraphRunner(
+      parent,
+      state({ workflowId: parent.id, goal: 'g', memory: { topic: 'volcanoes' } }),
+      { registry, loadGraph: async (id) => (id === child.id ? child : null) },
+    );
+    runner.on('node:retry', (event) => attempts.push(event.attempt as number));
+
+    await expect(runner.run()).rejects.toThrow(SubgraphInterfaceError);
+    expect(attempts).toEqual([]);
   });
 
   it('rejects at runtime when a required input is missing on the id-resolved path', async () => {

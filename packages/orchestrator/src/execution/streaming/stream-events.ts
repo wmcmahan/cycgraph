@@ -205,12 +205,25 @@ export interface WorkflowWaitingEvent {
   timestamp: number;
 }
 
+/**
+ * The run stopped on purpose rather than finishing or failing: cancelled by
+ * the caller, or declined at a gate with nowhere to route.
+ */
+export interface WorkflowCancelledEvent {
+  type: 'workflow:cancelled';
+  workflow_id: string;
+  run_id: string;
+  state: WorkflowState;
+  timestamp: number;
+}
+
 // ─── Union ──────────────────────────────────────────────────────────
 
 export type TerminalStreamEvent =
   | WorkflowCompleteEvent
   | WorkflowFailedEvent
   | WorkflowTimeoutEvent
+  | WorkflowCancelledEvent
   | WorkflowWaitingEvent;
 
 export interface MemoryDroppedEvent {
@@ -231,6 +244,7 @@ export type StreamEvent =
   | WorkflowCompleteEvent
   | WorkflowFailedEvent
   | WorkflowTimeoutEvent
+  | WorkflowCancelledEvent
   | WorkflowWaitingEvent
   | WorkflowPausedEvent
   | WorkflowRollbackEvent
@@ -256,6 +270,7 @@ export function isTerminalEvent(event: StreamEvent): event is TerminalStreamEven
     event.type === 'workflow:complete' ||
     event.type === 'workflow:failed' ||
     event.type === 'workflow:timeout' ||
+    event.type === 'workflow:cancelled' ||
     event.type === 'workflow:waiting'
   );
 }

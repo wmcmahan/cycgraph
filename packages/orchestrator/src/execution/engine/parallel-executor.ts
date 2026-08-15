@@ -53,6 +53,14 @@ export interface ParallelExecutionConfig {
   errorStrategy: 'fail_fast' | 'best_effort';
   /** Per-task timeout in milliseconds. If a task exceeds this, it is aborted. */
   taskTimeoutMs?: number;
+  /**
+   * Workflow-level cancellation.
+   *
+   * Checked before each claim, so a cancelled run stops spawning work instead
+   * of running the rest of the batch out. Also handed to tasks that have no
+   * per-task timeout of their own, so in-flight work can observe it too.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -125,7 +133,7 @@ export async function executeParallel(
           abortController.abort();
         }
       } else {
-        action = await executeFn(task);
+        action = await executeFn(task, config.signal);
       }
 
       const extMetadata = action.metadata as Record<string, unknown>;
@@ -159,6 +167,10 @@ export async function executeParallel(
     while (true) {
       // fail_fast: stop claiming new tasks once a failure is recorded.
       if (failure) return;
+      // Cancellation stops the pool claiming more work. Tasks already running
+      // are left to settle: interrupting them is the task's business, and the
+      // caller is discarding the results either way.
+      if (config.signal?.aborted) return;
       const current = nextIndex++;
       if (current >= tasks.length) return;
       await runOne(current);

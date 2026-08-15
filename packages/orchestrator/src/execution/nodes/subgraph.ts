@@ -219,6 +219,7 @@ export async function executeSubgraphNode(
     factSanitizer: ctx.factSanitizer,
     fitnessFunction: ctx.fitnessFunction,
     ...(ctx.rateLimiter ? { rateLimiter: ctx.rateLimiter } : {}),
+    ...(ctx.logger ? { logger: ctx.logger } : {}),
   };
 
   // A prior run of this node paused its child for human approval and

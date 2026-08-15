@@ -59,9 +59,12 @@ vi.mock('../src/observability/logger.js', () => ({
 vi.mock('../src/observability/tracing.js', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
+  startSpan: () => ({ setAttribute: vi.fn(), end: vi.fn() }),
+  inSpanContext: (_span: any, fn: () => any) => fn(),
 }));
 
 import type { Graph } from '../src/graph/graph.js';
+import { isTerminalEvent } from '../src/execution/streaming/stream-events.js';
 import type { WorkflowState } from '../src/state/state.js';
 
 // ─── Deferred import to avoid top-level await crashing the worker ────────
@@ -137,6 +140,30 @@ describe('GraphRunner — Iteration Limits', () => {
 
     expect(finalState.iteration_count).toBeGreaterThanOrEqual(5);
     expect(finalState.status).toBe('failed');
+  });
+
+  it('yields a workflow:failed terminal event when the iteration cap is hit', async () => {
+    const cyclicGraph: Graph = {
+      ...createLinearGraph(),
+      edges: [
+        { id: 'e1', source: 'start', target: 'end', condition: { type: 'always' } },
+        { id: 'e2', source: 'end', target: 'start', condition: { type: 'always' } },
+      ],
+      end_nodes: [],
+    };
+
+    const initialState = createInitialState();
+    initialState.max_iterations = 4;
+
+    const events = [];
+    for await (const event of new GraphRunner(cyclicGraph, initialState).stream()) {
+      events.push(event);
+    }
+
+    const terminal = events.filter(isTerminalEvent);
+    expect(terminal).toHaveLength(1);
+    expect(terminal[0]!.type).toBe('workflow:failed');
+    expect(terminal[0]!.state.status).toBe('failed');
   });
 });
 

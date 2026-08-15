@@ -34,6 +34,12 @@ import { getTracer, withSpan } from '../../observability/tracing.js';
 const logger = createLogger('runner.node-execution-driver');
 const tracer = getTracer('orchestrator.runner');
 
+/** The attempt a failure happened on, falling back to the configured budget. */
+export function attemptOf(error: unknown, node: GraphNode): number {
+  const carried = (error as { attempt?: unknown } | null)?.attempt;
+  return typeof carried === 'number' ? carried : Math.max(1, node.failure_policy.max_retries);
+}
+
 /** Constructor dependencies — live accessors into the owning runner. */
 export interface NodeExecutionDriverDeps {
   getGraph: () => Graph;
@@ -223,7 +229,7 @@ export class NodeExecutionDriver {
           node_id: node.id,
           type: node.type,
           error: errorMessage,
-          attempt: node.failure_policy.max_retries,
+          attempt: attemptOf(error, node),
         });
       }
 
@@ -268,7 +274,14 @@ export class NodeExecutionDriver {
     const policy = node.failure_policy;
     let lastError: Error | undefined;
 
-    for (let attempt = 1; attempt <= policy.max_retries; attempt++) {
+    // `max_retries` bounds attempts, not retries beyond the first. It is
+    // floored at one so a node configured never to retry still runs once:
+    // zero is a valid setting meaning "do not retry", not "do not execute".
+    const maxAttempts = Math.max(1, policy.max_retries);
+    let attempts = 0;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      attempts = attempt;
       try {
         // Check circuit breaker
         if (policy.circuit_breaker?.enabled) {
@@ -309,7 +322,7 @@ export class NodeExecutionDriver {
           break;
         }
 
-        const isLastAttempt = attempt === policy.max_retries;
+        const isLastAttempt = attempt === maxAttempts;
         if (isLastAttempt) break;
 
         // Calculate backoff and retry
@@ -336,7 +349,16 @@ export class NodeExecutionDriver {
       }
     }
 
-    throw lastError || new Error(`Node ${node.id} failed after ${policy.max_retries} retries`);
+    // The attempt that actually failed, which is not `maxAttempts` when a
+    // non-retryable error short-circuits the loop. Carried on the error
+    // because that is what reaches the caller reporting the failure.
+    const failure = lastError ?? new Error(`Node ${node.id} failed after ${maxAttempts} attempt(s)`);
+    // Guarded: a thrown primitive cannot carry a property, and rethrowing it
+    // unchanged matters more than reporting its attempt.
+    if (typeof failure === 'object' && failure !== null) {
+      (failure as { attempt?: number }).attempt ??= attempts;
+    }
+    throw failure;
   }
 
   /**

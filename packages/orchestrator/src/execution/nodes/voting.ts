@@ -108,7 +108,12 @@ export async function executeVotingNode(
       const abortSignal = combineAbortSignals(ctx.abortSignal, taskSignal);
       return ctx.deps.executeAgent(task.node.agent_id!, task.stateView, tools, attempt, { nodeId: task.node.id, grantedWriteKeys: task.node.write_keys, abortSignal, onToken, drainTaintEntries: ctx.deps.drainTaintEntries, ...(modelOverride ? { modelOverride } : {}), ...(task.node.default_write_key ? { defaultWriteKey: task.node.default_write_key } : {}), ...buildAgentMemoryOptions(task.node, ctx) });
     },
-    { maxConcurrency: config.voter_agent_ids.length, errorStrategy: 'best_effort', taskTimeoutMs: config.task_timeout_ms },
+    {
+      maxConcurrency: config.voter_agent_ids.length,
+      errorStrategy: 'best_effort',
+      taskTimeoutMs: config.task_timeout_ms,
+      ...(ctx.abortSignal ? { signal: ctx.abortSignal } : {}),
+    },
   );
 
   // Extract votes from action payloads. Lesson provenance recorded by each

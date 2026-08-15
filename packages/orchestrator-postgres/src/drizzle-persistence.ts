@@ -11,6 +11,7 @@ import { eq, desc, sql, and, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { retryOnTransient } from './retry.js';
 import { withTenant, type Tx, type TenantContext } from './tenancy.js';
+import { isForeignKeyViolation } from './pg-errors.js';
 import type {
   PersistenceProvider,
   GraphRow,
@@ -20,7 +21,7 @@ import type {
 } from '@cycgraph/orchestrator';
 import type { Graph } from '@cycgraph/orchestrator';
 import type { WorkflowState } from '@cycgraph/orchestrator';
-import { hydrateWorkflowState, StaleClaimError } from '@cycgraph/orchestrator';
+import { hydrateWorkflowState, MissingRunRecordError, StaleClaimError } from '@cycgraph/orchestrator';
 
 type WorkflowStatus = 'pending' | 'scheduled' | 'running' | 'waiting' | 'retrying' | 'completed' | 'failed' | 'cancelled' | 'timeout';
 
@@ -128,6 +129,26 @@ export interface DrizzlePersistenceProviderOptions {
    * tenants during the expand→enforce window (RLS is not enabled yet).
    */
   tenant?: TenantContext;
+}
+
+/**
+ * Map a foreign-key violation to {@link MissingRunRecordError}.
+ *
+ * Run-scoped tables reference the run row, which references the graph. When
+ * neither was persisted, the driver reports only a constraint code and the
+ * caller sees repeated write failures rather than the missing row.
+ */
+async function asMissingRunRecord<T>(
+  runId: string,
+  table: string,
+  write: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    if (isForeignKeyViolation(error)) throw new MissingRunRecordError(runId, table);
+    throw error;
+  }
 }
 
 export class DrizzlePersistenceProvider implements PersistenceProvider {
@@ -291,7 +312,7 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     // retry the entire transaction with backoff so the race is invisible to
     // callers. `fn` is idempotent: re-reading MAX inside a fresh transaction
     // produces the next correct version.
-    await retryOnTransient(() =>
+    await asMissingRunRecord(state.run_id, 'workflow_states', () => retryOnTransient(() =>
       this.tx(async (tx) => {
         await this.assertClaim(tx, state.run_id);
 
@@ -312,7 +333,7 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
           updated_at: new Date(),
         });
       }),
-    );
+    ));
   }
 
   /**
@@ -398,7 +419,7 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
     // Same version-increment race as `saveWorkflowState` — retry on transient
     // unique-violation conflicts. The run update is idempotent
     // (`onConflictDoUpdate`); the state insert is what races.
-    await retryOnTransient(() =>
+    await asMissingRunRecord(state.run_id, 'workflow_runs', () => retryOnTransient(() =>
       this.tx(async (tx) => {
         await this.assertClaim(tx, state.run_id);
 
@@ -440,7 +461,7 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
           updated_at: new Date(),
         });
       }),
-    );
+    ));
   }
 
   // ── Event Queries ──

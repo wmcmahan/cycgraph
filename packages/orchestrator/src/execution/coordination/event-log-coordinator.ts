@@ -68,7 +68,7 @@ export class EventLogCoordinator {
   // execution (no per-event latency), but the flush barrier awaits them all
   // BEFORE the state snapshot commits, so the event log can never silently
   // fall behind the snapshot it anchors.
-  private pendingAppends: Array<Promise<{ ok: boolean }>> = [];
+  private pendingAppends: Array<Promise<{ ok: boolean; error?: unknown }>> = [];
 
   // A fatal append error observed on any append: a sequence conflict or a
   // stale claim both mean another writer is executing this run — fatal for
@@ -132,7 +132,7 @@ export class EventLogCoordinator {
           sequence_id: event.sequence_id,
           event_type,
         });
-        return { ok: false };
+        return { ok: false, error };
       },
     );
     this.pendingAppends.push(promise);
@@ -161,17 +161,23 @@ export class EventLogCoordinator {
       throw this.fatalError;
     }
 
-    const failed = results.filter(r => !r.ok).length;
-    if (failed > 0) {
+    const failures = results.filter(r => !r.ok);
+    if (failures.length > 0) {
       this.flushFailures++;
-      logger.error('event_log_flush_failed', new Error(`${failed} append(s) failed`), {
+      logger.error('event_log_flush_failed', new Error(`${failures.length} append(s) failed`), {
         run_id: this.deps.getRunId(),
         consecutive_failed_flushes: this.flushFailures,
       });
       if (this.flushFailures >= MAX_EVENT_LOG_FAILURES) {
+        // The halt describes the symptom; what actually rejected the write is
+        // the only actionable part, so it is carried in both the message and
+        // `cause` rather than left in the log for someone to correlate.
+        const cause = failures.find(f => f.error !== undefined)?.error;
+        const detail = cause instanceof Error ? `: ${cause.message}` : '';
         throw new Error(
           `Event log unavailable after ${this.flushFailures} consecutive failed flushes. ` +
-          `Halting workflow to prevent unrecoverable event-log divergence.`,
+          `Halting workflow to prevent unrecoverable event-log divergence${detail}`,
+          cause instanceof Error ? { cause } : undefined,
         );
       }
     } else {

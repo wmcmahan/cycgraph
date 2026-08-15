@@ -19,7 +19,16 @@ export const MCP_TOOLS = [
   { name: 'lookup_record', description: 'Returns a fixed structured record as JSON text.' },
   { name: 'slow', description: 'Sleeps before returning. Exercises per-tool timeouts.' },
   { name: 'always_fails', description: 'Always returns a tool error. Exercises failure handling.' },
+  { name: 'flaky', description: 'Fails its first N calls, then succeeds. Exercises retry and recovery.' },
 ];
+
+/**
+ * Call counts for {@link MCP_TOOLS} entries that behave differently over time.
+ *
+ * Process-wide and never reset: a client testing retry wants the second call
+ * to differ from the first, which is only true if the server remembers.
+ */
+const callCounts = new Map<string, number>();
 
 /** Build the MCP server with the scenario tools registered. */
 export function createMCPServer(): McpServer {
@@ -59,6 +68,30 @@ export function createMCPServer(): McpServer {
   );
 
   server.registerTool(
+    'flaky',
+    {
+      description: 'Fails its first N calls, then succeeds.',
+      inputSchema: {
+        fail_first: z.number().describe('How many initial calls should fail'),
+        key: z.string().optional().describe('Independent counter, so callers do not share a window'),
+      },
+    },
+    async ({ fail_first, key }) => {
+      const counterKey = `flaky:${key ?? 'default'}`;
+      const seen = (callCounts.get(counterKey) ?? 0) + 1;
+      callCounts.set(counterKey, seen);
+
+      if (seen <= fail_first) {
+        return {
+          content: [{ type: 'text', text: `call ${seen} of ${fail_first} failing on purpose` }],
+          isError: true,
+        };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({ call: seen, recovered: true }) }] };
+    },
+  );
+
+  server.registerTool(
     'always_fails',
     { description: 'Always returns a tool error. Exercises failure handling.', inputSchema: {} },
     async () => ({ content: [{ type: 'text', text: 'this tool always fails' }], isError: true }),
@@ -80,6 +113,18 @@ export function createMCPScenarioServer(): Express {
 
   app.get('/', (_req, res) => {
     res.json({ protocol: 'mcp', endpoint: '/mcp', tools: MCP_TOOLS });
+  });
+
+  // Streamable HTTP clients probe GET for a server-initiated SSE stream. This
+  // server has none, and 405 is how the transport is told so: a 404 reads as
+  // the wrong endpoint and surfaces on the client as an uncaught transport
+  // error on an otherwise healthy connection.
+  app.get('/mcp', (_req, res) => {
+    res.status(405).set('allow', 'POST').json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'This server does not offer an SSE stream; POST only.' },
+      id: null,
+    });
   });
 
   app.post('/mcp', async (req, res) => {

@@ -50,13 +50,19 @@ vi.mock('../src/agents/factory', () => ({
   },
 }));
 
+// Hoisted so `vi.mock`, which is lifted above module scope, can close over it.
+const loggerCalls = vi.hoisted(() => ({
+  error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn(),
+}));
 vi.mock('../src/observability/logger', () => ({
-  createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+  createLogger: () => loggerCalls,
 }));
 
 vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
+  startSpan: () => ({ setAttribute: vi.fn(), end: vi.fn() }),
+  inSpanContext: (_span: any, fn: () => any) => fn(),
 }));
 
 import { WorkflowWorker } from '../src/execution/coordination/worker';
@@ -920,5 +926,35 @@ describe('WorkflowWorker', () => {
 
       expect(maxActive).toBe(1);
     });
+  });
+});
+
+
+describe('WorkflowWorker error logging', () => {
+  it('passes the thrown error to the logger rather than the context object', async () => {
+    loggerCalls.error.mockClear();
+
+    const failure = new Error('graph load exploded');
+    const queue = new InMemoryWorkflowQueue();
+    await queue.enqueue({ type: 'start', run_id: uuidv4(), graph_id: uuidv4() });
+
+    const persistence = new InMemoryPersistenceProvider();
+    persistence.loadGraph = async () => { throw failure; };
+
+    const worker = new WorkflowWorker({
+      queue,
+      persistence,
+      eventLog: new InMemoryEventLogWriter(),
+      pollIntervalMs: 5,
+    });
+
+    await worker.start();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await worker.stop();
+
+    const call = loggerCalls.error.mock.calls.find((c) => c[0] === 'job_processing_error');
+    expect(call).toBeDefined();
+    expect(call![1]).toBe(failure);
+    expect(call![2]).toMatchObject({ run_id: expect.any(String) });
   });
 });

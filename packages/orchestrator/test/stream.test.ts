@@ -19,16 +19,23 @@ vi.mock('ai', () => ({
   streamText: vi.fn(),
 }));
 
-vi.mock('@opentelemetry/api', () => ({
-  trace: {
-    getTracer: () => ({
-      startActiveSpan: (_name: string, _opts: any, fn: any) =>
-        fn({ setAttribute: vi.fn(), setStatus: vi.fn(), recordException: vi.fn(), end: vi.fn() }),
-    }),
-  },
-  SpanStatusCode: { OK: 0, ERROR: 2 },
-  context: {},
-}));
+vi.mock('@opentelemetry/api', () => {
+  const span = () => ({ setAttribute: vi.fn(), setStatus: vi.fn(), recordException: vi.fn(), end: vi.fn() });
+  return {
+    trace: {
+      getTracer: () => ({
+        startActiveSpan: (_name: string, _opts: any, fn: any) => fn(span()),
+        startSpan: () => span(),
+      }),
+      setSpan: (ctx: any) => ctx,
+    },
+    SpanStatusCode: { OK: 0, ERROR: 2 },
+    context: {
+      active: () => ({}),
+      with: (_ctx: any, fn: any) => fn(),
+    },
+  };
+});
 
 vi.mock('../src/agents/executors/agent/executor', () => ({
   executeAgent: vi.fn(async (agentId: string, _stateView: any, _tools: any, attempt: number) => ({
@@ -62,6 +69,8 @@ vi.mock('../src/observability/logger', () => ({
 vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_tracer: any, _name: string, fn: (span: any) => any) => fn({ setAttribute: vi.fn() }),
+  startSpan: () => ({ setAttribute: vi.fn(), end: vi.fn() }),
+  inSpanContext: (_span: any, fn: () => any) => fn(),
 }));
 
 import type { Graph } from '../src/graph/graph';

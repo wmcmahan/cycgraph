@@ -70,6 +70,17 @@ export class WorkflowTimeoutError extends CycgraphError {
  * Thrown when a node is missing required configuration for its type.
  */
 export class NodeConfigError extends CycgraphError {
+  /**
+   * Never retried: the configuration is the same on every attempt, so a retry
+   * re-runs identical work to fail identically.
+   *
+   * This matters most where nesting multiplies it. A composition that trips
+   * the subgraph depth cap raises this at the bottom of the chain, and a
+   * retryable error there is re-attempted by every ancestor — turning a bounded
+   * refusal into exponentially many descents.
+   */
+  readonly retryable = false;
+
   constructor(
     public readonly nodeId: string,
     public readonly nodeType: string,

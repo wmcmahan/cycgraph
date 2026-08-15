@@ -18,6 +18,7 @@
     "lint:eslint": "eslint packages",
     "lint:eslint:fix": "eslint packages --fix",
     "smoke": "tsx scripts/integration-smoke.ts",
+    "play": "npm run play --workspace=packages/playground --",
     "bench": "npm run bench --workspace=packages/benchmarks",
     "changeset": "changeset",
     "version": "changeset version && npm install --package-lock-only",

@@ -24,6 +24,9 @@ import { initMetrics } from './metrics.js';
 
 let initialized = false;
 
+/** The running SDK, so {@link shutdownTracing} can flush what it has buffered. */
+let activeSdk: { shutdown: () => Promise<void> } | undefined;
+
 /**
  * Initialize OpenTelemetry tracing and metrics.
  *
@@ -66,6 +69,7 @@ export async function initTracing(serviceName: string): Promise<void> {
 
   sdk.start();
   initialized = true;
+  activeSdk = sdk;
 
   // Graceful shutdown on process signals
   const shutdown = async () => {
@@ -73,6 +77,59 @@ export async function initTracing(serviceName: string): Promise<void> {
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+}
+
+/**
+ * Flush pending spans and stop the exporter.
+ *
+ * Spans are batched, so a process that exits without either a signal or this
+ * call discards whatever has not been exported yet. Long-running services are
+ * covered by the signal handlers; anything that runs and exits — a script, a
+ * job, a CLI — must call this before returning.
+ *
+ * Safe to call when tracing was never initialized, and safe to call twice.
+ */
+export async function shutdownTracing(): Promise<void> {
+  const sdk = activeSdk;
+  if (!sdk) return;
+
+  activeSdk = undefined;
+  initialized = false;
+  await sdk.shutdown();
+}
+
+/**
+ * Start a span without making it active.
+ *
+ * For work that cannot be expressed as a single callback — an async generator
+ * driven step by step by its consumer, say — where {@link withSpan} does not
+ * fit. The caller owns the span and must `end()` it. Pair with
+ * {@link inSpanContext} to give the steps a parent.
+ *
+ * @param tracer - Tracer to create the span with.
+ * @param name - Span name.
+ * @param attributes - Attributes set on creation.
+ */
+export function startSpan(
+  tracer: Tracer,
+  name: string,
+  attributes?: Record<string, string | number | boolean>,
+): Span {
+  const span = tracer.startSpan(name);
+  if (attributes) {
+    for (const [key, value] of Object.entries(attributes)) span.setAttribute(key, value);
+  }
+  return span;
+}
+
+/**
+ * Run `fn` with `span` active, so spans created inside nest under it.
+ *
+ * @param span - Span to make current for the duration of `fn`.
+ * @param fn - Work to run.
+ */
+export function inSpanContext<T>(span: Span, fn: () => T): T {
+  return context.with(trace.setSpan(context.active(), span), fn);
 }
 
 /**

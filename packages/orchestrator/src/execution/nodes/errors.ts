@@ -68,6 +68,12 @@ export class SubgraphIncompleteError extends CycgraphError {
  * checked arguments, checked return.
  */
 export class SubgraphInterfaceError extends CycgraphError {
+  /**
+   * Never retried: a schema violation is a property of the value and the
+   * declaration, so an identical attempt fails identically.
+   */
+  readonly retryable = false;
+
   constructor(
     public readonly nodeId: string,
     public readonly subgraphId: string,
@@ -88,6 +94,9 @@ export class SubgraphInterfaceError extends CycgraphError {
  * handler can tell a local composition failure from a remote one.
  */
 export class A2AInterfaceError extends CycgraphError {
+  /** Never retried, for the same reason as {@link SubgraphInterfaceError}. */
+  readonly retryable = false;
+
   constructor(
     public readonly nodeId: string,
     public readonly serverId: string,

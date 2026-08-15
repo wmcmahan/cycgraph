@@ -66,6 +66,7 @@ vi.mock('../src/observability/tracing.js', () => ({
 }));
 
 import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { resetLogLevelCache } from '../src/observability/logger.js';
 import { executeSubgraphNode } from '../src/execution/nodes/subgraph.js';
 import { executeAgent } from '../src/agents/executors/agent/executor.js';
 import { NodeConfigError } from '../src/execution/errors.js';
@@ -172,6 +173,56 @@ describe('Subgraph Execution', () => {
     expect(finalState.status).toBe('completed');
     expect(loadGraphFn).toHaveBeenCalledWith('child-graph');
     expect(finalState.memory.child_output).toBeDefined();
+  });
+
+  it('sends the child run log entries to the parent log sink', async () => {
+    const childGraph = createToolGraph('child-graph');
+
+    const parentGraph: Graph = {
+      id: 'parent-graph',
+      name: 'parent',
+      description: 'Parent with subgraph',
+      nodes: [
+        {
+          id: 'sub-node',
+          type: 'subgraph',
+          subgraph_config: {
+            subgraph_id: 'child-graph',
+            input_mapping: { parent_input: 'child_input' },
+            output_mapping: { 'tool-node_result': 'child_output' },
+            max_iterations: 50,
+          },
+          read_keys: ['*'],
+          write_keys: ['*'],
+          failure_policy: { max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 0, max_backoff_ms: 0 },
+          requires_compensation: false,
+        },
+      ],
+      edges: [],
+      start_node: 'sub-node',
+      end_nodes: ['sub-node'],
+    };
+
+    const entries: Array<{ context?: { run_id?: unknown } }> = [];
+    const state = createTestState({ memory: { parent_input: 'hello' } });
+    const previousLevel = process.env.LOG_LEVEL;
+    process.env.LOG_LEVEL = 'info';
+    resetLogLevelCache();
+
+    try {
+      await new GraphRunner(parentGraph, state, {
+        loadGraphFn: vi.fn().mockResolvedValue(childGraph),
+        logger: (entry) => { entries.push(entry); },
+      }).run();
+    } finally {
+      if (previousLevel === undefined) delete process.env.LOG_LEVEL;
+      else process.env.LOG_LEVEL = previousLevel;
+      resetLogLevelCache();
+    }
+
+    const runIds = new Set(entries.map((e) => e.context?.run_id).filter(Boolean));
+    expect(runIds.size).toBe(2);
+    expect(runIds).toContain(state.run_id);
   });
 
   it('only maps specified input keys to child', async () => {

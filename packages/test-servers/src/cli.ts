@@ -24,7 +24,10 @@ const A2A_PORT = Number(process.env.A2A_PORT ?? 4001);
 const MCP_PORT = Number(process.env.MCP_PORT ?? 4002);
 const HOST = process.env.TEST_SERVER_HOST ?? '127.0.0.1';
 
-const a2aBase = `http://${HOST}:${A2A_PORT}`;
+// Agent Cards advertise this, so it must be an address the CLIENT can reach.
+// In a container the bind host is `0.0.0.0`, which no client can fetch from,
+// so the published URL is configured separately from the bind address.
+const a2aBase = process.env.A2A_PUBLIC_URL ?? `http://${HOST}:${A2A_PORT}`;
 
 createA2AScenarioServer(a2aBase).listen(A2A_PORT, HOST, () => {
   console.log(`\nA2A scenario agents  →  ${a2aBase}`);

@@ -83,8 +83,14 @@ scenario servers in `@cycgraph/test-servers` and skips unless
 `A2A_SCENARIO_SERVER` is set:
 
 ```bash
-npm run start --workspace=packages/test-servers   # in another shell
+docker-compose --profile playground up -d scenario-servers
 A2A_SCENARIO_SERVER=http://127.0.0.1:4001 npx vitest run test/composition.test.ts
+```
+
+Without Docker, run the servers directly in another shell instead:
+
+```bash
+npm run start --workspace=packages/test-servers
 ```
 
 ## Limitations

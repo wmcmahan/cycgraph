@@ -45,10 +45,14 @@ vi.mock('../src/observability/logger', () => ({
 vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_t: any, _n: string, fn: (s: any) => any) => fn({ setAttribute: vi.fn() }),
+  startSpan: () => ({ setAttribute: vi.fn(), end: vi.fn() }),
+  inSpanContext: (_span: any, fn: () => any) => fn(),
 }));
 
 import { GraphRunner } from '../src/execution/engine/graph-runner.js';
 import { InMemoryEventLogWriter } from '../src/persistence/event-log.js';
+import { isTerminalEvent } from '../src/execution/streaming/stream-events.js';
+import { WorkflowTimeoutError } from '../src/execution/errors.js';
 import type { Graph } from '../src/graph/graph.js';
 import type { WorkflowState } from '../src/state/state.js';
 
@@ -227,6 +231,37 @@ describe('Human-in-the-Loop', () => {
     expect(resumedState.status).toBe('cancelled');
     expect(resumedState.visited_nodes).not.toContain('publish');
     expect(resumedState.memory.human_decision).toBe('rejected');
+  });
+
+  it('yields a workflow:cancelled terminal event when a rejection halts the run', async () => {
+    const graph = createHITLGraph();
+    const eventLog = new InMemoryEventLogWriter();
+
+    const pausedState = await new GraphRunner(graph, createState(), { eventLog }).run();
+    const runner = new GraphRunner(graph, { ...pausedState }, { eventLog });
+    runner.applyHumanResponse({ decision: 'rejected', data: 'No' });
+
+    const events = [];
+    for await (const event of runner.stream()) events.push(event);
+
+    const terminal = events.filter(isTerminalEvent);
+    expect(terminal).toHaveLength(1);
+    expect(terminal[0]!.type).toBe('workflow:cancelled');
+    expect(terminal[0]!.state.status).toBe('cancelled');
+  });
+
+  it('refuses a decision that arrives after the gate deadline', async () => {
+    const graph = createHITLGraph();
+    const eventLog = new InMemoryEventLogWriter();
+
+    const pausedState = await new GraphRunner(graph, createState(), { eventLog }).run();
+    const expired = { ...pausedState, waiting_timeout_at: new Date(Date.now() - 1000) };
+
+    const runner = new GraphRunner(graph, expired, { eventLog });
+    runner.applyHumanResponse({ decision: 'approved' });
+
+    await expect(runner.run()).rejects.toThrow(WorkflowTimeoutError);
+    expect(runner.getState().visited_nodes).not.toContain('publish');
   });
 
   it('approving an approval node that IS an end node completes the run', async () => {

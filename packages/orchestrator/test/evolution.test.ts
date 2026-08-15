@@ -57,6 +57,8 @@ vi.mock('../src/observability/logger', () => ({
 vi.mock('../src/observability/tracing', () => ({
   getTracer: () => ({}),
   withSpan: (_t: any, _n: string, fn: (s: any) => any) => fn({ setAttribute: vi.fn() }),
+  startSpan: () => ({ setAttribute: vi.fn(), end: vi.fn() }),
+  inSpanContext: (_span: any, fn: () => any) => fn(),
 }));
 
 import { GraphRunner } from '../src/execution/engine/graph-runner.js';
