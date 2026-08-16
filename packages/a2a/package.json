@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/a2a",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Official Agent2Agent (A2A) adapter for @cycgraph/orchestrator.",
   "type": "module",
   "main": "./dist/index.js",
@@ -36,7 +36,7 @@
     "@a2a-js/sdk": "^1.0.1"
   },
   "peerDependencies": {
-    "@cycgraph/orchestrator": ">=0.14.0 <1"
+    "@cycgraph/orchestrator": ">=1.0.0"
   },
   "devDependencies": {
     "@cycgraph/orchestrator": "*",
