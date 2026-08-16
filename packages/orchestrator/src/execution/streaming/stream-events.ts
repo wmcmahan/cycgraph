@@ -8,7 +8,7 @@
  * @module execution/streaming/stream-events
  */
 
-import type { WorkflowState } from '../../state/state.js';
+import type { TaintMetadata, WorkflowState } from '../../state/state.js';
 import type { ModelResolutionReason, ModelTier } from '../../agents/models/model-resolver.js';
 
 // ─── Non-terminal Events ────────────────────────────────────────────
@@ -239,6 +239,26 @@ export interface MemoryDroppedEvent {
   timestamp: number;
 }
 
+/** Untrusted data entering workflow memory. */
+export interface TaintAppliedEvent {
+  type: 'taint:applied';
+  run_id: string;
+  node_id?: string;
+  /** The memory key now holding untrusted data. */
+  key: string;
+  /** Where the data came from. */
+  source: TaintMetadata['source'];
+  /** MCP server, or registered A2A server, that provided it. */
+  server_id?: string;
+  /** Tool that produced it. */
+  tool_name?: string;
+  /** Tainted keys this was derived from, when `source` is `derived`. */
+  derived_from?: string[];
+  /** Serialized size of the value. */
+  bytes?: number;
+  timestamp: number;
+}
+
 export type StreamEvent =
   | WorkflowStartEvent
   | WorkflowCompleteEvent
@@ -260,7 +280,8 @@ export type StreamEvent =
   | BudgetThresholdReachedEvent
   | ModelResolvedEvent
   | ContextCompressedEvent
-  | MemoryDroppedEvent;
+  | MemoryDroppedEvent
+  | TaintAppliedEvent;
 
 /**
  * Type guard: narrows to terminal events that carry `state: WorkflowState`.

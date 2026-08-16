@@ -22,11 +22,13 @@ vi.mock('ai', async (importOriginal) => {
 });
 vi.mock('@opentelemetry/api', () => ({
   trace: {
+    getActiveSpan: () => undefined,
     getTracer: () => ({
       startActiveSpan: (_n: string, _o: any, fn: any) =>
         fn({ setAttribute: vi.fn(), setStatus: vi.fn(), recordException: vi.fn(), end: vi.fn() }),
     }),
   },
+  isSpanContextValid: () => false,
   SpanStatusCode: { OK: 0, ERROR: 2 },
   context: {},
 }));
@@ -715,8 +717,18 @@ describe('executeVotingNode', () => {
     const action = await executeVotingNode(node, makeDirectStateView(), 1, ctx);
 
     expect(action.payload.updates['_taint_registry']).toEqual({
-      'vote-node_consensus': { source: 'derived', agent_id: 'vote-node', created_at: expect.any(String) },
-      'vote-node_votes': { source: 'derived', agent_id: 'vote-node', created_at: expect.any(String) },
+      'vote-node_consensus': {
+        source: 'derived',
+        node_id: 'vote-node',
+        derived_from: ['external_fact'],
+        created_at: expect.any(String),
+      },
+      'vote-node_votes': {
+        source: 'derived',
+        node_id: 'vote-node',
+        derived_from: ['external_fact'],
+        created_at: expect.any(String),
+      },
     });
   });
 

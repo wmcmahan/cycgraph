@@ -21,9 +21,7 @@ let meterProvider: MeterProvider | undefined;
 export let prometheusExporter: import('@opentelemetry/exporter-prometheus').PrometheusExporter | undefined;
 
 // Instruments (populated once on init)
-let workflowsStarted: Counter | undefined;
-let workflowsCompleted: Counter | undefined;
-let workflowsFailed: Counter | undefined;
+let workflowRuns: Counter | undefined;
 let tokensUsed: Counter | undefined;
 let costUsd: Counter | undefined;
 let workflowDuration: Histogram | undefined;
@@ -57,46 +55,42 @@ export async function initMetrics(): Promise<void> {
 
   const meter = meterProvider.getMeter('@cycgraph/orchestrator', '1.0.0');
 
-  workflowsStarted = meter.createCounter('mcai_workflows_started_total', {
-    description: 'Total number of workflows started',
-    unit: 'workflows',
+  // One counter with a status dimension rather than three names that differ by
+  // one word. `started` counts every run and `completed`/`failed` partition the
+  // terminal ones, so the statuses are phases and must not be summed together.
+  workflowRuns = meter.createCounter('workflow.runs', {
+    description: 'Workflow runs, by lifecycle status',
+    unit: '{run}',
   });
 
-  workflowsCompleted = meter.createCounter('mcai_workflows_completed_total', {
-    description: 'Total number of workflows completed successfully',
-    unit: 'workflows',
+  tokensUsed = meter.createCounter('workflow.tokens', {
+    description: 'LLM tokens consumed, totalled per run',
+    unit: '{token}',
   });
 
-  workflowsFailed = meter.createCounter('mcai_workflows_failed_total', {
-    description: 'Total number of workflows that failed',
-    unit: 'workflows',
+  costUsd = meter.createCounter('workflow.cost', {
+    description: 'Estimated LLM cost, totalled per run',
+    unit: '{USD}',
   });
 
-  tokensUsed = meter.createCounter('mcai_tokens_used_total', {
-    description: 'Total LLM tokens consumed across all workflows',
-    unit: 'tokens',
+  workflowDuration = meter.createHistogram('workflow.run.duration', {
+    description: 'Workflow execution duration',
+    unit: 's',
+    advice: { explicitBucketBoundaries: [0.1, 0.5, 1, 5, 30] },
   });
 
-  costUsd = meter.createCounter('mcai_cost_usd_total', {
-    description: 'Total LLM cost in USD across all workflows',
-    unit: 'usd',
+  // OpenTelemetry's GenAI semantic convention, which this measurement already
+  // matches: one observation per model call. Experimental upstream, so expect
+  // it to move.
+  agentDuration = meter.createHistogram('gen_ai.client.operation.duration', {
+    description: 'Model call duration',
+    unit: 's',
+    advice: { explicitBucketBoundaries: [0.1, 0.5, 1, 5] },
   });
 
-  workflowDuration = meter.createHistogram('mcai_workflow_duration_ms', {
-    description: 'Workflow execution duration in milliseconds',
-    unit: 'ms',
-    advice: { explicitBucketBoundaries: [100, 500, 1000, 5000, 30000] },
-  });
-
-  agentDuration = meter.createHistogram('mcai_agent_duration_ms', {
-    description: 'Agent node execution duration in milliseconds',
-    unit: 'ms',
-    advice: { explicitBucketBoundaries: [100, 500, 1000, 5000] },
-  });
-
-  queueDepthGauge = meter.createObservableGauge('mcai_queue_depth', {
-    description: 'Current number of jobs in the workflow queue (waiting + active)',
-    unit: '1',
+  queueDepthGauge = meter.createObservableGauge('workflow.queue.depth', {
+    description: 'Jobs in the workflow queue, waiting plus active',
+    unit: '{job}',
   });
 
   meter.addBatchObservableCallback(
@@ -117,13 +111,16 @@ export async function initMetrics(): Promise<void> {
 // ─── Configuration ──────────────────────────────────────────────────
 
 /**
- * Register a callback that returns the current queue depth.
+ * Register the source the queue-depth gauge reads at scrape time.
  *
- * Called from the API layer where queue access is available.
+ * `WorkflowWorker` registers its own queue on start and clears it on stop.
+ * Pass `undefined` to unregister, which stops further observation. The
+ * Prometheus exporter keeps serving the last value it saw, so a scrape after
+ * shutdown still reports the depth at the moment the worker stopped.
  *
- * @param fn - Async function returning the current queue depth.
+ * @param fn - Async function returning the current depth, or `undefined`.
  */
-export function setQueueDepthProvider(fn: () => Promise<number>): void {
+export function setQueueDepthProvider(fn: (() => Promise<number>) | undefined): void {
   queueDepthFn = fn;
 }
 
@@ -132,17 +129,17 @@ export function setQueueDepthProvider(fn: () => Promise<number>): void {
 
 /** Record a workflow start event. */
 export function incrementWorkflowsStarted(labels?: Record<string, string>): void {
-  workflowsStarted?.add(1, labels);
+  workflowRuns?.add(1, { ...labels, status: 'started' });
 }
 
 /** Record a workflow completion event. */
 export function incrementWorkflowsCompleted(labels?: Record<string, string>): void {
-  workflowsCompleted?.add(1, labels);
+  workflowRuns?.add(1, { ...labels, status: 'completed' });
 }
 
 /** Record a workflow failure event. */
 export function incrementWorkflowsFailed(labels?: Record<string, string>): void {
-  workflowsFailed?.add(1, labels);
+  workflowRuns?.add(1, { ...labels, status: 'failed' });
 }
 
 /** Record LLM token consumption. */
@@ -155,14 +152,14 @@ export function recordCostUsd(amount: number, labels?: Record<string, string>): 
   costUsd?.add(amount, labels);
 }
 
-/** Record workflow execution duration. */
+/** Record workflow execution duration. Takes milliseconds, records seconds. */
 export function recordWorkflowDuration(durationMs: number, labels?: Record<string, string>): void {
-  workflowDuration?.record(durationMs, labels);
+  workflowDuration?.record(durationMs / 1000, labels);
 }
 
-/** Record agent node execution duration. */
+/** Record one model call's duration. Takes milliseconds, records seconds. */
 export function recordAgentDuration(durationMs: number, labels?: Record<string, string>): void {
-  agentDuration?.record(durationMs, labels);
+  agentDuration?.record(durationMs / 1000, labels);
 }
 
 // ─── Prometheus Scraping ────────────────────────────────────────────

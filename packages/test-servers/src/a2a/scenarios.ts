@@ -7,10 +7,18 @@
  * behave that way on demand.
  *
  * Deliberately deterministic and LLM-free: an integration test that calls a
- * model tests the model. These test the protocol.
+ * model tests the model. These test the protocol, and a model cannot be asked
+ * to return `input-required` or a malformed artifact on demand.
+ *
+ * The one exception is `agent`, in ./agent.ts, which really does run a model.
+ * It exists for the opposite question — whether delegation works when the
+ * other side is an agent rather than a script — and is skipped when no model
+ * is reachable.
  *
  * @module a2a/scenarios
  */
+
+import { agentScenario, clarifyingAgentScenario } from './agent.js';
 
 /** The task states a scenario can drive, in the protocol's spelling. */
 export type ScenarioState =
@@ -33,12 +41,19 @@ export interface Scenario {
    * `resumed` is true when the message carried a `taskId`, which is how A2A
    * models continuation — that flag is what lets `input-required` complete
    * on the second call instead of asking forever.
+   *
+   * On a resumed call `input` is the answer that came back, not the original
+   * request, so `original` carries what the task was opened with. A scripted
+   * scenario ignores it; one that has to actually answer needs both halves.
    */
-  respond(input: unknown, resumed: boolean): {
-    state: ScenarioState;
-    artifacts?: Array<{ name: string; value: unknown }>;
-    message?: string;
-  };
+  respond(input: unknown, resumed: boolean, original?: unknown): ScenarioResponse | Promise<ScenarioResponse>;
+}
+
+/** What a scenario answers with. */
+export interface ScenarioResponse {
+  state: ScenarioState;
+  artifacts?: Array<{ name: string; value: unknown }>;
+  message?: string;
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -98,6 +113,8 @@ export const SCENARIOS: Scenario[] = [
       artifacts: [{ name: '', value: 'anonymous result' }],
     }),
   },
+  agentScenario,
+  clarifyingAgentScenario,
 ];
 
 /** Look up a scenario by id. */

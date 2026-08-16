@@ -27,9 +27,10 @@ import { agentFactory, AgentFactory } from '../../factory/index.js';
 import type { StateView, Action } from '../../../state/state.js';
 import { createLogger } from '../../../observability/logger.js';
 import { getTracer, withSpan } from '../../../observability/tracing.js';
+import { recordAgentDuration } from '../../../observability/metrics.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { TaintMetadata } from '../../../state/state.js';
-import { propagateDerivedTaint } from '../../../security/taint.js';
+import { propagateDerivedTaint, valueBytes } from '../../../security/taint.js';
 import { LESSON_PROVENANCE_KEY, mintLessonProvenance } from '../../../memory/lesson-provenance.js';
 import { retrieveForPrompt } from '../../../memory/retrieve-for-prompt.js';
 import { resolveEffectiveModelConfig } from '../../models/model-override.js';
@@ -193,6 +194,7 @@ export async function executeAgent(
       options?.memoryQuery,
       view,
       effectiveConfig.model,
+      options?.nodeId,
     );
 
     // Build context-aware prompt (with injection guards)
@@ -396,6 +398,7 @@ export async function executeAgent(
         view.taint ?? {},
         outputKeys,
         agentId,
+        options?.nodeId,
       );
 
       // Merge external-tool direct taint: when tainting tools (MCP, or
@@ -412,6 +415,8 @@ export async function executeAgent(
             tool_name: [...new Set(mcpToolCalls.map((c) => c.toolName))].join(','),
             server_id: firstEntry.server_id,
             agent_id: agentId,
+            ...(options?.nodeId ? { node_id: options.nodeId } : {}),
+            bytes: valueBytes(memoryUpdates[key]),
             created_at: new Date().toISOString(),
           };
         }
@@ -422,7 +427,13 @@ export async function executeAgent(
       // poisoned document can't drive a downstream sensitive action ungated.
       if (options?.memoryQuery?.untrusted && (retrievedMemory?.facts?.length ?? 0) > 0) {
         for (const key of outputKeys) {
-          taintUpdates[key] = { source: 'retrieval', agent_id: agentId, created_at: new Date().toISOString() };
+          taintUpdates[key] = {
+            source: 'retrieval',
+            agent_id: agentId,
+            ...(options?.nodeId ? { node_id: options.nodeId } : {}),
+            bytes: valueBytes(memoryUpdates[key]),
+            created_at: new Date().toISOString(),
+          };
         }
       }
 
@@ -501,6 +512,11 @@ export async function executeAgent(
     span.setAttribute('agent.model', effectiveConfig.model);
     span.setAttribute('agent.provider', config.provider);
     span.setAttribute('agent.duration_ms', duration);
+    recordAgentDuration(duration, {
+      agent_id: agentId,
+      model: effectiveConfig.model,
+      ...(options?.nodeId ? { node_id: options.nodeId } : {}),
+    });
     span.setAttribute('agent.tokens.input', tokenUsage.inputTokens);
     span.setAttribute('agent.tokens.output', tokenUsage.outputTokens);
     span.setAttribute('agent.tokens.total', tokenUsage.totalTokens);

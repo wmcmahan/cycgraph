@@ -308,6 +308,27 @@ describe('validateGraph', () => {
       expect(result.warnings.some(w => w.includes('never_written') && w.includes('not produced by any node'))).toBe(true);
     });
 
+    it('does not warn for a key the graph declares as an input', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['topic'];
+      graph.inputs = { topic: { schema: { type: 'string' } } };
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w => w.includes('topic'))).toBe(false);
+    });
+
+    it('still warns for a read that no node writes and no input declares', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['topic', 'never_written'];
+      graph.inputs = { topic: { schema: { type: 'string' } } };
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.filter(w => w.includes('not produced by any node')))
+        .toHaveLength(1);
+    });
+
     it('does not warn when a wildcard writer exists', () => {
       const graph = createValidGraph();
       graph.nodes[1].write_keys = ['*'];

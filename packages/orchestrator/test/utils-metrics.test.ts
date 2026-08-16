@@ -65,8 +65,41 @@ describe('metrics (enabled)', () => {
 
     expect(collected).not.toBeNull();
     expect(collected!.contentType).toContain('text/plain');
-    expect(collected!.metrics).toContain('mcai_workflows_started_total');
-    expect(collected!.metrics).toContain('mcai_tokens_used_total');
+    expect(collected!.metrics).toContain('workflow_runs_total');
+    expect(collected!.metrics).toContain('workflow_tokens_total');
+  });
+
+  it('distinguishes run statuses by dimension rather than by metric name', async () => {
+    const m = await loadMetrics(true);
+    await m.initMetrics();
+
+    m.incrementWorkflowsStarted({ graph_id: 'g1' });
+    m.incrementWorkflowsFailed({ graph_id: 'g1' });
+    const collected = await m.collectMetrics();
+
+    expect(collected!.metrics).toContain('status="started"');
+    expect(collected!.metrics).toContain('status="failed"');
+  });
+
+  it('records durations in seconds from millisecond callers', async () => {
+    const m = await loadMetrics(true);
+    await m.initMetrics();
+
+    m.recordWorkflowDuration(2500, { graph_id: 'g1' });
+    const collected = await m.collectMetrics();
+
+    expect(collected!.metrics).toContain('workflow_run_duration_sum{');
+    expect(collected!.metrics).toContain('} 2.5');
+  });
+
+  it('names the model-call duration by its GenAI convention', async () => {
+    const m = await loadMetrics(true);
+    await m.initMetrics();
+
+    m.recordAgentDuration(1000, { agent_id: 'a1' });
+    const collected = await m.collectMetrics();
+
+    expect(collected!.metrics).toContain('gen_ai_client_operation_duration_bucket');
   });
 
   it('is idempotent — a second initMetrics call does not re-create instruments', async () => {
@@ -85,7 +118,7 @@ describe('metrics (enabled)', () => {
     m.setQueueDepthProvider(async () => 7);
     const collected = await m.collectMetrics();
 
-    expect(collected!.metrics).toContain('mcai_queue_depth');
+    expect(collected!.metrics).toContain('workflow_queue_depth');
     expect(collected!.metrics).toContain('7');
   });
 

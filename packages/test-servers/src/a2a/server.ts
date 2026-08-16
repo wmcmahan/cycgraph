@@ -88,11 +88,20 @@ function readInput(message: { parts?: Array<{ content?: { $case?: string; value?
  * rather than asking forever.
  */
 function scenarioExecutor(scenario: Scenario): AgentExecutor {
+  // What each open task was originally asked. A resumed call carries only the
+  // answer, and a scenario that has to produce a real response needs the
+  // question it was answering as well.
+  const opened = new Map<string, unknown>();
+
   return {
     async execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
       const resumed = Boolean(requestContext.task);
-      const outcome = scenario.respond(readInput(requestContext.userMessage), resumed);
+      const input = readInput(requestContext.userMessage);
+      if (!resumed) opened.set(requestContext.taskId, input);
 
+      // Submitted first, then the work. A scenario backed by a model takes
+      // seconds to answer, and a caller waiting on the task should see it
+      // accepted rather than nothing at all until it finishes.
       eventBus.publish(AgentEvent.task({
         id: requestContext.taskId,
         contextId: requestContext.contextId,
@@ -101,6 +110,9 @@ function scenarioExecutor(scenario: Scenario): AgentExecutor {
         history: [],
         metadata: undefined,
       } as never));
+
+      const outcome = await scenario.respond(input, resumed, opened.get(requestContext.taskId));
+      if (outcome.state !== 'TASK_STATE_INPUT_REQUIRED') opened.delete(requestContext.taskId);
 
       for (const artifact of outcome.artifacts ?? []) {
         eventBus.publish(AgentEvent.artifactUpdate({

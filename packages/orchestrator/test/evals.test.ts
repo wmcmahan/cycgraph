@@ -18,11 +18,13 @@ vi.mock('ai', () => ({
 
 vi.mock('@opentelemetry/api', () => ({
   trace: {
+    getActiveSpan: () => undefined,
     getTracer: () => ({
       startActiveSpan: (_name: string, _opts: any, fn: any) =>
         fn({ setAttribute: vi.fn(), setStatus: vi.fn(), recordException: vi.fn(), end: vi.fn() }),
     }),
   },
+  isSpanContextValid: () => false,
   SpanStatusCode: { OK: 0, ERROR: 2 },
   context: {},
 }));
@@ -195,6 +197,55 @@ describe('checkAssertion', () => {
 
       expect(result.passed).toBe(false);
       expect(result.message).toContain('Memory does not contain key "nonexistent"');
+    });
+  });
+
+  describe('memory_not_empty', () => {
+    const withValue = (value: unknown) => {
+      const state = createBaseState();
+      state.memory.payload = value;
+      return state;
+    };
+
+    it('passes when the key holds a value', async () => {
+      const result = await checkAssertion({ type: 'memory_not_empty', key: 'payload' }, withValue('done'));
+
+      expect(result.passed).toBe(true);
+    });
+
+    it('fails on an empty array, which memory_contains accepts', async () => {
+      const state = withValue([]);
+
+      const notEmpty = await checkAssertion({ type: 'memory_not_empty', key: 'payload' }, state);
+      const contains = await checkAssertion({ type: 'memory_contains', key: 'payload' }, state);
+
+      expect({ notEmpty: notEmpty.passed, contains: contains.passed })
+        .toEqual({ notEmpty: false, contains: true });
+    });
+
+    it('fails on an empty object', async () => {
+      const result = await checkAssertion({ type: 'memory_not_empty', key: 'payload' }, withValue({}));
+
+      expect(result.message).toBe('Memory key "payload" is present but empty');
+    });
+
+    it('fails on a whitespace-only string', async () => {
+      const result = await checkAssertion({ type: 'memory_not_empty', key: 'payload' }, withValue('   '));
+
+      expect(result.passed).toBe(false);
+    });
+
+    it('passes on values that are falsy but were produced', async () => {
+      const zero = await checkAssertion({ type: 'memory_not_empty', key: 'payload' }, withValue(0));
+      const no = await checkAssertion({ type: 'memory_not_empty', key: 'payload' }, withValue(false));
+
+      expect({ zero: zero.passed, no: no.passed }).toEqual({ zero: true, no: true });
+    });
+
+    it('reports a missing key differently from an empty one', async () => {
+      const result = await checkAssertion({ type: 'memory_not_empty', key: 'absent' }, createBaseState());
+
+      expect(result.message).toBe('Memory does not contain key "absent"');
     });
   });
 

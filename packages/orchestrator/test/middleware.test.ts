@@ -11,11 +11,13 @@ vi.mock('ai', async (importOriginal) => {
 });
 vi.mock('@opentelemetry/api', () => ({
   trace: {
+    getActiveSpan: () => undefined,
     getTracer: () => ({
       startActiveSpan: (_n: string, _o: any, fn: any) =>
         fn({ setAttribute: vi.fn(), setStatus: vi.fn(), recordException: vi.fn(), end: vi.fn() }),
     }),
   },
+  isSpanContextValid: () => false,
   SpanStatusCode: { OK: 0, ERROR: 2 },
   context: {},
 }));

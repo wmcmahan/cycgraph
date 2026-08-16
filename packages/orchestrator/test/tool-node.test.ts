@@ -148,7 +148,14 @@ describe('executeToolNode', () => {
       expect(action.payload).toEqual({
         updates: {
           'tool-node_result': 'external data',
-          '_taint_registry': { 'tool-node_result': { source: 'mcp', server: 'web-search' } },
+          '_taint_registry': {
+            'tool-node_result': {
+              source: 'mcp',
+              server: 'web-search',
+              node_id: 'tool-node',
+              bytes: Buffer.byteLength(JSON.stringify('external data'), 'utf-8'),
+            },
+          },
         },
       });
     });

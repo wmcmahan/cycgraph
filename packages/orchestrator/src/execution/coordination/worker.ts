@@ -23,6 +23,7 @@ import { StaleClaimError } from '../../persistence/errors.js';
 import { EventLogCorruptionError } from '../errors.js';
 import type { EventLogWriter } from '../../persistence/event-log.js';
 import { EventSequenceConflictError } from '../../persistence/event-log.js';
+import { setQueueDepthProvider } from '../../observability/metrics.js';
 import type { WorkflowState } from '../../state/state.js';
 import { createLogger } from '../../observability/logger.js';
 
@@ -142,6 +143,14 @@ export class WorkflowWorker extends EventEmitter {
 
     logger.info('worker_starting', { worker_id: this.workerId, concurrency: this.concurrency });
 
+    // The queue gauge is observed at scrape time, so it needs a source rather
+    // than a push. A worker is the only component that holds a queue and
+    // outlives a single run.
+    setQueueDepthProvider(async () => {
+      const depth = await this.queue.getQueueDepth();
+      return depth.waiting + depth.active;
+    });
+
     // Start periodic reclaim of expired jobs
     this.reclaimTimer = setInterval(async () => {
       try {
@@ -166,6 +175,9 @@ export class WorkflowWorker extends EventEmitter {
     this.running = false;
 
     logger.info('worker_stopping', { worker_id: this.workerId, active_jobs: this.activeJobs.size });
+
+    // Nothing to read the queue through once this worker is down.
+    setQueueDepthProvider(undefined);
 
     // Clear reclaim timer
     if (this.reclaimTimer) {
@@ -219,7 +231,9 @@ export class WorkflowWorker extends EventEmitter {
     }
     this.activeJobs.clear();
 
-    // Wait for poll loop to exit
+    // Wait for poll loop to exit, cutting short the sleep it is almost
+    // certainly sitting in.
+    this.wakePoll?.();
     if (this.pollPromise) {
       await this.pollPromise;
       this.pollPromise = null;
@@ -228,6 +242,9 @@ export class WorkflowWorker extends EventEmitter {
     this.emit('worker:stopped', { workerId: this.workerId });
     logger.info('worker_stopped', { worker_id: this.workerId });
   }
+
+  /** Resolves the poll loop's pending sleep, when it has one. */
+  private wakePoll: (() => void) | null = null;
 
   /** Number of currently active jobs. */
   get activeJobCount(): number {
@@ -481,6 +498,20 @@ export class WorkflowWorker extends EventEmitter {
   }
 
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        this.wakePoll = null;
+        resolve();
+      }, ms);
+      // `stop()` waits for the poll loop to exit, and the loop spends nearly
+      // all its time in here. Without a way to cut the wait short, shutdown
+      // takes up to a full poll interval — long enough to outlast a SIGTERM
+      // grace period and have the process killed with jobs still claimed.
+      this.wakePoll = () => {
+        clearTimeout(timer);
+        this.wakePoll = null;
+        resolve();
+      };
+    });
   }
 }

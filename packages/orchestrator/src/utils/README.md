@@ -218,14 +218,29 @@ await initMetrics();
 
 | Metric | Type | Purpose |
 |--------|------|---------|
-| `mcai_workflows_started_total` | Counter | Workflows started |
-| `mcai_workflows_completed_total` | Counter | Workflows completed successfully |
-| `mcai_workflows_failed_total` | Counter | Workflows that failed |
-| `mcai_tokens_used_total` | Counter | LLM tokens consumed |
-| `mcai_cost_usd_total` | Counter | LLM cost in USD |
-| `mcai_workflow_duration_ms` | Histogram | Workflow execution duration |
-| `mcai_agent_duration_ms` | Histogram | Agent node execution duration |
-| `mcai_queue_depth` | ObservableGauge | Jobs in the workflow queue (waiting + active) |
+| `workflow.runs` | Counter | Runs, dimensioned by `status` (`started`, `completed`, `failed`) |
+| `workflow.tokens` | Counter | LLM tokens consumed, totalled per run |
+| `workflow.cost` | Counter | Estimated LLM cost in USD, totalled per run |
+| `workflow.run.duration` | Histogram | Workflow execution duration, in seconds |
+| `gen_ai.client.operation.duration` | Histogram | One model call's duration, in seconds |
+| `workflow.queue.depth` | ObservableGauge | Jobs in the workflow queue (waiting + active) |
+
+Names carry no package prefix. The meter is scoped to
+`@cycgraph/orchestrator`, which the Prometheus exporter emits as an
+`otel_scope_name` label on every series, so the library is already identified
+without spending the metric name on it. A name that encodes a product name
+also has to be rewritten when the product is, which is how these came to be
+called `mcai_*` long after the rename.
+
+`gen_ai.client.operation.duration` follows OpenTelemetry's GenAI semantic
+convention, which this measurement already matched: one observation per model
+call. That convention is experimental upstream and may move.
+
+Instrument names carry no unit, per OTel guidance — the exporter decides the
+suffix. Note that this Prometheus exporter appends none, so a duration
+serializes as `workflow_run_duration_sum` rather than the
+`..._duration_seconds_sum` a Prometheus-native integration would use. The
+values are seconds either way.
 
 ### Recording Functions
 

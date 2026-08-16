@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { trace, type Span, type SpanContext } from '@opentelemetry/api';
 import { createLogger, runWithContext } from '../src/index.js';
 import { resetLogLevelCache } from '../src/observability/logger.js';
 import type { LogEntry } from '../src/index.js';
@@ -151,5 +152,65 @@ describe('GraphRunner logger option', () => {
     await new GraphRunner(g, state({ workflowId: g.id, goal: 'run' })).run();
 
     expect(stdoutSpy).toHaveBeenCalled();
+  });
+});
+
+describe('trace correlation', () => {
+  const TRACE_ID = '5212e9fd52676b9150b254a1ff27fdfb';
+  const SPAN_ID = 'a3aec6efac8647b9';
+
+  /** A span whose context is whatever the test needs it to be. */
+  const spanWith = (spanContext: SpanContext): Span =>
+    ({ spanContext: () => spanContext }) as Span;
+
+  const capture = (): LogEntry[] => {
+    const received: LogEntry[] = [];
+    runWithContext({ logger: (e) => received.push(e) }, () => {
+      createLogger('probe').info('emitted');
+    });
+    return received;
+  };
+
+  beforeEach(() => {
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    process.env.LOG_LEVEL = 'info';
+    resetLogLevelCache();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LOG_LEVEL;
+    resetLogLevelCache();
+  });
+
+  it('omits trace ids when no span is active', () => {
+    vi.spyOn(trace, 'getActiveSpan').mockReturnValue(undefined);
+
+    const [entry] = capture();
+
+    expect({ trace_id: entry?.trace_id, span_id: entry?.span_id })
+      .toEqual({ trace_id: undefined, span_id: undefined });
+  });
+
+  it('stamps the active span onto the entry', () => {
+    vi.spyOn(trace, 'getActiveSpan').mockReturnValue(
+      spanWith({ traceId: TRACE_ID, spanId: SPAN_ID, traceFlags: 1 }),
+    );
+
+    const [entry] = capture();
+
+    expect({ trace_id: entry?.trace_id, span_id: entry?.span_id })
+      .toEqual({ trace_id: TRACE_ID, span_id: SPAN_ID });
+  });
+
+  it('omits the all-zero ids of a span that is not recording', () => {
+    vi.spyOn(trace, 'getActiveSpan').mockReturnValue(
+      spanWith({ traceId: '0'.repeat(32), spanId: '0'.repeat(16), traceFlags: 0 }),
+    );
+
+    const [entry] = capture();
+
+    expect({ trace_id: entry?.trace_id, span_id: entry?.span_id })
+      .toEqual({ trace_id: undefined, span_id: undefined });
   });
 });

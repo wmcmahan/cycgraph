@@ -21,6 +21,11 @@ export type EvalAssertion =
   | { type: 'status_equals'; /** Expected workflow status. */ expected: string }
   | { type: 'memory_contains'; /** Key that must exist in memory. */ key: string }
   | {
+    type: 'memory_not_empty';
+    /** Key that must exist AND carry something.*/
+    key: string;
+  }
+  | {
     type: 'memory_matches';
     /** Memory key to inspect. */
     key: string;

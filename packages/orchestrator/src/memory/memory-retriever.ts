@@ -21,7 +21,19 @@ export interface MemoryRetrievalResult {
    * should pass `SemanticFact.id` through — an adapter that strips ids
    * silently disables outcome attribution.
    */
-  facts: Array<{ content: string; validFrom: Date; id?: string }>;
+  facts: Array<{
+    content: string;
+    validFrom: Date;
+    id?: string;
+    /**
+     * Relevance score, when the adapter's retrieval path ranks.
+     *
+     * Absent means the query selected rather than ranked, not that the fact
+     * scored zero. Reported in the retrieval log line so a prompt full of
+     * weak matches is distinguishable from one full of strong ones.
+     */
+    score?: number;
+  }>;
   /** Entities referenced by the facts. */
   entities: Array<{ name: string; type: string }>;
   /** High-level themes the facts belong to. */

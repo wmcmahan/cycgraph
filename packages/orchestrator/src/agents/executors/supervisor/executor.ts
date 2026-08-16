@@ -134,6 +134,7 @@ export async function executeSupervisor(
       options?.memoryQuery,
       stateView,
       effectiveConfig.model,
+      node.id,
     );
 
     const systemPrompt = buildSupervisorSystemPrompt(agentConfig.system, config, stateView, supervisorHistory, {

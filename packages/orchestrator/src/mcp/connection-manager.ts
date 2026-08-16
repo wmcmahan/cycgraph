@@ -18,6 +18,7 @@
  */
 
 import { createLogger } from '../observability/logger.js';
+import { getTracer, withSpan } from '../observability/tracing.js';
 import { MCPServerNotFoundError, MCPAccessDeniedError } from './errors.js';
 import {
   ToolCircuitBreakerManager,
@@ -34,6 +35,7 @@ import { assertHostResolvesPublic, scrubStdioEnv } from './transport-security.js
 import type { TaintMetadata } from '../state/state.js';
 
 const logger = createLogger('mcp.connections');
+const tracer = getTracer('mcp.connections');
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -426,7 +428,7 @@ export class MCPConnectionManager implements ToolResolver {
 
     const client = await createClient({
       transport,
-      clientName: `mcai-${serverId}`,
+      clientName: `cycgraph-${serverId}`,
       onUncaughtError: (error) => {
         logger.error('uncaught_mcp_error', error as Error, { server_id: serverId });
       },
@@ -543,9 +545,15 @@ export class MCPConnectionManager implements ToolResolver {
 
         let result: unknown;
         try {
-          // Hold a per-server permit for the duration of the call (including
-          // the timeout window) so wide fan-out can't overwhelm one server.
-          result = semaphore ? await semaphore.run(() => invoke(args)) : await invoke(args);
+          // Spanned per server, so time spent queueing behind a slow server is
+          // separable from the caller's own tool call.
+          result = await withSpan(tracer, 'mcp.tool.call', async (span) => {
+            span.setAttribute('mcp.server_id', serverId);
+            span.setAttribute('mcp.tool_name', toolName);
+            // Hold a per-server permit for the duration of the call (including
+            // the timeout window) so wide fan-out can't overwhelm one server.
+            return semaphore ? await semaphore.run(() => invoke(args)) : await invoke(args);
+          });
         } catch (err) {
           this.toolBreakers?.recordFailure(serverId, toolName);
           // A throwing server still delivers attacker-influencable text (its

@@ -16,11 +16,13 @@ vi.mock('ai', () => ({
 
 vi.mock('@opentelemetry/api', () => ({
   trace: {
+    getActiveSpan: () => undefined,
     getTracer: () => ({
       startActiveSpan: (_name: string, _opts: any, fn: any) =>
         fn({ setAttribute: vi.fn(), setStatus: vi.fn(), recordException: vi.fn(), end: vi.fn() }),
     }),
   },
+  isSpanContextValid: () => false,
   SpanStatusCode: { OK: 0, ERROR: 2 },
   context: {},
 }));
@@ -956,5 +958,60 @@ describe('WorkflowWorker error logging', () => {
     expect(call).toBeDefined();
     expect(call![1]).toBe(failure);
     expect(call![2]).toMatchObject({ run_id: expect.any(String) });
+  });
+});
+
+describe('WorkflowWorker queue-depth metric', () => {
+  it('reports waiting plus active through the registered provider', async () => {
+    process.env.METRICS_ENABLED = 'true';
+    vi.resetModules();
+    const metrics = await import('../src/observability/metrics.js');
+    const { WorkflowWorker: Worker } = await import('../src/execution/coordination/worker.js');
+    const { InMemoryWorkflowQueue: Queue } = await import('../src/persistence/in-memory-queue.js');
+    const { InMemoryPersistenceProvider: Persistence } = await import('../src/persistence/in-memory.js');
+    await metrics.initMetrics();
+
+    const depthQueue = new Queue();
+    const depthWorker = new Worker({
+      queue: depthQueue,
+      persistence: new Persistence(),
+      pollIntervalMs: 60_000,
+      reclaimIntervalMs: 60_000,
+      shutdownGracePeriodMs: 100,
+    });
+
+    // Started first, then filled: a long poll interval keeps the job waiting
+    // rather than claimed, so the depth under test is the queue's and not a
+    // race with the worker draining it.
+    await depthWorker.start();
+    await depthQueue.enqueue({
+      type: 'start',
+      run_id: crypto.randomUUID(),
+      graph_id: crypto.randomUUID(),
+    } as never);
+
+    const collected = await metrics.collectMetrics();
+    await depthWorker.stop();
+    delete process.env.METRICS_ENABLED;
+
+    expect(collected!.metrics).toMatch(/workflow_queue_depth\{[^}]*\} 1/);
+  });
+});
+
+describe('WorkflowWorker shutdown latency', () => {
+  it('returns from stop() without waiting out the poll interval', async () => {
+    const idleQueue = new InMemoryWorkflowQueue();
+    const idleWorker = new WorkflowWorker({
+      queue: idleQueue,
+      persistence: new InMemoryPersistenceProvider(),
+      pollIntervalMs: 60_000,
+      reclaimIntervalMs: 60_000,
+    });
+
+    await idleWorker.start();
+    const started = Date.now();
+    await idleWorker.stop();
+
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 });

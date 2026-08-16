@@ -49,6 +49,18 @@ describe('retrieveMemory', () => {
       await index.rebuild(store);
     });
 
+    it('scores the facts it ranked', async () => {
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, embedding: [1, 0, 0] });
+
+      expect(result.scores?.[result.facts[0].id]).toBeCloseTo(1, 5);
+    });
+
+    it('scores only facts it returned', async () => {
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, embedding: [1, 0, 0] });
+
+      expect(Object.keys(result.scores ?? {})).toEqual(result.facts.map((f) => f.id));
+    });
+
     it('retrieves themes, facts, episodes, and entities by embedding', async () => {
       const result = await retrieveMemory(store, index, { ...DEFAULTS, embedding: [1, 0, 0] });
 
@@ -158,6 +170,16 @@ describe('retrieveMemory', () => {
   });
 
   describe('tag-only retrieval', () => {
+    it('reports no scores, because the tag path selects rather than ranks', async () => {
+      const fact = makeFact({ content: 'tagged', tags: ['lesson'] });
+      await store.putFact(fact);
+      await index.rebuild(store);
+
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, tags: ['lesson'] });
+
+      expect({ facts: result.facts.length, scores: result.scores }).toEqual({ facts: 1, scores: undefined });
+    });
+
     const seedFact = (overrides: Partial<SemanticFact> = {}): Promise<void> =>
       store.putFact(makeFact({ content: 'Some lesson worth keeping.', valid_from: NOW, ...overrides }));
 
