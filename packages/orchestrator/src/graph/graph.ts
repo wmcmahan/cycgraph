@@ -844,6 +844,18 @@ export const GraphSchema = z.object({
    * Default is warning-only (false).
    */
   strict_taint: z.boolean().default(false),
+
+  /**
+   * When `true`, a `read_keys` entry that no node writes and no `inputs` entry
+   * declares is an error rather than a warning.
+   *
+   * Such a read is silently satisfied with an empty value at run time, so the
+   * node produces something plausible from nothing. Declaring the graph's
+   * `inputs` is what makes the check unambiguous: a key that is neither
+   * produced nor declared is a mistake, not a seeded value the validator
+   * cannot see.
+   */
+  strict_keys: z.boolean().default(false),
 });
 
 /** Fully-populated graph definition (output of {@link GraphSchema.parse}). */

@@ -58,39 +58,50 @@ For cycgraph orchestration graphs, wire the pipeline in as a `contextCompressor`
 
 ```typescript
 import { GraphRunner } from '@cycgraph/orchestrator';
-import { createOptimizedPipeline, serialize } from '@cycgraph/context-engine';
+import type { ContextCompressor } from '@cycgraph/orchestrator';
+import { createOptimizedPipeline, resolveModelProfile } from '@cycgraph/context-engine';
 
 const pipeline = createOptimizedPipeline({ preset: 'balanced' });
 
-const contextCompressor = (sanitizedMemory, { query, model, maxTokens }) => {
+const contextCompressor: ContextCompressor = (segments, options) => {
   const result = pipeline.compress({
-    query,
-    model,
-    segments: [{
-      id: 'memory',
-      content: serialize(sanitizedMemory),
-      role: 'memory',
-      priority: 1,
-    }],
+    segments: segments.map((s) => ({
+      id: s.id,
+      content: s.content,
+      role: s.role,
+      priority: s.priority ?? 1,
+      locked: s.locked ?? false,
+    })),
     budget: {
-      maxTokens: maxTokens ?? 8192,
-      outputReserve: 0,
+      maxTokens:
+        options?.maxTokens ??
+        resolveModelProfile(options?.model)?.maxContextTokens ??
+        8192,
+      outputReserve: options?.outputReserve ?? 8_192,
     },
+    query: options?.query,
   });
+
   return {
-    compressed: result.segments[0].content,
+    segments: result.segments.map((s) => ({ id: s.id, content: s.content })),
     metrics: result.metrics,
   };
 };
 
-const runner = new GraphRunner(graph, state, { contextCompressor });
+const runner = new GraphRunner(workflow, initialState, { contextCompressor });
 ```
 
 **What this means:**
 
-- The orchestrator sanitizes memory before the compressor sees it, and the compressed output lands inside the same `<data>` boundary tags as uncompressed memory. Compression runs inside the trust boundary, not across it.
+- Every variable-size prompt section arrives as its own segment — `system`, `goal`, `retrieved`, `task_context`, `memory`, `instructions`, plus `routing_history` for supervisors — so one budget is allocated across the whole prompt rather than over memory alone. Results are matched back by `id`, and a segment you do not return keeps its original content.
 
-- The workflow goal is the query, so relevance allocation keeps goal-relevant memory as prompts grow.
+- Segments marked `locked` (system, goal, instructions) must come back byte-identical. The runner discards the entire result and falls back if one is modified, because rewriting them would change what the agent was told to do.
+
+- The orchestrator sanitizes memory before the compressor sees it and re-sanitizes everything it returns. Boundary markers such as `<data>` tags are emitted around segments, never inside them, so no stage can strip a guard.
+
+- The runner does not track model context windows, so `maxTokens` is usually absent and the implementation resolves its own ceiling from `options.model`. What the agent may generate comes out of that window, which is what `outputReserve` reserves.
+
+- Forwarding `options.query` (the sanitized workflow goal) activates relevance-aware allocation. Omitting it is byte-identical to query-agnostic compression.
 
 - The integration fails open: if your compressor throws or returns `null`, the runner falls back to plain `JSON.stringify` with a 50KB byte cap. Compression is an optimization, never a correctness dependency.
 

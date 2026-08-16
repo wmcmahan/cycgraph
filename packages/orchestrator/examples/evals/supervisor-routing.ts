@@ -19,9 +19,9 @@ import {
 
 const retryOnce = { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
 
-const dispatch = router({ id: 'router', reads: ['*'], writes: ['*'], failurePolicy: retryOnce });
-const worker = runTool('mock_worker', { id: 'worker', reads: ['*'], failurePolicy: retryOnce });
-const done = runTool('mock_done', { id: 'done', reads: ['*'], failurePolicy: retryOnce });
+const dispatch = router({ id: 'router', failurePolicy: retryOnce });
+const worker = runTool('mock_worker', { id: 'worker', failurePolicy: retryOnce });
+const done = runTool('mock_done', { id: 'done', reads: [worker.result], failurePolicy: retryOnce });
 
 const supervisorGraph = graph({
   name: 'Supervisor Routing Eval',
@@ -43,10 +43,10 @@ export const suite: EvalSuite = {
       input: { goal: 'Route work to a tool node' },
       assertions: [
         { type: 'status_equals', expected: 'completed' },
-        { type: 'node_visited', node_id: 'router' },
-        { type: 'node_visited', node_id: 'worker' },
-        { type: 'node_visited', node_id: 'done' },
-        { type: 'memory_contains', key: 'worker_result' },
+        { type: 'node_visited', node_id: dispatch.id },
+        { type: 'node_visited', node_id: worker.id },
+        { type: 'node_visited', node_id: done.id },
+        { type: 'memory_contains', key: worker.result },
       ],
     },
   ],

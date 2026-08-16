@@ -23,8 +23,6 @@ import {
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-// ─── 0. Fail fast if no API key ─────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -33,18 +31,13 @@ if (missing) {
 
 const logger = createLogger('example.observer');
 
-// ─── 1. Shared infrastructure ───────────────────────────────────────────
-// Both the target and observer workflows share these instances.
-// The observer reads from the same event log and persistence the target writes to.
+// ─── Shared infrastructure ───────────────────────────────────────────
 
 const persistence = new InMemoryPersistenceProvider();
 const eventLog = new InMemoryEventLogWriter();
 const queue = new InMemoryWorkflowQueue();
 
-// ─── 2. Define target workflow agents ───────────────────────────────────
-// A simple 3-agent supervisor workflow (no MCP — runs with just an API key).
-// An agent() value is a capability: model, instructions, sampling. The node's
-// reads/writes are the authoritative grant, so no permissions live here.
+// ─── Define target workflow agents ───────────────────────────────────
 
 const targetSupervisorAgent = agent({
   name: 'Target Supervisor',
@@ -90,7 +83,7 @@ const writerAgent = agent({
   maxSteps: 3,
 });
 
-// ─── 3. Define observer workflow agents ─────────────────────────────────
+// ─── Define observer workflow agents ─────────────────────────────────
 
 const observerSupervisorAgent = agent({
   name: 'Observer Supervisor',
@@ -201,14 +194,11 @@ const reportWriterAgent = agent({
   maxSteps: 3,
 });
 
-// ─── 4. Define the target workflow graph ────────────────────────────────
-// Supervisor nodes omit reads/writes: derived reads (from the managed nodes'
-// writes) and control-flow write permissions are implied by the node type.
+// ─── Define the target workflow graph ────────────────────────────────
 
 const researcher = node({
   id: 'researcher',
   agent: researcherAgent,
-  reads: ['goal'],
   writes: 'research_notes',
   failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
 });
@@ -216,7 +206,7 @@ const researcher = node({
 const writer = node({
   id: 'writer',
   agent: writerAgent,
-  reads: ['goal', 'research_notes'],
+  reads: [researcher.writes],
   writes: 'summary',
   failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
 });
@@ -242,7 +232,7 @@ const targetGraph = graph({
   endNodes: [], // Termination via __done__ sentinel
 });
 
-// ─── 5. Define the observer workflow graph ──────────────────────────────
+// ─── Define the observer workflow graph ──────────────────────────────
 
 const tokenAnalyst = node({
   id: 'token_analyst',
@@ -271,7 +261,7 @@ const errorClassifier = node({
 const reportWriter = node({
   id: 'report_writer',
   agent: reportWriterAgent,
-  reads: ['token_analysis', 'stall_analysis', 'error_analysis', 'target_snapshot'],
+  reads: [tokenAnalyst.writes, stallDetector.writes, errorClassifier.writes, 'target_snapshot'],
   writes: 'triage_report',
   failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 5000 },
 });
@@ -298,18 +288,16 @@ const observerGraph = graph({
     { from: reportWriter, to: observerSupervisor },
   ],
   startNode: observerSupervisor,
-  endNodes: [], // Termination via __done__ sentinel
+  endNodes: [],
 });
 
-// ─── 5b. Run-scoped agent registry ──────────────────────────────────────
-// Both graphs carry their agent() configs. Register them into one shared
-// registry that the target worker and observer runner both draw from.
+// ─── Run-scoped agent registry ──────────────────────────────────────
 
 const agentRegistry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(targetGraph)) agentRegistry.register(config);
 for (const config of agentsForGraph(observerGraph)) agentRegistry.register(config);
 
-// ─── 6. Run the target workflow ─────────────────────────────────────────
+// ─── Run the target workflow ─────────────────────────────────────────
 
 async function runTargetWorkflow(): Promise<WorkflowState> {
   logger.info('Starting target workflow...');
@@ -368,7 +356,7 @@ async function runTargetWorkflow(): Promise<WorkflowState> {
   return finalState;
 }
 
-// ─── 7. Run the observer workflow ───────────────────────────────────────
+// ─── Run the observer workflow ───────────────────────────────────────
 
 async function runObserverWorkflow(targetRunId: string): Promise<WorkflowState> {
   logger.info('Starting observer workflow...');
@@ -382,12 +370,8 @@ async function runObserverWorkflow(targetRunId: string): Promise<WorkflowState> 
     maxExecutionTimeMs: 120_000,
   });
 
-  // The observer uses middleware to inject target data into its own state
-  // before each agent node executes. This keeps the observer read-only —
-  // it reads from the shared eventLog and persistence but never writes
-  // to the target's state.
   const runner = new GraphRunner(observerGraph, observerState, {
-  providers: exampleProviders(),
+    providers: exampleProviders(),
     registry: agentRegistry,
     persistState: async (s) => { await persistence.saveWorkflowSnapshot(s); },
     eventLog,
@@ -437,7 +421,7 @@ async function runObserverWorkflow(targetRunId: string): Promise<WorkflowState> 
   return result;
 }
 
-// ─── 8. Main ────────────────────────────────────────────────────────────
+// ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('╔══════════════════════════════════════════════════════╗');

@@ -120,8 +120,6 @@ const workflow = graph({
   name: 'Data Analysis Swarm',
   description: 'Peer-to-peer agents collaborating on data questions.',
   nodes: [researcher, mathWiz, pythonDev],
-  // Edges fire when an agent does NOT delegate. Use them to define a
-  // default forward path or a route to a terminal node.
   edges: [
     { from: researcher, to: pythonDev },
     { from: mathWiz, to: pythonDev },
@@ -130,6 +128,8 @@ const workflow = graph({
   endNodes: [pythonDev],
 });
 ```
+
+Every peer here declares `reads: ['*']` and `writes: ['*']`. A swarm is the one pattern where that is the honest grant: any peer may pick up the work at any point, so none of them has a fixed set of upstream keys to name. `validateGraph` still warns, because the wildcard defeats state slicing. Narrow it whenever the peers do have distinct working sets, and reach for a [Supervisor](/docs/patterns/supervisor/) instead if routing turns out to be centralized after all.
 
 ## Core concepts
 
@@ -147,7 +147,7 @@ A swarm-mode agent hands off by writing a `peer_delegation` object to memory (vi
 
 The orchestrator consumes this key, validates `peer_node_id`, and emits a `handoff` action that re-routes execution. The agent's other memory updates are preserved across the handoff.
 
-If the agent attempts to hand off to a node not in `peerNodes`, the runner throws `NodeConfigError`. The permission to emit handoff actions is implied by the swarm config itself, so no `write_keys` entry is needed for it.
+If the agent attempts to hand off to a node not in `peerNodes`, the runner throws `NodeConfigError`. The permission to emit handoff actions is implied by the swarm config itself, so no `writes` entry is needed for it.
 
 ### Visibility into peers
 

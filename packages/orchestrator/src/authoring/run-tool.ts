@@ -14,6 +14,7 @@
  * @module authoring/run-tool
  */
 
+import { withOutputs, toolOutputs, type ToolOutputs } from './outputs.js';
 import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /**
@@ -29,6 +30,9 @@ export type RunToolSpec = NodeCommon;
  * @param toolId - Id of a built-in, defined, or MCP tool.
  * @param spec - Placement and the argument slice.
  */
-export function runTool(toolId: string, spec: RunToolSpec): NodeValue {
-  return { ...spec, type: 'tool' as const, toolId, [NODE_BRAND]: true as const } as NodeValue;
+export function runTool(toolId: string, spec: RunToolSpec): NodeValue & ToolOutputs {
+  return withOutputs(
+    { ...spec, type: 'tool' as const, toolId, [NODE_BRAND]: true as const } as NodeValue,
+    toolOutputs(spec.id),
+  );
 }

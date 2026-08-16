@@ -11,7 +11,7 @@ Unlike traditional directed acyclic graph (DAG) pipelines, cycgraph natively sup
 
 Most agent frameworks treat multi-agent execution as linear chains or unconstrained LLM loops. cycgraph bridges the gap by enforcing a structured state model with predictable boundaries:
 
-- **State Slicing & Security:** Nodes only read from (`read_keys`) and write to (`write_keys`) explicit slices of the shared workflow state.
+- **State Slicing & Security:** Nodes only read from (`reads`) and write to (`writes`) explicit slices of the shared workflow state.
 - **Durable Execution:** State and event logs are persisted step-by-step, guaranteeing crash recovery and time-travel debugging.
 - **Production Guardrails:** Enforce cost, token, iteration, and execution time limits at the engine level.
 

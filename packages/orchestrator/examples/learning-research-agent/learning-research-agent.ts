@@ -33,8 +33,6 @@ import {
 } from '@cycgraph/memory';
 import type { SemanticFact, Provenance } from '@cycgraph/memory';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -43,21 +41,13 @@ if (missing) {
 
 const logger = createLogger('learning-research');
 
-// Namespaced so lessons from this graph stay distinct from any other graph
-// sharing the same store.
 const LESSON_TAG = 'graph:learning-research-v1';
 
-// ─── 1. Memory store + writer ───────────────────────────────────────────
+// ─── Memory store + writer ───────────────────────────────────────────
 
 const memoryStore = new InMemoryMemoryStore();
 const memoryIndex = new InMemoryMemoryIndex();
 
-/**
- * `MemoryWriter` adapter — translates orchestrator's `MemoryWriterFact[]`
- * into `@cycgraph/memory`'s `SemanticFact` shape and persists each one.
- * In production this lives behind a `DrizzleMemoryStore` and survives
- * process restarts.
- */
 const memoryWriter: MemoryWriter = async (facts) => {
   const now = new Date();
   const ids: string[] = [];
@@ -83,11 +73,6 @@ const memoryWriter: MemoryWriter = async (facts) => {
   return { fact_ids: ids };
 };
 
-/**
- * `MemoryRetriever` adapter — pulls lessons tagged with this graph's
- * namespace. The runner invokes this before building the researcher's
- * system prompt because the researcher node carries `memoryQuery`.
- */
 const memoryRetriever: MemoryRetriever = async (query, options) => {
   const result = await retrieveMemory(memoryStore, memoryIndex, {
     tags: query.tags ?? [LESSON_TAG],
@@ -103,7 +88,7 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
   };
 };
 
-// ─── 2. Define the agent and the graph ──────────────────────────────────
+// ─── Define the agent and the graph ──────────────────────────────────
 
 const researcher = agent({
   name: 'Research Agent',
@@ -125,10 +110,7 @@ const researcher = agent({
 const research = node({
   id: 'research',
   agent: researcher,
-  reads: ['goal', 'constraints'],
   writes: 'research_notes',
-  // This directive is what activates retrieval: without it the runner never
-  // calls memoryRetriever for this node, however it is wired.
   memoryQuery: {
     tags: [LESSON_TAG],
     maxFacts: 20,
@@ -138,11 +120,9 @@ const research = node({
 
 const reflect = reflection(['research_notes'], {
   id: 'reflect',
-  reads: ['research_notes'],
+  reads: [research.writes],
   extractor: { type: 'rule_based', minSentenceLength: 25 },
   tags: ['lesson', LESSON_TAG],
-  // The result key is an implied write grant; pin it because the code below
-  // reads this specific name from final memory.
   resultKey: 'research_notes_reflection',
   failurePolicy: { maxRetries: 1, initialBackoffMs: 500, maxBackoffMs: 5000 },
 });
@@ -154,12 +134,10 @@ const workflow = graph({
   edges: [{ from: research, to: reflect }],
 });
 
-// The hybrid pattern: the facade minted and stashed the agent configs at
-// compile time; register them into a run-scoped registry for GraphRunner.
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
 
-// ─── 3. Run helper ──────────────────────────────────────────────────────
+// ─── Run helper ──────────────────────────────────────────────────────
 
 interface RunOutcome {
   goal: string;
@@ -187,7 +165,7 @@ async function runOnce(goal: string, constraints: string[]): Promise<RunOutcome>
   });
 
   const runner = new GraphRunner(workflow, initialState, {
-  providers: exampleProviders(),
+    providers: exampleProviders(),
     registry,
     memoryWriter,
     memoryRetriever,
@@ -201,7 +179,7 @@ async function runOnce(goal: string, constraints: string[]): Promise<RunOutcome>
     throw new Error(`workflow ended in ${finalState.status}: ${finalState.last_error}`);
   }
 
-  const envelope = finalState.memory.research_notes_reflection as
+  const envelope = finalState.memory[reflect.reflection] as
     | { fact_ids?: string[] }
     | undefined;
 
@@ -216,7 +194,7 @@ async function runOnce(goal: string, constraints: string[]): Promise<RunOutcome>
   };
 }
 
-// ─── 4. Main: run twice and compare ─────────────────────────────────────
+// ─── Main: run twice and compare ─────────────────────────────────────
 
 async function main() {
   logger.info('Starting learning-research-agent example\n');

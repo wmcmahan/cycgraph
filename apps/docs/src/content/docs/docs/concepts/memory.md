@@ -204,10 +204,9 @@ const result = await retrieveMemory(store, index, {
   embedding: queryVector,
   limit: 20,
   minSimilarity: 0.5,
-  validAt: new Date(),          // only currently-valid facts
-  changedSince: lastQueryTime,  // only recent changes
+  validAt: new Date(),
+  changedSince: lastQueryTime,
 });
-// result.themes, result.facts, result.episodes, result.entities, result.relationships
 ```
 
 ### Entity-based retrieval
@@ -242,7 +241,7 @@ Any record with `valid_from` and `valid_until` fields, meaning facts and relatio
 ```typescript
 import { isValidAt, filterValid } from '@cycgraph/memory';
 
-isValidAt(relationship, new Date());  // within [valid_from, valid_until)?
+isValidAt(relationship, new Date());
 
 const validFacts = filterValid(allFacts, {
   validAt: new Date(),
@@ -264,8 +263,8 @@ const lessons = await retrieveGatedLessons(store, {
   tags: ['lesson', 'graph:research-v1'],
   maxFacts: 10,
   candidateSlots: 2,
-  ledger,                   // in-progress-first candidate selection
-  restAfterTrials: 3,       // = the retention policy's minTrials
+  ledger,
+  restAfterTrials: 3,
 });
 ```
 
@@ -478,25 +477,23 @@ const memoryRetriever = async (query, options) => {
   };
 };
 
-const graph = createGraph({
-  name: 'Research',
-  description: 'Research with prior knowledge',
-  nodes: [
-    {
-      id: 'researcher',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal'],
-      writeKeys: ['notes'],
-      memoryQuery: {
-        tags: ['lesson'],   // retrieve facts tagged 'lesson'
-        maxFacts: 10,
-      },
-    },
-  ],
+const research = node({
+  id: 'researcher',
+  agent: researcher,
+  writes: 'notes',
+  memoryQuery: {
+    tags: ['lesson'],   // retrieve facts tagged 'lesson'
+    maxFacts: 10,
+  },
 });
 
-const runner = new GraphRunner(graph, state, { memoryRetriever });
+const workflow = graph({
+  name: 'Research',
+  description: 'Research with prior knowledge',
+  nodes: [research],
+});
+
+const runner = new GraphRunner(workflow, state, { memoryRetriever });
 ```
 
 The runner calls `memoryRetriever` once before building the agent's prompt, then renders results into a `## Relevant Memory` section ahead of the workflow-state memory block.
@@ -540,7 +537,7 @@ const runner = new GraphRunner(graph, state, { memoryRetriever, memoryWriter });
 
 A `reflection` node at the end of the graph distills `research_notes` (or any source key) into facts and calls `memoryWriter`. Future runs pick those facts up through `memoryRetriever` with a matching `tags` query. See the [Reflection pattern](/docs/patterns/reflection/) and the `learning-research-agent` example for the full loop.
 
-**Deduplication contract:** the runner passes `options.idempotency_key`, formatted as `run_id:node_id:iteration`, on every write. The same key comes back when a write repeats for the same node execution, such as after a node retry or crash recovery. Writers should treat a repeated key as already written and skip or upsert. Ignoring it duplicates facts in long-term memory on every retry. See the [Reflection pattern](/docs/patterns/reflection/) for a writer that implements the dedup.
+**Deduplication contract:** the runner passes `options.idempotencyKey`, formatted as `run_id:node_id:iteration`, on every write. The same key comes back when a write repeats for the same node execution, such as after a node retry or crash recovery. Writers should treat a repeated key as already written and skip or upsert. Ignoring it duplicates facts in long-term memory on every retry. See the [Reflection pattern](/docs/patterns/reflection/) for a writer that implements the dedup.
 
 ## API
 

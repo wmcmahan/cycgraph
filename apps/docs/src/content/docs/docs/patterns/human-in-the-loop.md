@@ -38,31 +38,30 @@ See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/pack
 
 ### 1. The Approval Node
 
-Instead of managing complex pausing logic in code, you simply declare an `approval` node in your `createGraph` definition.
+Instead of managing complex pausing logic in code, you simply declare an `approval` node in your graph.
 
 ```typescript
-import { createGraph, approval } from '@cycgraph/orchestrator';
+import { approval, graph, node } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
+const write = node({ id: 'write', agent: writer, writes: 'draft' });
+
+const review = approval({
+  id: 'review',
+  reads: [write.writes],
+  prompt: 'Please review the draft before publication.',
+  reviewKeys: [write.writes],
+  timeoutMs: 300_000,
+});
+
+const publish = node({ id: 'publish', agent: publisher, reads: [write.writes] });
+
+const workflow = graph({
   name: 'Human-in-the-Loop',
-  nodes: [
-    // ... writer agent node ...
-    // The pause permission is implied by the node type — no writes needed.
-    approval({
-      id: 'review',
-      reads: ['*'],
-      prompt: 'Please review the draft before publication.',
-      reviewKeys: ['draft'],  // the memory keys the human needs to see
-      timeoutMs: 300_000,     // hard timeout if the human never responds
-    }),
-    // ... publisher agent node ...
-  ],
+  nodes: [write, review, publish],
   edges: [
-    { source: 'write', target: 'review' },
-    { source: 'review', target: 'publish' },
+    { from: write, to: review },
+    { from: review, to: publish },
   ],
-  startNode: 'write',
-  endNodes: ['publish'],
 });
 ```
 
@@ -75,15 +74,10 @@ const runner1 = new GraphRunner(graph, initialState, {
   persistState: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 
-// The run() promise resolves early with a 'waiting' status
 const pausedState = await runner1.run();
 
 if (pausedState.status === 'waiting') {
   const pending = pausedState.pending_approval;
-  
-  // E.g. Send to Slack: 
-  // "Please review the draft before publication."
-  // "\nDraft content: " + pending.review_data.draft
   console.log(pending.prompt_message);
   console.log(pending.review_data.draft);
 }
@@ -94,21 +88,16 @@ if (pausedState.status === 'waiting') {
 Later, when your user clicks "Approve" or "Reject" in your UI, you instantiate a new `GraphRunner` with the persisted state, apply their response, and run it again.
 
 ```typescript
-// 1. Fetch the paused state from your DB (latest version for the run)
 const stateFromDB = await persistence.loadLatestWorkflowState(runId);
 
-// 2. Create a fresh runner
 const runner2 = new GraphRunner(graph, stateFromDB, {
   persistState: async (s) => persistence.saveWorkflowSnapshot(s),
 });
 
-// 3. Inject the human's decision
 runner2.applyHumanResponse({
   decision: 'approved',
-  data: 'Looks great, but make the headline punchier.', // Optional feedback
+  data: 'Looks great, but make the headline punchier.',
 });
-
-// 4. Resume execution
 const finalState = await runner2.run();
 ```
 
@@ -129,7 +118,7 @@ approval({
   id: 'review',
   prompt: 'Approve deployment to production?',
   reviewKeys: ['deployment_plan'],
-  timeoutMs: 600_000,  // 10-minute deadline
+  timeoutMs: 600_000,
 })
 ```
 
@@ -150,7 +139,6 @@ import { InMemoryWorkflowQueue } from '@cycgraph/orchestrator';
 
 const queue = new InMemoryWorkflowQueue();
 
-// 1. Start the workflow
 await queue.enqueue({
   type: 'start',
   run_id: runId,
@@ -158,13 +146,10 @@ await queue.enqueue({
   initial_state: { goal: 'Write an article' },
 });
 
-// 2. Worker runs it, hits approval node, releases the job (→ paused status)
-
-// 3. Later, when the human approves:
-await queue.ack(startJobId);  // Clean up the paused original job
+await queue.ack(startJobId);
 await queue.enqueue({
   type: 'resume',
-  run_id: runId,       // Same run
+  run_id: runId,
   graph_id: graph.id,
   human_response: { decision: 'approved', data: 'Looks great!' },
 });

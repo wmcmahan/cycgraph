@@ -54,6 +54,8 @@ import type { GraphRunnerMiddleware, MiddlewareContext } from '../middleware/mid
 
 // External runtime types — kept for the runner's public option types
 import type { ToolsOption, ComposedToolResolution, CapabilityCeiling } from '../../tools/registry.js';
+import type { DefinedTool } from '../../tools/define-tool.js';
+import { toolsForGraph } from '../../authoring/graph.js';
 import { composeToolResolution } from '../../tools/registry.js';
 import type { ModelResolver } from '../../agents/models/model-resolver.js';
 import type { ContextCompressor } from '../../memory/context-compressor.js';
@@ -397,6 +399,28 @@ export interface GraphRunnerOptions {
  * const result = await runner.run();
  * ```
  */
+/**
+ * The tools a run resolves against: what the caller supplied, plus any the
+ * graph's nodes declared inline and the caller did not already provide.
+ *
+ * Keyed by `defineTool` name, so a caller's own definition of a name shadows
+ * the inline one rather than being appended after it.
+ */
+function mergeInlineTools(
+  graph: Graph,
+  supplied: ToolsOption[] | undefined,
+): ToolsOption[] | undefined {
+  const inline = toolsForGraph(graph);
+  if (inline.length === 0) return supplied;
+  if (!supplied || supplied.length === 0) return inline;
+
+  const suppliedNames = new Set(
+    supplied.filter((entry): entry is DefinedTool => 'name' in entry).map((entry) => entry.name),
+  );
+  const missing = inline.filter((entry) => !suppliedNames.has(entry.name));
+  return missing.length > 0 ? [...supplied, ...missing] : supplied;
+}
+
 export class GraphRunner extends EventEmitter {
   private graph: Graph;
   private state: WorkflowState;
@@ -542,12 +566,14 @@ export class GraphRunner extends EventEmitter {
     });
     this.onToken = options?.onToken;
     this.middleware = options?.middleware ?? [];
-    this.toolResolver = options?.tools
-      ? composeToolResolution(options.tools, { capabilityCeiling: options?.capabilityCeiling })
+
+    const tools = mergeInlineTools(graph, options?.tools);
+    this.toolResolver = tools
+      ? composeToolResolution(tools, { capabilityCeiling: options?.capabilityCeiling })
       : undefined;
     this.registry = options?.registry;
     this.providers = options?.providers;
-    this.toolsOption = options?.tools;
+    this.toolsOption = tools;
     this.capabilityCeiling = options?.capabilityCeiling;
     this.capabilityCeilings = options?.capabilityCeilings;
     this.agentFactory = buildRunAgentFactory(options?.registry, options?.providers);
@@ -858,7 +884,7 @@ export class GraphRunner extends EventEmitter {
       // If the workflow was paused at an approval node and the timeout has
       // expired since the last run, transition directly to 'timeout'.
       if (this.state.status === 'waiting' && this.state.waiting_timeout_at
-          && new Date() >= this.state.waiting_timeout_at) {
+        && new Date() >= this.state.waiting_timeout_at) {
         logger.info('approval_timeout_expired_on_resume', {
           workflow_id: this.state.workflow_id,
           run_id: this.state.run_id,
@@ -1598,7 +1624,7 @@ export class GraphRunner extends EventEmitter {
 
     const loop = this.executeLoop();
     try {
-      for (;;) {
+      for (; ;) {
         const next = await inSpanContext(runSpan, () =>
           runWithContext(runContext, () => loop.next()));
         if (next.done) return;
@@ -1665,7 +1691,7 @@ export class GraphRunner extends EventEmitter {
     // approval would be indistinguishable from a timely one. Left as-is, the
     // run resumes into the expired-gate branch and times out.
     if (this.state.status === 'waiting' && this.state.waiting_timeout_at
-        && new Date() >= this.state.waiting_timeout_at) {
+      && new Date() >= this.state.waiting_timeout_at) {
       logger.warn('human_response_after_timeout', {
         run_id: this.state.run_id,
         waiting_timeout_at: this.state.waiting_timeout_at.toISOString(),

@@ -33,8 +33,6 @@ import {
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -43,9 +41,7 @@ if (missing) {
 
 const logger = createLogger('example');
 
-// ─── 1. Define agents ────────────────────────────────────────────────────
-// An agent() value is a capability: model, instructions, sampling. The node's
-// reads/writes are the authoritative grants.
+// ─── Define agents ────────────────────────────────────────────────────
 
 const splitterAgent = agent({
   name: 'Splitter Agent',
@@ -94,47 +90,39 @@ const synthesizerAgent = agent({
   maxSteps: 3,
 });
 
-// ─── 2. Define the graph ─────────────────────────────────────────────────
+// ─── Define the graph ─────────────────────────────────────────────────
 
 const splitter = node({
   id: 'splitter',
   agent: splitterAgent,
-  reads: ['goal', 'constraints'],
   writes: ['topics'],
   failurePolicy: { maxRetries: 2 },
 });
 
-// The four result keys are implied by the node type, so no writes here.
 const mapper = mapReduce('researcher', {
   id: 'mapper',
   items: '$.memory.topics',
   concurrency: 5,
   onError: 'best_effort',
-  reads: ['*'],
+  reads: [...splitter.writes],
   failurePolicy: { maxRetries: 1 },
 });
 
 const researcher = node({
   id: 'researcher',
   agent: researcherAgent,
-  // The map item arrives via the Task Context prompt section, not memory.
-  reads: ['goal'],
   writes: ['research'],
   failurePolicy: { maxRetries: 2 },
 });
 
-// An agent-backed synthesizer authors its output, so `writes` is required:
-// the implied `<id>_synthesis` key only applies to the agentless merge.
 const combine = synthesizer({
   id: 'synthesizer',
   agent: synthesizerAgent,
-  reads: ['goal', 'mapper_results', 'mapper_count'],
+  reads: [mapper.results, mapper.count],
   writes: ['summary'],
   failurePolicy: { maxRetries: 2 },
 });
 
-// The worker node (researcher) has no edges — the map node drives it — so
-// start/end cannot be inferred: pass them explicitly.
 const workflow = graph({
   name: 'Fan-Out Map-Reduce',
   description: 'Parallel research with LLM-powered synthesis: split → map → synthesize',
@@ -147,7 +135,7 @@ const workflow = graph({
   endNodes: [combine],
 });
 
-// ─── 3. Set up registry, state, persistence, and runner ──────────────────
+// ─── Set up registry, state, persistence, and runner ──────────────────
 
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
@@ -167,7 +155,6 @@ const runner = new GraphRunner(workflow, initialState, {
   persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 
-// Event listeners for observability
 runner.on('workflow:start', ({ run_id }) => {
   logger.info(`Workflow started: ${run_id}`);
 });
@@ -188,7 +175,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 4. Run ──────────────────────────────────────────────────────────────
+// ─── Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting fan-out map-reduce workflow...\n');
@@ -206,13 +193,12 @@ async function main() {
       }
 
       console.log('\n═══ Parallel Results ═══');
-      const mapperCount = finalState.memory.mapper_count;
-      const mapperErrorCount = finalState.memory.mapper_error_count;
+      const mapperCount = finalState.memory[mapper.count];
+      const mapperErrorCount = finalState.memory[mapper.errorCount];
       console.log(`  ${mapperCount ?? 0} researcher(s) completed successfully`);
       if (mapperErrorCount && Number(mapperErrorCount) > 0) {
         console.log(`  ${mapperErrorCount} researcher(s) failed`);
       }
-      // Diagnostic: show what the splitter actually saved (string vs array)
       if (Array.isArray(topics)) {
         console.log(`  Fan-out: ${topics.length} sub-topics → ${mapperCount ?? 0} workers`);
       } else {

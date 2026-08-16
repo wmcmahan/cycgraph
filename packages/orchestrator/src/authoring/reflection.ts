@@ -15,6 +15,7 @@
 
 import type { ReflectionConfig } from '../graph/graph.js';
 import type { Camelize } from '../utils/case-mapping.js';
+import { withOutputs, reflectionOutputs, type ReflectionOutputs } from './outputs.js';
 import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /** Extraction strategy: deterministic sentence splitting, or an LLM. */
@@ -38,10 +39,10 @@ export interface ReflectionSpec extends NodeCommon {
  * @param sources - Memory keys whose values feed the extractor.
  * @param spec - Placement, extraction strategy, and tags.
  */
-export function reflection(sources: string[], spec: ReflectionSpec): NodeValue {
+export function reflection(sources: string[], spec: ReflectionSpec): NodeValue & ReflectionOutputs {
   const { extractor, tags, entityKeys, resultKey, ...placement } = spec;
 
-  return {
+  return withOutputs({
     ...placement,
     type: 'reflection' as const,
     reflectionConfig: {
@@ -52,5 +53,5 @@ export function reflection(sources: string[], spec: ReflectionSpec): NodeValue {
       ...(resultKey !== undefined ? { resultKey } : {}),
     },
     [NODE_BRAND]: true as const,
-  } as NodeValue;
+  } as NodeValue, reflectionOutputs(spec.id, spec.resultKey));
 }

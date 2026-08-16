@@ -26,8 +26,8 @@ const writer = agent({
   instructions: 'You are a professional writer. Turn the research notes into a clear summary under 300 words.',
 });
 
-const research = node({ id: 'research', agent: researcher, reads: ['goal', 'constraints'], writes: 'research_notes' });
-const write = node({ id: 'write', agent: writer, reads: ['goal', 'research_notes'], writes: 'draft' });
+const research = node({ id: 'research', agent: researcher, writes: 'research_notes' });
+const write = node({ id: 'write', agent: writer, reads: [research.writes], writes: 'draft' });
 
 const workflow = graph({
   name: 'Research & Write',

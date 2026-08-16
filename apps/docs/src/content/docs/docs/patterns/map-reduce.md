@@ -27,12 +27,18 @@ This example demonstrates a map-reduce pipeline where a Splitter breaks a broad 
 
 See the [full runnable code](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/map-reduce/map-reduce.ts).
 
-### 1. The Worker and Synthesizer Agents
+### 1. The Splitter, Worker, and Synthesizer Agents
 
-First, define the agent that will process individual items, and the agent that will merge the results. Notice the specific variables their prompts address.
+First, define the agent that produces the work list, the agent that processes individual items, and the agent that merges the results. Notice the specific variables their prompts address.
 
 ```typescript
 import { agent } from '@cycgraph/orchestrator';
+
+const splitter = agent({
+  model: 'claude-sonnet-4-6',
+  instructions: 'Break the goal into 3-6 independent sub-topics. Save them as a JSON array.',
+  temperature: 0.3,
+});
 
 const researcher = agent({
   model: 'claude-sonnet-4-6',
@@ -44,7 +50,7 @@ const researcher = agent({
   temperature: 0.5,
 });
 
-const synthesizer = agent({
+const combiner = agent({
   model: 'claude-sonnet-4-6',
   instructions: [
     'You are a synthesis specialist.',
@@ -60,47 +66,43 @@ const synthesizer = agent({
 Next, place the agents and configure the graph combining the `map` and `synthesizer` node types.
 
 ```typescript
-import { node, mapReduce, graph } from '@cycgraph/orchestrator';
+import { node, mapReduce, synthesizer, graph } from '@cycgraph/orchestrator';
 
-const mapper = mapReduce('researcher', {   // the node to fan out to
-  id: 'mapper',
-  reads: ['*'],
-  items: '$.memory.topics',                // JSONPath to the input array
-  concurrency: 5,                          // parallel execution limit
-  onError: 'best_effort',                  // continue to synthesis even if some fail
+const split = node({
+  id: 'splitter',
+  agent: splitter,
+  writes: 'topics',
 });
 
-// The worker node. The map item arrives via
-// Task Context, so no read key is needed for it.
+const mapper = mapReduce('researcher', {
+  id: 'mapper',
+  reads: [split.writes],
+  items: '$.memory.topics',
+  concurrency: 5,
+  onError: 'best_effort',
+});
+
 const worker = node({
   id: 'researcher',
   agent: researcher,
-  reads: ['goal'],
   writes: 'research',
 });
 
-// The synthesizer node — explicitly granted access to the mapped outputs
-const reduce = node({
+const reduce = synthesizer({
   id: 'synthesizer',
-  type: 'synthesizer',
-  agent: synthesizer,
-  reads: ['goal', 'mapper_results'],
+  agent: combiner,
+  reads: [mapper.results],
   writes: 'summary',
 });
 
 const workflow = graph({
   name: 'Fan-Out Map-Reduce',
-  nodes: [
-    // ... splitter agent node that outputs a JSON array to memory.topics ...
-    mapper,
-    worker,
-    reduce,
-  ],
+  nodes: [split, mapper, worker, reduce],
   edges: [
-    { from: 'splitter', to: mapper },
+    { from: split, to: mapper },
     { from: mapper, to: reduce },
   ],
-  startNode: 'splitter',
+  startNode: split,
   endNodes: [reduce],
 });
 ```
@@ -108,7 +110,7 @@ const workflow = graph({
 ## Core concepts
 
 ### Understanding map variables
-When the map node launches your parallel workers, it hands each one a `## Task Context` section in its prompt with three fields. They arrive automatically. No `readKeys` entry is needed, because task context is a separate channel from the memory blackboard:
+When the map node launches your parallel workers, it hands each one a `## Task Context` section in its prompt with three fields. They arrive automatically. No `reads` entry is needed, because task context is a separate channel from the memory blackboard:
 - `map_item`: The specific string, object, or number being processed by this worker.
 - `map_index`: Which position in the array this item occupies (e.g. `0`, `1`, `2`).
 - `map_total`: The total size of the input array.

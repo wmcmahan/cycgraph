@@ -26,17 +26,13 @@ import {
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
   process.exit(1);
 }
 
-// ─── 1. Define agents ────────────────────────────────────────────────────
-// An agent() value is a capability: model, instructions, sampling. No id
-// (graph() mints one) and no permissions (the node's grants are authoritative).
+// ─── Define agents ────────────────────────────────────────────────────
 
 const researcher = agent({
   name: 'Research Agent',
@@ -64,12 +60,11 @@ const writer = agent({
   maxSteps: 3,
 });
 
-// ─── 2. Place them in a graph ────────────────────────────────────────────
+// ─── Place them in a graph ────────────────────────────────────────────
 
 const research = node({
   id: 'research',
   agent: researcher,
-  reads: ['goal', 'constraints'],
   writes: 'research_notes',
   failurePolicy: { maxRetries: 2 },
 });
@@ -77,13 +72,11 @@ const research = node({
 const write = node({
   id: 'write',
   agent: writer,
-  reads: ['goal', 'research_notes'],
+  reads: [research.writes],
   writes: 'draft',
   failurePolicy: { maxRetries: 2 },
 });
 
-// Linear: research → write. Start/end are inferred (research has no inbound
-// edge, write has no outbound edge).
 const workflow = graph({
   name: 'Streaming Research & Write',
   description: 'Two-node linear workflow with streaming output',
@@ -91,9 +84,7 @@ const workflow = graph({
   edges: [{ from: research, to: write }],
 });
 
-// ─── 3. Set up registry and state ────────────────────────────────────────
-// The graph carries its agent() configs; register them into a run-scoped
-// registry for the explicit GraphRunner path.
+// ─── Set up registry and state ────────────────────────────────────────
 
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
@@ -105,13 +96,13 @@ const initialState = state({
   maxExecutionTimeMs: 120_000,
 });
 
-// ─── 4. Stream execution ─────────────────────────────────────────────────
+// ─── Stream execution ─────────────────────────────────────────────────
 
 async function main() {
   const persistence = new InMemoryPersistenceProvider();
 
   const runner = new GraphRunner(workflow, initialState, {
-  providers: exampleProviders(),
+    providers: exampleProviders(),
     registry,
     persistState: async (s) => {
       await persistence.saveWorkflowState(s);
@@ -131,7 +122,6 @@ async function main() {
         break;
 
       case 'agent:token_delta':
-        // Real-time token streaming — write each token as it arrives
         process.stdout.write(event.token);
         break;
 

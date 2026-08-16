@@ -12,6 +12,7 @@
  * @module authoring/a2a
  */
 
+import { withMappedOutputs, type MappedOutputsFor } from './outputs.js';
 import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /**
@@ -53,10 +54,10 @@ export interface A2ASpec extends Omit<NodeCommon, 'budget'> {
  * @param serverId - Id of an entry in the A2A server registry.
  * @param spec - Placement, grants, and the input/output mappings.
  */
-export function a2a(serverId: string, spec: A2ASpec): NodeValue {
+export function a2a<const S extends A2ASpec>(serverId: string, spec: S): NodeValue & MappedOutputsFor<S> {
   const { skill, inputs, outputs, maxWaitMs, ...placement } = spec;
 
-  return {
+  return withMappedOutputs({
     ...placement,
     type: 'a2a' as const,
     a2aConfig: {
@@ -67,5 +68,5 @@ export function a2a(serverId: string, spec: A2ASpec): NodeValue {
       ...(maxWaitMs !== undefined ? { maxWaitMs } : {}),
     },
     [NODE_BRAND]: true as const,
-  } as NodeValue;
+  } as NodeValue, spec.outputs) as NodeValue & MappedOutputsFor<S>;
 }

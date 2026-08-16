@@ -38,8 +38,8 @@ const briefing = graph({
     a2a('research-service', {
       id: 'research',
       reads: ['topic'],
-      inputs:  { topic: 'query' },      // parent key → message part
-      outputs: { report: 'findings' },  // artifact name → parent key
+      inputs:  { topic: 'query' },
+      outputs: { report: 'findings' },
     }),
   ],
 });

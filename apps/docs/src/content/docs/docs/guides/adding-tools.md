@@ -40,11 +40,8 @@ To execute a workflow with MCP tools, inject an `MCPConnectionManager` (configur
 import { GraphRunner, MCPConnectionManager } from '@cycgraph/orchestrator';
 
 async function runWorkflow(state) {
-  // 1. Create the resolver with your configured registry
   const mcpManager = new MCPConnectionManager(mcpRegistry);
 
-  // 2. Add it to the runner's tools. The agent registry is wired globally
-  //    by scoping the registry into the run (GraphRunnerOptions.registry).
   const runner = new GraphRunner(graph, state, {
     tools: [mcpManager],
     persistState: async (s) => { /* persist state hook */ },
@@ -54,7 +51,6 @@ async function runWorkflow(state) {
     const result = await runner.run();
     return result;
   } finally {
-    // 3. Always clean up connections!
     await mcpManager.closeAll();
   }
 }

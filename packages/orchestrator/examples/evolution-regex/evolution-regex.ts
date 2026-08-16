@@ -20,8 +20,6 @@ import {
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 import type { FitnessFunction } from '@cycgraph/orchestrator';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -30,7 +28,7 @@ if (missing) {
 
 const logger = createLogger('example.evolution-regex');
 
-// ─── 1. The test corpus — fitness is computed against this ──────────────
+// ─── The test corpus — fitness is computed against this ──────────────
 
 // HTTP 4xx status codes EXCEPT 401, 403, 404.
 const SHOULD_MATCH = [
@@ -49,30 +47,24 @@ const SHOULD_MATCH = [
 ];
 
 const SHOULD_REJECT = [
-  // The famous three — the exclusion list
   '401',  // Unauthorized
   '403',  // Forbidden
   '404',  // Not Found
-  // Non-4xx codes
   '200',  // OK
   '301',  // Moved Permanently
   '500',  // Internal Server Error
   '304',  // Not Modified
-  '100',  // Continue
-  // Structural failures
   '4000', // too long
   '40',   // too short
   'xyz',  // not numeric
 ];
 
-// ─── 2. Deterministic fitness — no LLM judge ────────────────────────────
+// ─── Deterministic fitness — no LLM judge ────────────────────────────
 
 const fitnessFunction: FitnessFunction = async (output) => {
-  // The candidate agent writes to `candidate_output`.
   const raw = (output as { candidate_output?: unknown })?.candidate_output;
   const candidate = typeof raw === 'string' ? raw.trim() : '';
 
-  // Strip common LLM wrappers: backticks, "regex:" labels.
   const cleaned = candidate
     .replace(/^```(?:regex|text)?\s*/i, '')
     .replace(/```$/, '')
@@ -95,11 +87,11 @@ const fitnessFunction: FitnessFunction = async (output) => {
 
   for (const s of SHOULD_MATCH) {
     if (regex.test(s)) { hits++; detail.push(`✓ match  ${s}`); }
-    else                 detail.push(`✗ match  ${s}`);
+    else detail.push(`✗ match  ${s}`);
   }
   for (const s of SHOULD_REJECT) {
     if (!regex.test(s)) { hits++; detail.push(`✓ reject ${s}`); }
-    else                  detail.push(`✗ reject ${s}`);
+    else detail.push(`✗ reject ${s}`);
   }
 
   const total = SHOULD_MATCH.length + SHOULD_REJECT.length;
@@ -109,8 +101,7 @@ const fitnessFunction: FitnessFunction = async (output) => {
   };
 };
 
-// ─── 3. Define the candidate agent ──────────────────────────────────────
-// The evaluator is the deterministic function above — no evaluator agent needed.
+// ─── Define the candidate agent ──────────────────────────────────────
 
 const candidate = agent({
   name: 'Regex Generator',
@@ -127,31 +118,18 @@ const candidate = agent({
     'Use the per-test failures to make a TARGETED change — fix the failing tests without breaking the passing ones.',
     'Anchors (^ and $) are usually needed.',
   ].join(' '),
-  temperature: 0.9, // overridden by evolution temperature annealing
+  temperature: 0.9,
   maxSteps: 1,
 });
 
-// ─── 4. Place the agent in an evolution node + graph ────────────────────
-// `candidateAgentId` accepts the agent() value directly — graph() deep-resolves
-// it to the same registry id the node's `agent` field mints, so it registers once.
+// ─── Place the agent in an evolution node + graph ────────────────────
 
 const evolve = evolution(candidate, {
   id: 'evolve',
-  reads: ['*'],
-  // evaluatorAgentId intentionally omitted — fitnessFunction handles scoring.
   populationSize: 4,
   maxGenerations: 4,
   eliteCount: 1,
-  // Threshold deliberately set above 1.0 so the loop never exits
-  // early. Modern LLMs (Haiku, Sonnet, Opus) one-shot the canonical
-  // regex even for unusual exclusion patterns, which would terminate
-  // the loop on generation 0 and prove nothing about the engine
-  // actually iterating. By running all max_generations we get
-  // visible proof that parent context is propagated, temperature
-  // anneals, and the parallel fan-out fires every generation.
   fitnessThreshold: 1.5,
-  // Stagnation also disabled so identical-fitness generations
-  // don't trigger early exit.
   stagnationGenerations: 99,
   selection: 'rank',
   initialTemperature: 1.0,
@@ -171,13 +149,6 @@ const workflow = graph({
   endNodes: [evolve],
 });
 
-// The graph carries the agent() config; register it into a run-scoped registry
-// for the explicit GraphRunner path. We re-pin the write ceiling to
-// `candidate_output`: a facade agent() is a pure capability (permissions null),
-// but the evolution executor runs each candidate as a synthetic node granted
-// write_keys ['*'], so the agent-config ceiling is the only thing that routes a
-// candidate's text to `candidate_output` — the key the fitnessFunction and the
-// winner blob read.
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) {
   registry.register({ ...config, permissions: { readKeys: ['*'], writeKeys: ['candidate_output'] } });
@@ -209,9 +180,9 @@ async function main() {
     console.log('═══ Evolution Results ═══');
     console.log('Status:', finalState.status);
 
-    const winnerOutput = finalState.memory['evolve_winner'] as { candidate_output?: string } | undefined;
-    const winnerFitness = finalState.memory['evolve_winner_fitness'];
-    const winnerReasoning = finalState.memory['evolve_winner_reasoning'] as string | undefined;
+    const winnerOutput = finalState.memory[evolve.winner] as { candidate_output?: string } | undefined;
+    const winnerFitness = finalState.memory[evolve.winnerFitness];
+    const winnerReasoning = finalState.memory[evolve.winnerReasoning] as string | undefined;
     const fitnessHistory = finalState.memory['evolve_fitness_history'] as number[] | undefined;
 
     console.log('\nWinning regex:');

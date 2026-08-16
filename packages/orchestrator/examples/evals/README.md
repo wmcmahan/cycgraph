@@ -13,9 +13,9 @@ Example eval suites demonstrating the `@cycgraph/orchestrator` eval framework. E
 ## Writing Your Own
 
 ```typescript
-import { graph, node, type EvalSuite } from '@cycgraph/orchestrator';
+import { graph, runTool, type EvalSuite } from '@cycgraph/orchestrator';
 
-const work = node({ id: 'my_node', type: 'tool', toolId: 'my_tool', reads: ['*'], writes: ['*'] });
+const work = runTool('my_tool', { id: 'my_node' });
 
 const myGraph = graph({ name: 'My Graph', nodes: [work] });
 
@@ -28,8 +28,8 @@ export const suite: EvalSuite = {
       input: { goal: 'Do something' },
       assertions: [
         { type: 'status_equals', expected: 'completed' },
-        { type: 'node_visited', node_id: 'my_node' },
-        { type: 'memory_contains', key: 'result' },
+        { type: 'node_visited', node_id: work.id },
+        { type: 'memory_contains', key: work.result },
         { type: 'memory_matches', key: 'score', pattern: '', mode: 'exact', expected: 42 },
         { type: 'token_budget_respected' },
         // LLM-as-judge (requires API key):

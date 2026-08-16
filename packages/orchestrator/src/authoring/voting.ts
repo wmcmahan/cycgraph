@@ -11,6 +11,7 @@
  */
 
 import type { AgentValue } from './agent.js';
+import { withOutputs, votingOutputs, type VotingOutputs } from './outputs.js';
 import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /** Authoring spec for {@link voting}. */
@@ -35,10 +36,10 @@ export interface VotingSpec extends NodeCommon {
  * @param voters - The agents that vote.
  * @param spec - Placement and aggregation settings.
  */
-export function voting(voters: (AgentValue | string)[], spec: VotingSpec): NodeValue {
+export function voting(voters: (AgentValue | string)[], spec: VotingSpec): NodeValue & VotingOutputs {
   const { strategy, voteKey, quorum, judge, weights, taskTimeoutMs, ...placement } = spec;
 
-  return {
+  return withOutputs({
     ...placement,
     type: 'voting' as const,
     votingConfig: {
@@ -51,5 +52,5 @@ export function voting(voters: (AgentValue | string)[], spec: VotingSpec): NodeV
       ...(taskTimeoutMs !== undefined ? { taskTimeoutMs } : {}),
     },
     [NODE_BRAND]: true as const,
-  } as NodeValue;
+  } as NodeValue, votingOutputs(spec.id));
 }

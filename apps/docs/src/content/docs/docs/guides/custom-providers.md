@@ -12,7 +12,7 @@ Create a provider registry and scope it into the run. The built-in providers are
 ```typescript
 import { createProviderRegistry, run } from '@cycgraph/orchestrator';
 
-const providers = createProviderRegistry(); // includes openai + anthropic
+const providers = createProviderRegistry();
 
 const result = await run(workflow, { goal: '...' }, { providers });
 ```
@@ -31,7 +31,11 @@ import { createGroq } from '@ai-sdk/groq';
 const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
 
 providers.register('groq', (modelId) => groq(modelId), {
-  models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+  models: [
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'mixtral-8x7b-32768',
+  ],
 });
 ```
 
@@ -51,7 +55,6 @@ registerOllamaProvider(
   },
   {
     models: ['llama3.2', 'mistral', 'codellama'],
-    // baseUrl defaults to 'http://localhost:11434'
   },
 );
 ```
@@ -121,12 +124,9 @@ The facade's `agent()` infers the provider at authoring time from well-known mod
 The engine has a second, broader inference used when an agent config reaches the registry without a `provider` field, for example one loaded from a database rather than authored with `agent()`. It matches the `model` against each registered provider's known model list, and falls back to `anthropic` when nothing matches.
 
 ```typescript
-// provider resolves to 'groq' because 'llama-3.3-70b-versatile'
-// is in the groq provider's registered model list
 registry.register({
   name: 'Inferred Provider Agent',
   model: 'llama-3.3-70b-versatile',
-  // provider omitted — the registry infers it from the model list
   systemPrompt: '...',
 });
 ```

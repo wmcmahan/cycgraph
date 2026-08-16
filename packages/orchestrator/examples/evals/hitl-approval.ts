@@ -19,15 +19,15 @@ import {
 
 const retryOnce = { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
 
-const prepare = runTool('mock_prepare', { id: 'prepare', reads: ['*'], failurePolicy: retryOnce });
+const prepare = runTool('mock_prepare', { id: 'prepare', failurePolicy: retryOnce });
 const review = approval({
   id: 'review',
   prompt: 'Please review the prepared data.',
-  reads: ['*'],
-  writes: ['*'],
+  reviewKeys: [prepare.result],
+  reads: [prepare.result],
   failurePolicy: retryOnce,
 });
-const finalize = runTool('mock_finalize', { id: 'finalize', reads: ['*'], failurePolicy: retryOnce });
+const finalize = runTool('mock_finalize', { id: 'finalize', reads: [prepare.result], failurePolicy: retryOnce });
 
 const hitlGraph = graph({
   name: 'HITL Approval Eval',
@@ -49,9 +49,9 @@ export const suite: EvalSuite = {
       input: { goal: 'Process data with human review' },
       assertions: [
         { type: 'status_equals', expected: 'waiting' },
-        { type: 'node_visited', node_id: 'prepare' },
-        { type: 'node_visited', node_id: 'review' },
-        { type: 'memory_contains', key: 'prepare_result' },
+        { type: 'node_visited', node_id: prepare.id },
+        { type: 'node_visited', node_id: review.id },
+        { type: 'memory_contains', key: prepare.result },
       ],
     },
   ],

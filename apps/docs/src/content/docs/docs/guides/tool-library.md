@@ -145,8 +145,8 @@ import { memorySearchTool } from '@cycgraph/tools/memory';
 const memorySearch = memorySearchTool({
   store,
   index,
-  scopeTags: ['graph:research-v1'],   // namespace: facts must carry one of these
-  embed: (text) => embedder.embed(text),  // optional, enables free-text queries
+  scopeTags: ['graph:research-v1'],
+  embed: (text) => embedder.embed(text),
 });
 ```
 

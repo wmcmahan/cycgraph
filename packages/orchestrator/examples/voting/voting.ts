@@ -17,8 +17,6 @@ import {
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -27,7 +25,7 @@ if (missing) {
 
 const logger = createLogger('example.voting');
 
-// ─── 1. Define voter agents ──────────────────────────────────────────────
+// ─── Define voter agents ──────────────────────────────────────────────
 
 const securityVoter = agent({
   name: 'Security Reviewer',
@@ -72,7 +70,7 @@ const architectureVoter = agent({
   maxSteps: 3,
 });
 
-// ─── 2. Define the graph ────────────────────────────────────────────────
+// ─── Define the graph ────────────────────────────────────────────────
 
 // `<id>_consensus` and `<id>_votes` are implied grants, so no writes here.
 const reviewVote = voting([securityVoter, performanceVoter, architectureVoter], {
@@ -81,7 +79,6 @@ const reviewVote = voting([securityVoter, performanceVoter, architectureVoter], 
   voteKey: 'vote',
   quorum: 2,             // At least 2 of 3 voters must respond
   taskTimeoutMs: 30_000, // Per-voter timeout
-  reads: ['*'],
   failurePolicy: { maxRetries: 2, maxBackoffMs: 30000 },
 });
 
@@ -94,12 +91,12 @@ const workflow = graph({
   endNodes: [reviewVote],
 });
 
-// ─── 3. Set up registry, state, and runner ───────────────────────────────
+// ─── Set up registry, state, and runner ───────────────────────────────
 
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
 
-// ─── 4. Run ─────────────────────────────────────────────────────────────
+// ─── Run ─────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting voting example — multi-expert technical review...\n');
@@ -126,7 +123,6 @@ async function main() {
     console.log('\n═══ Voting Results ═══');
     console.log('Status:', finalState.status);
 
-    // Voting node outputs are stored with the node ID prefix
     const votes = finalState.memory['review-vote_votes'] as Array<{ agent_id: string; vote: unknown }> | undefined;
     const result = finalState.memory['review-vote_consensus'];
 

@@ -121,8 +121,6 @@ const evolve = node({
   id: 'evolve',
   type: 'evolution',
   agent: candidate,
-  reads: ['*'],
-  writes: '*',
   evolutionConfig: { candidateAgentId: candidate, populationSize: 4, maxGenerations: 4 },
 });
 const g = graph({ name: 'Regex Evolution', nodes: [evolve], edges: [], startNode: evolve, endNodes: [evolve] });

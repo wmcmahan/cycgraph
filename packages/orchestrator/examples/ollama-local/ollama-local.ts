@@ -27,7 +27,7 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'qwen2.5:7b';
 
 const logger = createLogger('example.ollama');
 
-// ─── 0. Check Ollama connectivity ───────────────────────────────────────
+// ─── Check Ollama connectivity ───────────────────────────────────────
 
 async function checkOllama(): Promise<void> {
   try {
@@ -51,8 +51,7 @@ async function checkOllama(): Promise<void> {
   }
 }
 
-// ─── 1. Define agents ───────────────────────────────────────────────────
-// The provider can't be inferred from a local model name, so name it explicitly.
+// ─── Define agents ───────────────────────────────────────────────────
 
 const researcher = agent({
   name: 'Local Research Agent',
@@ -83,12 +82,11 @@ const writer = agent({
   maxSteps: 3,
 });
 
-// ─── 2. Place them in a graph ───────────────────────────────────────────
+// ─── Place them in a graph ───────────────────────────────────────────
 
 const research = node({
   id: 'research',
   agent: researcher,
-  reads: ['goal', 'constraints'],
   writes: 'research_notes',
   failurePolicy: { maxRetries: 1, maxBackoffMs: 30_000 },
 });
@@ -96,7 +94,7 @@ const research = node({
 const write = node({
   id: 'write',
   agent: writer,
-  reads: ['goal', 'research_notes'],
+  reads: [research.writes],
   writes: 'draft',
   failurePolicy: { maxRetries: 1, maxBackoffMs: 30_000 },
 });
@@ -108,12 +106,10 @@ const workflow = graph({
   edges: [{ from: research, to: write }],
 });
 
-// The graph carries its agent() configs; register them into a run-scoped
-// registry for the explicit GraphRunner path.
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
 
-// ─── 3. Configure providers (run-scoped) ────────────────────────────────
+// ─── Configure providers (run-scoped) ────────────────────────────────
 
 const providers = createProviderRegistry();
 
@@ -138,7 +134,7 @@ registerOllamaProvider(
   },
 );
 
-// ─── 4. Create initial state ────────────────────────────────────────────
+// ─── Create initial state ────────────────────────────────────────────
 
 const initialState = state({
   workflowId: workflow.id,
@@ -147,7 +143,7 @@ const initialState = state({
   maxExecutionTimeMs: 300_000, // 5 min — local models are slower
 });
 
-// ─── 5. Run ─────────────────────────────────────────────────────────────
+// ─── Run ─────────────────────────────────────────────────────────────
 
 async function main() {
   await checkOllama();

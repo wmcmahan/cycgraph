@@ -66,15 +66,10 @@ const memoryIndex = new InMemoryMemoryIndex();
 
 const LESSON_TAG = 'graph:research-v1';
 
-// Tracks which write scopes have already been persisted. The runner passes
-// the same `idempotency_key` (`run_id:node_id:iteration`) when a write
-// repeats for the same node execution — after a node retry or crash
-// recovery — and a writer that ignores it duplicates facts in long-term
-// memory on every retry.
 const writtenScopes = new Map<string, string[]>();
 
 const memoryWriter: MemoryWriter = async (facts, options) => {
-  const scope = options?.idempotency_key;
+  const scope = options?.idempotencyKey;
   if (scope && writtenScopes.has(scope)) {
     return { fact_ids: writtenScopes.get(scope)! }; // already written — dedupe
   }
@@ -111,7 +106,7 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
     include_invalidated: false,
   });
   return {
-    facts: result.facts.map((f) => ({ content: f.content, validFrom: f.valid_from })),
+    facts: result.facts.map((f) => ({ id: f.id, content: f.content, validFrom: f.valid_from })),
     entities: result.entities.map((e) => ({ name: e.name, type: e.entity_type })),
     themes: result.themes.map((t) => ({ label: t.label })),
   };
@@ -123,30 +118,32 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
 The researcher node carries `memoryQuery: { tags: [LESSON_TAG] }` so the retriever fires before its prompt. The reflection node lives after it and writes back with the same tag.
 
 ```typescript
-import { createGraph, GraphRunner, reflection } from '@cycgraph/orchestrator';
+import { agent, graph, node, reflection } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
+const researcher = agent({
+  model: 'claude-sonnet-4-6',
+  instructions: 'Research the goal and save concise notes.',
+});
+
+const research = node({
+  id: 'research',
+  agent: researcher,
+  writes: 'research_notes',
+  memoryQuery: { tags: [LESSON_TAG], maxFacts: 20 },
+});
+
+const reflect = reflection([research.writes], {
+  id: 'reflect',
+  reads: [research.writes],
+  extractor: { type: 'rule_based', minSentenceLength: 25 },
+  tags: ['lesson', LESSON_TAG],
+});
+
+const workflow = graph({
   name: 'Learning Research Agent',
   description: 'Research with compound learning across runs',
-  nodes: [
-    {
-      id: 'research',
-      type: 'agent',
-      agentId: RESEARCHER_ID,
-      readKeys: ['goal', 'constraints'],
-      writeKeys: ['research_notes'],
-      memoryQuery: { tags: [LESSON_TAG], maxFacts: 20 },
-    },
-    reflection(['research_notes'], {
-      id: 'reflect',
-      reads: ['research_notes'],
-      extractor: { type: 'rule_based', minSentenceLength: 25 },
-      tags: ['lesson', LESSON_TAG],
-    }),
-  ],
-  edges: [{ source: 'research', target: 'reflect' }],
-  startNode: 'research',
-  endNodes: ['reflect'],
+  nodes: [research, reflect],
+  edges: [{ from: research, to: reflect }],
 });
 
 const runner = new GraphRunner(graph, state, { memoryWriter, memoryRetriever });
@@ -173,9 +170,9 @@ Calls an extractor agent that distills the source into a bounded list of atomic,
 ```typescript
 extractor: {
   type: 'llm',
-  agentId: REFLECTOR_ID,
+  agentId: reflector,
   maxFacts: 5,
-  instruction: 'Extract methodology lessons only.',  // optional override
+  instruction: 'Extract methodology lessons only.',
 }
 ```
 
@@ -224,10 +221,9 @@ The sanitizer **fails closed** by default: if it throws (a downed PII service, a
 LLM-based reflection (`extractor: { type: 'llm' }`) can run away on long source content. Combine `reflectionConfig.extractor.maxFacts` with a per-node `budget` to cap both output size and spend:
 
 ```typescript
-{
-reflection(['research_notes'], {
+reflection([research.writes], {
   id: 'reflect',
-  reads: ['research_notes'],
+  reads: [research.writes],
   extractor: { type: 'llm', agentId: reflector, maxFacts: 5 },
   tags: ['lesson'],
   budget: {
@@ -254,7 +250,6 @@ import { DrizzleMemoryStore, DrizzleMemoryIndex } from '@cycgraph/orchestrator-p
 
 const memoryStore = new DrizzleMemoryStore(db);
 const memoryIndex = new DrizzleMemoryIndex(db);
-// memoryWriter and memoryRetriever stay identical
 ```
 
 The Postgres schema has a `tags jsonb` column on `memory_facts` (migration `0013_add_fact_tags`) and uses tag intersection for retrieval.
@@ -292,15 +287,13 @@ import { InMemoryOutcomeLedger, retrieveGatedLessons } from '@cycgraph/memory';
 
 const ledger = new InMemoryOutcomeLedger();
 
-// Retriever: verified-first, with exploration slots so candidates accrue trials.
-// Passing `id` through is what makes attribution work — see the foot-gun below.
 const memoryRetriever: MemoryRetriever = async (query) => {
   const facts = await retrieveGatedLessons(store, {
     tags: query.tags ?? ['lesson'],
-    max_facts: 10,
-    candidate_slots: 4,
-    rest_after_trials: 5,  // bench fully-trialled candidates: frees slots AND creates baseline runs
-    ledger,                // in-progress-first — trial cohorts graduate instead of churning
+    maxFacts: 10,
+    candidateSlots: 4,
+    restAfterTrials: 5,
+    ledger,
   });
   return {
     facts: facts.map((f) => ({ content: f.content, validFrom: f.valid_from, id: f.id })),
@@ -310,7 +303,7 @@ const memoryRetriever: MemoryRetriever = async (query) => {
 };
 
 const finalState = await runner.run();
-const score = await scoreRunSomehow(finalState);  // your metric, normalised to [0,1]
+const score = await scoreRunSomehow(finalState);
 await ledger.recordOutcome({
   run_id: finalState.run_id,
   score,
@@ -324,13 +317,11 @@ await ledger.recordOutcome({
 import { evaluateRetention } from '@cycgraph/memory';
 
 const report = await evaluateRetention(store, ledger, {
-  min_trials: 3,          // evidence required before any decision
-  promote_margin: 0.05,   // lift over leave-one-out baseline → verified
-  evict_margin: 0.05,     // drop below baseline → evicted as harmful
-  max_baseline_runs: 40,  // undecided by then → retired as no-lift
-  // (max_trials alone can't fire here: rest_after_trials freezes trials)
+  min_trials: 3,
+  promote_margin: 0.05,
+  evict_margin: 0.05,
+  max_baseline_runs: 40,
 });
-// report.promoted / report.evicted / report.held — each with `evidence`
 ```
 
 Eviction is a soft delete (`invalidated_by`), recoverable via `findFacts({ include_invalidated: true })`. The lift heuristic is correlational, because facts are co-injected and run difficulty varies, so `min_trials` and the margins are the guardrails, not a causal proof.
@@ -349,14 +340,14 @@ The trade-off is resolution. Measured operating characteristics with 5-trial coh
 | ±0.2 | decided ~54–70%; the rest retired as `no_lift` |
 | ±0.1 and below | mostly **retired, not falsely decided** (false decisions: 0–4%) |
 
-The detectable-effect floor scales roughly with `promote_margin + 2.6 · noise_sd / √trials_per_cohort`. To resolve smaller effects: raise `rest_after_trials` (more evidence per cohort), reduce judge noise (more judge samples, and `requiredTrials()` does the arithmetic), or accept that small effects get retired. **Measure your own policy before trusting it.** `gateOperatingCharacteristics()` runs the real pipeline against lessons of known effect in under a second; see `packages/evals/examples/gate-operating-characteristics/`.
+The detectable-effect floor scales roughly with `promote_margin + 2.6 · noise_sd / √trials_per_cohort`. To resolve smaller effects: raise `restAfterTrials` (more evidence per cohort), reduce judge noise (more judge samples, and `requiredTrials()` does the arithmetic), or accept that small effects get retired. **Measure your own policy before trusting it.** `gateOperatingCharacteristics()` runs the real pipeline against lessons of known effect in under a second; see `packages/evals/examples/gate-operating-characteristics/`.
 
-Tuning fields on `RetentionPolicySchema`: `decision_rule` (`'inference'` | `'margin'`), `promote_confidence` / `evict_confidence` (default 0.9), `noise_floor_sd` (set to your judge's per-run SD), `multiple_comparison` (`'bh'` | `'none'`), `sequential_control` (`'doubling'` | `'none'`), and `max_baseline_runs` (closes the decision window for candidates the bracket penalty has made undecidable; pair it with `rest_after_trials`, since frozen trials mean `max_trials` alone can never fire). Every decision in the report carries an `evidence` object (`lift`, `se`, `df`, `p_promote`, `p_evict`, `alpha_bracket`) so "why was this held?" is inspectable.
+Tuning fields on `RetentionPolicySchema`: `decision_rule` (`'inference'` | `'margin'`), `promote_confidence` / `evict_confidence` (default 0.9), `noise_floor_sd` (set to your judge's per-run SD), `multiple_comparison` (`'bh'` | `'none'`), `sequential_control` (`'doubling'` | `'none'`), and `max_baseline_runs` (closes the decision window for candidates the bracket penalty has made undecidable; pair it with `restAfterTrials`, since frozen trials mean `max_trials` alone can never fire). Every decision in the report carries an `evidence` object (`lift`, `se`, `df`, `p_promote`, `p_evict`, `alpha_bracket`) so "why was this held?" is inspectable.
 
 **Foot-guns:**
 
 - A retriever adapter that strips `id` from facts records no provenance, so gating silently degrades to today's keep-everything behaviour.
-- `candidate_slots: 0` means candidates are never retrieved, never accrue trials, and are held forever.
+- `candidateSlots: 0` means candidates are never retrieved, never accrue trials, and are held forever.
 - Supervisor-node retrieval **is** provenance-tracked: the supervisor carries a provenance entry on its `handoff`/`set_status` action and the matching reducer merges it append-only into `state.lesson_provenance`, so facts injected into a routing prompt are attributable to the run's outcome just like agent nodes.
 
 ## Runnable examples

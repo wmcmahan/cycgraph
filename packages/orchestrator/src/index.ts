@@ -219,6 +219,7 @@ export {
   toolsForGraph,
   graphsForGraph,
   GraphSpecError,
+  memoryKeys,
   run,
   state,
   computeRequirements,
@@ -230,6 +231,9 @@ export {
 export type {
   AgentSpec,
   AgentValue,
+  MemoryKeySpec,
+  MemoryKeys,
+  SeedValues,
   NodeValue,
   NodeSpec,
   NodeRef,

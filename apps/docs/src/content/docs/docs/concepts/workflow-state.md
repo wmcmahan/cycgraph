@@ -75,8 +75,14 @@ Running totals, and the ceilings that fail the run when breached.
 |-------|------|---------|-------------|
 | `total_tokens_used` | `number` | `0` | Cumulative tokens consumed across all LLM calls. |
 | `max_token_budget` | `number` | — | If set, the run fails when token usage exceeds this. |
+| `total_input_tokens` | `number` | `0` | Cumulative prompt tokens. |
+| `total_output_tokens` | `number` | `0` | Cumulative completion tokens. |
 | `total_cost_usd` | `number` | `0` | Cumulative estimated cost in USD. |
 | `budget_usd` | `number` | — | Per-run cost budget. Run fails when exceeded. |
+| `model_breakdown` | `Record<string, Spend>` | `{}` | The same totals split by model id. |
+| `node_breakdown` | `Record<string, Spend>` | `{}` | The same totals split by the node that incurred them. |
+
+`Spend` is `{ input_tokens, output_tokens, cost_usd, calls }`. `node_breakdown` answers which step is expensive, which the run totals cannot: a retrying node's failed attempts are attributed too, so the cost of the retries is visible rather than folded into the whole.
 
 ### Memory and tracking
 
@@ -288,7 +294,7 @@ A reducer action: a discriminated payload keyed by [action type](#action-types),
 | `id` | `string` (UUID) | Unique action identifier. |
 | `type` | [`ActionType`](#action-types) | Which action this is. |
 | `payload` | type-specific | Validated against the schema for `type`. |
-| `idempotency_key` | `string` | Deduplication key that prevents re-execution on retry or resume. |
+| `idempotencyKey` | `string` | Deduplication key that prevents re-execution on retry or resume. |
 | `compensation` | `{ type, payload }` | Optional compensating action for saga rollback. |
 | `metadata` | `object` | Observability metadata: `node_id`, `timestamp`, `attempt`, and optional `duration_ms`, `model`, `token_usage`. |
 
@@ -309,10 +315,13 @@ Provenance of the untrusted data behind one memory key. Keyed by memory key insi
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | `'mcp_tool'` \| `'tool_node'` \| `'agent_response'` \| `'derived'` \| `'retrieval'` | Origin of the data. |
+| `source` | `'mcp_tool'` \| `'custom_tool'` \| `'tool_node'` \| `'agent_response'` \| `'derived'` \| `'retrieval'` \| `'a2a'` | Origin of the data. |
 | `tool_name` | `string?` | Tool that produced it, for tool sources. |
-| `server_id` | `string?` | MCP server that provided the tool, for `'mcp_tool'`. |
+| `server_id` | `string?` | MCP server, or registered A2A server, that provided it. |
 | `agent_id` | `string?` | Agent that produced it, for `'agent_response'`. |
+| `node_id` | `string?` | Node that introduced the data. |
+| `derived_from` | `string[]?` | Tainted keys this value was derived from. |
+| `bytes` | `number?` | Serialized size of the value. |
 | `created_at` | `string` | ISO 8601 timestamp. |
 
 `TaintRegistry` is `Record<string, TaintMetadata>`, keyed by memory key.

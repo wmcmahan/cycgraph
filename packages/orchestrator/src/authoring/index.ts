@@ -11,6 +11,8 @@
 export { agent, isAgentValue, inferProvider, AgentSpecError } from './agent.js';
 export type { AgentSpec, AgentValue } from './agent.js';
 export { node, isNodeValue } from './node.js';
+export { memoryKeys } from './memory-keys.js';
+export type { MemoryKeySpec, MemoryKeys, SeedValues } from './memory-keys.js';
 export type { NodeValue, NodeSpec } from './node.js';
 export { subgraph } from './subgraph.js';
 export type { SubgraphSpec } from './subgraph.js';

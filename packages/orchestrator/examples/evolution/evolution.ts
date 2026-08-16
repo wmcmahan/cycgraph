@@ -22,8 +22,6 @@ import {
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 import type { FitnessFunction } from '@cycgraph/orchestrator';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -32,7 +30,7 @@ if (missing) {
 
 const logger = createLogger('example.evolution');
 
-// ─── 1. The spec + deterministic fitness ─────────────────────────────────
+// ─── The spec + deterministic fitness ─────────────────────────────────
 
 const TARGET_CHARS = 55;
 const TARGET_WORDS = 8;
@@ -58,8 +56,6 @@ const fitnessFunction: FitnessFunction = async (output) => {
   const chars = tagline.length;
   const words = tagline.split(/\s+/).filter(Boolean).length;
 
-  // Spans are tight on purpose: only within ~1 char and ~1 word of target does
-  // the score near 1.0, so a near-miss still leaves a generation or two to climb.
   const charScore = closeness(chars, TARGET_CHARS, 12);
   const wordScore = closeness(words, TARGET_WORDS, 4);
   const durability = /\b(crash|durab|recover|surviv|restart)/i.test(tagline) ? 1 : 0;
@@ -68,8 +64,6 @@ const fitnessFunction: FitnessFunction = async (output) => {
 
   const score = (charScore + wordScore + durability + agents + noFiller) / 5;
 
-  // The reasoning becomes `parent_reasoning` in the next generation's Task
-  // Context, so spell out exactly what to fix.
   const reasoning = [
     `length ${chars}/${TARGET_CHARS} chars (${charScore.toFixed(2)})`,
     `words ${words}/${TARGET_WORDS} (${wordScore.toFixed(2)})`,
@@ -81,7 +75,7 @@ const fitnessFunction: FitnessFunction = async (output) => {
   return { score, reasoning };
 };
 
-// ─── 2. Define the candidate agent ───────────────────────────────────────
+// ─── Define the candidate agent ───────────────────────────────────────
 
 const candidate = agent({
   name: 'Tagline Writer',
@@ -106,25 +100,18 @@ const candidate = agent({
   maxSteps: 2,
 });
 
-// ─── 3. Place the agent in an evolution node + graph ─────────────────────
-// One node runs the whole generational loop internally.
+// ─── Place the agent in an evolution node + graph ─────────────────────
 
 const evolve = evolution(candidate, {
   id: 'evolve',
-  reads: ['*'],
-  // No evaluator: scoring comes from the injected fitnessFunction.
   populationSize: 4,
   maxGenerations: 6,
   eliteCount: 1,
   fitnessThreshold: 0.98,
   stagnationGenerations: 3,
   selection: 'rank',
-
-  // Final temperature stays at 0.5 rather than near-zero, leaving enough
-  // late exploration to escape a local optimum a character short.
   initialTemperature: 1.0,
   finalTemperature: 0.5,
-
   concurrency: 4,
   onError: 'best_effort',
   taskTimeoutMs: 30_000,
@@ -140,16 +127,12 @@ const workflow = graph({
   endNodes: [evolve],
 });
 
-// The write ceiling is re-pinned to `candidate_output` deliberately. A facade
-// agent() carries no permissions, and the evolution executor runs candidates as
-// synthetic nodes granted write_keys ['*'], so this agent-config ceiling is the
-// only thing routing a candidate's text to the key the scorer reads.
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) {
   registry.register({ ...config, permissions: { readKeys: ['*'], writeKeys: ['candidate_output'] } });
 }
 
-// ─── 4. Run ──────────────────────────────────────────────────────────────
+// ─── Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting evolution example — converging a tagline onto an exact spec...\n');
@@ -169,10 +152,10 @@ async function main() {
     console.log('\n═══ Evolution Results ═══');
     console.log('Status:', finalState.status);
 
-    const winnerOutput = finalState.memory['evolve_winner'] as { candidate_output?: string } | undefined;
+    const winnerOutput = finalState.memory[evolve.winner] as { candidate_output?: string } | undefined;
     const winner = winnerOutput?.candidate_output ?? '(no winner produced)';
-    const winnerFitness = finalState.memory['evolve_winner_fitness'] as number | undefined;
-    const winnerReasoning = finalState.memory['evolve_winner_reasoning'] as string | undefined;
+    const winnerFitness = finalState.memory[evolve.winnerFitness] as number | undefined;
+    const winnerReasoning = finalState.memory[evolve.winnerReasoning] as string | undefined;
     const fitnessHistory = finalState.memory['evolve_fitness_history'] as number[] | undefined;
 
     if (fitnessHistory && fitnessHistory.length > 0) {

@@ -13,6 +13,7 @@
  * @module authoring/map-reduce
  */
 
+import { withOutputs, mapOutputs, type MapOutputs } from './outputs.js';
 import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /** Authoring spec for {@link mapReduce}. */
@@ -40,10 +41,10 @@ export interface MapReduceSpec extends NodeCommon {
  * @param worker - The node each item is run through.
  * @param spec - Placement, the collection, and fan-out limits.
  */
-export function mapReduce(worker: NodeValue | string, spec: MapReduceSpec): NodeValue {
+export function mapReduce(worker: NodeValue | string, spec: MapReduceSpec): NodeValue & MapOutputs {
   const { items, into, concurrency, maxItems, onError, taskTimeoutMs, ...placement } = spec;
 
-  return {
+  return withOutputs({
     ...placement,
     type: 'map' as const,
     mapReduceConfig: {
@@ -56,5 +57,5 @@ export function mapReduce(worker: NodeValue | string, spec: MapReduceSpec): Node
       ...(taskTimeoutMs !== undefined ? { taskTimeoutMs } : {}),
     },
     [NODE_BRAND]: true as const,
-  } as NodeValue;
+  } as NodeValue, mapOutputs(spec.id));
 }

@@ -298,6 +298,39 @@ describe('validateGraph', () => {
     });
   });
 
+  describe('ambient state fields in read_keys', () => {
+    it('warns that a goal read grants nothing it did not already have', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['goal'];
+
+      const result = validateGraph(graph);
+
+      expect(result.warnings.some(w => w.includes("'goal' is redundant"))).toBe(true);
+    });
+
+    it('warns for constraints on the same grounds', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['constraints'];
+
+      expect(validateGraph(graph).warnings.some(w => w.includes("'constraints' is redundant"))).toBe(true);
+    });
+
+    it('stays quiet when a node genuinely writes a memory key of that name', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['goal'];
+      graph.nodes[1].write_keys = ['goal'];
+
+      expect(validateGraph(graph).warnings.some(w => w.includes('redundant'))).toBe(false);
+    });
+
+    it('does not make the graph invalid', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['goal'];
+
+      expect(validateGraph(graph).valid).toBe(true);
+    });
+  });
+
   describe('dangling read detection', () => {
     it('warns when a read_keys entry is produced by no node', () => {
       const graph = createValidGraph();
@@ -327,6 +360,46 @@ describe('validateGraph', () => {
 
       expect(result.warnings.filter(w => w.includes('not produced by any node')))
         .toHaveLength(1);
+    });
+
+    it('escalates a dangling read to an error under strict_keys', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['never_written'];
+      graph.strict_keys = true;
+
+      const result = validateGraph(graph);
+
+      expect({
+        errors: result.errors.filter(e => e.includes('never_written')).length,
+        warnings: result.warnings.filter(w => w.includes('never_written')).length,
+      }).toEqual({ errors: 1, warnings: 0 });
+    });
+
+    it('reports a graph with a dangling read as invalid under strict_keys', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['never_written'];
+      graph.strict_keys = true;
+
+      expect(validateGraph(graph).valid).toBe(false);
+    });
+
+    it('accepts a declared input under strict_keys', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['topic'];
+      graph.inputs = { topic: { schema: { type: 'string' } } };
+      graph.strict_keys = true;
+
+      expect(validateGraph(graph).errors.filter(e => e.includes('topic'))).toEqual([]);
+    });
+
+    it('points at the fix rather than repeating the warning text', () => {
+      const graph = createValidGraph();
+      graph.nodes[0].read_keys = ['never_written'];
+      graph.strict_keys = true;
+
+      const [message] = validateGraph(graph).errors.filter(e => e.includes('never_written'));
+
+      expect(message).toContain('inputs');
     });
 
     it('does not warn when a wildcard writer exists', () => {

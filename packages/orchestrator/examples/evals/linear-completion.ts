@@ -17,8 +17,8 @@ import {
 
 const retryOnce = { maxRetries: 1, backoffStrategy: 'fixed', initialBackoffMs: 0, maxBackoffMs: 0 } as const;
 
-const fetchData = runTool('mock_fetch', { id: 'fetch', reads: ['*'], failurePolicy: retryOnce });
-const transform = runTool('mock_transform', { id: 'transform', reads: ['*'], failurePolicy: retryOnce });
+const fetchData = runTool('mock_fetch', { id: 'fetch', failurePolicy: retryOnce });
+const transform = runTool('mock_transform', { id: 'transform', reads: [fetchData.result], failurePolicy: retryOnce });
 
 const linearGraph = graph({
   name: 'Linear Completion Eval',
@@ -37,10 +37,10 @@ export const suite: EvalSuite = {
       input: { goal: 'Fetch and transform data' },
       assertions: [
         { type: 'status_equals', expected: 'completed' },
-        { type: 'node_visited', node_id: 'fetch' },
-        { type: 'node_visited', node_id: 'transform' },
-        { type: 'memory_contains', key: 'fetch_result' },
-        { type: 'memory_contains', key: 'transform_result' },
+        { type: 'node_visited', node_id: fetchData.id },
+        { type: 'node_visited', node_id: transform.id },
+        { type: 'memory_contains', key: fetchData.result },
+        { type: 'memory_contains', key: transform.result },
       ],
     },
   ],

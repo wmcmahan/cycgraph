@@ -16,19 +16,25 @@ Every layer of the engine enforces these assumptions through concrete mechanisms
 Agents never see the full `WorkflowState`. Each node declares explicit grants:
 
 ```typescript
+const research = node({ id: 'research', agent: researcher, writes: 'research_notes' });
+
 const write = node({
   id: 'write',
   agent: writer,
-  reads: ['goal', 'research_notes'],   // can only read these
-  writes: 'draft',                      // can only write this
+  reads: [research.writes],   // can only read this
+  writes: 'draft',            // can only write this
 });
 ```
 
-At runtime, the engine creates a **state view**: a filtered projection of `WorkflowState.memory` containing only the keys listed in `read_keys`. An agent configured with `read_keys: ['goal', 'research_notes']` receives `undefined` for every other key, including `db_credentials`, `api_keys`, or any other sensitive data in state.
+`reads` and `writes` are what you author; they reach the stored graph as `read_keys` and `write_keys`, which is the spelling you will see in a serialized definition or an event log.
 
-**Secure by default:** `read_keys` and `write_keys` both default to `[]`. A node that omits `read_keys` sees only `goal` and `constraints`, no memory keys, so state slicing protects you without opt-in. A node consuming an upstream output must declare it explicitly (`read_keys: ['research_notes']`).
+At runtime, the engine creates a **state view**: a filtered projection of `WorkflowState.memory` containing only the keys a node declared. An agent granted `reads: ['research_notes']` receives `undefined` for every other key, including `db_credentials`, `api_keys`, or any other sensitive data in state.
 
-The wildcard `read_keys: ['*']` grants access to all memory keys; `validateGraph` warns on it because it defeats slicing. Engine-owned data (the taint registry, lesson provenance, HITL state) lives in first-class state fields rather than in memory, so it is structurally absent from every state view. The taint registry is additionally append-only through reducers, so a node cannot clear or weaken taint via a crafted memory write.
+`goal` and `constraints` sit outside that filter. They are state fields rather than memory keys and reach every node whatever its grants say, so listing them grants nothing — `reads` governs the memory a node sees on top of them.
+
+**Secure by default:** `reads` and `writes` both default to empty. A node that omits `reads` sees only `goal` and `constraints`, no memory keys, so state slicing protects you without opt-in. A node consuming an upstream output must declare it explicitly, naming the producing node's key: `reads: [research.writes]`.
+
+The wildcard `reads: ['*']` grants access to all memory keys; `validateGraph` warns on it because it defeats slicing. Engine-owned data (the taint registry, lesson provenance, HITL state) lives in first-class state fields rather than in memory, so it is structurally absent from every state view. The taint registry is additionally append-only through reducers, so a node cannot clear or weaken taint via a crafted memory write.
 
 ### Dot-notation nested key filtering
 
@@ -38,12 +44,12 @@ State slicing supports **dot-notation paths** for fine-grained access to nested 
 const write = node({
   id: 'write',
   agent: writer,
-  reads: ['user.name', 'user.email'],  // only these nested paths
+  reads: ['user.name', 'user.email'],
   writes: 'draft',
 });
 ```
 
-An agent with `read_keys: ['user.name', 'user.email']` receives a filtered `user` object containing only `{ name, email }`. All other fields such as `user.ssn` and `user.api_key` are excluded from its state view.
+An agent with `reads: ['user.name', 'user.email']` receives a filtered `user` object containing only `{ name, email }`. All other fields such as `user.ssn` and `user.api_key` are excluded from its state view.
 
 ## Write permission enforcement
 
@@ -55,9 +61,9 @@ Write permissions are enforced at two levels:
 
 ### Implied grants
 
-Declared `write_keys` govern what a node's **agent** may write. Two families of grants are derived automatically, because the node's type or config already declares the intent:
+Declared `writes` govern what a node's **agent** may write. Two families of grants are derived automatically, because the node's type or config already declares the intent:
 
-- **Control-flow permissions by node type.** A supervisor may emit `handoff` and completion actions; approval and subgraph nodes may pause the run; a swarm-config agent may hand off to peers. None of these need a `write_keys` entry.
+- **Control-flow permissions by node type.** A supervisor may emit `handoff` and completion actions; approval and subgraph nodes may pause the run; a swarm-config agent may hand off to peers. None of these need a `writes` entry.
 - **Executor-owned result keys by node config.** A verifier's `${result_key}` / `${result_key}_passed` pair, a reflection node's envelope, a tool node's `${id}_result`, and the fan-out nodes' aggregate keys are written by the executor itself, so the config that names them is the grant.
 
 The derivation lives in `effectiveWriteKeys()` (exported for tooling). Declaring an implied key explicitly is harmless, because the two sets are unioned.
@@ -172,7 +178,7 @@ const state = createWorkflowState({
 const state = createWorkflowState({
   workflowId: graph.id,
   goal: '...',
-  maxExecutionTimeMs: 120_000,  // 2 minutes
+  maxExecutionTimeMs: 120_000,
 });
 ```
 
@@ -193,7 +199,6 @@ Agents never see MCP server transport configurations or secrets.
 Server connection configs (URLs, commands, auth headers) live in the **MCP Server Registry**, an admin-only data store. Agent configs reference servers by ID only:
 
 ```typescript
-// Agent config — no transport details, no secrets
 tools: [
   { type: 'mcp', serverId: 'web-search' },
 ]
@@ -238,7 +243,6 @@ The Architect can generate executable graphs from natural language, but `archite
 initArchitectTools({
   saveGraph, loadGraph,
   canPublish: async (graph) => {
-    // return true to allow, or a string reason to deny
     return (await isApprovedByHuman(graph.id)) || 'human approval required';
   },
 });

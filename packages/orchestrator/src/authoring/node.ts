@@ -17,6 +17,15 @@
 
 import type { NodeConfig } from '../graph/graph.js';
 import type { AgentValue } from './agent.js';
+import {
+  agentOutputs,
+  synthesizerOutputs,
+  toolOutputs,
+  withOutputs,
+  type AgentOutputs,
+  type SynthesizerOutputs,
+  type ToolOutputs,
+} from './outputs.js';
 
 /** Brand marking a value produced by {@link node}. */
 export const NODE_BRAND: unique symbol = Symbol('cycgraph.authoring.node');
@@ -71,7 +80,12 @@ export type NodeSpec = Omit<WidenRefs<NodeConfig>, 'type' | 'readKeys' | 'writeK
   type?: NodeConfig['type'];
   /** The agent that runs here: an `agent()` value, or a registry id string. */
   agent?: AgentValue | string;
-  /** Memory keys this node may read. Omitted → least privilege (`goal`/`constraints`). */
+  /**
+   * Additional memory keys this node may read. Omitted → least privilege.
+   *
+   * `goal` and `constraints` are state fields rather than memory keys and
+   * reach every node whatever this says, so listing them grants nothing.
+   */
   reads?: string[];
   /** Memory key(s) this node may write. */
   writes?: string | string[];
@@ -90,9 +104,42 @@ export function isNodeValue(value: unknown): value is NodeValue {
 }
 
 /**
+ * The output keys a node of this spec's type writes, named so they can be
+ * read without retyping the string. See authoring/outputs.ts.
+ */
+export type OutputsFor<S extends NodeSpec> =
+  S['type'] extends 'tool' ? ToolOutputs
+    : S['type'] extends 'synthesizer' ? SynthesizerOutputs & AgentOutputs
+      : S['type'] extends 'agent' | undefined ? AgentOutputs
+        : unknown;
+
+/**
  * Author a graph node. `type` defaults to `'agent'` when an `agent` is
  * given; every other node type names itself (`'supervisor'`, `'tool'`, …).
+ *
+ * The returned value carries the keys a reader downstream needs to name:
+ *
+ * - Its own output keys — `.result` on a tool node, `.synthesis` on a
+ *   synthesizer — which executor machinery derives from the node's id.
+ * - Its declared `writes`, kept at the literal type it was given, so a
+ *   downstream `reads: [draft.writes]` is checked rather than retyped.
+ *
+ * The two differ in strength. An output key is written by the executor and is
+ * there whenever the node succeeds. `writes` is a *grant*: the agent may write
+ * that key, may write nothing, or may have its text routed to `${id}_output`
+ * when no write key claims it. Both name where a value would be, neither
+ * promises one exists.
  */
-export function node(spec: NodeSpec): NodeValue {
-  return { ...spec, [NODE_BRAND]: true };
+export function node<const S extends NodeSpec>(spec: S): NodeValue & OutputsFor<S> & Pick<S, 'writes'> {
+  const value: NodeValue = { ...spec, [NODE_BRAND]: true };
+  const id = spec.id;
+
+  if (spec.type === 'tool') return withOutputs(value, toolOutputs(id)) as unknown as NodeValue & OutputsFor<S> & Pick<S, 'writes'>;
+  if (spec.type === 'synthesizer') {
+    return withOutputs(value, { ...synthesizerOutputs(id), ...agentOutputs(id) }) as unknown as NodeValue & OutputsFor<S> & Pick<S, 'writes'>;
+  }
+  if (spec.type === undefined || spec.type === 'agent') {
+    return withOutputs(value, agentOutputs(id)) as unknown as NodeValue & OutputsFor<S> & Pick<S, 'writes'>;
+  }
+  return value as unknown as NodeValue & OutputsFor<S> & Pick<S, 'writes'>;
 }

@@ -34,8 +34,6 @@ import {
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -44,15 +42,13 @@ if (missing) {
 
 const logger = createLogger('example');
 
-// ─── 1. Define agents ────────────────────────────────────────────────────
-// An agent() value is a capability: model, instructions, sampling. No id
-// (graph() mints one) and no permissions (the node's grants are authoritative).
+// ─── Define agents ────────────────────────────────────────────────────
 
 const writerAgent = agent({
   name: 'Writer Agent',
   description: 'Produces a draft article on a given topic',
   model: MODEL,
-    provider: PROVIDER,
+  provider: PROVIDER,
   instructions: [
     'You are a professional writer.',
     'Given a goal, produce a clear and engaging draft article.',
@@ -66,7 +62,7 @@ const publisherAgent = agent({
   name: 'Publisher Agent',
   description: 'Finalizes and formats an approved draft for publication',
   model: MODEL,
-    provider: PROVIDER,
+  provider: PROVIDER,
   instructions: [
     'You are a publishing editor.',
     'Take the approved draft and produce a final version with a headline,',
@@ -77,39 +73,32 @@ const publisherAgent = agent({
   maxSteps: 3,
 });
 
-// ─── 2. Define the graph ─────────────────────────────────────────────────
-// Linear: write → review (approval gate) → publish
-// The approval gate pauses the workflow until a human approves or rejects.
+// ─── Define the graph ─────────────────────────────────────────────────
 
 const write = node({
   id: 'write',
   agent: writerAgent,
-  reads: ['goal', 'constraints'],
   writes: 'draft',
   failurePolicy: { maxRetries: 2 },
 });
 
-// `control_flow` is an implied grant on an approval node: pausing for a human
-// is what the type does, so it needs no declaration.
 const review = approval({
   id: 'review',
   prompt: 'Please review the draft before publication.',
-  reviewKeys: ['draft'],
+  reviewKeys: [write.writes],
   timeoutMs: 300_000, // 5 minutes
-  reads: ['*'],
-  writes: ['*'],
+  reads: [write.writes],
   failurePolicy: { maxRetries: 1, backoffStrategy: 'fixed', maxBackoffMs: 1000 },
 });
 
 const publish = node({
   id: 'publish',
   agent: publisherAgent,
-  reads: ['goal', 'draft', 'human_response', 'human_decision'],
+  reads: [write.writes, 'human_response', 'human_decision'],
   writes: 'published',
   failurePolicy: { maxRetries: 2 },
 });
 
-// Start/end are inferred (write has no inbound edge, publish has no outbound).
 const workflow = graph({
   name: 'Human-in-the-Loop',
   description: 'Write → Human Review → Publish with approval gate',
@@ -120,9 +109,7 @@ const workflow = graph({
   ],
 });
 
-// ─── 3. Set up registry and initial state ────────────────────────────────
-// The graph carries its agent() configs; register them into a run-scoped
-// registry for the explicit GraphRunner path.
+// ─── Set up registry and initial state ────────────────────────────────
 
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
@@ -134,13 +121,13 @@ const initialState = state({
   maxExecutionTimeMs: 600_000,
 });
 
-// ─── 4. Set up persistence + runner ──────────────────────────────────────
+// ─── Set up persistence + runner ──────────────────────────────────────
 
 const persistence = new InMemoryPersistenceProvider();
 
 function createRunner(workflowState: WorkflowState): GraphRunner {
   const runner = new GraphRunner(workflow, workflowState, {
-  providers: exampleProviders(),
+    providers: exampleProviders(),
     registry,
     persistState: async (s) => {
       await persistence.saveWorkflowState(s);
@@ -175,19 +162,8 @@ function createRunner(workflowState: WorkflowState): GraphRunner {
   return runner;
 }
 
-// ─── 5. Interactive prompt ───────────────────────────────────────────────
+// ─── Interactive prompt ───────────────────────────────────────────────
 
-/**
- * Line-queue prompter over stdin.
- *
- * `readline.question()` alone loses input when stdin is a pipe: lines that
- * arrive between two questions are emitted with no listener armed and are
- * silently dropped, and when stdin hits EOF while a question is pending the
- * promise never settles — the event loop drains and the process exits 0
- * mid-workflow. This wrapper buffers every line as it arrives and rejects
- * pending asks on EOF, so both `printf 'yes\n\n' | tsx ...` and interactive
- * terminal use behave correctly.
- */
 function createPrompter() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const buffered: string[] = [];
@@ -197,9 +173,9 @@ function createPrompter() {
   rl.on('line', (line) => {
     const waiter = waiters.shift();
     if (waiter) {
-      // Interactive terminals echo typed input natively; echo piped input
-      // ourselves so the transcript shows the consumed answer either way.
-      if (!process.stdin.isTTY) process.stdout.write(`${line}\n`);
+      if (!process.stdin.isTTY) {
+        process.stdout.write(`${line}\n`);
+      }
       waiter.resolve(line);
     } else {
       buffered.push(line);
@@ -264,7 +240,7 @@ async function promptHuman(draft: string): Promise<HumanResponse> {
   }
 }
 
-// ─── 6. Run ──────────────────────────────────────────────────────────────
+// ─── Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting human-in-the-loop workflow...\n');

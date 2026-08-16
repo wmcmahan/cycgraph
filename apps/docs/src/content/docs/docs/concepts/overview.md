@@ -44,7 +44,7 @@ Instead of passing output directly between nodes in a fragile chain, all nodes i
 }
 ```
 
-Nodes only read the keys they are explicitly permitted to access (`read_keys`) and write only to the keys they are allowed to modify (`write_keys`). This enforces **state slicing**, so agents only see the context they genuinely need, reducing hallucination risks and token costs.
+Nodes only read the keys they are explicitly permitted to access (`reads`) and write only to the keys they are allowed to modify (`writes`). This enforces **state slicing**, so agents only see the context they genuinely need, reducing hallucination risks and token costs.
 
 ## Execution Flow
 
