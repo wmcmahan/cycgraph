@@ -1,5 +1,118 @@
 # @cycgraph/orchestrator
 
+## 1.0.0
+
+### Major Changes
+
+- 4b80adf: Metrics renamed off the `mcai_` prefix, onto domain names with correct units.
+
+  | Was                                                         | Now                                            |
+  | ----------------------------------------------------------- | ---------------------------------------------- |
+  | `mcai_workflows_started_total` / `_completed_` / `_failed_` | `workflow.runs`, dimensioned by `status`       |
+  | `mcai_tokens_used_total`                                    | `workflow.tokens`                              |
+  | `mcai_cost_usd_total`                                       | `workflow.cost`                                |
+  | `mcai_workflow_duration_ms`                                 | `workflow.run.duration`, in seconds            |
+  | `mcai_agent_duration_ms`                                    | `gen_ai.client.operation.duration`, in seconds |
+  | `mcai_queue_depth`                                          | `workflow.queue.depth`                         |
+
+  `mcai` was the name before `cycgraph`, and the metric names outlived it — which is the argument against putting a product name in a metric name at all rather than for updating it. The meter is scoped to `@cycgraph/orchestrator`, which the Prometheus exporter emits as an `otel_scope_name` label on every series, so the library is identified without spending the name on it.
+
+  Three lifecycle counters that differed by one word became one counter with a `status` dimension. Durations record seconds rather than milliseconds, per OTel convention; the recording functions still take milliseconds and convert, so callers are unchanged. Units are UCUM annotations (`{run}`, `{token}`, `{USD}`, `{job}`).
+
+  `gen_ai.client.operation.duration` adopts OpenTelemetry's GenAI semantic convention, which this measurement already matched: one observation per model call. That convention is experimental upstream. Token usage did **not** move to `gen_ai.client.token.usage`, because it is recorded once per run as a total rather than per model call, and feeding a run total to a per-operation histogram would make the distribution meaningless.
+
+  Anything scraping the old names must be updated. Metrics are gated behind `METRICS_ENABLED=true`, so deployments that never set it are unaffected.
+
+### Minor Changes
+
+- 4b80adf: Added `withRemoteTraceContext`, and exported it alongside `injectTraceContext` from the package root.
+
+  `injectTraceContext` could put a trace context onto an outbound carrier, but nothing could read one back, so a process started by a traced parent began a trace of its own. `withRemoteTraceContext(carrier, fn)` runs `fn` under the context a carrier holds, which makes spans created inside it children of the span the carrier came from. A worker calls it around its work with `process.env`; an HTTP handler calls it with the request headers.
+
+  Both are no-ops when the carrier holds no trace context, so a callee can use it unconditionally whether or not its caller was traced.
+
+- 4b80adf: Taint now records lineage and announces itself.
+
+  `TaintMetadata` gained `derived_from`, `node_id`, and `bytes`. Propagation already established which input keys were tainted and then discarded that, so a `derived` entry said only that something upstream was untrusted. It now names the keys it came from, and a chain like `final ← draft ← research_notes ← custom_tool` can be walked back to the tool or remote agent that introduced the data.
+
+  A new `taint:applied` stream event and matching `taint_applied` log line fire when a key is first tainted, carrying the source, server, tool, lineage, and size. Untrusted data entering a run was previously observable only by diffing state snapshots, so nothing could alert or filter on it.
+
+  Fan-out aggregation recorded the fan-out node's id in `agent_id`; it now uses `node_id`. Anything reading `agent_id` on an aggregate taint entry should read `node_id`.
+
+- 4b80adf: Dangling-read validation now counts a graph's declared `inputs`, and a new `memory_not_empty` assertion distinguishes a key that exists from one that carries something.
+
+  `validateGraph` warned that a `read_keys` entry was "not produced by any node in this graph" even when the graph declared that key as an input. A declared input is supplied by whoever runs the graph, so reading one is the contract being honoured rather than a probable typo. Declaring `inputs` is now also the way to tell the validator about keys seeded into initial workflow memory, which it cannot otherwise see.
+
+  `memory_contains` is satisfied by a key holding `[]`, `''`, `{}`, or `null`, so a step that ran and produced nothing passes it. `memory_not_empty` asserts that work was actually done, while still passing on legitimate falsy values like `0` and `false`.
+
+- 4b80adf: Retrieval scores survive the trip to the prompt.
+
+  `MemoryIndex.searchFacts` has always returned scored results and `retrieveMemory` discarded them on the way out, so nothing downstream could tell a prompt full of weak matches from one full of strong ones.
+
+  `MemoryResult` gains an optional `scores` map keyed by fact id, populated on the embedding path. It carries only facts that were actually returned, so a caller cannot read a score for something it was never given, and facts reached through theme expansion have none. The entity and tag paths select rather than rank and report no scores at all — absent means "this query did not rank", not "scored zero".
+
+  `MemoryRetrievalResult.facts[]` gains an optional `score`, and the retrieval log line reports `score_min` / `score_max` when an adapter supplies them. Both additions are optional, so existing adapters are unaffected.
+
+- 4b80adf: A `tool` node now reports the call it makes.
+
+  Only agent-initiated tool calls emitted `tool:call_start` and `tool:call_finish`. A standalone `tool` node — the deterministic path that reaches real MCP servers — emitted neither, and opened no span, so a tool call appeared in a trace as an empty `node.execute.tool` with no duration, arguments, or error inside it.
+
+  Tool nodes now emit both events and open a `tool.call` span carrying `tool.name`, `tool.call_id`, `tool.node_id`, and `tool.arg_keys`. A tool that returns `isError` still does not fail the node, so the finish event carries the tool's own verdict rather than the node's: `success: false` on an errored result that the run continues past.
+
+- 4b80adf: Log entries now carry `trace_id` and `span_id` when tracing is active.
+
+  `LogEntry` gained two optional top-level fields, populated from the active span. They are the join key between logs and traces: a line can be traced back to the operation that emitted it, and a trace can be expanded into the lines it produced. Both are absent rather than zero-filled when tracing is off, so an all-zero id that joins to nothing never reaches a sink.
+
+  This is additive. Existing sinks keep working, and hosts that forward to a log aggregator can now correlate against whatever collector receives the spans.
+
+- 4b80adf: Spend is now attributed to the node that incurred it, and the agent-duration metric has a caller.
+
+  `WorkflowState` gained `node_breakdown`, the same shape as `model_breakdown` but keyed by node id. "Which step is expensive" previously could not be answered from a run at all: state carried workflow totals and a per-model split, and per-node spend had to be inferred by diffing consecutive snapshots, which is approximate and breaks entirely under fan-out. Failed attempts are attributed too, so a node that retries shows what the retries cost.
+
+  `mcai_agent_duration_ms` was created and never recorded. The agent executor now reports into it, labelled by agent, model, and node.
+
+  `REPLAY_VERSION` moves to 3, since `_track_model_usage` writes state it did not before. Replaying a log written under version 2 warns and reconstructs `node_breakdown` as empty, which is what that run actually had.
+
+- 4b80adf: Retrieval reports what it did, not only when it fails.
+
+  `retrieveForPrompt` logged a warning when the retriever threw and was otherwise silent, so a query that returned nothing was indistinguishable from a retriever that was never consulted. Both are common and they need different fixes: one is an empty store or a wrong tag, the other is a missing `memory_query` directive.
+
+  It now opens a `memory.retrieve` span and emits a `memory_retrieved` log line carrying the node that asked, the query's tags and shape, the cap, how many facts, entities, and themes came back, and how long it took. Failures carry the node id too.
+
+  The line also counts `facts_without_id`. A `MemoryRetrievalResult` fact without an `id` cannot be recorded in lesson provenance, so an adapter that strips ids silently disables eval-gated learning — a documented trap with no previous signal.
+
+  Retrieval scores are still absent, because the `MemoryRetriever` port returns facts without them. Surfacing why a fact was chosen, or what was retrieved and rejected, needs a change to that contract.
+
+### Patch Changes
+
+- 4b80adf: The queue-depth gauge has a source, and stopping a worker no longer waits out a poll interval.
+
+  `setQueueDepthProvider` had no caller anywhere in the engine, so `workflow.queue.depth` was declared and never observed. `WorkflowWorker` now registers its own queue on start and clears it on stop, which is the only component holding a queue that outlives a single run.
+
+  Wiring it surfaced a separate defect: `stop()` awaits the poll loop, and the loop spends nearly all its time inside a `sleep(pollIntervalMs)` that clearing the running flag did not interrupt. Shutdown therefore took up to a full poll interval. At the 1s default this was invisible, but a worker configured to poll every 30s would outlast a typical SIGTERM grace period and be killed with jobs still claimed, leaving them to visibility-timeout reclaim rather than a clean handover. The sleep is now interruptible and `stop()` returns immediately.
+
+- 4b80adf: MCP tool calls open their own span.
+
+  A tool call reported a `tool.call` span, but everything inside it — connection reuse, the per-server concurrency permit, the request itself — was one opaque block. `mcp.tool.call` now nests beneath it with `mcp.server_id` and `mcp.tool_name`, so time spent queueing behind a slow server is separable from the caller's tool call:
+
+  ```
+  node.execute.tool
+    tool.call       tool.name=lookup_record tool.node_id=fetch
+      mcp.tool.call mcp.server_id=scenario-mcp mcp.tool_name=lookup_record
+  ```
+
+- 4b80adf: Remaining `mcai` naming replaced with `cycgraph`.
+
+  The MCP connection manager identified itself to every remote server as `mcai-<serverId>` during the initialize handshake, so third-party servers saw the pre-rename name. It is now `cycgraph-<serverId>`. The Postgres adapter's log tag is `[cycgraph/orchestrator-postgres]`.
+
+  The default database name is deliberately unchanged: it is internal infrastructure rather than anything a third party sees, and renaming it would strand existing volumes.
+
+- 4b80adf: `shutdownTracing()` now releases the global tracer provider registration, so a later `initTracing()` starts a live exporter.
+
+  OpenTelemetry refuses to overwrite a tracer provider that is already registered globally. Because `shutdownTracing()` reset its own `initialized` flag without releasing that registration, a process that shut tracing down and initialized it again silently kept the stopped provider: spans were created and carried plausible trace ids, but the exporter behind them was closed and nothing reached the collector.
+
+  This affects any long-running host that scopes tracing to a unit of work rather than to the process. A run would record a trace id that returns 404 in Jaeger.
+
 ## 0.17.0
 
 ### Minor Changes
