@@ -14,10 +14,13 @@ import type { TaintedToolResultShape } from './context.js';
 import { nodeIdempotencyKey } from './idempotency-key.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../observability/logger.js';
+import { getTracer, withSpan } from '../../observability/tracing.js';
+import { valueBytes } from '../../security/taint.js';
 import { NodeConfigError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
 
 const logger = createLogger('runner.node.tool');
+const tracer = getTracer('runner.node.tool');
 
 /**
  * Execute a tool node.
@@ -58,7 +61,30 @@ export async function executeToolNode(
     });
     throw new NodeConfigError(node.id, 'tool', `resolvable tool "${toolId}" (no tool sources configured or tool not found in resolved sources)`);
   }
-  const raw = await toolDef.execute(stateView.memory);
+
+  const toolCallId = uuidv4();
+  const startedAt = Date.now();
+  ctx.onToolCall?.({ toolName: toolId, toolCallId, args: stateView.memory }, node.id);
+
+  let raw: unknown;
+  try {
+    raw = await withSpan(tracer, 'tool.call', async (span) => {
+      span.setAttribute('tool.name', toolId);
+      span.setAttribute('tool.call_id', toolCallId);
+      span.setAttribute('tool.node_id', node.id);
+      span.setAttribute('tool.arg_keys', Object.keys(stateView.memory).join(','));
+      return toolDef.execute!(stateView.memory);
+    });
+  } catch (error) {
+    ctx.onToolCallComplete?.({
+      toolName: toolId,
+      toolCallId,
+      durationMs: Date.now() - startedAt,
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    }, node.id);
+    throw error;
+  }
 
   const resultKey = `${node.id}_result`;
 
@@ -70,6 +96,17 @@ export async function executeToolNode(
   //    memory UNTAINTED, defeating downstream taint-aware routing/warnings.
   const isTaintedResult = raw && typeof raw === 'object' && 'taint' in raw && 'result' in raw;
   const resultValue = isTaintedResult ? (raw as TaintedToolResultShape).result : raw;
+
+  const toolReportedError = Boolean(
+    resultValue && typeof resultValue === 'object' && (resultValue as { isError?: unknown }).isError,
+  );
+  ctx.onToolCallComplete?.({
+    toolName: toolId,
+    toolCallId,
+    durationMs: Date.now() - startedAt,
+    success: !toolReportedError,
+    ...(toolReportedError ? { error: 'tool reported isError' } : {}),
+  }, node.id);
 
   const updates: Record<string, unknown> = { [resultKey]: resultValue };
 
@@ -92,7 +129,9 @@ export async function executeToolNode(
   if (taint) {
     // Wire encoding — only the NEW entry; the reducer's routing choke point
     // appends it to `state.taint_registry` (append-only).
-    updates['_taint_registry'] = { [resultKey]: taint };
+    updates['_taint_registry'] = {
+      [resultKey]: { ...taint, node_id: node.id, bytes: valueBytes(resultValue) },
+    };
   }
 
   return {

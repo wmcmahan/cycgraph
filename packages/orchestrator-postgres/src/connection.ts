@@ -18,7 +18,7 @@ const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY_MS = 1_000;
 const CONNECTION_TIMEOUT_MS = 5_000;
 const IDLE_TIMEOUT_MS = 30_000;
-const TAG = '[mcai/orchestrator-postgres]';
+const TAG = '[cycgraph/orchestrator-postgres]';
 
 let _pool: pg.Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;

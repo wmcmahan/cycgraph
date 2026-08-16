@@ -58,6 +58,25 @@ export async function checkAssertion(
       };
     }
 
+    case 'memory_not_empty': {
+      const present = Object.hasOwn(finalState.memory, assertion.key);
+      const value = finalState.memory[assertion.key];
+      const empty = value === null
+        || value === undefined
+        || (typeof value === 'string' && value.trim() === '')
+        || (Array.isArray(value) && value.length === 0)
+        || (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0);
+
+      return {
+        assertion,
+        passed: present && !empty,
+        actual: value,
+        message: present
+          ? (empty ? `Memory key "${assertion.key}" is present but empty` : undefined)
+          : `Memory does not contain key "${assertion.key}"`,
+      };
+    }
+
     case 'memory_matches': {
       const value = finalState.memory[assertion.key];
       let passed = false;

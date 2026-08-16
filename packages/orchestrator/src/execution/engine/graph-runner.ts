@@ -1153,6 +1153,7 @@ export class GraphRunner extends EventEmitter {
         // Capture memory before reducer for diff computation
         const memoryBefore = this.state.memory;
         const memoryDropsLengthBefore = this.state.memory_drops?.length ?? 0;
+        const taintedKeysBefore = new Set(Object.keys(this.state.taint_registry ?? {}));
 
         // Apply action via reducer
         this.state = rootReducer(this.state, action);
@@ -1186,6 +1187,35 @@ export class GraphRunner extends EventEmitter {
             key: drop.key,
             reason: drop.reason,
             bytes: drop.bytes,
+          });
+        }
+
+        // Untrusted data entering the run. The registry is the durable record;
+        // this is the live notification, so a host can alert on provenance
+        // rather than discover it by diffing snapshots.
+        for (const [key, meta] of Object.entries(this.state.taint_registry ?? {})) {
+          if (taintedKeysBefore.has(key)) continue;
+          yield {
+            type: 'taint:applied',
+            run_id: this.state.run_id,
+            node_id: meta.node_id ?? currentNode.id,
+            key,
+            source: meta.source,
+            ...(meta.server_id ? { server_id: meta.server_id } : {}),
+            ...(meta.tool_name ? { tool_name: meta.tool_name } : {}),
+            ...(meta.derived_from ? { derived_from: meta.derived_from } : {}),
+            ...(meta.bytes !== undefined ? { bytes: meta.bytes } : {}),
+            timestamp: Date.now(),
+          };
+          logger.info('taint_applied', {
+            run_id: this.state.run_id,
+            node_id: meta.node_id ?? currentNode.id,
+            key,
+            source: meta.source,
+            server_id: meta.server_id,
+            tool_name: meta.tool_name,
+            derived_from: meta.derived_from,
+            bytes: meta.bytes,
           });
         }
 

@@ -85,7 +85,7 @@ export type Reducer = (state: WorkflowState, action: Action) => WorkflowState;
  * whose semantics may have changed. Bump this whenever a reducer's
  * observable state transitions change.
  */
-export const REPLAY_VERSION = 2;
+export const REPLAY_VERSION = 3;
 
 /**
  * Derive the logical time of an action from its metadata timestamp.
@@ -632,26 +632,32 @@ export const internalReducer: Reducer = (state, action) => {
 
     case '_track_model_usage': {
       const model = action.payload.model as string;
+      const nodeId = action.payload.node_id as string | undefined;
       const inputTokens = finiteOr0(action.payload.input_tokens);
       const outputTokens = finiteOr0(action.payload.output_tokens);
       const costUsd = finiteOr0(action.payload.cost_usd);
-      const prev = state.model_breakdown?.[model] ?? {
-        input_tokens: 0,
-        output_tokens: 0,
-        cost_usd: 0,
-        calls: 0,
-      };
+      const empty = { input_tokens: 0, output_tokens: 0, cost_usd: 0, calls: 0 };
+      const add = (prev: typeof empty) => ({
+        input_tokens: prev.input_tokens + inputTokens,
+        output_tokens: prev.output_tokens + outputTokens,
+        cost_usd: prev.cost_usd + costUsd,
+        calls: prev.calls + 1,
+      });
       return {
         ...state,
         model_breakdown: {
           ...state.model_breakdown,
-          [model]: {
-            input_tokens: prev.input_tokens + inputTokens,
-            output_tokens: prev.output_tokens + outputTokens,
-            cost_usd: prev.cost_usd + costUsd,
-            calls: prev.calls + 1,
-          },
+          [model]: add(state.model_breakdown?.[model] ?? empty),
         },
+        // Absent when replaying a log written before node attribution existed.
+        ...(nodeId
+          ? {
+            node_breakdown: {
+              ...state.node_breakdown,
+              [nodeId]: add(state.node_breakdown?.[nodeId] ?? empty),
+            },
+          }
+          : {}),
         updated_at: timeOf(action),
       };
     }

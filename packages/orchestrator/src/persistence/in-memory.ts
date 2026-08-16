@@ -188,6 +188,7 @@ export class InMemoryPersistenceProvider implements PersistenceProvider {
       total_cost_usd: state.total_cost_usd,
       budget_usd: state.budget_usd,
       _cost_alert_thresholds_fired: state._cost_alert_thresholds_fired,
+      node_breakdown: state.node_breakdown,
       model_breakdown: state.model_breakdown,
       memory_drops: state.memory_drops,
       // Engine-owned registries.

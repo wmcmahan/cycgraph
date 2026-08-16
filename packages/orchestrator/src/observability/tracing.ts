@@ -88,6 +88,8 @@ export async function initTracing(serviceName: string): Promise<void> {
  * job, a CLI — must call this before returning.
  *
  * Safe to call when tracing was never initialized, and safe to call twice.
+ * {@link initTracing} may be called again afterwards to start a fresh
+ * exporter.
  */
 export async function shutdownTracing(): Promise<void> {
   const sdk = activeSdk;
@@ -96,6 +98,7 @@ export async function shutdownTracing(): Promise<void> {
   activeSdk = undefined;
   initialized = false;
   await sdk.shutdown();
+  trace.disable();
 }
 
 /**
@@ -210,4 +213,28 @@ export function injectTraceContext(headers: Record<string, string>): Record<stri
   const carrier: Record<string, string> = {};
   propagation.inject(context.active(), carrier);
   return { ...headers, ...carrier };
+}
+
+/**
+ * Run `fn` with a trace context received from elsewhere active.
+ *
+ * The receiving half of {@link injectTraceContext}. Spans created inside `fn`
+ * become children of the span the carrier came from, so work that crosses a
+ * process or network boundary stays one trace rather than becoming two that
+ * nothing can join. A worker started by a traced parent calls this around its
+ * work; an HTTP handler calls it with the request headers.
+ *
+ * Reads whatever the configured propagator understands, `traceparent` and
+ * `tracestate` by default. A carrier without trace context leaves `fn` running
+ * under the current context, so it is safe to call unconditionally — including
+ * when the parent was never traced.
+ *
+ * @param carrier - Headers or environment holding the propagation fields.
+ * @param fn - Work to run under the extracted context.
+ */
+export function withRemoteTraceContext<T>(
+  carrier: Record<string, string | undefined>,
+  fn: () => T,
+): T {
+  return context.with(propagation.extract(context.active(), carrier), fn);
 }

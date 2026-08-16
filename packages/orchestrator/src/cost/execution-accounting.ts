@@ -91,6 +91,7 @@ export async function* applyUsageAndEnforceBudgets(
     if (model && (inputTokens > 0 || outputTokens > 0)) {
       rt.dispatchInternal('_track_model_usage', {
         model,
+        node_id: node.id,
         input_tokens: inputTokens,
         output_tokens: outputTokens,
         cost_usd: actionCostUsd,

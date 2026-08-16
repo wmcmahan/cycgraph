@@ -41,6 +41,15 @@ export function isTainted(registry: TaintRegistry, key: string): boolean {
   return Object.hasOwn(registry, key);
 }
 
+/** Serialized size of a tainted value. `undefined` when it cannot be serialized. */
+export function valueBytes(value: unknown): number | undefined {
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? '', 'utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
 /** Get taint metadata for a key. */
 export function getTaintInfo(
   registry: TaintRegistry,
@@ -60,6 +69,7 @@ export function getTaintInfo(
  * @param registry - Taint registry scoped to those readable keys.
  * @param outputKeys - Memory keys written by the agent.
  * @param agentId - ID of the agent that produced the outputs.
+ * @param nodeId - ID of the node the agent ran as.
  * @returns Partial taint registry with only the new entries (empty if no taint propagated).
  */
 export function propagateDerivedTaint(
@@ -67,12 +77,15 @@ export function propagateDerivedTaint(
   registry: TaintRegistry,
   outputKeys: string[],
   agentId: string,
+  nodeId?: string,
 ): TaintRegistry {
-  const hasTaintedInputs = Object.keys(readableMemory).some(
-    k => Object.hasOwn(registry, k),
-  );
+  // Which inputs were tainted, not merely whether any were: those keys are the
+  // lineage recorded on the outputs.
+  const taintedInputs = Object.keys(readableMemory)
+    .filter((k) => Object.hasOwn(registry, k))
+    .sort();
 
-  if (!hasTaintedInputs) {
+  if (taintedInputs.length === 0) {
     return {};
   }
 
@@ -83,6 +96,8 @@ export function propagateDerivedTaint(
     newEntries[key] = {
       source: 'derived',
       agent_id: agentId,
+      ...(nodeId ? { node_id: nodeId } : {}),
+      derived_from: taintedInputs,
       created_at: now,
     };
   }
@@ -118,31 +133,27 @@ export function aggregateParallelTaint(
   aggregateKeys: readonly string[],
   nodeId: string,
 ): TaintRegistry {
-  let anyTainted = false;
+  const taintedWorkerKeys = new Set<string>();
   for (const updates of workerUpdates) {
     if (!updates || typeof updates !== 'object') continue;
     const registry = updates['_taint_registry'];
-    if (
-      registry &&
-      typeof registry === 'object' &&
-      !Array.isArray(registry) &&
-      Object.keys(registry).length > 0
-    ) {
-      anyTainted = true;
-      break;
+    if (registry && typeof registry === 'object' && !Array.isArray(registry)) {
+      for (const key of Object.keys(registry)) taintedWorkerKeys.add(key);
     }
   }
 
-  if (!anyTainted) {
+  if (taintedWorkerKeys.size === 0) {
     return {};
   }
 
   const newEntries: TaintRegistry = {};
   const now = new Date().toISOString();
+  const derivedFrom = [...taintedWorkerKeys].sort();
   for (const key of aggregateKeys) {
     newEntries[key] = {
       source: 'derived',
-      agent_id: nodeId,
+      node_id: nodeId,
+      derived_from: derivedFrom,
       created_at: now,
     };
   }

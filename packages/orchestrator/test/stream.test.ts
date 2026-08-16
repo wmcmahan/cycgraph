@@ -23,12 +23,14 @@ vi.mock('@opentelemetry/api', () => {
   const span = () => ({ setAttribute: vi.fn(), setStatus: vi.fn(), recordException: vi.fn(), end: vi.fn() });
   return {
     trace: {
+      getActiveSpan: () => undefined,
       getTracer: () => ({
         startActiveSpan: (_name: string, _opts: any, fn: any) => fn(span()),
         startSpan: () => span(),
       }),
       setSpan: (ctx: any) => ctx,
     },
+    isSpanContextValid: () => false,
     SpanStatusCode: { OK: 0, ERROR: 2 },
     context: {
       active: () => ({}),

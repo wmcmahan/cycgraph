@@ -92,8 +92,10 @@ async function retrieveByEmbedding(
   // Search facts directly too: a relevant fact may sit in a theme that itself
   // scored below threshold, so theme expansion alone under-recalls.
   const scoredFacts = await index.searchFacts(embedding, { limit, minSimilarity });
+  const scores: Record<string, number> = {};
   for (const sf of scoredFacts) {
     factIds.add(sf.item.id);
+    scores[sf.item.id] = sf.score;
   }
 
   const factsMap = await store.getFacts([...factIds]);
@@ -139,6 +141,12 @@ async function retrieveByEmbedding(
     episodes: episodes.slice(0, limit),
     entities: entities.slice(0, limit),
     relationships: relationships.slice(0, limit),
+    // Only the facts that came back, so a caller cannot read a score for
+    // something it was never given. Facts reached through theme expansion have
+    // no direct score and are absent here.
+    scores: Object.fromEntries(
+      filteredFacts.filter((fact) => fact.id in scores).map((fact) => [fact.id, scores[fact.id]!]),
+    ),
   };
 }
 

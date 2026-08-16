@@ -10,6 +10,7 @@
  * @module observability/logger
  */
 
+import { isSpanContextValid, trace } from '@opentelemetry/api';
 import { getCurrentContext } from '../utils/context.js';
 
 /** Supported log levels in increasing severity order. `silent` emits nothing. */
@@ -45,8 +46,25 @@ export interface LogEntry {
   level: LogLevel;
   /** Dot-delimited event name (e.g. `"runner.graph.started"`). */
   event: string;
+  /** Trace ID, if tracing is active. */
+  trace_id?: string;
+  /** Span ID, if tracing is active. */
+  span_id?: string;
   /** Merged context: run context + default context + per-call context. */
   context?: LogContext;
+}
+
+/**
+ * Trace and span ids of the active span, when there is a recording one.
+ *
+ * Absent rather than zero-filled when tracing is off: an all-zero id is a
+ * valid-looking value that joins to nothing, and every line would carry it.
+ */
+function activeTraceIds(): { trace_id: string; span_id: string } | undefined {
+  const spanContext = trace.getActiveSpan()?.spanContext();
+  if (!spanContext || !isSpanContextValid(spanContext)) return undefined;
+
+  return { trace_id: spanContext.traceId, span_id: spanContext.spanId };
 }
 
 /**
@@ -171,6 +189,7 @@ export class Logger {
       timestamp: new Date().toISOString(),
       level,
       event: `${this.component}.${event}`,
+      ...activeTraceIds(),
       ...(Object.keys(mergedContext).length > 0 ? { context: mergedContext } : {}),
     };
 

@@ -30,19 +30,21 @@ import { A2AInterfaceError, A2ATaskFailedError } from './errors.js';
 import { mapInbound, mapOutbound, type BoundaryFailure } from './boundary.js';
 import { resolveAuthHeaders } from '../../a2a/schema.js';
 import type { A2AArtifact, A2ATaskResult } from '../../a2a/client.js';
-import { markTainted } from '../../security/taint.js';
+import { markTainted, valueBytes } from '../../security/taint.js';
 import type { TaintRegistry } from '../../state/state.js';
 
 const logger = createLogger('runner.node.a2a');
 const tracer = getTracer('orchestrator.a2a');
 
 /** Taint every returned artifact as external data, keyed by artifact name. */
-function taintAll(artifacts: A2AArtifact[], serverId: string): TaintRegistry {
+function taintAll(artifacts: A2AArtifact[], serverId: string, nodeId: string): TaintRegistry {
   let registry: TaintRegistry = {};
   for (const artifact of artifacts) {
     registry = markTainted(registry, artifact.name, {
       source: 'a2a',
       server_id: serverId,
+      node_id: nodeId,
+      bytes: valueBytes(artifact.value),
       created_at: new Date().toISOString(),
     });
   }
@@ -200,7 +202,7 @@ export async function executeA2ANode(
 
   const updates = mapOutbound(
     artifactMemory,
-    taintAll(result.artifacts, config.server_id),
+    taintAll(result.artifacts, config.server_id, node.id),
     config.output_mapping,
     undefined,
     fail,

@@ -33,11 +33,13 @@ vi.mock('ai', () => ({
 
 vi.mock('@opentelemetry/api', () => ({
   trace: {
+    getActiveSpan: () => undefined,
     getTracer: () => ({
       startActiveSpan: (_name: string, _opts: any, fn: any) =>
         fn({ setAttribute: vi.fn(), setStatus: vi.fn(), recordException: vi.fn(), end: vi.fn() }),
     }),
   },
+  isSpanContextValid: () => false,
   SpanStatusCode: { OK: 0, ERROR: 2 },
   context: {},
 }));
@@ -208,6 +210,32 @@ describe('Taint Utilities', () => {
     );
   });
 
+  it('propagateDerivedTaint names only the tainted inputs as lineage', () => {
+    const memory: Record<string, unknown> = { search_result: 'external', clean: 'safe' };
+    const registry: TaintRegistry = {
+      search_result: { source: 'mcp_tool', tool_name: 'web_search', created_at: '2024-01-01T00:00:00.000Z' },
+    };
+
+    const result = propagateDerivedTaint(memory, registry, ['summary'], 'researcher', 'write');
+
+    expect(result['summary']).toEqual(expect.objectContaining({
+      derived_from: ['search_result'],
+      node_id: 'write',
+    }));
+  });
+
+  it('propagateDerivedTaint sorts lineage so a replay compares equal', () => {
+    const memory: Record<string, unknown> = { b_key: 1, a_key: 2 };
+    const registry: TaintRegistry = {
+      b_key: { source: 'a2a', created_at: '2024-01-01T00:00:00.000Z' },
+      a_key: { source: 'mcp_tool', created_at: '2024-01-01T00:00:00.000Z' },
+    };
+
+    const result = propagateDerivedTaint(memory, registry, ['out'], 'agent-1');
+
+    expect(result['out'].derived_from).toEqual(['a_key', 'b_key']);
+  });
+
   it('propagateDerivedTaint returns empty when no inputs are tainted', () => {
     const memory: Record<string, unknown> = { clean_data: 'safe' };
 
@@ -231,12 +259,30 @@ describe('aggregateParallelTaint', () => {
     );
 
     expect(result['node_results']).toEqual(
-      expect.objectContaining({ source: 'derived', agent_id: 'fanout' }),
+      expect.objectContaining({ source: 'derived', node_id: 'fanout' }),
     );
     expect(result['node_consensus']).toEqual(
-      expect.objectContaining({ source: 'derived', agent_id: 'fanout' }),
+      expect.objectContaining({ source: 'derived', node_id: 'fanout' }),
     );
     expect(typeof result['node_results'].created_at).toBe('string');
+  });
+
+  it('names the worker keys the aggregate was derived from', () => {
+    const result = aggregateParallelTaint([taintedUpdate()], ['node_results'], 'fanout');
+
+    expect(result['node_results'].derived_from).toEqual(['srv:tool']);
+  });
+
+  it('collects derived_from across every tainted worker', () => {
+    const second = {
+      _taint_registry: {
+        'srv:other': { source: 'a2a', server_id: 'remote', created_at: '2024-01-01T00:00:00.000Z' },
+      },
+    };
+
+    const result = aggregateParallelTaint([taintedUpdate(), second], ['out'], 'fanout');
+
+    expect(result['out'].derived_from).toEqual(['srv:other', 'srv:tool']);
   });
 
   it('returns empty when no worker produced taint', () => {

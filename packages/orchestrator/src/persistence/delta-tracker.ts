@@ -68,6 +68,7 @@ export interface StateDeltaTrackerOptions {
 const TRACKED_FIELDS = [
   'status', 'current_node', 'iteration_count', 'retry_count',
   'last_error', 'total_tokens_used', 'total_cost_usd', 'model_breakdown',
+  'node_breakdown',
   'waiting_for', 'waiting_since', 'waiting_timeout_at',
   'started_at', 'updated_at',
 ] as const;

@@ -60,6 +60,13 @@ export const MemoryResultSchema = z.object({
   entities: z.array(EntitySchema).default([]),
   /** Matched relationships. */
   relationships: z.array(RelationshipSchema).default([]),
+  /**
+   * Similarity score per fact id, for the paths that rank.
+   *
+   * Absent on the entity and tag paths, which select rather than rank, so an
+   * absent score means "this query did not rank" and not "scored zero".
+   */
+  scores: z.record(z.string(), z.number()).optional(),
 });
 
 export type MemoryResult = z.infer<typeof MemoryResultSchema>;

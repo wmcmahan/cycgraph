@@ -243,7 +243,7 @@ export class NodeExecutionDriver {
    * dispatches the same `_track_tokens` / `_track_cost` internal actions the
    * success path uses, so failed-attempt spend is visible to every budget.
    */
-  private trackFailedAttemptUsage(error: unknown): void {
+  private trackFailedAttemptUsage(error: unknown, nodeId: string): void {
     const usage = (error as { partialUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number; model?: string } })?.partialUsage;
     if (!usage) return;
 
@@ -262,6 +262,7 @@ export class NodeExecutionDriver {
       }
       this.deps.dispatchInternal('_track_model_usage', {
         model: usage.model,
+        node_id: nodeId,
         input_tokens: usage.inputTokens ?? 0,
         output_tokens: usage.outputTokens ?? 0,
         cost_usd: cost,
@@ -305,7 +306,7 @@ export class NodeExecutionDriver {
         // AgentTimeoutError; without this, a node that retries N times only
         // ever counts the successful attempt's tokens, hiding up to N×
         // the visible spend from every budget.
-        this.trackFailedAttemptUsage(error);
+        this.trackFailedAttemptUsage(error, node.id);
 
         // Update circuit breaker
         if (policy.circuit_breaker?.enabled) {

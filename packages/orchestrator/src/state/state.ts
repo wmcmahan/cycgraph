@@ -76,6 +76,12 @@ export const TaintMetadataSchema = z.object({
   server_id: z.string().optional(),
   /** Agent that produced the data (if `source` is `"agent_response"`). */
   agent_id: z.string().optional(),
+  /** Node that introduced the data, whatever produced it. */
+  node_id: z.string().optional(),
+  /** Tainted keys this value was derived from, so the chain can be walked back. */
+  derived_from: z.array(z.string()).optional(),
+  /** Serialized size of the value. */
+  bytes: z.number().optional(),
   /** ISO 8601 timestamp (string for JSON serialization). */
   created_at: z.string(),
 });
@@ -242,6 +248,16 @@ export const WorkflowStateSchema = z.object({
    * {@link MODEL_PRICING}, see {@link total_cost_usd}). `calls` counts the
    * number of LLM invocations attributed to the model.
    */
+  /**
+   * Spend attributed to the node that incurred it, so an expensive step can be
+   * found without diffing snapshots. Same shape as {@link model_breakdown}.
+   */
+  node_breakdown: z.record(z.string(), z.object({
+    input_tokens: z.number().default(0),
+    output_tokens: z.number().default(0),
+    cost_usd: z.number().default(0),
+    calls: z.number().default(0),
+  })).default({}),
   model_breakdown: z.record(z.string(), z.object({
     input_tokens: z.number().default(0),
     output_tokens: z.number().default(0),

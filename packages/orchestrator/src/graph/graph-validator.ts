@@ -270,6 +270,11 @@ export function validateGraph(graph: Graph): ValidationResult {
   const anyWildcardWriter = graph.nodes.some((n) => n.write_keys.includes('*'));
   if (!anyWildcardWriter) {
     const producible = new Set<string>(['goal', 'constraints']);
+    // A declared input is supplied by whoever runs the graph — that is what
+    // declaring it means. Reading one is the contract being honoured, not a
+    // dangling read, and a caller-supplied key is exactly what this analysis
+    // cannot see for itself.
+    for (const key of Object.keys(graph.inputs ?? {})) producible.add(key);
     for (const node of graph.nodes) {
       // A tool node's executor writes ONLY `${id}_result` (an implied result
       // key, added below). Its declared `write_keys` name no destination, so

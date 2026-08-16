@@ -16,7 +16,8 @@ vi.mock('ai', () => ({
   Output: { object: vi.fn() },
 }));
 vi.mock('@opentelemetry/api', () => ({
-  trace: { getTracer: () => ({ startSpan: vi.fn() }) },
+  trace: { getTracer: () => ({ startSpan: vi.fn() }), getActiveSpan: () => undefined },
+  isSpanContextValid: () => false,
   SpanStatusCode: { ERROR: 2 },
   context: { active: vi.fn() },
 }));
