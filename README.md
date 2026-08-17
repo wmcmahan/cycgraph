@@ -47,7 +47,6 @@ const research = node({
     model: 'claude-sonnet-4-6',
     instructions: 'You are a research specialist. Produce concise, factual notes.',
   }),
-  reads: ['goal'],
   writes: 'notes',
 });
 
@@ -57,8 +56,8 @@ const write = node({
     model: 'claude-sonnet-4-6',
     instructions: 'Turn the research notes into a clear summary under 300 words.',
   }),
-  reads: ['goal', 'notes'],
-  writes: 'draft'
+  reads: [research.writes],
+  writes: 'draft',
 });
 
 const workflow = graph({

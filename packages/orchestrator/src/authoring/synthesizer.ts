@@ -15,6 +15,7 @@
  */
 
 import type { AgentValue } from './agent.js';
+import { withOutputs, synthesizerOutputs, type SynthesizerOutputs } from './outputs.js';
 import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /** Authoring spec for {@link synthesizer}. */
@@ -34,6 +35,9 @@ export interface SynthesizerSpec extends NodeCommon {
  *
  * @param spec - Placement, the keys to merge, and an optional agent.
  */
-export function synthesizer(spec: SynthesizerSpec): NodeValue {
-  return { ...spec, type: 'synthesizer' as const, [NODE_BRAND]: true as const } as NodeValue;
+export function synthesizer(spec: SynthesizerSpec): NodeValue & SynthesizerOutputs {
+  return withOutputs(
+    { ...spec, type: 'synthesizer' as const, [NODE_BRAND]: true as const } as NodeValue,
+    synthesizerOutputs(spec.id),
+  );
 }

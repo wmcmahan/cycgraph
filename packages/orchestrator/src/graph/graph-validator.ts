@@ -292,14 +292,38 @@ export function validateGraph(graph: Graph): ValidationResult {
         producible.add(`${node.id}_output`);
       }
     }
+    // Under `strict_keys` a dangling read is an error: with `inputs` declared,
+    // a key that is neither produced nor declared cannot be a seeded value the
+    // validator failed to see.
+    const dangling = graph.strict_keys ? errors : warnings;
+    const danglingHint = graph.strict_keys
+      ? 'declare it in the graph\'s `inputs` if the run seeds it, or fix the name'
+      : 'if it is not seeded via initial workflow memory, the node will see an empty value (possible typo)';
+
+    // `goal` and `constraints` are first-class state fields, set on every
+    // state view regardless of grants. Listing them reads as a permission that
+    // was needed, which teaches the wrong model of what `read_keys` controls.
+    // Only redundant when nothing writes a memory key of that name.
+    const writesAmbientName = (name: string): boolean => graph.nodes.some(
+      (n) => n.write_keys.includes(name) || impliedResultKeys(n).includes(name),
+    );
     for (const node of graph.nodes) {
+      for (const ambient of ['goal', 'constraints'] as const) {
+        if (node.read_keys.includes(ambient) && !writesAmbientName(ambient)) {
+          warnings.push(
+            `Node '${node.id}': read_keys entry '${ambient}' is redundant — ` +
+            `it is a state field available to every node, not a memory key`,
+          );
+        }
+      }
+
       for (const key of node.read_keys) {
         if (key === '*') continue;
         const topLevel = key.split('.')[0];
         if (!producible.has(topLevel)) {
-          warnings.push(
+          dangling.push(
             `Node '${node.id}': read_keys entry '${key}' is not produced by any node in this graph — ` +
-            `if it is not seeded via initial workflow memory, the node will see an empty value (possible typo)`,
+            danglingHint,
           );
         }
       }
@@ -312,7 +336,7 @@ export function validateGraph(graph: Graph): ValidationResult {
       for (const key of node.reflection_config?.source_keys ?? []) {
         const topLevel = key.split('.')[0];
         if (!producible.has(topLevel)) {
-          warnings.push(
+          dangling.push(
             `Node '${node.id}': reflection source_keys entry '${key}' is not produced by any node in ` +
             `this graph — if it is not seeded via initial workflow memory, the node will distil zero facts (possible typo)`,
           );

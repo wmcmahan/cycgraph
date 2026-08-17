@@ -31,7 +31,6 @@ const research = node({
     model: 'claude-sonnet-4-6',
     instructions: 'You are a research specialist. Produce concise, factual notes.',
   }),
-  reads: ['goal'],
   writes: 'notes',
 });
 
@@ -41,7 +40,7 @@ const write = node({
     model: 'claude-sonnet-4-6',
     instructions: 'Turn the research notes into a clear summary under 300 words.',
   }),
-  reads: ['goal', 'notes'],
+  reads: [research.writes],
   writes: 'draft'
 });
 
@@ -64,7 +63,7 @@ const workflow = graph({
   nodes: [draft, review],
   edges: [
     { from: draft, to: review },
-    { from: review, to: draft, when: 'memory.score < 0.7' }, // loop back until good enough
+    { from: review, to: draft, when: 'memory.score < 0.7' },
   ],
   startNode: draft,
   endNodes: [review],
@@ -78,7 +77,10 @@ const workflow = graph({
 Some patterns reference agents from *config* rather than placing them as nodes — a supervisor's routing brain, an evolution candidate, an evaluator. Pass the agent value wherever the config wants an agent id:
 
 ```typescript
-const brain = agent({ model: 'claude-sonnet-4-6', instructions: 'Route work to the right specialist…' });
+const brain = agent({
+  model: 'claude-sonnet-4-6',
+  instructions: 'Route work to the right specialist…'
+});
 
 const lead = supervisor(brain, {
   id: 'supervisor',
@@ -96,7 +98,7 @@ No grants needed: a supervisor's permissions derive from its role. Routing (`han
 Every node type is authored the same way — `node()` with its `type`:
 
 ```typescript
-const lookup = runTool('web_fetch', { id: 'lookup', reads: ['goal'] });
+const lookup = runTool('web_fetch', { id: 'lookup' });
 ```
 
 ## Composing graphs
@@ -106,18 +108,22 @@ Whole graphs compose too. `subgraph()` embeds a child graph as a single node, wi
 ```typescript
 const research = graph({ name: 'research-block', nodes: [/* … */] });
 
+const block = subgraph(research, {
+  id: 'research',
+  inputs:  { topic: 'goal_in' },
+  outputs: { summary: 'findings' },
+});
+
+const brief = node({
+  id: 'brief',
+  agent: writer,
+  reads: [block.outputs.summary],
+});
+
 const pipeline = graph({
   name: 'briefing',
-  nodes: [
-    subgraph(research, {
-      id: 'research',
-      inputs:  { topic: 'goal_in' },     // parent key → child key
-      outputs: { summary: 'findings' },  // child key → parent key
-      writes: 'findings',
-    }),
-    write,
-  ],
-  edges: [{ from: 'research', to: write }],
+  nodes: [block, brief],
+  edges: [{ from: block, to: brief }],
 });
 ```
 

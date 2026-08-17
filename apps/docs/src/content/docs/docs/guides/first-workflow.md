@@ -39,7 +39,6 @@ import { node, graph } from '@cycgraph/orchestrator';
 const research = node({
   id: 'research',
   agent: researcher,
-  reads: ['goal', 'constraints'],
   writes: 'research_notes',
   failurePolicy: { maxRetries: 2 },
 });
@@ -47,7 +46,7 @@ const research = node({
 const write = node({
   id: 'write',
   agent: writer,
-  reads: ['goal', 'research_notes'],
+  reads: [research.writes],
   writes: 'draft',
   failurePolicy: { maxRetries: 2 },
 });
@@ -94,13 +93,12 @@ for (const config of agentsForGraph(workflow)) registry.register(config);
 
 const persistence = new InMemoryPersistenceProvider();
 const runner = new GraphRunner(workflow, initialState, {
-  registry,   // scope agents to this run
+  registry,
   persistState: async (snapshot) => {
     await persistence.saveWorkflowSnapshot(snapshot);
   },
 });
 
-// Listen for events for observability
 runner.on('node:complete', ({ node_id, duration_ms }) => {
   console.log(`✅ ${node_id} finished in ${duration_ms}ms`);
 });

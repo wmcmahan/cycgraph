@@ -14,7 +14,6 @@ const research = node({
     model: 'claude-sonnet-4-6',
     instructions: 'You are a research specialist. Produce concise, factual notes.',
   }),
-  reads: ['goal'],
   writes: 'notes',
 });
 
@@ -24,7 +23,7 @@ const write = node({
     model: 'claude-sonnet-4-6',
     instructions: 'Turn the research notes into a clear summary under 300 words.',
   }),
-  reads: ['goal', 'notes'],
+  reads: [research.writes],
   writes: 'draft'
 });
 
@@ -160,9 +159,9 @@ Each entry in `inputs` and `outputs` is either a bare schema or an entry object:
 
 ```typescript
 inputs: {
-  topic: z.string().min(3),                                          // bare Zod schema
+  topic: z.string().min(3),
   depth: { schema: z.enum(['brief', 'deep']), description: 'How much detail' },
-  payload: { type: 'object', properties: { n: { type: 'number' } } }, // raw JSON Schema
+  payload: { type: 'object', properties: { n: { type: 'number' } } },
 }
 ```
 

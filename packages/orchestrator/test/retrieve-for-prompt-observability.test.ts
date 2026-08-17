@@ -1,12 +1,9 @@
 /**
  * What a retrieval reports about itself.
- *
- * Retrieval used to log only its failures, so a query that returned nothing
- * looked identical to a retriever that was never consulted.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createLogger, runWithContext } from '../src/index.js';
+import { runWithContext } from '../src/index.js';
 import { resetLogLevelCache } from '../src/observability/logger.js';
 import { retrieveForPrompt } from '../src/memory/retrieve-for-prompt.js';
 import type { LogEntry, StateView } from '../src/index.js';

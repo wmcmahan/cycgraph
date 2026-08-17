@@ -24,7 +24,7 @@ import {
   DrizzleAgentRegistry,
 } from '@cycgraph/orchestrator-postgres';
 
-// ─── 0. Validate environment ─────────────────────────────────────────────
+// ─── Validate environment ─────────────────────────────────────────────
 
 if (!process.env.DATABASE_URL) {
   console.error('Error: DATABASE_URL environment variable is required');
@@ -41,10 +41,7 @@ if (missing) {
 
 const logger = createLogger('example.postgres');
 
-// ─── 1. Postgres-backed providers ───────────────────────────────────────
-// The adapters share a lazily-initialized connection pool. Construct them
-// with no arguments (pass `{ tenant }` for multi-tenant deployments); the
-// pool is initialized once via `await getDb()` at the start of `main()`.
+// ─── Postgres-backed providers ───────────────────────────────────────
 
 const persistence = new DrizzlePersistenceProvider();
 const eventLog = new DrizzleEventLogWriter();
@@ -53,11 +50,9 @@ const usageRecorder = new DrizzleUsageRecorder();
 // Use Postgres-backed agent registry (agents stored in DB, not in-memory)
 const agentRegistry = new DrizzleAgentRegistry();
 
-// ─── 2. Register agents in Postgres ─────────────────────────────────────
-// These persist across restarts — no need to re-register each time.
+// ─── Register agents in Postgres ─────────────────────────────────────
 
 async function ensureAgentsRegistered() {
-  // Check if agents already exist (idempotent registration)
   const existing = await agentRegistry.listAgents();
   if (existing.some(a => a.name === 'PG Research Agent')) {
     logger.info('Agents already registered in Postgres');
@@ -71,7 +66,6 @@ async function ensureAgentsRegistered() {
     description: 'Researches topics (Postgres-persisted)',
     model: MODEL,
     provider: PROVIDER,
-    provider: 'anthropic',
     systemPrompt: [
       'You are a research specialist.',
       'Produce concise, factual research notes on the given topic.',
@@ -90,7 +84,6 @@ async function ensureAgentsRegistered() {
     description: 'Writes articles from research (Postgres-persisted)',
     model: MODEL,
     provider: PROVIDER,
-    provider: 'anthropic',
     systemPrompt: [
       'You are a professional writer.',
       'Using the research notes, produce a clear article under 300 words.',
@@ -118,12 +111,9 @@ async function main() {
 
   const { RESEARCHER_ID, WRITER_ID } = await ensureAgentsRegistered();
 
-  // Author the graph with the facade, referencing the Postgres-stored agent
-  // ids by string. The node's reads/writes are the authoritative grant.
   const research = node({
     id: 'research',
     agent: RESEARCHER_ID,
-    reads: ['*'],
     writes: 'research_notes',
     failurePolicy: { maxRetries: 2, maxBackoffMs: 30000 },
   });
@@ -131,7 +121,7 @@ async function main() {
   const write = node({
     id: 'write',
     agent: WRITER_ID,
-    reads: ['research_notes'],
+    reads: [research.writes],
     writes: 'article',
     failurePolicy: { maxRetries: 2, maxBackoffMs: 30000 },
   });
@@ -157,7 +147,7 @@ async function main() {
 
   // Create runner with Postgres persistence + event log
   const runner = new GraphRunner(workflow, initialState, {
-  providers: exampleProviders(),
+    providers: exampleProviders(),
     // Scope the Postgres-backed agent registry to this run
     registry: agentRegistry,
     // State is persisted to Postgres after every step (enables crash recovery)

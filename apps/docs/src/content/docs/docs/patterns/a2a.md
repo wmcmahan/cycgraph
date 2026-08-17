@@ -64,8 +64,8 @@ const briefing = graph({
     a2a('research-service', {
       id: 'research',
       reads: ['topic'],
-      inputs: { topic: 'query' },       // memory key → message part
-      outputs: { report: 'findings' },  // artifact name → memory key
+      inputs: { topic: 'query' },
+      outputs: { report: 'findings' },
     }),
   ],
 });

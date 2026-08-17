@@ -7,9 +7,10 @@
 
 import { run, validateGraph, SubgraphInterfaceError } from '@cycgraph/orchestrator';
 import { exampleProviders, missingCredentials } from '../_model.js';
-import { briefingGraph } from './briefingGraph';
-import { contextCompressor } from './context';
-import { memoryRetriever, memoryWriter } from './memory';
+import { briefingGraph } from './briefingGraph/index.js';
+import { mem } from './keys.js';
+import { contextCompressor } from './context/index.js';
+import { memoryRetriever, memoryWriter } from './memory/index.js';
 
 const missing = missingCredentials();
 if (missing) {
@@ -34,7 +35,7 @@ try {
     briefingGraph,
     {
       goal,
-      memory: { research_topic: topic, research_depth: 'brief' },
+      memory: mem.seed({ research_topic: topic, research_depth: 'brief' }),
     },
     { runner: { providers: exampleProviders(), memoryRetriever, memoryWriter, contextCompressor } },
   );

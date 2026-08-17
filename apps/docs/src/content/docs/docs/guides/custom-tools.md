@@ -35,9 +35,8 @@ const support = node({
   agent: agent({
     model: 'claude-sonnet-4-6',
     instructions: 'Handle the support request.',
-    tools: [lookupOrder],          // by reference — nothing else to wire
+    tools: [lookupOrder],
   }),
-  reads: ['goal'],
   writes: 'reply',
 });
 
@@ -78,7 +77,6 @@ Custom tools also work in standalone `tool` nodes:
 ```typescript
 runTool('lookup_order', {
   id: 'fetch-order',
-  reads: ['goal'],
 })
 ```
 

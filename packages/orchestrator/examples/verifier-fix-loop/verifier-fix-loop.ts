@@ -18,10 +18,9 @@ import {
   createLogger,
   verifier,
   router,
+  memoryKeys,
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
-
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
 
 const missing = missingCredentials();
 if (missing) {
@@ -31,9 +30,19 @@ if (missing) {
 
 const logger = createLogger('example');
 
-// ─── 1. Define agents ────────────────────────────────────────────────────
-// An agent() value is a capability: model, instructions, sampling. No id
-// (graph() mints one) and no permissions (the node's grants are authoritative).
+// ─── Define agents ────────────────────────────────────────────────────
+
+const mem = memoryKeys({
+  email_text: {
+    seeded: true,
+    schema: { type: 'string' },
+    description: 'The raw customer email to extract from',
+  },
+  purchase_order: {
+    schema: { type: 'object' },
+    description: 'The structured purchase order extracted from the customer email',
+  },
+});
 
 const extractorAgent = agent({
   name: 'Purchase Order Extractor',
@@ -42,7 +51,7 @@ const extractorAgent = agent({
   provider: PROVIDER,
   instructions: [
     'You are a strict data extraction agent.',
-    'Given the text in memory key `email_text`, extract a purchase order and write it to memory key `purchase_order` as a JSON object with these fields:',
+    `Given the text in memory key \`${mem.email_text}\`, extract a purchase order and write it to memory key \`${mem.purchase_order}\` as a JSON object with these fields:`,
     '  - customer_email (string)',
     '  - order_id (string)',
     '  - total_usd (number)',
@@ -53,6 +62,20 @@ const extractorAgent = agent({
   maxSteps: 2,
 });
 
+const extract = node({
+  id: 'extract',
+  agent: extractorAgent,
+  reads: [mem.email_text],
+  writes: mem.purchase_order,
+});
+
+const verifyEmail = verifier.jsonPath(mem.purchase_order, {
+  id: 'verify_email',
+  path: '$.customer_email',
+  assertion: { op: 'matches', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$' },
+  reads: [mem.purchase_order],
+});
+
 const fixerAgent = agent({
   name: 'Purchase Order Fixer',
   description: 'Re-extracts a purchase order using verifier feedback',
@@ -61,52 +84,25 @@ const fixerAgent = agent({
   instructions: [
     'You are a data correction agent.',
     'The previous extraction failed verification. Read:',
-    '  - `email_text` — original customer email',
-    '  - `purchase_order` — your previous (incorrect) extraction',
-    '  - `verify_email_verification` — verification result, including a `reasoning` field that explains why the previous attempt failed',
-    'Produce a corrected `purchase_order` JSON object addressing the verifier feedback. Field shape is the same as before.',
+    `  - \`${mem.email_text}\` — original customer email`,
+    `  - \`${mem.purchase_order}\` — your previous (incorrect) extraction`,
+    `  - \`${verifyEmail.verification}\` — verification result, including a \`reasoning\` field that explains why the previous attempt failed`,
+    `Produce a corrected \`${mem.purchase_order}\` JSON object addressing the verifier feedback. Field shape is the same as before.`,
   ].join('\n'),
   temperature: 0.3,
   maxSteps: 2,
 });
 
-// ─── 2. Place them in a graph ────────────────────────────────────────────
-// A verifier node has no agent: it runs a deterministic JSONPath assertion.
-// Its result keys are an implied write grant, so no `writes` is declared —
-// only `reads` for the target key it inspects.
-
-const extract = node({
-  id: 'extract',
-  agent: extractorAgent,
-  reads: ['email_text', 'goal'],
-  writes: 'purchase_order',
-});
-
-// The verifier's target must be readable; its result keys are implied.
-const verifyEmail = verifier.jsonPath('purchase_order', {
-  id: 'verify_email',
-  path: '$.customer_email',
-  // A real email has at least one `@` and one `.`, no whitespace.
-  // Catches model outputs like "not provided", null, or junk strings.
-  assertion: { op: 'matches', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$' },
-  reads: ['purchase_order'],
-});
+// ─── Place them in a graph ────────────────────────────────────────────
 
 const fix = node({
   id: 'fix',
   agent: fixerAgent,
-  reads: ['email_text', 'purchase_order', 'verify_email_verification', 'goal'],
-  writes: 'purchase_order',
+  reads: [mem.email_text, mem.purchase_order, verifyEmail.verification],
+  writes: mem.purchase_order,
 });
 
-// Both verifier outcomes need an explicit edge. An end node terminates before
-// its edges are evaluated, so the verifier cannot be one and still branch:
-// success routes to a terminal `done` node instead.
-//
-// Conditions use the bare truthy form. filtrex has no boolean literals, so
-// `== false` compares against an undefined property — it is false when the
-// value IS false and true when the key is missing, the exact inverse.
-const done = router({ id: 'done', reads: ['purchase_order'] });
+const done = router({ id: 'done', reads: [mem.purchase_order] });
 
 const workflow = graph({
   name: 'Verifier Fix-Loop',
@@ -114,25 +110,19 @@ const workflow = graph({
   nodes: [extract, verifyEmail, fix, done],
   edges: [
     { from: extract, to: verifyEmail },
-    { from: verifyEmail, to: fix, when: 'not memory.verify_email_verification_passed' },
-    { from: verifyEmail, to: done, when: 'memory.verify_email_verification_passed' },
+    { from: verifyEmail, to: fix, when: `not memory.${verifyEmail.passed}` },
+    { from: verifyEmail, to: done, when: `memory.${verifyEmail.passed}` },
     { from: fix, to: verifyEmail },
   ],
   startNode: extract,
   endNodes: [done],
 });
 
-// ─── 3. Set up registry, state, and runner ───────────────────────────────
-// The graph carries its agent() configs; register them into a run-scoped
-// registry for the explicit GraphRunner path.
+// ─── Set up registry, state, and runner ───────────────────────────────
 
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
 
-// A deliberately noisy customer email. The model usually gets this right on
-// the first try, but failures (placeholder strings, transposed digits in the
-// total, missing email) are exactly what the verifier loop is designed to
-// catch.
 const NOISY_EMAIL = `
 Hey team,
 
@@ -153,7 +143,7 @@ const initialState = state({
   workflowId: workflow.id,
   goal: 'Extract a structured purchase order from a customer email',
   constraints: ['Output a JSON object with customer_email, order_id, total_usd, and items'],
-  memory: { email_text: NOISY_EMAIL },
+  memory: mem.seed({ email_text: NOISY_EMAIL }),
   maxIterations: 15,
   maxExecutionTimeMs: 180_000,
 });
@@ -166,7 +156,6 @@ const runner = new GraphRunner(workflow, initialState, {
   persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 
-// Event listeners — verification events are the most interesting signal here.
 runner.on('workflow:start', ({ run_id }) => {
   logger.info(`Workflow started: ${run_id}`);
 });
@@ -187,7 +176,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 4. Run ──────────────────────────────────────────────────────────────
+// ─── Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting verifier-fix-loop workflow...\n');
@@ -195,13 +184,13 @@ async function main() {
   try {
     const finalState = await runner.run();
 
-    const verification = finalState.memory.verify_email_verification as
+    const verification = finalState.memory[verifyEmail.verification] as
       | { passed: boolean; reasoning: string; extracted_value?: unknown }
       | undefined;
 
     if (finalState.status === 'completed') {
       console.log('\n═══ Extracted Purchase Order ═══');
-      console.log(JSON.stringify(finalState.memory.purchase_order ?? {}, null, 2));
+      console.log(JSON.stringify(finalState.memory[mem.purchase_order] ?? {}, null, 2));
       console.log('\n═══ Verification Outcome ═══');
       console.log(`  Passed: ${verification?.passed ?? '(no verifier output)'}`);
       console.log(`  Reasoning: ${verification?.reasoning ?? '(none)'}`);

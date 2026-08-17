@@ -60,8 +60,6 @@ import {
 } from '@cycgraph/context-engine';
 import type { PipelineState } from '@cycgraph/context-engine';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -69,10 +67,6 @@ if (missing) {
 }
 
 const logger = createLogger('example');
-
-// ─── 1. Set up the memory system ────────────────────────────────────────
-// In-memory implementations for the example. Production would use
-// DrizzleMemoryStore / DrizzleMemoryIndex from @cycgraph/orchestrator-postgres.
 
 const memoryStore = new InMemoryMemoryStore();
 const memoryIndex = new InMemoryMemoryIndex();
@@ -121,9 +115,7 @@ async function ingestMessages(messages: Message[]): Promise<void> {
   await memoryIndex.rebuild(memoryStore);
 }
 
-// ─── 2. Set up the context compression pipeline ─────────────────────────
-// Incremental pipeline caches unchanged segments between turns.
-// Uses format compression, dedup, and budget allocation.
+// ─── Set up the context compression pipeline ─────────────────────────
 
 const compressionPipeline = createIncrementalPipeline({
   stages: [
@@ -133,7 +125,7 @@ const compressionPipeline = createIncrementalPipeline({
     createAllocatorStage(),
   ],
   logger: { warn: (msg) => logger.warn(msg) },
-  timeoutMs: 500, // hard cap to prevent runaway compression
+  timeoutMs: 500,
 });
 
 /**
@@ -145,7 +137,7 @@ const DEFAULT_OUTPUT_RESERVE = 8_192;
 
 let pipelineState: PipelineState | undefined;
 
-// ─── 3. Wire adapters for the orchestrator ──────────────────────────────
+// ─── Wire adapters for the orchestrator ──────────────────────────────
 
 /**
  * Context compressor: compresses memory data before injecting into prompts.
@@ -154,10 +146,6 @@ let pipelineState: PipelineState | undefined;
 const contextCompressor: ContextCompressor = (segments, options) => {
   const { result, state: nextState } = compressionPipeline.compress(
     {
-      // Stable segment ids are what make the incremental cache work: the
-      // system prompt and goal are unchanged for a whole run and hit cache
-      // on every node after the first, while memory and retrieved facts
-      // churn and recompute.
       segments: segments.map((segment) => ({
         id: segment.id,
         content: segment.content,
@@ -219,13 +207,13 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
   };
 };
 
-// ─── 4. Define the agents ───────────────────────────────────────────────
+// ─── Define the agents ───────────────────────────────────────────────
 
 const researcher = agent({
   name: 'Research Agent',
   description: 'Gathers background information on a topic',
   model: MODEL,
-    provider: PROVIDER,
+  provider: PROVIDER,
   instructions: [
     'You are a research specialist.',
     'Given a goal, produce concise, factual research notes.',
@@ -240,7 +228,7 @@ const writer = agent({
   name: 'Writer Agent',
   description: 'Produces a polished draft from research notes and memory',
   model: MODEL,
-    provider: PROVIDER,
+  provider: PROVIDER,
   instructions: [
     'You are a professional writer.',
     'Using the provided research notes and any relevant memory context, produce a clear and engaging summary.',
@@ -250,15 +238,12 @@ const writer = agent({
   maxSteps: 3,
 });
 
-// ─── 5. Define the graph ────────────────────────────────────────────────
+// ─── Define the graph ────────────────────────────────────────────────
 
 const research = node({
   id: 'research',
   agent: researcher,
-  reads: ['goal', 'constraints'],
   writes: 'research_notes',
-  // Pulls facts derived from the seeded prior conversation into the
-  // researcher's prompt under a "## Relevant Memory" section.
   memoryQuery: { tags: [PRIOR_KNOWLEDGE_TAG], maxFacts: 10 },
   failurePolicy: { maxRetries: 2 },
 });
@@ -266,7 +251,7 @@ const research = node({
 const write = node({
   id: 'write',
   agent: writer,
-  reads: ['goal', 'research_notes'],
+  reads: [research.writes],
   writes: 'draft',
   memoryQuery: { tags: [PRIOR_KNOWLEDGE_TAG], maxFacts: 10 },
   failurePolicy: { maxRetries: 2 },
@@ -279,12 +264,10 @@ const workflow = graph({
   edges: [{ from: research, to: write }],
 });
 
-// Hybrid pattern: register the facade-minted agent configs into a run-scoped
-// registry for the GraphRunner this example keeps.
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
 
-// ─── 6. Create initial state ────────────────────────────────────────────
+// ─── Create initial state ────────────────────────────────────────────
 
 const initialState = state({
   workflowId: workflow.id,
@@ -293,8 +276,7 @@ const initialState = state({
   maxExecutionTimeMs: 120_000,
 });
 
-// ─── 7. Seed the memory system with prior knowledge ─────────────────────
-// Simulates a previous conversation that the memory system remembers.
+// ─── Seed the memory system with prior knowledge ─────────────────────
 
 async function seedMemory(): Promise<void> {
   const now = new Date();
@@ -341,7 +323,7 @@ async function seedMemory(): Promise<void> {
   logger.info(`  Themes clustered: ${themes.length}`);
 }
 
-// ─── 8. Run ─────────────────────────────────────────────────────────────
+// ─── Run ─────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('═══ Context Engine + Memory Example ═══\n');
@@ -356,7 +338,7 @@ async function main() {
   logger.info('  memoryRetriever: hierarchical top-down retrieval\n');
 
   const runner = new GraphRunner(workflow, initialState, {
-  providers: exampleProviders(),
+    providers: exampleProviders(),
     registry,
     contextCompressor,
     memoryRetriever,

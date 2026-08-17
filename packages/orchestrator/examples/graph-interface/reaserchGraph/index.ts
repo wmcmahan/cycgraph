@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { graph } from '@cycgraph/orchestrator';
-import { gatherNode, summarizeNode, reflectNode } from './nodes';
+import { gatherNode, summarizeNode, reflectNode } from './nodes/index.js';
 
 export const researchGraph = graph({
   name: 'research-block',

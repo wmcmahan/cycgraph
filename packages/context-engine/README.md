@@ -107,39 +107,42 @@ See [`Context Compression`](https://flattop.io/docs/concepts/context-engine/) in
 
 ```typescript
 import { GraphRunner } from '@cycgraph/orchestrator';
+import type { ContextCompressor } from '@cycgraph/orchestrator';
 import {
   createOptimizedPipeline,
-  serialize,
+  resolveModelProfile,
 } from '@cycgraph/context-engine';
 
 const pipeline = createOptimizedPipeline({
   preset: 'balanced'
 });
 
-const contextCompressor = (sanitizedMemory, options) => {
+const contextCompressor: ContextCompressor = (segments, options) => {
   const result = pipeline.compress({
-    segments: [{
-      id: 'memory',
-      content: serialize(sanitizedMemory),
-      role: 'memory',
-      priority: 1,
-    }],
+    segments: segments.map((s) => ({
+      id: s.id,
+      content: s.content,
+      role: s.role,
+      priority: s.priority ?? 1,
+      locked: s.locked ?? false,
+    })),
     budget: {
-      maxTokens: options?.maxTokens ?? 8192,
-      outputReserve: 0,
+      maxTokens:
+        options?.maxTokens ??
+        resolveModelProfile(options?.model)?.maxContextTokens ??
+        8192,
+      outputReserve: options?.outputReserve ?? 8_192,
     },
-    // The runner passes the sanitized workflow goal as `options.query` —
-    // forwarding it activates relevance-aware allocation (goal-relevant
-    // memory keeps budget preferentially).
     query: options?.query,
   });
+
   return {
-    compressed: result.segments[0].content,
+    segments: result.segments.map((s) => ({ id: s.id, content: s.content })),
     metrics: result.metrics,
   };
 };
 
-const runner = new GraphRunner(graph, state, { contextCompressor });
+const runner = new GraphRunner(workflow, initialState, { contextCompressor });
 ```
 
 ## Custom pipelines

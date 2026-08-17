@@ -2,8 +2,8 @@ import {
   node,
   reflection,
 } from '@cycgraph/orchestrator';
-import { gatherAgent, summarizeAgent } from '../agents';
-import { LESSON_TAG } from '../../memory';
+import { gatherAgent, summarizeAgent } from '../agents/index.js';
+import { LESSON_TAG } from '../../memory/index.js';
 
 export const gatherNode = node({
   id: 'gather',
@@ -21,7 +21,7 @@ export const gatherNode = node({
 export const summarizeNode = node({
   id: 'summarize',
   agent: summarizeAgent,
-  reads: ['notes'],
+  reads: [gatherNode.writes],
   writes: 'summary',
 });
 
@@ -31,7 +31,7 @@ export const summarizeNode = node({
 // parent supplies the store, not the wiring.
 export const reflectNode = reflection(['notes'], {
   id: 'reflect',
-  reads: ['notes'],
+  reads: [gatherNode.writes],
   // No LLM call, no extra tokens: an inline sentence splitter. Swap for
   // { type: 'llm', agentId, maxFacts } when the source is prose that needs
   // real distillation rather than sentence extraction.

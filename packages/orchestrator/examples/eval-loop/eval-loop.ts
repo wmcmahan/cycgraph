@@ -30,8 +30,6 @@ import {
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -40,9 +38,7 @@ if (missing) {
 
 const logger = createLogger('example');
 
-// ─── 1. Define agents ────────────────────────────────────────────────────
-// An agent() value is a capability: model, instructions, sampling. No id
-// (graph() mints one) and no permissions (the node's grants are authoritative).
+// ─── Define agents ────────────────────────────────────────────────────
 
 const writerAgent = agent({
   name: 'Writer Agent',
@@ -95,16 +91,14 @@ const publisherAgent = agent({
   maxSteps: 3,
 });
 
-// ─── 2. Place them in a graph ────────────────────────────────────────────
-// Cyclic graph with conditional edges:
-//   writer → evaluator ──[score >= 0.8]──→ publisher (done)
-//                │
-//                └──[score < 0.8]──→ writer (loop back)
+// ─── Place them in a graph ────────────────────────────────────────────
 
 const writer = node({
   id: 'writer',
   agent: writerAgent,
-  reads: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
+  // Reads the key it writes: this is the revision loop, so there is no earlier
+  // node to name it through.
+  reads: ['feedback', 'suggestions', 'draft'],
   writes: 'draft',
   failurePolicy: { maxRetries: 2 },
 });
@@ -112,7 +106,7 @@ const writer = node({
 const evaluator = node({
   id: 'evaluator',
   agent: evaluatorAgent,
-  reads: ['goal', 'constraints', 'draft'],
+  reads: [writer.writes],
   writes: ['score', 'feedback', 'suggestions'],
   failurePolicy: { maxRetries: 2 },
 });
@@ -120,14 +114,11 @@ const evaluator = node({
 const publisher = node({
   id: 'publisher',
   agent: publisherAgent,
-  reads: ['goal', 'draft'],
+  reads: [writer.writes],
   writes: 'final_output',
   failurePolicy: { maxRetries: 2 },
 });
 
-// Cyclic graph: the loop-back edge means start/end cannot be inferred, so
-// pass them explicitly. Edge order matters — the runner takes the first
-// matching edge, so the loop-back is listed before the exit.
 const workflow = graph({
   name: 'Eval Loop',
   description: 'Cyclic write-evaluate-revise loop with conditional quality gate',
@@ -144,9 +135,7 @@ const workflow = graph({
   endNodes: [publisher],
 });
 
-// ─── 3. Set up registry, state, and runner ───────────────────────────────
-// The graph carries its agent() configs; register them into a run-scoped
-// registry for the explicit GraphRunner path.
+// ─── Set up registry, state, and runner ───────────────────────────────
 
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
@@ -172,7 +161,6 @@ const runner = new GraphRunner(workflow, initialState, {
   persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 
-// Event listeners for observability
 runner.on('workflow:start', ({ run_id }) => {
   logger.info(`Workflow started: ${run_id}`);
 });
@@ -193,7 +181,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 4. Run ──────────────────────────────────────────────────────────────
+// ─── Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting eval-loop workflow...\n');

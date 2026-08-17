@@ -151,10 +151,10 @@ const suite: EvalSuite = {
       input: { goal: 'Fetch and transform data' },
       assertions: [
         { type: 'status_equals', expected: 'completed' },
-        { type: 'node_visited', node_id: 'fetch' },
-        { type: 'node_visited', node_id: 'transform' },
-        { type: 'memory_contains', key: 'fetch_result' },
-        { type: 'memory_contains', key: 'transform_result' },
+        { type: 'node_visited', node_id: fetchData.id },
+        { type: 'node_visited', node_id: transform.id },
+        { type: 'memory_contains', key: fetchData.result },
+        { type: 'memory_contains', key: transform.result },
       ],
     },
   ],
@@ -168,9 +168,9 @@ Tests a router dispatching to a worker:
 ```typescript
 assertions: [
   { type: 'status_equals', expected: 'completed' },
-  { type: 'node_visited', node_id: 'router' },
-  { type: 'node_visited', node_id: 'worker' },
-  { type: 'memory_contains', key: 'worker_result' },
+  { type: 'node_visited', node_id: dispatch.id },
+  { type: 'node_visited', node_id: worker.id },
+  { type: 'memory_contains', key: worker.result },
 ],
 ```
 
@@ -181,19 +181,21 @@ Tests that the workflow pauses at an approval gate (status is `waiting`, not `co
 ```typescript
 assertions: [
   { type: 'status_equals', expected: 'waiting' },
-  { type: 'node_visited', node_id: 'prepare' },
-  { type: 'node_visited', node_id: 'review' },
-  { type: 'memory_contains', key: 'prepare_result' },
+  { type: 'node_visited', node_id: prepare.id },
+  { type: 'node_visited', node_id: review.id },
+  { type: 'memory_contains', key: prepare.result },
 ],
 ```
 
+Each assertion names its target through the node value rather than retyping the key. A tool node's `.result` and its `.id` are the same strings the runner writes and records, so renaming a node cannot silently strip an assertion down to a no-op.
+
 ### Running the examples
+
+Every suite uses mock tools, so no API key is needed:
 
 ```bash
 cd packages/orchestrator
-ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/evals/linear-completion.ts
-ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/evals/supervisor-routing.ts
-ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/evals/hitl-approval.ts
+npx vitest run test/eval-suites.test.ts
 ```
 
 ## Scoring

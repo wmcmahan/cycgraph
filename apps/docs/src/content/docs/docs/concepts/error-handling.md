@@ -135,29 +135,33 @@ For workflows with side effects (e.g. API calls, database writes), nodes can dec
 Nodes with `requires_compensation: true` push an entry onto the `compensation_stack` in state after successful execution. On failure, if `autoRollback: true` is set on the `GraphRunner` options, the engine executes compensation entries in LIFO order and transitions the workflow to `cancelled` status.
 
 ```typescript
-const graph = graph({
-  name: 'Saga Example',
-  nodes: [
-    runTool('stripe_charge', {
-      id: 'charge_payment',
-      reads: ['order'],
-      requiresCompensation: true,
-    }),
-    runTool('inventory_reserve', {
-      id: 'reserve_inventory',
-      reads: ['order'],
-      requiresCompensation: true,
-    }),
-    // ... more nodes ...
-  ],
-  edges: [
-    { from: 'charge_payment', to: 'reserve_inventory' },
-  ],
-  startNode: 'charge_payment',
-  endNodes: ['confirm_order'],
+const charge = runTool('stripe_charge', {
+  id: 'charge_payment',
+  reads: ['order'],
+  requiresCompensation: true,
 });
 
-const runner = new GraphRunner(graph, state, {
+const reserve = runTool('inventory_reserve', {
+  id: 'reserve_inventory',
+  reads: ['order'],
+  requiresCompensation: true,
+});
+
+const confirm = runTool('order_confirm', {
+  id: 'confirm_order',
+  reads: [charge.result, reserve.result],
+});
+
+const workflow = graph({
+  name: 'Saga Example',
+  nodes: [charge, reserve, confirm],
+  edges: [
+    { from: charge, to: reserve },
+    { from: reserve, to: confirm },
+  ],
+});
+
+const runner = new GraphRunner(workflow, state, {
   autoRollback: true, // execute compensation stack on failure
 });
 ```
@@ -246,5 +250,5 @@ const { waiting, active, paused, dead_letter } = await queue.getQueueDepth();
 
 - [Workflow State](/docs/concepts/workflow-state/): the shared state that errors affect
 - [Distributed Execution](/docs/concepts/distributed-execution/): worker crash recovery and dead-lettering
-- [Security](/docs/security/): how write_keys and taint tracking enforce zero trust
+- [Security](/docs/security/): how `writes` grants and taint tracking enforce zero trust
 - [Tracing](/docs/observability/tracing/): correlating errors with distributed traces

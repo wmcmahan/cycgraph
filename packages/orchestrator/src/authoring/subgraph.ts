@@ -12,6 +12,7 @@
 
 import type { Graph } from '../graph/graph.js';
 import { isGraphBundle, type GraphBundle } from './bundle-schema.js';
+import { withMappedOutputs, type MappedOutputsFor } from './outputs.js';
 import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /**
@@ -47,7 +48,10 @@ export interface SubgraphSpec extends NodeCommon {
  *   string (resolved by the caller's `loadGraph`).
  * @param spec - Placement, grants, and the input/output memory mappings.
  */
-export function subgraph(child: Graph | GraphBundle | string, spec: SubgraphSpec): NodeValue {
+export function subgraph<const S extends SubgraphSpec>(
+  child: Graph | GraphBundle | string,
+  spec: S,
+): NodeValue & MappedOutputsFor<S> {
   const { inputs, outputs, maxIterations, ...placement } = spec;
   const bundleRef = typeof child !== 'string' && isGraphBundle(child) ? child : undefined;
   const childGraph = typeof child === 'string' ? undefined : (bundleRef?.graph ?? (child as Graph));
@@ -67,5 +71,5 @@ export function subgraph(child: Graph | GraphBundle | string, spec: SubgraphSpec
     ...(bundleRef !== undefined ? { [SUBGRAPH_BUNDLE]: bundleRef } : {}),
   };
 
-  return value as NodeValue;
+  return withMappedOutputs(value as NodeValue, spec.outputs) as NodeValue & MappedOutputsFor<S>;
 }

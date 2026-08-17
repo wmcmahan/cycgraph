@@ -165,7 +165,7 @@ Follow the pattern from `src/sut/graphs/supervisor.ts`:
 // src/sut/graphs/your-graph.ts
 
 import {
-  InMemoryAgentRegistry, createGraph, createWorkflowState,
+  InMemoryAgentRegistry, GraphSchema, WorkflowStateSchema,
 } from '@cycgraph/orchestrator';
 import type { Graph, WorkflowState, AgentRegistry } from '@cycgraph/orchestrator';
 

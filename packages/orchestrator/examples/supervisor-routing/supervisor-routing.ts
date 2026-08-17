@@ -30,8 +30,6 @@ import {
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-// ─── 0. Fail fast if the run can't reach a model ─────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -40,9 +38,7 @@ if (missing) {
 
 const logger = createLogger('example');
 
-// ─── 1. Define agents ────────────────────────────────────────────────────
-// An agent() value is a capability: model, instructions, sampling. No id
-// (graph() mints one) and no permissions (the node's grants are authoritative).
+// ─── Define agents ────────────────────────────────────────────────────
 
 const supervisorAgent = agent({
   name: 'Supervisor Agent',
@@ -103,14 +99,11 @@ const editorAgent = agent({
   maxSteps: 3,
 });
 
-// ─── 2. Place them in a graph ────────────────────────────────────────────
-// Cyclic hub-and-spoke: supervisor ⇄ research, supervisor ⇄ write, supervisor ⇄ edit.
-// The supervisor routes dynamically; termination is via the __done__ sentinel.
+// ─── Place them in a graph ────────────────────────────────────────────
 
 const research = node({
   id: 'research',
   agent: researcherAgent,
-  reads: ['goal', 'constraints'],
   writes: 'research_notes',
   failurePolicy: { maxRetries: 2 },
 });
@@ -118,7 +111,7 @@ const research = node({
 const write = node({
   id: 'write',
   agent: writerAgent,
-  reads: ['goal', 'research_notes'],
+  reads: [research.writes],
   writes: 'draft',
   failurePolicy: { maxRetries: 2 },
 });
@@ -126,14 +119,11 @@ const write = node({
 const edit = node({
   id: 'edit',
   agent: editorAgent,
-  reads: ['goal', 'draft'],
+  reads: [write.writes],
   writes: 'final_draft',
   failurePolicy: { maxRetries: 2 },
 });
 
-// No reads declared: a supervisor derives its reads from the managed nodes'
-// writes, and its routing/completion permissions are implied by the node type.
-// Goal and constraints are always visible.
 const lead = supervisor(supervisorAgent, {
   id: 'supervisor',
   manages: [research, write, edit],
@@ -141,8 +131,6 @@ const lead = supervisor(supervisorAgent, {
   failurePolicy: { maxRetries: 2 },
 });
 
-// Every node in a cycle has inbound and outbound edges, so start/end cannot
-// be inferred: pass them explicitly.
 const workflow = graph({
   name: 'Supervisor Routing',
   description: 'Cyclic hub-and-spoke workflow with LLM-powered dynamic routing',
@@ -158,12 +146,10 @@ const workflow = graph({
     { from: edit, to: lead },
   ],
   startNode: lead,
-  endNodes: [], // Termination via __done__ sentinel
+  endNodes: [],
 });
 
-// ─── 3. Set up registry, state, and runner ───────────────────────────────
-// The graph carries its agent() configs; register them into a run-scoped
-// registry for the explicit GraphRunner path.
+// ─── Set up registry, state, and runner ───────────────────────────────
 
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
@@ -183,7 +169,6 @@ const runner = new GraphRunner(workflow, initialState, {
   persistState: (s) => persistence.saveWorkflowSnapshot(s),
 });
 
-// Event listeners for observability
 runner.on('workflow:start', ({ run_id }) => {
   logger.info(`Workflow started: ${run_id}`);
 });
@@ -204,7 +189,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 4. Run ──────────────────────────────────────────────────────────────
+// ─── Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting supervisor-routing workflow...\n');

@@ -40,25 +40,32 @@ npm install @cycgraph/orchestrator
 ```
 
 ```ts
-import { GraphRunner, createGraph, createWorkflowState } from '@cycgraph/orchestrator';
+import { agent, node, graph, run } from '@cycgraph/orchestrator';
 
-const graph = createGraph({
-  name: 'research-and-write',
-  start_node: 'researcher',
-  end_nodes: ['writer'],
-  nodes: [
-    { id: 'researcher', type: 'agent', agent_id: RESEARCHER_ID, write_keys: ['notes'] },
-    { id: 'writer', type: 'agent', agent_id: WRITER_ID, read_keys: ['notes'] },
-  ],
-  edges: [{ from: 'researcher', to: 'writer' }],
+const research = node({
+  id: 'researcher',
+  agent: agent({ model: 'claude-sonnet-4-6', instructions: 'Research the topic.' }),
+  writes: 'notes',
 });
 
-const runner = new GraphRunner(graph, createWorkflowState({ workflow_id: 'demo', goal: 'Explain CSGs' }));
-await runner.run();
+const write = node({
+  id: 'writer',
+  agent: agent({ model: 'claude-sonnet-4-6', instructions: 'Turn the notes into prose.' }),
+  reads: [research.writes],
+  writes: 'article',
+});
+
+const workflow = graph({
+  name: 'research-and-write',
+  nodes: [research, write],
+  edges: [{ from: research, to: write }],
+});
+
+const { article } = await run(workflow, { goal: 'Explain cyclic state graphs' });
 ```
 
 That's the smallest possible graph. The interesting part is what happens when you
-add an edge that points *backward* — see the [Quick Start](/docs/getting-started/quick-start/)
+add an edge that points *backward* — see the [Quick Start](/docs/getting-started/quickstart/)
 to build your first looping workflow, or the [pattern guides](/docs/patterns/supervisor/)
 for runnable examples of each.
 

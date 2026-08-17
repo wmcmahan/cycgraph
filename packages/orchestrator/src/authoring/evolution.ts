@@ -11,6 +11,7 @@
  */
 
 import type { AgentValue } from './agent.js';
+import { withOutputs, evolutionOutputs, type EvolutionOutputs } from './outputs.js';
 import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /** Authoring spec for {@link evolution}. */
@@ -51,14 +52,14 @@ export interface EvolutionSpec extends NodeCommon {
  * @param candidate - The agent that generates candidate solutions.
  * @param spec - Placement, scoring, and population settings.
  */
-export function evolution(candidate: AgentValue | string, spec: EvolutionSpec): NodeValue {
+export function evolution(candidate: AgentValue | string, spec: EvolutionSpec): NodeValue & EvolutionOutputs {
   const {
     evaluator, populationSize, maxGenerations, fitnessThreshold, stagnationGenerations,
     selection, eliteCount, concurrency, criteria, onError,
     initialTemperature, finalTemperature, tournamentSize, taskTimeoutMs, ...placement
   } = spec;
 
-  return {
+  return withOutputs({
     ...placement,
     type: 'evolution' as const,
     evolutionConfig: {
@@ -79,5 +80,5 @@ export function evolution(candidate: AgentValue | string, spec: EvolutionSpec): 
       ...(taskTimeoutMs !== undefined ? { taskTimeoutMs } : {}),
     },
     [NODE_BRAND]: true as const,
-  } as NodeValue;
+  } as NodeValue, evolutionOutputs(spec.id));
 }

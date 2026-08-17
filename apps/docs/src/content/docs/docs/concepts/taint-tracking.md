@@ -34,16 +34,16 @@ For example, when an MCP tool returns a result, the `MCPConnectionManager` accum
 
 ```
 MCP Tool "search"
-  → memory.search_results  [tainted: mcp_tool, server_id: "web-search"]
+  → memory.search_results  [mcp_tool, server_id: "web-search", node_id: "search"]
 
 Agent "researcher" reads search_results, writes summary
-  → memory.summary          [tainted: derived, agent_id: "researcher"]
+  → memory.summary         [derived, node_id: "research", derived_from: ["search_results"]]
 
 Agent "writer" reads summary, writes draft
-  → memory.draft            [tainted: derived, agent_id: "writer"]
+  → memory.draft           [derived, node_id: "write", derived_from: ["summary"]]
 ```
 
-Once data is tainted, the taint follows it through every agent that processes it. This creates an auditable chain of provenance from the original external source through every transformation.
+Once data is tainted, the taint follows it through every agent that processes it. `derived_from` names the tainted keys each value came from, so the chain walks backward one hop at a time from any tainted key to the external call that introduced it.
 
 **Refs:**
 - [propagateDerivedTaint](#propagatederivedtaint): The helper that extends the chain from inputs to outputs.
@@ -63,25 +63,25 @@ Setting `strict_taint: true` on the graph upgrades warnings to hard rejections. 
 ```typescript
 import { node, runTool, graph } from '@cycgraph/orchestrator';
 
+const fetch = runTool('web_search', { id: 'fetch' });
+const analyze = node({ id: 'analyze', agent: analyst, reads: [fetch.result], writes: 'analysis' });
+const fallback = node({ id: 'fallback', agent: fallbackAgent, writes: 'analysis' });
+
 const strictGraph = graph({
   name: 'Strict Taint Example',
   description: 'Routes to a fallback agent when external (tainted) data would otherwise drive the decision.',
-  strictTaint: true, // reject tainted data in routing
-  nodes: [
-    runTool('web_search', { id: 'fetch', reads: ['*'] }),
-    node({ id: 'analyze', agent: analyst, reads: ['fetch_result'], writes: 'analysis' }),
-    node({ id: 'fallback', agent: fallback, reads: ['goal'], writes: 'analysis' }),
-  ],
+  strictTaint: true,
+  nodes: [fetch, analyze, fallback],
   edges: [
-    { from: 'fetch', to: 'analyze', when: 'length(memory.fetch_result) > 0' },
-    { from: 'fetch', to: 'fallback' }, // taken when strictTaint rejects the condition
+    { from: fetch, to: analyze, when: `length(memory.${fetch.result}) > 0` },
+    { from: fetch, to: fallback },
   ],
-  startNode: 'fetch',
-  endNodes: ['analyze', 'fallback'],
+  startNode: fetch,
+  endNodes: [analyze, fallback],
 });
 ```
 
-In this example, `fetch_result` is tainted (it came from a tool). With `strictTaint: true`, the condition evaluates to `false` regardless of the actual value, and the workflow routes to `fallback`.
+In this example, `fetch.result` is tainted, because it came from a tool. With `strictTaint: true`, the condition evaluates to `false` regardless of the actual value, and the workflow routes to `fallback`.
 
 ### Supervisor routing
 
@@ -170,6 +170,7 @@ function propagateDerivedTaint(
   registry: TaintRegistry,
   outputKeys: string[],
   agentId: string,
+  nodeId?: string,
 ): TaintRegistry;
 
 const newEntries = propagateDerivedTaint(
@@ -197,11 +198,24 @@ Provenance of the untrusted data behind one memory key. Keyed by memory key insi
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | `'mcp_tool'` \| `'custom_tool'` \| `'tool_node'` \| `'agent_response'` \| `'derived'` \| `'retrieval'` | Origin of the data. |
+| `source` | `'mcp_tool'` \| `'custom_tool'` \| `'tool_node'` \| `'agent_response'` \| `'derived'` \| `'retrieval'` \| `'a2a'` | Origin of the data. |
 | `tool_name` | `string?` | Tool that produced the data, for tool sources. |
-| `server_id` | `string?` | MCP server that provided the tool, for `'mcp_tool'`. |
+| `server_id` | `string?` | MCP server, or registered A2A server, that provided it. |
 | `agent_id` | `string?` | Agent that produced the data, for `'agent_response'` or `'derived'`. |
+| `node_id` | `string?` | Node that introduced the data, whatever produced it. |
+| `derived_from` | `string[]?` | Tainted keys this value was derived from. |
+| `bytes` | `number?` | Serialized size of the value. |
 | `created_at` | `string` | ISO 8601 timestamp. |
+
+`derived_from` is what makes the registry a lineage rather than a set of flags: a `derived` entry names the keys it came from, so a value can be followed back to the tool or remote agent that first introduced it.
+
+```
+research_notes    custom_tool lookup_briefing 370B
+draft             derived writer ← research_notes
+final             derived editor ← draft
+```
+
+Each first tainting also emits a `taint:applied` stream event and a `taint_applied` log line carrying the same fields, so untrusted data entering a run is visible live rather than only by comparing state snapshots.
 
 ### TaintRegistry
 

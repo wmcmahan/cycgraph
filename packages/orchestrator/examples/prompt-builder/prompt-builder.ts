@@ -20,8 +20,6 @@ import {
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
-// ─── 0. Fail fast if no API key ──────────────────────────────────────────
-
 const missing = missingCredentials();
 if (missing) {
   console.error(`Error: ${missing}`);
@@ -30,9 +28,8 @@ if (missing) {
 
 const logger = createLogger('example');
 
-// ─── 1. Define agents ────────────────────────────────────────────────────
+// ─── Define agents ────────────────────────────────────────────────────
 
-// ── Prompt Builder: drafts (or refines) structured instructions ──────────
 const promptBuilderAgent = agent({
   name: 'Prompt Builder Agent',
   description: 'Transforms vague user goals into structured, actionable instructions',
@@ -67,7 +64,6 @@ const promptBuilderAgent = agent({
   maxSteps: 5,
 });
 
-// ── Prompt Critic: scores the builder's output and gives feedback ────────
 const promptCriticAgent = agent({
   name: 'Prompt Critic Agent',
   description: 'Evaluates the quality of structured prompt instructions and provides feedback',
@@ -101,7 +97,6 @@ const promptCriticAgent = agent({
   maxSteps: 5,
 });
 
-// ── Supervisor: routes work using the refined instructions ───────────────
 const supervisorAgent = agent({
   name: 'Supervisor Agent',
   description: 'Routes tasks between specialist agents using the structured plan',
@@ -123,7 +118,6 @@ const supervisorAgent = agent({
   maxSteps: 3,
 });
 
-// ── Specialist agents ────────────────────────────────────────────────────
 const researcherAgent = agent({
   name: 'Research Agent',
   description: 'Gathers background information guided by the structured plan',
@@ -170,23 +164,12 @@ const editorAgent = agent({
   maxSteps: 3,
 });
 
-// ─── 2. Define the graph ─────────────────────────────────────────────────
-//
-// Self-annealing prompt enrichment → supervisor hub-and-spoke:
-//
-//   ┌──────────────────────────────────────────┐
-//   │                                          │
-//   │  prompt_builder → prompt_critic ──[≥0.8]──→ supervisor ⇄ research
-//   │                       │                              ⇄ write
-//   │                       └──[<0.8]──┘                   ⇄ edit
-//   │                     (loop back)
-//   └──────────────────────────────────────────┘
+// ─── Define the graph ─────────────────────────────────────────────────
 
-// ── Phase 1: Self-annealing prompt enrichment ──────────────────
 const promptBuilder = node({
   id: 'prompt_builder',
   agent: promptBuilderAgent,
-  reads: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria', 'prompt_feedback', 'prompt_suggestions'],
+  reads: ['refined_goal', 'task_plan', 'quality_criteria', 'prompt_feedback', 'prompt_suggestions'],
   writes: ['refined_goal', 'task_plan', 'quality_criteria'],
   failurePolicy: { maxRetries: 2 },
 });
@@ -194,28 +177,17 @@ const promptBuilder = node({
 const promptCritic = node({
   id: 'prompt_critic',
   agent: promptCriticAgent,
-  reads: ['goal', 'constraints', 'refined_goal', 'task_plan', 'quality_criteria'],
+  reads: ['refined_goal', 'task_plan', 'quality_criteria'],
   writes: ['prompt_score', 'prompt_feedback', 'prompt_suggestions'],
   failurePolicy: { maxRetries: 2 },
 });
 
 // ── Phase 2: Supervisor-routed execution ───────────────────────
-// The supervisor reads the enrichment outputs (refined_goal, task_plan,
-// quality_criteria), which are not managed-node writes, so reads stay
-// explicit rather than derived.
-const lead = supervisor(supervisorAgent, {
-  id: 'supervisor',
-  manages: ['research', 'write', 'edit'],
-  maxIterations: 10,
-  reads: ['*'],
-  writes: ['*'],
-  failurePolicy: { maxRetries: 2 },
-});
 
 const research = node({
   id: 'research',
   agent: researcherAgent,
-  reads: ['refined_goal', 'task_plan', 'constraints'],
+  reads: ['refined_goal', 'task_plan'],
   writes: ['research_notes'],
   failurePolicy: { maxRetries: 2 },
 });
@@ -223,7 +195,7 @@ const research = node({
 const write = node({
   id: 'write',
   agent: writerAgent,
-  reads: ['refined_goal', 'task_plan', 'quality_criteria', 'research_notes'],
+  reads: ['refined_goal', 'task_plan', 'quality_criteria', ...research.writes],
   writes: ['draft'],
   failurePolicy: { maxRetries: 2 },
 });
@@ -231,13 +203,19 @@ const write = node({
 const edit = node({
   id: 'edit',
   agent: editorAgent,
-  reads: ['refined_goal', 'quality_criteria', 'draft'],
+  reads: ['refined_goal', 'quality_criteria', ...write.writes],
   writes: ['final_draft'],
   failurePolicy: { maxRetries: 2 },
 });
 
-// Cyclic self-annealing loop plus supervisor hub-and-spoke: start/end are
-// passed explicitly (termination is via the __done__ sentinel).
+// Declares no grants: its reads derive from what `manages` writes.
+const lead = supervisor(supervisorAgent, {
+  id: 'supervisor',
+  manages: [research, write, edit],
+  maxIterations: 10,
+  failurePolicy: { maxRetries: 2 },
+});
+
 const workflow = graph({
   name: 'Prompt Builder with Self-Annealing Loop',
   description: 'Iterative prompt enrichment with critic feedback before supervisor-routed execution',
@@ -262,18 +240,16 @@ const workflow = graph({
   endNodes: [], // Termination via __done__ sentinel
 });
 
-// ─── 3. Set up registry, state, persistence, and runner ──────────────────
+// ─── Set up registry, state, persistence, and runner ──────────────────
 
 const registry = new InMemoryAgentRegistry();
 for (const config of agentsForGraph(workflow)) registry.register(config);
 
-// Note: the goal is intentionally vague — that's the point.
-// The self-annealing loop will refine it until it's actionable.
 const initialState = state({
   workflowId: workflow.id,
   goal: 'write something about AI agents',
   constraints: ['keep it accessible'],
-  maxIterations: 30,    // Allow enough headroom for annealing + execution
+  maxIterations: 30,
   maxExecutionTimeMs: 300_000,
 });
 
@@ -305,7 +281,7 @@ runner.on('workflow:failed', ({ run_id, error }) => {
   logger.error(`Workflow failed: ${run_id} — ${error}`);
 });
 
-// ─── 4. Run ──────────────────────────────────────────────────────────────
+// ─── Run ──────────────────────────────────────────────────────────────
 
 async function main() {
   logger.info('Starting prompt-builder workflow with self-annealing loop...');

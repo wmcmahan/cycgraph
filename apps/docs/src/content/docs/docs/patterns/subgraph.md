@@ -57,23 +57,24 @@ const summarize = node({
 
 const research = graph({ name: 'research-block', nodes: [summarize], edges: [] });
 
+const block = subgraph(research, {
+  id: 'research',
+  reads: ['topic'],
+  inputs:  { topic: 'goal_in' },
+  outputs: { summary: 'findings' },
+});
+
+const format = node({
+  id: 'format',
+  agent: agent({ model: 'claude-sonnet-4-6', instructions: 'Turn findings into a brief.' }),
+  reads: [block.outputs.summary],
+  writes: 'brief',
+});
+
 const pipeline = graph({
   name: 'briefing',
-  nodes: [
-    subgraph(research, {
-      id: 'research',
-      reads: ['topic'],
-      inputs:  { topic: 'goal_in' },     // parent key → child key
-      outputs: { summary: 'findings' },  // child key → parent key
-    }),
-    node({
-      id: 'format',
-      agent: agent({ model: 'claude-sonnet-4-6', instructions: 'Turn findings into a brief.' }),
-      reads: ['findings'],
-      writes: 'brief',
-    }),
-  ],
-  edges: [{ from: 'research', to: 'format' }],
+  nodes: [block, format],
+  edges: [{ from: block, to: format }],
 });
 
 const { brief } = await run(pipeline, { goal: 'brief me', memory: { topic: 'solid-state batteries' } });
@@ -109,18 +110,23 @@ Declaring an interface is optional. A graph without one composes exactly as befo
 Wrap it. Call the graph as a subgraph and add your own nodes around it:
 
 ```typescript
+const block = subgraph(thirdPartyResearch, {
+  id: 'research',
+  inputs: { topic: 'goal_in' },
+  outputs: { report: 'raw_report' },
+});
+
+const verify = node({
+  id: 'verify',
+  agent: factChecker,
+  reads: [block.outputs.report],
+  writes: 'verified_report',
+});
+
 const enriched = graph({
   name: 'research-plus-verify',
-  nodes: [
-    subgraph(thirdPartyResearch, {
-      id: 'research',
-      inputs: { topic: 'goal_in' },
-      outputs: { report: 'raw_report' },
-      writes: 'raw_report',
-    }),
-    node({ id: 'verify', agent: factChecker, reads: ['raw_report'], writes: 'verified_report' }),
-  ],
-  edges: [{ from: 'research', to: 'verify' }],
+  nodes: [block, verify],
+  edges: [{ from: block, to: verify }],
 });
 ```
 
@@ -153,8 +159,6 @@ const artifact = bundle(research, {
   version: '1.0.0',
   source: 'npm:@acme/research-graph',
 });
-
-// JSON.stringify(artifact) is the complete distribution artifact.
 ```
 
 `bundle()` assembles a `GraphBundle`:
@@ -182,7 +186,7 @@ Validate a bundle arriving from an untrusted source with `parseBundle`, then dro
 
 ```typescript
 import { parseBundle, subgraph, graph, run } from '@cycgraph/orchestrator';
-import researchBundle from '@acme/research-graph'; // default-exports a GraphBundle
+import researchBundle from '@acme/research-graph';
 
 const research = parseBundle(researchBundle);
 

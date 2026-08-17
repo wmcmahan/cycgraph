@@ -23,6 +23,7 @@ import {
   checkRequirements,
   BundleIntegrityError,
   GraphSpecError,
+  memoryKeys,
 } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
@@ -41,14 +42,11 @@ if (raw === null) {
   process.exit(1);
 }
 
-// ─── 1. Validate the artifact ────────────────────────────────────────────
+// ─── Validate the artifact ────────────────────────────────────────────
 
 const block = parseBundle(JSON.parse(raw));
 const { manifest } = block;
 
-// A manifest that under-declares is either tampered or mis-assembled, and
-// `parseBundle` refuses it. Here the requires block is emptied while the
-// graph still calls the tool — the artifact no longer describes itself.
 const tampered = JSON.parse(raw) as { manifest: { requires: { tools: unknown[] } } };
 tampered.manifest.requires.tools = [];
 
@@ -62,7 +60,7 @@ try {
   console.log('');
 }
 
-// ─── 2. Read the contract ────────────────────────────────────────────────
+// ─── Read the contract ────────────────────────────────────────────────
 
 console.log(`═══ ${manifest.name}@${manifest.version} ═══\n`);
 console.log(`  source:      ${manifest.source ?? '(unstated)'}`);
@@ -90,14 +88,12 @@ for (const required of manifest.requires.tools) {
 }
 console.log('');
 
-// ─── 3. Preflight ────────────────────────────────────────────────────────
+// ─── Preflight ────────────────────────────────────────────────────────
 
 const bare = await checkRequirements(block, {});
 console.log('═══ Requirements preflight ═══\n');
 console.log(`  with nothing supplied — ok: ${bare.ok}, missing tools: ${bare.missingTools.join(', ')}`);
 
-// The host's own implementation, bound to the name the manifest asked for.
-// Its argument schema honors `requires.tools[].input_schema`.
 const marketData = tool({
   name: 'fetch_market_data',
   description: 'Look up recent market data for a named sector from the internal warehouse.',
@@ -119,9 +115,11 @@ const marketData = tool({
 const wired = await checkRequirements(block, { tools: [marketData] });
 console.log(`  with fetch_market_data bound — ok: ${wired.ok}\n`);
 
-// ─── 4. Compose ──────────────────────────────────────────────────────────
-// The interface survived serialization, so a mis-wire against a bundle you
-// downloaded fails at compile time just like a local child graph.
+// ─── Compose ──────────────────────────────────────────────────────────
+const mem = memoryKeys({
+  target_sector: { seeded: true, schema: { type: 'string' } },
+  target_year: { seeded: true, schema: { type: 'number' } },
+});
 
 try {
   graph({
@@ -129,8 +127,8 @@ try {
     nodes: [
       subgraph(block, {
         id: 'analyze-sector',
-        reads: ['target_sector'],
-        inputs: { target_sector: 'industry' },
+        reads: [mem.target_sector],
+        inputs: { [mem.target_sector]: 'industry' },
         outputs: { analysis: 'sector_analysis' },
       }),
     ],
@@ -142,6 +140,13 @@ try {
   console.log(`  ✓ ${error.message}\n`);
 }
 
+const analyze = subgraph(block, {
+  id: 'analyze-sector',
+  reads: [mem.target_sector, mem.target_year],
+  inputs: { [mem.target_sector]: 'sector', [mem.target_year]: 'year' },
+  outputs: { analysis: 'sector_analysis' },
+});
+
 const memoNode = node({
   id: 'memo',
   agent: agent({
@@ -151,35 +156,22 @@ const memoNode = node({
       'Turn the sector analysis into a two-sentence investment memo: one sentence on the thesis, ' +
       'one on the risk.',
   }),
-  reads: ['sector_analysis'],
+  reads: [analyze.outputs.analysis],
   writes: 'memo',
 });
 
 const pipeline = graph({
   name: 'sector-memo',
   description: 'Wraps a third-party market-analysis block in an investment memo.',
-  nodes: [
-    subgraph(block, {
-      id: 'analyze-sector',
-      reads: ['target_sector', 'target_year'],
-      inputs: { target_sector: 'sector', target_year: 'year' },
-      outputs: { analysis: 'sector_analysis' },
-      // The output mapping is the write grant — `sector_analysis` needs no
-      // separate `writes` entry.
-    }),
-    memoNode,
-  ],
+  nodes: [analyze, memoNode],
   edges: [{ from: 'analyze-sector', to: memoNode }],
 });
 
-// The bundle's agents auto-register from the artifact. Only the tool
-// implementation has to be handed to the runner — it is the one thing the
-// manifest names but does not carry.
 const result = await run(
   pipeline,
   {
     goal: 'Produce an investment memo on grid-scale storage.',
-    memory: { target_sector: 'grid-scale storage', target_year: 2026 },
+    memory: mem.seed({ target_sector: 'grid-scale storage', target_year: 2026 }),
   },
   { runner: { providers: exampleProviders(), tools: [marketData] } },
 );

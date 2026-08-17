@@ -36,38 +36,39 @@ Three variants, one per function on the `verifier` namespace:
 **LLM-as-judge.** Score a draft for quality and loop back if it falls short:
 
 ```typescript
-verifier.llmJudge(critic, {
+const write = node({ id: 'draft', agent: writer, writes: 'draft' });
+
+const check = verifier.llmJudge(critic, {
   id: 'check_quality',
-  reads: ['draft'],
-  target: 'draft',
+  reads: [write.writes],
+  target: write.writes,
   threshold: 0.8,
   criteria: 'Score for factual accuracy and clarity.',
   resultKey: 'quality_verification',
-})
+});
 ```
 
-Then route on the boolean the verifier writes:
+Then route on the boolean the verifier writes. `check.passed` is that key, so the
+`when` expression cannot drift from the `resultKey` above:
 
 ```typescript
 edges: [
-  { from: 'check_quality', to: 'publish', when: 'quality_verification_passed' },
-  { from: 'check_quality', to: 'draft' }, // otherwise, redo
+  { from: check, to: publish, when: check.passed },
+  { from: check, to: write },  // otherwise, redo
 ]
 ```
 
 **Deterministic checks.** No LLM call, free and instant:
 
 ```typescript
-// Expression: the draft must be substantial
 verifier.expression('length(memory.draft) > 280', {
   id: 'check_length',
-  reads: ['draft'],
+  reads: [write.writes],
 })
 
-// JSONPath assertion: every line item must be positive
-verifier.jsonPath('extracted_invoice', {
+verifier.jsonPath(extract.writes, {
   id: 'check_amounts',
-  reads: ['extracted_invoice'],
+  reads: [extract.writes],
   path: '$.line_items[*].amount',
   assertion: { op: 'gt', value: 0 },
 })
@@ -79,6 +80,8 @@ The node writes two keys. Both are implied write grants, so neither needs to app
 
 - `{resultKey}` (defaults to `{nodeId}_verification`) is the structured `VerificationResult`: `{ type, passed, reasoning, score?, threshold?, extracted_value?, evaluated_at }`.
 - `{resultKey}_passed` is a flat boolean, for ergonomic edge conditions.
+
+The node value carries both key names, as `.verification` and `.passed`. Reach for those in downstream `reads` and `when` expressions rather than retyping the derived name.
 
 ## When to use it
 

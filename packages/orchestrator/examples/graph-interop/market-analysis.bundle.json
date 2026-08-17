@@ -65,12 +65,12 @@
       ],
       "mcp_servers": [],
       "models": [
-        "claude-sonnet-4-6"
+        "qwen2.5:7b"
       ]
     }
   },
   "graph": {
-    "id": "63a029bc-569d-4f4d-94e6-427a1dc12056",
+    "id": "b94bd499-d984-4bf0-b1b5-f10383045f5f",
     "name": "market-analysis-block",
     "description": "Analyzes a market sector against recent data and returns a written analysis.",
     "inputs": {
@@ -108,7 +108,7 @@
       {
         "id": "analyze",
         "type": "agent",
-        "agent_id": "fa3da5a0-0b77-4e30-8bbb-d7f859ef8794",
+        "agent_id": "bc8cf9aa-9891-4734-a301-c354cf1f606a",
         "read_keys": [
           "sector",
           "year"
@@ -130,15 +130,16 @@
     "end_nodes": [
       "analyze"
     ],
-    "strict_taint": false
+    "strict_taint": false,
+    "strict_keys": false
   },
   "agents": [
     {
-      "id": "fa3da5a0-0b77-4e30-8bbb-d7f859ef8794",
-      "name": "fa3da5a0-0b77-4e30-8bbb-d7f859ef8794",
+      "id": "bc8cf9aa-9891-4734-a301-c354cf1f606a",
+      "name": "bc8cf9aa-9891-4734-a301-c354cf1f606a",
       "description": null,
-      "model": "claude-sonnet-4-6",
-      "provider": "anthropic",
+      "model": "qwen2.5:7b",
+      "provider": "ollama",
       "system_prompt": "You are a market analyst. Call fetch_market_data for the sector under study, then write a short analysis covering the demand trend, the price trend, and the single biggest risk.",
       "tools": [
         {

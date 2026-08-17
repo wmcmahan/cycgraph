@@ -1,0 +1,10 @@
+{
+  "//": "Type-checks the examples, which the build config cannot: its rootDir is src/, and examples resolve @cycgraph/orchestrator through dist/, so this runs after a build. Kept separate so the build's emit layout stays untouched, and with declarations off: examples are programs, not libraries, and asking for a .d.ts makes an exported node value unnameable.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false
+  },
+  "include": ["examples/**/*"]
+}

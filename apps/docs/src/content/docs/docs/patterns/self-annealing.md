@@ -40,22 +40,15 @@ import { node } from '@cycgraph/orchestrator';
 
 const refine = node({
   id: 'refine',
-  agent: writer,                    // an agent() value; type defaults to 'agent'
-  reads: ['goal', 'constraints'],
+  agent: writer,
   writes: 'draft',
   annealingConfig: {
-    // Option A: an evaluator agent scores each pass's memory updates
-    // against the workflow goal.
     evaluatorAgentId: evaluator,
-    // Option B: omit the evaluator and let the agent score itself — a
-    // `save_to_memory('score', …)` write lands at `updates.score`
-    // (add 'score' to the node's writes):
-    // scorePath: '$.updates.score',
-    threshold: 0.8,                 // stop once the best score reaches this
-    maxIterations: 5,               // hard cap on passes
-    initialTemperature: 1.0,        // first pass — broad exploration
-    finalTemperature: 0.2,          // last pass — focused refinement
-    diminishingReturnsDelta: 0.02,  // stop early if a pass improves < this
+    threshold: 0.8,
+    maxIterations: 5,
+    initialTemperature: 1.0,
+    finalTemperature: 0.2,
+    diminishingReturnsDelta: 0.02,
   },
 });
 ```
@@ -111,7 +104,6 @@ const evaluatorAgent = agent({
     '3. key "suggestions" — a bullet list of specific improvements.',
     'A draft that meets all constraints should score 0.8 or above.',
   ].join(' '),
-  // Keep temperature low for deterministic evaluating
   temperature: 0.3,
 });
 ```
@@ -126,35 +118,35 @@ import { node, graph } from '@cycgraph/orchestrator';
 const writer = node({
   id: 'writer',
   agent: writerAgent,
-  reads: ['goal', 'constraints', 'feedback', 'suggestions', 'draft'],
+  reads: ['feedback', 'suggestions', 'draft'],
   writes: 'draft',
 });
 
 const evaluator = node({
   id: 'evaluator',
   agent: evaluatorAgent,
-  reads: ['goal', 'constraints', 'draft'],
+  reads: [writer.writes],
   writes: ['score', 'feedback', 'suggestions'],
+});
+
+const publisher = node({
+  id: 'publisher',
+  agent: publisherAgent,
+  reads: [writer.writes],
+  writes: 'final_output',
 });
 
 const workflow = graph({
   name: 'Eval Loop',
   description: 'Cyclic write-evaluate-revise loop with conditional quality gate',
-  nodes: [
-    writer,
-    evaluator,
-    // ... define the 'publisher' node ...
-  ],
+  nodes: [writer, evaluator, publisher],
   edges: [
-    // writer always goes to evaluator
     { from: writer, to: evaluator },
-    // Loop back: evaluator → writer when score < 0.8
     { from: evaluator, to: writer, when: 'number(memory.score) < 0.8' },
-    // Quality gate: evaluator → publisher when score >= 0.8
-    { from: evaluator, to: 'publisher', when: 'number(memory.score) >= 0.8' },
+    { from: evaluator, to: publisher, when: 'number(memory.score) >= 0.8' },
   ],
   startNode: writer,
-  endNodes: ['publisher'],
+  endNodes: [publisher],
 });
 ```
 

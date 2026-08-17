@@ -276,7 +276,7 @@ const provider: CompressionProvider = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'distilgpt2', prompt: text, raw: true }),
     });
-    return tokens.map(() => 0.5); // replace with actual implementation
+    return tokens.map(() => 0.5);
   },
 };
 

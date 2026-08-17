@@ -14,7 +14,6 @@ const researchNode = node({
     model: 'claude-sonnet-4-6',
     instructions: 'You are a research specialist. Produce concise, factual notes.',
   }),
-  reads: ['goal'],
   writes: 'notes',
 });
 ```
@@ -46,12 +45,19 @@ Each type's config block is documented under [Interfaces](#interfaces).
 Nodes declare which state keys they can read and write with `reads` and `writes`.
 
 ```typescript
+const research = node({ /* ... */ writes: 'notes' });
+
 const write = node({
   // ...
-  reads: ['goal', 'notes'],
+  reads: [research.writes],
   writes: 'draft',
 });
 ```
+
+An authored node carries the keys it writes, so a reader names them instead of
+retyping the string: `research.writes` here, `fan.results` on a map node,
+`gate.verification` on a verifier. A typo becomes a compile error, and renaming
+a node updates its readers.
 
 Both `read` and `write` fields default to an empty list, least privilege, and a node that omits `reads` sees only `goal` and `constraints`, which are always available, and one that omits `writes` can write nothing. Because of that default, a node that consumes an upstream node's output must declare it. A writer reading research notes needs `reads: ['notes']`.
 
@@ -61,7 +67,9 @@ This enforces the principle of least privilege, as a writer agent can't read dat
 
 Several grants are derived and never need declaring. Control-flow permissions follow from the node's type: a supervisor may route and complete, approval and subgraph nodes may pause, and a swarm agent may hand off. The result keys a node's own executor writes are implied by its config: a verifier's result pair, a reflection envelope, a tool node's `${id}_result`, and fan-out aggregate keys. And a supervisor with no declared `reads` derives them from its team, `goal`, `constraints`, and everything its `managedNodes` write. `writes` is for what the node's *agent* writes.
 
-`validateGraph` also warns when a declared read key is not produced by any node in the graph, whether declared, implied, or a default write key. This is usually a typo that would otherwise surface as a silently empty value at runtime. Keys seeded through initial workflow memory are the legitimate exception, which is why this is a warning rather than an error.
+`validateGraph` also warns when a declared read key is not produced by any node in the graph, whether declared, implied, or a default write key. This is usually a typo that would otherwise surface as a silently empty value at runtime. Keys seeded through initial workflow memory are the legitimate exception, which is why this is a warning rather than an error. Declare those in the graph's `inputs` and set `strictKeys: true` to make the check an error instead.
+
+It also warns when `reads` lists `goal` or `constraints`. Both reach every node whatever its grants say, so naming them grants nothing and suggests a permission was needed.
 
 ## Compensation (saga)
 
@@ -96,7 +104,7 @@ const reflect = reflection(['notes'], {
 Author a graph node as a placement value: a topology id, state grants, and which agent runs there. It is the facade counterpart of a raw node config and compiles to the same [GraphNode](#graphnode) wire shape when [graph](/docs/concepts/graphs/#graph) builds the graph.
 
 ```typescript
-node(spec: NodeSpec): NodeValue
+node<const S extends NodeSpec>(spec: S): NodeValue & OutputsFor<S> & Pick<S, 'writes'>
 ```
 
 ##### Options
@@ -127,7 +135,7 @@ Omit `reads` to derive them from the managed nodes' writes.
 Fan out over a collection, then fan back in. See the [Map-Reduce pattern](/docs/patterns/map-reduce/).
 
 ```typescript
-mapReduce(worker: NodeValue | string, spec: MapReduceSpec): NodeValue
+mapReduce(worker: NodeValue | string, spec: MapReduceSpec): NodeValue & MapOutputs
 ```
 
 | Field | Maps to | Description |
@@ -143,7 +151,7 @@ mapReduce(worker: NodeValue | string, spec: MapReduceSpec): NodeValue
 Run several agents on the same task and aggregate. See the [Voting pattern](/docs/patterns/voting/).
 
 ```typescript
-voting(voters: (AgentValue | string)[], spec: VotingSpec): NodeValue
+voting(voters: (AgentValue | string)[], spec: VotingSpec): NodeValue & VotingOutputs
 ```
 
 | Field | Maps to | Description |
@@ -159,7 +167,7 @@ voting(voters: (AgentValue | string)[], spec: VotingSpec): NodeValue
 Population-based selection over generations. See the [Evolution pattern](/docs/patterns/evolution/).
 
 ```typescript
-evolution(candidate: AgentValue | string, spec: EvolutionSpec): NodeValue
+evolution(candidate: AgentValue | string, spec: EvolutionSpec): NodeValue & EvolutionOutputs
 ```
 
 | Field | Maps to | Description |
@@ -180,9 +188,9 @@ Also accepts `eliteCount`, `stagnationGenerations`, `initialTemperature`, `final
 Check a memory value and record a structured outcome. Three variants on one namespace, all writing the same pair of keys. See the [Verifier pattern](/docs/patterns/verifier/).
 
 ```typescript
-verifier.llmJudge(judge: AgentValue | string, spec): NodeValue
-verifier.expression(expression: string, spec): NodeValue
-verifier.jsonPath(target: string, spec): NodeValue
+verifier.llmJudge(judge: AgentValue | string, spec): NodeValue & VerifierOutputs
+verifier.expression(expression: string, spec): NodeValue & VerifierOutputs
+verifier.jsonPath(target: string, spec): NodeValue & VerifierOutputs
 ```
 
 | Field | Variant | Description |
@@ -199,7 +207,7 @@ verifier.jsonPath(target: string, spec): NodeValue
 Distill memory into facts a later run can retrieve. See the [Reflection pattern](/docs/patterns/reflection/).
 
 ```typescript
-reflection(sources: string[], spec: ReflectionSpec): NodeValue
+reflection(sources: string[], spec: ReflectionSpec): NodeValue & ReflectionOutputs
 ```
 
 | Field | Maps to | Description |
@@ -214,7 +222,7 @@ reflection(sources: string[], spec: ReflectionSpec): NodeValue
 Run one tool as a deterministic step, with no model involved. The node's `reads` slice is passed to the tool as its argument object.
 
 ```typescript
-runTool(toolId: string, spec: RunToolSpec): NodeValue
+runTool(toolId: string, spec: RunToolSpec): NodeValue & ToolOutputs
 ```
 
 ### `approval`
@@ -237,7 +245,7 @@ approval(spec: ApprovalSpec): NodeValue
 Embed a child graph as one node. See the [Subgraph pattern](/docs/patterns/subgraph/).
 
 ```typescript
-subgraph(child: Graph | GraphBundle | string, spec: SubgraphSpec): NodeValue
+subgraph<const S extends SubgraphSpec>(child: Graph | GraphBundle | string, spec: S): NodeValue & MappedOutputsFor<S>
 ```
 
 | Field | Maps to | Description |
@@ -251,7 +259,7 @@ subgraph(child: Graph | GraphBundle | string, spec: SubgraphSpec): NodeValue
 Delegate to a remote agent. See the [A2A pattern](/docs/patterns/a2a/).
 
 ```typescript
-a2a(serverId: string, spec: A2ASpec): NodeValue
+a2a<const S extends A2ASpec>(serverId: string, spec: S): NodeValue & MappedOutputsFor<S>
 ```
 
 | Field | Maps to | Description |
@@ -269,7 +277,7 @@ Neither takes a config block.
 
 ```typescript
 router(spec: RouterSpec): NodeValue
-synthesizer(spec: SynthesizerSpec): NodeValue
+synthesizer(spec: SynthesizerSpec): NodeValue & SynthesizerOutputs
 ```
 
 `router` is a branch point; its routing lives on the outgoing edges' conditions. `synthesizer` merges fan-out results, deterministically when no `agent` is given and as a written synthesis when one is. An agent-backed synthesizer authors its own output, so it needs `writes`.

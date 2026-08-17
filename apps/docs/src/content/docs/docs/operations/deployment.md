@@ -178,7 +178,7 @@ See [SECURITY.md](https://github.com/wmcmahan/cycgraph/blob/main/SECURITY.md) fo
 - [ ] MCP servers run in isolated containers, with no host filesystem mounts
 - [ ] Every workflow has both `max_token_budget` and `budget_usd` set
 - [ ] Every workflow has both `max_execution_time_ms` and `max_iterations` set
-- [ ] Agent `read_keys` and `write_keys` are narrow; avoid `'*'`
+- [ ] Node `reads` and `writes` are narrow; avoid `'*'`
 - [ ] The eval harness runs in CI before publishing agent or graph changes
 - [ ] You have an alert on `workflow:failed` and `budget:threshold_reached` events
 - [ ] Retention crons are scheduled

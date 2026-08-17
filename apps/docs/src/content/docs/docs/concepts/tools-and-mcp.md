@@ -46,7 +46,6 @@ const initialResearch = node({
     { mcp: 'web-search' },
     { mcp: 'twitter-search' }
   ],
-  reads: ['goal'],
   writes: 'initial_notes',
 });
 ```
@@ -66,7 +65,6 @@ The `tools` option on the run is where implementations land, and you use it dire
 
 ```typescript
 await run(workflow, { goal: 'Look up order 1234' }, {
-  // inline tool() refs are added automatically
   runner: { tools: [mcpManager] },
 });
 ```
@@ -201,7 +199,7 @@ mcpRegistry.register({
   id: 'web-search',
   name: 'Web Search',
   transport: { type: 'http', url: 'https://mcp.example.com/search' },
-  maxRetries: 3, // Retry up to 3 times with backoff (1s, 2s, 4s)
+  maxRetries: 3,
 });
 ```
 
@@ -212,7 +210,7 @@ mcpRegistry.register({
   id: 'slow-api',
   name: 'External API',
   transport: { type: 'http', url: 'https://api.example.com/mcp' },
-  toolTimeoutMs: 10_000, // 10 second timeout per tool call
+  toolTimeoutMs: 10_000,
 });
 ```
 
@@ -220,7 +218,7 @@ You can also set a default timeout for all servers via `MCPConnectionManagerOpti
 
 ```typescript
 const manager = new MCPConnectionManager(mcpRegistry, {
-  default_tool_timeout_ms: 30_000, // 30s default for all servers
+  default_tool_timeout_ms: 30_000,
 });
 ```
 
@@ -230,7 +228,7 @@ Server-level `toolTimeoutMs` overrides the default.
 
 ```typescript
 const manager = new MCPConnectionManager(mcpRegistry, {
-  cache_ttl_ms: 600_000, // 10 minute cache TTL
+  cache_ttl_ms: 600_000,
 });
 ```
 
@@ -266,7 +264,7 @@ See [Taint Tracking](/docs/concepts/taint-tracking/) for the full taint propagat
 Define a custom tool for registration on the `tools` option. `tool` is the terse alias in the authoring vocabulary and the same function under a shorter name. Validates the spec eagerly. An invalid name, a collision with a built-in name, or a missing description throws `ToolDefinitionError` at definition time, not mid-run. The returned tool's `execute` parses arguments through the Zod schema and enforces the per-call timeout.
 
 ```typescript
-tool(spec: DefinedToolSpec): DefinedTool        // alias of defineTool
+tool(spec: DefinedToolSpec): DefinedTool
 defineTool(spec: DefinedToolSpec): DefinedTool
 ```
 

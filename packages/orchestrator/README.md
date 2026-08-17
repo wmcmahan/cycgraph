@@ -2,8 +2,6 @@
 
 # @cycgraph/orchestrator
 
-**The core engine of cycgraph — a TypeScript agent orchestrator built on a Cyclic State Graph.**
-
 [![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?label=%40cycgraph%2Forchestrator&color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io/docs)
@@ -37,7 +35,6 @@ const research = node({
     model: 'claude-sonnet-4-6',
     instructions: 'You are a research specialist. Produce concise, factual notes.',
   }),
-  reads: ['goal'],
   writes: 'notes',
 });
 
@@ -47,8 +44,8 @@ const write = node({
     model: 'claude-sonnet-4-6',
     instructions: 'Turn the research notes into a clear summary under 300 words.',
   }),
-  reads: ['goal', 'notes'],
-  writes: 'draft'
+  reads: [research.writes],
+  writes: 'draft',
 });
 
 const workflow = graph({

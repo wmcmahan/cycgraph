@@ -15,6 +15,7 @@
 
 import type { VerifierJsonPathAssertion } from '../graph/graph.js';
 import type { AgentValue } from './agent.js';
+import { withOutputs, verifierOutputs, type VerifierOutputs } from './outputs.js';
 import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
 
 /** Fields every verifier variant accepts. */
@@ -54,10 +55,10 @@ export interface VerifierJsonPathSpec extends VerifierCommonSpec {
   assertion: VerifierJsonPathAssertion;
 }
 
-function verifierNode(config: Record<string, unknown>, spec: VerifierCommonSpec): NodeValue {
+function verifierNode(config: Record<string, unknown>, spec: VerifierCommonSpec): NodeValue & VerifierOutputs {
   const { resultKey, throwOnFail, description, ...placement } = spec;
 
-  return {
+  return withOutputs({
     ...placement,
     type: 'verifier' as const,
     verifierConfig: {
@@ -67,7 +68,7 @@ function verifierNode(config: Record<string, unknown>, spec: VerifierCommonSpec)
       ...(description !== undefined ? { description } : {}),
     },
     [NODE_BRAND]: true as const,
-  } as NodeValue;
+  } as NodeValue, verifierOutputs(spec.id, spec.resultKey));
 }
 
 /**
@@ -83,7 +84,7 @@ export const verifier = {
    * @param judge - The evaluator agent.
    * @param spec - Placement, the target key, and the pass threshold.
    */
-  llmJudge(judge: AgentValue | string, spec: VerifierLLMJudgeSpec): NodeValue {
+  llmJudge(judge: AgentValue | string, spec: VerifierLLMJudgeSpec): NodeValue & VerifierOutputs {
     const { target, threshold, criteria, ...common } = spec;
     return verifierNode(
       {
@@ -104,7 +105,7 @@ export const verifier = {
    * @param expression - The filtrex expression.
    * @param spec - Placement and result handling.
    */
-  expression(expression: string, spec: VerifierExpressionSpec): NodeValue {
+  expression(expression: string, spec: VerifierExpressionSpec): NodeValue & VerifierOutputs {
     return verifierNode({ type: 'expression', expression }, spec);
   },
 
@@ -114,7 +115,7 @@ export const verifier = {
    * @param target - Memory key whose value is queried.
    * @param spec - Placement, the path, and the assertion.
    */
-  jsonPath(target: string, spec: VerifierJsonPathSpec): NodeValue {
+  jsonPath(target: string, spec: VerifierJsonPathSpec): NodeValue & VerifierOutputs {
     const { path, assertion, ...common } = spec;
     return verifierNode({ type: 'jsonpath', targetKey: target, path, assertion }, common);
   },

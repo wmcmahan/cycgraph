@@ -113,6 +113,11 @@ export interface GraphSpec {
   /** Reject conditions that reference tainted memory keys. See taint tracking. */
   strictTaint?: boolean;
   /**
+   * Treat a read of a key nothing produces and no `inputs` entry declares as
+   * an error rather than a warning.
+   */
+  strictKeys?: boolean;
+  /**
    * The graph's public interface: memory keys it expects seeded, as Zod
    * schemas (or raw JSON Schema, or full declaration entries). Serialized
    * to JSON Schema on the wire; validated at subgraph boundaries.
@@ -281,6 +286,7 @@ export function graph(spec: GraphSpec): Graph {
     startNode,
     endNodes,
     ...(spec.strictTaint !== undefined ? { strictTaint: spec.strictTaint } : {}),
+    ...(spec.strictKeys !== undefined ? { strictKeys: spec.strictKeys } : {}),
     ...(spec.inputs ? { inputs: toWireInputs(spec.inputs) } : {}),
     ...(spec.outputs ? { outputs: toWireOutputs(spec.outputs) } : {}),
   });

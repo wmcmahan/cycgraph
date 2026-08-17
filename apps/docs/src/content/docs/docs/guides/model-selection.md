@@ -47,15 +47,15 @@ Set `modelPreference` on the agent. The `model` field still serves as the fallba
 import { agent } from '@cycgraph/orchestrator';
 
 const researcher = agent({
-  model: 'claude-sonnet-4-6',           // fallback
-  modelPreference: 'high',              // prefers high-tier when budget allows
+  model: 'claude-sonnet-4-6',
+  modelPreference: 'high',
   instructions: 'You are a research specialist...',
   tools: [{ mcp: 'web-search' }],
 });
 
 const formatter = agent({
-  model: 'claude-haiku-4-5-20251001',   // fallback
-  modelPreference: 'low',               // always use cheapest tier
+  model: 'claude-haiku-4-5-20251001',
+  modelPreference: 'low',
   instructions: 'You format text into clean markdown...',
 });
 ```
@@ -68,7 +68,7 @@ With the facade, pass `modelResolver` through `RunOptions.runner`, which forward
 import { run } from '@cycgraph/orchestrator';
 
 const result = await run(workflow, { goal: '...', budgetUsd: 0.50 }, {
-  runner: { modelResolver },   // ← budget-aware resolution
+  runner: { modelResolver }, 
 });
 ```
 
@@ -78,9 +78,9 @@ On the raw API, pass it via `GraphRunnerOptions` alongside the run-scoped regist
 import { GraphRunner } from '@cycgraph/orchestrator';
 
 const runner = new GraphRunner(graph, initialState, {
-  registry,                    // scope agents to this run
-  providers,                   // scope providers to this run
-  modelResolver,               // ← budget-aware resolution
+  registry,
+  providers,
+  modelResolver,
 });
 
 const finalState = await runner.run();
@@ -154,8 +154,6 @@ You can replace the default resolver with any function matching the `ModelResolv
 import type { ModelResolver } from '@cycgraph/orchestrator';
 
 const myResolver: ModelResolver = (preference, provider, remainingBudgetUsd) => {
-  // Your custom logic here
-  // Return ModelResolutionResult or null to fall back to config.model
   return { reason: 'preferred', model: 'my-custom-model', tier: preference };
 };
 ```
@@ -187,8 +185,8 @@ const writer = agent({
 });
 
 // 3. Build the graph
-const research = node({ id: 'research', agent: researcher, reads: ['goal'], writes: 'research' });
-const write    = node({ id: 'write',    agent: writer,     reads: ['research'], writes: 'summary' });
+const research = node({ id: 'research', agent: researcher, writes: 'research' });
+const write    = node({ id: 'write',    agent: writer, reads: [research.writes], writes: 'summary' });
 
 const workflow = graph({
   name: 'Budget-Aware Research',

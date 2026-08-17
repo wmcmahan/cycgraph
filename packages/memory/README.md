@@ -60,9 +60,6 @@ import {
 const store = new InMemoryMemoryStore();
 const index = new InMemoryMemoryIndex();
 
-/**
- * 1. Ingest messages → episodes → facts
- */
 const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 30000 });
 const extractor = new RuleBasedExtractor({ minSentenceLength: 15 });
 
@@ -98,13 +95,6 @@ for (const ep of await segmenter.segment(messages)) {
   }
 }
 
-/**
- * 2. Retrieve
- * - by tag (no embedding provider needed)
- * - by entity (no embedding provider needed)
- * - by embedding (requires embedding provider)
- * - combinations of the above
- */
 const result = await retrieveMemory(store, index, {
   tags: ['business'],
   max_hops: 0,

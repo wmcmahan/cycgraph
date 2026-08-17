@@ -131,7 +131,7 @@ baseline. A run with zero injected lessons says nothing about any lesson. We sto
 recording them.
 
 None of these became demo hacks. Each one is an engine fix with a test —
-`retrieveGatedLessons` grew an in-progress-first ordering and a `rest_after_trials`
+`retrieveGatedLessons` grew an in-progress-first ordering and a `restAfterTrials`
 bench; `evaluateRetention` grew a `max_trials` escape hatch for the deadlock. The
 memory package picked up a dozen tests in the process. The demo was the forcing
 function that found the bugs; the fixes live in the library.

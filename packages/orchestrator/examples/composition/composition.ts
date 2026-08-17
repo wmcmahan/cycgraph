@@ -5,7 +5,7 @@
  * See:  ./README.md for what crosses the boundary and what stays isolated.
  */
 
-import { agent, node, subgraph, graph, run } from '@cycgraph/orchestrator';
+import { agent, memoryKeys, node, subgraph, graph, run } from '@cycgraph/orchestrator';
 import { MODEL, PROVIDER, exampleProviders, missingCredentials } from '../_model.js';
 
 const missing = missingCredentials();
@@ -14,13 +14,17 @@ if (missing) {
   process.exit(1);
 }
 
-// ─── The reusable block: a self-contained research graph ─────────────────
+// ─── Self-contained research subgraph ─────────────────
+
+const mem = memoryKeys({
+  research_topic: { seeded: true, schema: { type: 'string' } },
+});
 
 const gather = node({
   id: 'gather',
   agent: agent({
     model: MODEL,
-  provider: PROVIDER,
+    provider: PROVIDER,
     instructions: 'You are a research specialist. Produce concise, factual research notes as bullet points.',
   }),
   reads: ['topic'],
@@ -31,10 +35,10 @@ const summarize = node({
   id: 'summarize',
   agent: agent({
     model: MODEL,
-  provider: PROVIDER,
+    provider: PROVIDER,
     instructions: 'Condense the research notes into a tight summary of the five most important points.',
   }),
-  reads: ['notes'],
+  reads: [gather.writes],
   writes: 'summary',
 });
 
@@ -44,38 +48,35 @@ const researchBlock = graph({
   edges: [{ from: gather, to: summarize }],
 });
 
-// ─── The parent workflow embeds the block and formats its output ─────────
+// ─── The parent workflow embeds the research subgraph and formats its output ─────────
+
+const research = subgraph(researchBlock, {
+  id: 'research',
+  reads: [mem.research_topic],
+  inputs: { [mem.research_topic]: 'topic' },
+  outputs: { summary: 'findings' },
+});
 
 const brief = node({
   id: 'brief',
   agent: agent({
     model: MODEL,
-  provider: PROVIDER,
+    provider: PROVIDER,
     instructions: 'Turn the findings into a short executive brief with a headline and three takeaways.',
   }),
-  reads: ['findings'],
+  reads: [research.outputs.summary],
   writes: 'executive_brief',
 });
 
 const briefing = graph({
   name: 'briefing',
-  nodes: [
-    subgraph(researchBlock, {
-      id: 'research',
-      reads: ['research_topic'],
-      inputs:  { research_topic: 'topic' },  // parent key → child key
-      outputs: { summary: 'findings' },      // child key → parent key
-      // No `writes`: the output mapping names the destination, and that IS
-      // the grant. `reads` stays explicit — visibility is never inferred.
-    }),
-    brief,
-  ],
+  nodes: [research, brief],
   edges: [{ from: 'research', to: brief }],
 });
 
 const { findings, executive_brief } = await run(briefing, {
   goal: 'Produce an executive brief on the state of solid-state batteries.',
-  memory: { research_topic: 'solid-state battery commercialization in 2026' },
+  memory: mem.seed({ research_topic: 'solid-state battery commercialization in 2026' }),
 }, { runner: { providers: exampleProviders() } });
 
 console.log('\n═══ Findings (mapped out of the research block) ═══\n' + (findings ?? '(none)'));

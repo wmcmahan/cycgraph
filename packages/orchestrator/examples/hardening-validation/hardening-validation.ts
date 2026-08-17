@@ -1,21 +1,8 @@
 /**
- * Live validation of the 2026-08-05 hardening fixes — real LLM calls, no mocks.
+ * Asserts engine guarantees against a live model: derived supervisor reads and
+ * taint on one run, run-scoped registry and tool inheritance across a subgraph
+ * boundary on another. See ./README.md.
  *
- * Scenario 1 — facade + grant-less supervisor + tainted custom tool:
- *   A supervisor with NO declared reads routes a researcher (which must call a
- *   taints:true custom tool) and a writer. Proves on a live run that
- *   (a) derived reads reach the supervisor (it routes on real worker output),
- *   (b) the security policy sees those derived reads as tainted_read_keys,
- *   (c) run() scoping + facade compilation work end to end.
- *
- * Scenario 2 — subgraph child inherits scoped registry + tools:
- *   A parent graph's subgraph node runs a child whose agent exists ONLY in a
- *   run-scoped registry and whose only knowledge source is a custom tool
- *   passed via GraphRunnerOptions.tools. Pre-fix, the child runner received
- *   neither, so this workflow could not produce the canned answer.
- *
- * Usage (local models, no API key — requires `ollama serve` + a pulled model):
- *   npx tsx examples/hardening-validation/hardening-validation.ts
  *   OLLAMA_MODEL=qwen2.5:7b npx tsx examples/hardening-validation/hardening-validation.ts
  */
 
@@ -27,8 +14,8 @@ import {
   run,
   tool,
   GraphRunner,
-  createGraph,
-  createWorkflowState,
+  state,
+  subgraph,
   InMemoryAgentRegistry,
   createProviderRegistry,
   registerOllamaProvider,
@@ -37,8 +24,6 @@ import {
 import type { SecurityPolicy } from '@cycgraph/orchestrator';
 import { createOpenAI } from '@ai-sdk/openai';
 
-// Local-model run: everything resolves through a run-scoped provider
-// registry (which live-tests the providers scoping path as well).
 const MODEL = process.env.OLLAMA_MODEL ?? 'qwen2.5:7b';
 const providers = createProviderRegistry();
 registerOllamaProvider(providers, ({ baseURL }) => {
@@ -85,8 +70,8 @@ const writer = agent({
     'Preserve every specific technical detail from the notes.',
 });
 
-const research = node({ id: 'research', agent: researcher, reads: ['goal'], writes: 'notes' });
-const write = node({ id: 'write', agent: writer, reads: ['goal', 'notes'], writes: 'draft' });
+const research = node({ id: 'research', agent: researcher, writes: 'notes' });
+const write = node({ id: 'write', agent: writer, reads: [research.writes], writes: 'draft' });
 const lead = supervisor(
   agent({
     model: MODEL,
@@ -101,7 +86,7 @@ const lead = supervisor(
 const policyObservations: Array<{ nodeId: string; taintedKeys: string[] }> = [];
 const securityPolicy: SecurityPolicy = (ctx) => {
   policyObservations.push({ nodeId: ctx.node.id, taintedKeys: [...ctx.tainted_read_keys] });
-  return { effect: 'monitor', sensitivity: 'low', reason: 'live-validation probe' };
+  return { effect: 'monitor', sensitivity: ['low'], reason: 'live-validation probe' };
 };
 
 const pipeline = graph({
@@ -163,33 +148,30 @@ const analystId = scopedRegistry.register({
   permissions: null,
 });
 
-const childGraph = createGraph({
+// The agent is named by the id the scoped registry minted, not by an agent()
+// value: resolving it out of that registry is what this run is proving.
+const analyst = node({ id: 'analyst', agent: analystId, writes: 'rate_answer' });
+
+const childGraph = graph({
   name: 'fx-child',
   description: 'single analyst worker',
-  nodes: [{ id: 'analyst', type: 'agent', agentId: analystId, readKeys: ['goal'], writeKeys: ['rate_answer'] }],
-  edges: [],
-  startNode: 'analyst',
-  endNodes: ['analyst'],
+  nodes: [analyst],
 });
 
-const parentGraph = createGraph({
+const sub = subgraph(childGraph, {
+  id: 'sub',
+  outputs: { rate_answer: 'rate_answer' },
+});
+
+const parentGraph = graph({
   name: 'fx-parent',
   description: 'wraps the analyst in a subgraph',
-  nodes: [{
-    id: 'sub',
-    type: 'subgraph',
-    subgraphConfig: { subgraphId: childGraph.id, outputMapping: { rate_answer: 'rate_answer' } },
-    readKeys: ['goal'],
-    writeKeys: ['rate_answer'],
-  }],
-  edges: [],
-  startNode: 'sub',
-  endNodes: ['sub'],
+  nodes: [sub],
 });
 
 const runner = new GraphRunner(
   parentGraph,
-  createWorkflowState({ workflowId: parentGraph.id, goal: 'What is the current USD/EUR rate?' }),
+  state({ workflowId: parentGraph.id, goal: 'What is the current USD/EUR rate?' }),
   {
     registry: scopedRegistry,
     providers,
@@ -198,7 +180,7 @@ const runner = new GraphRunner(
   },
 );
 const finalState = await runner.run();
-const rateAnswer = String(finalState.memory.rate_answer ?? '');
+const rateAnswer = String(finalState.memory[sub.outputs.rate_answer] ?? '');
 
 check('parent workflow completed through the subgraph', finalState.status === 'completed',
   `status=${finalState.status}`);

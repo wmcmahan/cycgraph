@@ -45,8 +45,6 @@ Type narrowing through `SuiteName` will surface the rest of the changes you need
 The suite module exports two functions (both optional, but most suites implement at least one):
 
 ```typescript
-// src/suites/your-suite/suite.ts
-
 import type { TestCaseResults } from '../../assertions/drift-calculator.js';
 import type { SutSuiteConfig } from '../sut-contract.js';
 import { loadGoldenTrajectories } from '../../dataset/loader.js';

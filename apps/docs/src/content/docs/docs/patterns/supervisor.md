@@ -45,7 +45,6 @@ const brain = agent({
     Typical flow: research → write → edit, but you may loop back if quality is insufficient.
     When the final_draft is polished and ready, route to "__done__" to complete the workflow.`,
   ],
-  // Keep the temperature low so routing decisions are deterministic
   temperature: 0.3,
 });
 ```
@@ -61,32 +60,35 @@ const researcher = agent({
   model: 'claude-sonnet-4-6', 
   instructions: 'Gather facts on the topic and save concise research notes.' 
 });
+
 const writer = agent({
   model: 'claude-sonnet-4-6', 
   instructions: 'Turn the research notes into a full draft.' 
 });
+
 const editor = agent({
   model: 'claude-sonnet-4-6', 
   instructions: 'Polish the draft into a publishable final_draft.' 
 });
 
 const research = node({
-  id: 'research', 
-  agent: researcher, 
-  reads: ['goal'], 
-  writes: 'research_notes' 
+  id: 'research',
+  agent: researcher,
+  writes: 'research_notes'
 });
+
 const write = node({
-  id: 'write',    
-  agent: writer,     
-  reads: ['goal', 'research_notes'], 
-  writes: 'draft' 
+  id: 'write',
+  agent: writer,
+  reads: [research.writes],
+  writes: 'draft'
 });
+
 const edit = node({
-  id: 'edit',     
-  agent: editor,     
-  reads: ['draft'], 
-  writes: 'final_draft' 
+  id: 'edit',
+  agent: editor,
+  reads: [write.writes],
+  writes: 'final_draft'
 });
 
 const lead = supervisor(brain, {
@@ -120,7 +122,7 @@ const workflow = graph({
     { from: edit, to: supervisor },
   ],
   startNode: supervisor,
-  endNodes: [], // Termination is handled dynamically
+  endNodes: [],
 });
 ```
 

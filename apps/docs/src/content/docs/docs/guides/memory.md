@@ -22,7 +22,6 @@ import {
 const store = new InMemoryMemoryStore();
 const index = new InMemoryMemoryIndex();
 
-// 1. Ingest messages into the hierarchy
 const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 5 * 60 * 1000 });
 const extractor = new RuleBasedExtractor();
 const clusterer = new ConsolidatingThemeClusterer();
@@ -42,10 +41,8 @@ for (const theme of themes) {
   await store.putTheme(theme);
 }
 
-// 2. Rebuild search index
 await index.rebuild(store);
 
-// 3. Query by embedding
 const result = await retrieveMemory(store, index, {
   embedding: queryVector,
   limit: 20,
@@ -93,8 +90,6 @@ const memoryRetriever = async (query, options) => {
   });
 
   return {
-    // `id` passthrough feeds lesson provenance (eval-gated learning);
-    // omitting it silently disables outcome attribution.
     facts: result.facts.map(f => ({ content: f.content, validFrom: f.valid_from, id: f.id })),
     entities: result.entities.map(e => ({ name: e.name, type: e.entity_type })),
     themes: result.themes.map(t => ({ label: t.label })),
@@ -114,11 +109,10 @@ The runner only calls `memoryRetriever` when an agent or supervisor node declare
 ```typescript
 node({
   id: 'researcher',
-  agent: RESEARCHER_ID,
-  reads: ['goal'],
+  agent: researcher,
   writes: 'notes',
   memoryQuery: {
-    tags: ['lesson'],   // tag-only retrieval
+    tags: ['lesson'],
     maxFacts: 10,
   },
 })
@@ -139,17 +133,13 @@ Voting and evolution nodes propagate their `memory_query` automatically to every
 To **persist** facts across runs, wire a `memoryWriter` and add a `reflection` node to your graph. The reflection node distills source memory keys into atomic facts and pushes them to your store; future runs retrieve them through `memoryRetriever`.
 
 ```typescript
-import { node, graph, GraphRunner } from '@cycgraph/orchestrator';
+import { node, graph, reflection, GraphRunner } from '@cycgraph/orchestrator';
 import type { MemoryWriter } from '@cycgraph/orchestrator';
 
-// The runner passes options.idempotency_key (`run_id:node_id:iteration`)
-// so writers can dedupe repeated writes for the same node execution —
-// node retries and crash recovery re-invoke the writer, and ignoring the
-// key duplicates facts in long-term memory.
 const writtenScopes = new Map<string, string[]>();
 
 const memoryWriter: MemoryWriter = async (facts, options) => {
-  const scope = options?.idempotency_key;
+  const scope = options?.idempotencyKey;
   if (scope && writtenScopes.has(scope)) {
     return { fact_ids: writtenScopes.get(scope)! };
   }
@@ -177,25 +167,25 @@ const memoryWriter: MemoryWriter = async (facts, options) => {
   return { fact_ids: ids };
 };
 
+const research = node({
+  id: 'researcher',
+  agent: researcher,
+  writes: 'research_notes',
+  memoryQuery: { tags: ['lesson'], maxFacts: 10 },
+});
+
+const reflect = reflection([research.writes], {
+  id: 'reflect',
+  reads: [research.writes],
+  extractor: { type: 'rule_based', minSentenceLength: 25 },
+  tags: ['lesson', 'graph:research-v1'],
+});
+
 const workflow = graph({
   name: 'Compound-learning research',
   description: 'Researcher writes notes, reflection extracts lessons for next run',
-  nodes: [
-    node({
-      id: 'researcher',
-      agent: RESEARCHER_ID,
-      reads: ['goal'],
-      writes: 'research_notes',
-      memoryQuery: { tags: ['lesson'], maxFacts: 10 },
-    }),
-    reflection(['research_notes'], {
-      id: 'reflect',
-      reads: ['research_notes'],
-      extractor: { type: 'rule_based', minSentenceLength: 25 },
-      tags: ['lesson', 'graph:research-v1'],
-    }),
-  ],
-  edges: [{ from: 'researcher', to: 'reflect' }],
+  nodes: [research, reflect],
+  edges: [{ from: research, to: reflect }],
 });
 
 const runner = new GraphRunner(workflow, state, { memoryRetriever, memoryWriter });
@@ -209,20 +199,37 @@ For the full pipeline, retrieve memory and then compress before injection:
 
 ```typescript
 import { GraphRunner } from '@cycgraph/orchestrator';
-import { createOptimizedPipeline, serialize } from '@cycgraph/context-engine';
-import { retrieveMemory } from '@cycgraph/memory';
+import type { ContextCompressor } from '@cycgraph/orchestrator';
+import { createOptimizedPipeline, resolveModelProfile } from '@cycgraph/context-engine';
 
 const pipeline = createOptimizedPipeline({ preset: 'balanced' });
 
-const contextCompressor = (sanitizedMemory, options) => {
+const contextCompressor: ContextCompressor = (segments, options) => {
   const result = pipeline.compress({
-    segments: [{ id: 'memory', content: serialize(sanitizedMemory), role: 'memory', priority: 1 }],
-    budget: { maxTokens: options?.maxTokens ?? 8192, outputReserve: 0 },
+    segments: segments.map((s) => ({
+      id: s.id,
+      content: s.content,
+      role: s.role,
+      priority: s.priority ?? 1,
+      locked: s.locked ?? false,
+    })),
+    budget: {
+      maxTokens:
+        options?.maxTokens ??
+        resolveModelProfile(options?.model)?.maxContextTokens ??
+        8192,
+      outputReserve: options?.outputReserve ?? 8_192,
+    },
+    query: options?.query,
   });
-  return { compressed: result.segments[0].content, metrics: result.metrics };
+
+  return {
+    segments: result.segments.map((s) => ({ id: s.id, content: s.content })),
+    metrics: result.metrics,
+  };
 };
 
-const runner = new GraphRunner(graph, state, { memoryRetriever, contextCompressor });
+const runner = new GraphRunner(workflow, initialState, { memoryRetriever, contextCompressor });
 ```
 
 ## Memory lifecycle management
@@ -239,11 +246,10 @@ const consolidator = new MemoryConsolidator(store, index, {
   maxEpisodes: 200,
   decayHalfLifeDays: 30,
   dedupThreshold: 0.9,
-  batchSize: 1000,           // paginated fact loading for large stores
+  batchSize: 1000,
   logger: { warn: console.warn },
 });
 
-// Run after each workflow, or on a schedule
 const report = await consolidator.consolidate();
 console.log(`Reclaimed ${report.totalReclaimed} records`);
 console.log(`Themes cleaned: ${report.themesCleanedUp}, removed: ${report.themesRemoved}`);
@@ -259,7 +265,7 @@ import { ConflictDetector } from '@cycgraph/memory';
 const detector = new ConflictDetector(store, index, {
   policy: 'negation-invalidates-positive',
   autoResolveSupersession: true,
-  supersessionDayThreshold: 1,  // configurable; default 1 day
+  supersessionDayThreshold: 1,
 });
 
 const conflicts = await detector.detectConflicts();
@@ -267,7 +273,6 @@ const resolution = await detector.autoResolveAll(conflicts);
 
 console.log(`Resolved: ${resolution.resolved}, Needs review: ${resolution.skipped}`);
 
-// Manual review of remaining conflicts
 for (const detail of resolution.details.filter(d => d.action === 'skipped')) {
   console.log(`Conflict: ${detail.conflict.factA.content} vs ${detail.conflict.factB.content}`);
 }
@@ -287,33 +292,29 @@ import { getInjectedFactIds } from '@cycgraph/orchestrator';
 
 const ledger = new InMemoryOutcomeLedger();
 
-// In your memoryRetriever adapter — verified-first with exploration slots.
-// The `id` passthrough on each fact is what makes attribution work.
 const facts = await retrieveGatedLessons(store, {
   tags: ['lesson', 'graph:my-graph-v1'],
   maxFacts: 10,
   candidateSlots: 4,
-  restAfterTrials: 5,  // bench fully-trialled candidates: frees slots AND creates baseline runs
-  ledger,              // in-progress-first — trial cohorts graduate instead of churning
+  restAfterTrials: 5,
+  ledger,
 });
 
-// After each scored run:
 await ledger.recordOutcome({
   run_id: finalState.run_id,
-  score,                                    // your metric, normalised to [0,1]
+  score,
   fact_ids: getInjectedFactIds(finalState),
 });
 
-// Periodically (e.g. every N runs):
 const gate = await evaluateRetention(store, ledger, {
   minTrials: 3,
-  decisionRule: 'inference', // default — statistically-controlled Welch test ('margin' is the legacy point-estimate rule)
-  promoteMargin: 0.05,   // → tag rewritten candidate → verified
-  evictMargin: 0.05,     // → invalidated_by: 'eval-gate:harmful'
-  promoteConfidence: 0.9, // required P(lift > promoteMargin) to promote (default 0.9)
-  evictConfidence: 0.9,   // required P(lift < −evictMargin) to evict (default 0.9)
-  noiseFloorSd: 0.1,     // set to your judge's per-run SD (default 0.1)
-  maxBaselineRuns: 40,  // undecided by then → 'eval-gate:no_lift'
+  decisionRule: 'inference',
+  promoteMargin: 0.05,
+  evictMargin: 0.05,
+  promoteConfidence: 0.9,
+  evictConfidence: 0.9,
+  noiseFloorSd: 0.1,
+  maxBaselineRuns: 40,
 });
 ```
 
@@ -328,8 +329,8 @@ For production, use the Drizzle-backed implementations from `@cycgraph/orchestra
 ```typescript
 import { DrizzleMemoryStore, DrizzleMemoryIndex } from '@cycgraph/orchestrator-postgres';
 
-const store = new DrizzleMemoryStore();   // uses pgvector for embeddings
-const index = new DrizzleMemoryIndex();   // HNSW indexes for fast similarity search
+const store = new DrizzleMemoryStore();
+const index = new DrizzleMemoryIndex();
 ```
 
 The Postgres backend provides:
@@ -348,10 +349,7 @@ const entity = {
   embedding: await embed(entityData.name + ' ' + entityData.entity_type),
 };
 await store.putEntity(entity);
-
-// Rebuild in-memory index after adding records
 await index.rebuild(store);
-// DrizzleMemoryIndex does not need rebuilding
 ```
 
 ## Next steps

@@ -53,7 +53,6 @@ const writer = agent({
     If `parent` is provided in the Task Context section, use it as a starting point. The parent scored `parent_fitness` — aim to do better.
     Current generation: `generation` in the Task Context.`,
   ],
-  // Temperature is overridden by the evolution node dynamically
   temperature: 1.0,
 });
 
@@ -76,7 +75,6 @@ import { evolution, graph } from '@cycgraph/orchestrator';
 
 const evolve = evolution(writer, {
   id: 'evolve-poem',
-  reads: ['*'],
   evaluator,
   populationSize: 5,         // parallel candidates per generation
   maxGenerations: 10,        // hard limit
