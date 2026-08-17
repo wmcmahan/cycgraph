@@ -25,8 +25,10 @@ import { z } from 'zod';
 import { agent } from '../src/authoring/agent.js';
 import { node } from '../src/authoring/node.js';
 import { graph } from '../src/authoring/graph.js';
-import { run, state } from '../src/authoring/run.js';
+import { run, runRecorded, state } from '../src/authoring/run.js';
 import { tool } from '../src/tools/define-tool.js';
+import { InMemoryEventLogWriter } from '../src/persistence/event-log.js';
+import { InMemoryPersistenceProvider } from '../src/persistence/in-memory.js';
 
 type RunnerOptions = {
   registry?: { loadAgent: (id: string) => Promise<unknown> };
@@ -34,6 +36,8 @@ type RunnerOptions = {
   persistState?: unknown;
   middleware?: unknown;
   tools?: unknown[];
+  eventLog?: unknown;
+  compactionInterval?: number;
 };
 
 function linearGraph() {
@@ -185,6 +189,66 @@ describe('run', () => {
     await run(g, { goal: 'explain' }, { runner: { tools: [lookupOrder, mcpResolver] } });
 
     expect(ctorOptions().tools).toEqual([lookupOrder, mcpResolver]);
+  });
+});
+
+describe('runRecorded', () => {
+  it('returns the run id, memory, state, event log and persistence', async () => {
+    const g = linearGraph();
+
+    const recorded = await runRecorded(g, { goal: 'explain' });
+
+    expect(recorded.runId).toBe(runnerCtor.mock.calls[0][1].run_id);
+    expect(recorded.memory).toEqual({ draft: 'done' });
+    expect(recorded.eventLog).toBeInstanceOf(InMemoryEventLogWriter);
+    expect(recorded.persistence).toBeInstanceOf(InMemoryPersistenceProvider);
+  });
+
+  it('wires an event log so the run is replayable', async () => {
+    const g = linearGraph();
+
+    await runRecorded(g, { goal: 'explain' });
+
+    expect(ctorOptions().eventLog).toBeInstanceOf(InMemoryEventLogWriter);
+  });
+
+  it('disables auto-compaction so the whole log stays addressable', async () => {
+    const g = linearGraph();
+
+    await runRecorded(g, { goal: 'explain' });
+
+    expect(ctorOptions().compactionInterval).toBe(0);
+  });
+
+  it('keeps a caller-supplied event log and compaction interval', async () => {
+    const g = linearGraph();
+    const eventLog = new InMemoryEventLogWriter();
+
+    const recorded = await runRecorded(g, { goal: 'explain' }, {
+      runner: { eventLog, compactionInterval: 500 },
+    });
+
+    expect(recorded.eventLog).toBe(eventLog);
+    expect(ctorOptions().compactionInterval).toBe(500);
+  });
+
+  it('returns the run-scoped registry holding the graph inline agents', async () => {
+    const g = linearGraph();
+
+    const recorded = await runRecorded(g, { goal: 'explain' });
+
+    expect(await recorded.registry?.loadAgent(g.nodes[0].agent_id!)).toMatchObject({
+      model: 'claude-sonnet-4-6',
+    });
+  });
+
+  it('saves the graph before executing so the run row resolves back to it', async () => {
+    const g = linearGraph();
+    const persistence = new InMemoryPersistenceProvider();
+
+    await runRecorded(g, { goal: 'explain' }, { persistence });
+
+    expect((await persistence.loadGraph(g.id))?.id).toBe(g.id);
   });
 });
 

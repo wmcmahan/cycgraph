@@ -28,6 +28,7 @@ import type {
   RetentionService,
   GraphRow,
   WorkflowRunRow,
+  RunLineage,
   WorkflowEventRow,
   WorkflowStateJson,
   GraphDefinitionJson,
@@ -110,11 +111,31 @@ export class InMemoryPersistenceProvider implements PersistenceProvider {
       graph_id: state.workflow_id,
       status: state.status,
       created_at: existing?.created_at ?? state.created_at ?? new Date(),
-      parent_run_id: null,
+      // Lineage is written separately by `saveRunLineage`, so a re-save from
+      // the runner's ordinary persist path must not erase it.
+      parent_run_id: existing?.parent_run_id ?? null,
+      run_kind: existing?.run_kind ?? 'primary',
+      fork_sequence_id: existing?.fork_sequence_id ?? null,
+      fork_mutations: existing?.fork_mutations ?? null,
+      fork_group_id: existing?.fork_group_id ?? null,
       // Preserve the original completion timestamp on re-saves of an
       // already-terminal run.
       completed_at: isTerminal ? (existing?.completed_at ?? new Date()) : null,
       archived_at: existing?.archived_at ?? null,
+    });
+  }
+
+  /** Record fork provenance on an existing run row. */
+  async saveRunLineage(runId: string, lineage: RunLineage): Promise<void> {
+    const existing = this.runs.get(runId);
+    if (!existing) return;
+    this.runs.set(runId, {
+      ...existing,
+      parent_run_id: lineage.parent_run_id,
+      run_kind: lineage.kind,
+      fork_sequence_id: lineage.fork_sequence_id,
+      fork_mutations: lineage.fork_mutations,
+      fork_group_id: lineage.fork_group_id ?? null,
     });
   }
 

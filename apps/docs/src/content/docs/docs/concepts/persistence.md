@@ -155,6 +155,33 @@ const deleted = await runner.compactEvents();
 console.log(`Compacted ${deleted} events`);
 ```
 
+:::caution[Compaction bounds what you can replay]
+Compaction deletes the events behind its checkpoint, so anything that reads the
+log for a position earlier than that no longer can. Crash recovery is unaffected, and it resumes from the checkpoint.
+:::
+
+## Run lineage
+
+A run can come from another run. `workflow_runs` records which:
+
+| Column | Meaning |
+|--------|---------|
+| `run_kind` | `primary`, `subgraph`, or `counterfactual` |
+| `parent_run_id` | The run this one came from |
+| `fork_sequence_id` | Where in the parent a counterfactual diverged |
+| `fork_mutations` | The serialized changes it applied, so the fork is reproducible from its row |
+| `fork_group_id` | Ties one sweep's variants together |
+
+`run_kind` exists because `parent_run_id` alone is ambiguous: subgraph child runs have used it since before forking existed. Analytics and retention filter on it so counterfactual spend stays out of production numbers unless asked for. `usage_records` references `workflow_runs`, so excluding fork spend is a join rather than a denormalized column:
+
+```sql
+SELECT sum(cost_usd) FROM usage_records u
+JOIN workflow_runs r ON r.id = u.run_id
+WHERE r.run_kind = 'primary';
+```
+
+Lineage is written separately from `saveWorkflowRun` because it is not derivable from `WorkflowState`: it describes where a run came from, not what it holds. Keeping it out of the state schema also keeps it out of event replay.
+
 ## API
 
 ### In-memory implementations
@@ -255,6 +282,7 @@ The primary storage interface. Covers graph definitions, workflow runs, state sn
 | `loadWorkflowRun(id)` | Load a run by ID. |
 | `listWorkflowRuns(opts?)` | List runs, ordered by creation time. |
 | `updateRunStatus(id, status)` | Update only the status of a run. |
+| `saveRunLineage(id, lineage)?` | Record that a run was forked from another, and what it changed. Optional — a provider that does not model lineage omits it. |
 | `saveWorkflowState(state)` | Save a state snapshot (auto-incremented version). |
 | `saveWorkflowSnapshot(state)` | Atomically save both the run record and state snapshot in a single transaction. Required on all implementations. |
 | `loadLatestWorkflowState(run_id)` | Load the most recent state for crash recovery. |

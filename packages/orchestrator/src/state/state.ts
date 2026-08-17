@@ -574,7 +574,17 @@ export const RequestHumanInputPayloadSchema = z.object({
 export type RequestHumanInputPayload = z.infer<typeof RequestHumanInputPayloadSchema>;
 
 export const ResumeFromHumanPayloadSchema = z.object({
-  response: z.unknown(),
+  /**
+   * The reviewer's freeform data, absent when they only decided.
+   *
+   * Explicitly optional, not merely `unknown`. `HumanResponse.data` is
+   * optional, so this is often `undefined`, and JSON drops a key whose value
+   * is `undefined` on the way into the event log. Under Zod 4 an `unknown`
+   * field is no longer implicitly optional, so a required key here would make
+   * every bare approval unreplayable — crash recovery included, not just
+   * forking.
+   */
+  response: z.unknown().optional(),
   decision: z.unknown(),
   memory_updates: z.record(z.string(), z.unknown()).optional(),
 });
@@ -719,11 +729,20 @@ export const ActionSchema = z.object({
        */
       costUsd: z.number().optional(),
     }).optional(),
-    /** Tool calls made during execution. */
+    /**
+     * Tool calls made during execution.
+     *
+     * `args` and `result` are explicitly optional, not merely `unknown`. A tool
+     * invoked with no arguments, or returning nothing, leaves the key
+     * `undefined`, and JSON drops it on the way into the event log. Under Zod 4
+     * an `unknown` field is no longer implicitly optional, so a required key
+     * here would reject the run's own recorded action when it is replayed or
+     * served back to a fork.
+     */
     tool_executions: z.array(z.object({
       tool: z.string(),
-      args: z.unknown(),
-      result: z.unknown(),
+      args: z.unknown().optional(),
+      result: z.unknown().optional(),
     })).optional(),
   }),
 });

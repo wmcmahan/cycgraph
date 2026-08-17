@@ -18,7 +18,7 @@
 - **[Core Concepts](https://flattop.io/docs/concepts/overview/)** — graphs, nodes, agents, state
 - **[Patterns](https://flattop.io/docs/patterns/supervisor/)** — runnable guides for each built-in pattern
 - **[Troubleshooting](https://flattop.io/docs/getting-started/troubleshooting/)** — common errors, fixes, and the gotchas that fail silently
-- **[Examples](./packages/orchestrator/examples/)** - runnable examples for each built-in pattern and infrastructure setup
+- **[Examples](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/)** - runnable examples for each built-in pattern and infrastructure setup
 
 ## Install
 
@@ -30,11 +30,11 @@ npm install @cycgraph/orchestrator
 
 **Optional packages**
 
-- **[@cycgraph/memory](https://github.com/wmcmahan/cycgraph/blob/main/packages/memory)** - Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes).
-- **[@cycgraph/context-engine](https://github.com/wmcmahan/cycgraph/blob/main/packages/context-engine)** - Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads.
-- **[@cycgraph/orchestrator-postgres](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator-postgres)** - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
+- **[@cycgraph/memory](https://github.com/wmcmahan/cycgraph/tree/main/packages/memory)** - Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes).
+- **[@cycgraph/context-engine](https://github.com/wmcmahan/cycgraph/tree/main/packages/context-engine)** - Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads.
+- **[@cycgraph/orchestrator-postgres](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator-postgres)** - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
 - **[@cycgraph/tools](./packages/tools)** - MCP and tools library.
-- **[@cycgraph/evals](https://github.com/wmcmahan/cycgraph/blob/main/packages/evals)** - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
+- **[@cycgraph/evals](https://github.com/wmcmahan/cycgraph/tree/main/packages/evals)** - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
 
 ## Quickstart
 
@@ -86,18 +86,18 @@ Each pattern is a node type. Declarative, composable, and traced through OpenTel
 
 ## Examples
 
-- [**Proof the learning loop works (with charts)**](https://github.com/wmcmahan/cycgraph/blob/main/packages/evals/examples/compound-learning-benchmark/)
-- [**A research agent that learns over runs**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/learning-research-agent/)
-- [**Multi-specialist routing**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/supervisor-routing/)
-- [**Quality loop until score ≥ N**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/eval-loop/)
-- [**Parallel research workers + merge**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/map-reduce/)
-- [**Verify-and-fix with deterministic gates**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/verifier-fix-loop/)
-- [**Voting / consensus across N agents**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/voting/)
-- [**Evolutionary candidate breeding**](./packages/orchestrator/examples/evolution/)
-- [**Pause for human review + resume**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/human-in-the-loop/)
-- [**MCP tools (web search, fetch)**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/mcp-integration/)
-- [**Local Ollama models**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/ollama-local/)
-- [**Postgres durable execution**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/postgres-persistence/)
+- [**Proof the learning loop works (with charts)**](https://github.com/wmcmahan/cycgraph/tree/main/packages/evals/examples/compound-learning-benchmark/)
+- [**A research agent that learns over runs**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/learning-research-agent/)
+- [**Multi-specialist routing**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/supervisor-routing/)
+- [**Quality loop until score ≥ N**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/eval-loop/)
+- [**Parallel research workers + merge**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/map-reduce/)
+- [**Verify-and-fix with deterministic gates**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/verifier-fix-loop/)
+- [**Voting / consensus across N agents**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/voting/)
+- [**Evolutionary candidate breeding**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/evolution/)
+- [**Pause for human review + resume**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/human-in-the-loop/)
+- [**MCP tools (web search, fetch)**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/mcp-integration/)
+- [**Local Ollama models**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/ollama-local/)
+- [**Postgres durable execution**](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/postgres-persistence/)
 
 ## Safety
 

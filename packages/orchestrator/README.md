@@ -61,11 +61,11 @@ See the [Quickstart guide](https://flattop.io/docs/getting-started/quickstart/) 
 
 **Optional packages**
 
-- **[@cycgraph/memory](./packages/memory)** - Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes).
-- **[@cycgraph/context-engine](./packages/context-engine)** - Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads.
-- **[@cycgraph/orchestrator-postgres](./packages/orchestrator-postgres)** - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
+- **[@cycgraph/memory](https://github.com/wmcmahan/cycgraph/tree/main/packages/memory)** - Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes).
+- **[@cycgraph/context-engine](https://github.com/wmcmahan/cycgraph/tree/main/packages/context-engine)** - Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads.
+- **[@cycgraph/orchestrator-postgres](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator-postgres)** - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
 - **[@cycgraph/tools](./packages/tools)** - MCP and tools library.
-- **[@cycgraph/evals](./packages/evals)** - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
+- **[@cycgraph/evals](https://github.com/wmcmahan/cycgraph/tree/main/packages/evals)** - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
 
 ## Built-in Patterns
 
@@ -82,8 +82,30 @@ Each pattern is a node type. Declarative, composable, and traced through OpenTel
 - **[Voting](https://flattop.io/docs/patterns/voting/)** consensus across N voter agents
 - **[Subgraph](https://flattop.io/docs/patterns/subgraph/)** Compose whole graphs as reusable blocks with isolated state
 
+## Counterfactual Replay
+
+The engine keeps a gap-validated event log so a crashed run can be rebuilt by replaying it. Point that at a question instead of a crash and you can fork a run: replay it to any node, change one thing, and re-run only the part the change could affect.
+
+```typescript
+import { runRecorded, fork, change } from '@cycgraph/orchestrator';
+
+const base = await runRecorded(workflow, { goal: 'Explain how vaccines work' });
+
+const terse = await fork(base, {
+  at: { beforeNode: 'write' },
+  change: change.prompt('write', 'Rewrite as exactly three bullet points.'),
+});
+
+console.log(terse.explain());
+```
+
+The replayed prefix is free — no model calls, because the stored actions already carry what the agents said. `forkEach()` runs one fork per variant off the same prefix, so the only thing separating them is the change. Nodes that touch the world are served their recorded result or blocked, never silently re-executed.
+
+See [Counterfactual Replay](https://flattop.io/docs/concepts/counterfactual-replay/).
+
 ## Examples
 
+- [**Fork a run and ask what-if**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/counterfactual-replay/)
 - [**Proof the learning loop works (with charts)**](https://github.com/wmcmahan/cycgraph/blob/main/packages/evals/examples/compound-learning-benchmark/)
 - [**A research agent that learns over runs**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/learning-research-agent/)
 - [**Multi-specialist routing**](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator/examples/supervisor-routing/)

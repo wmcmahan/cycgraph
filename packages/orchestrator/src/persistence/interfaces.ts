@@ -75,12 +75,41 @@ export interface WorkflowRunRow {
   status: string;
   /** When the run was created. */
   created_at: Date;
-  /** Parent run ID for sub-workflow runs. */
+  /** Parent run ID for sub-workflow runs and counterfactual forks. */
   parent_run_id: string | null;
+  /** What produced this run. Absent on providers that do not track lineage. */
+  run_kind?: RunKind;
+  /** Sequence in the parent's log where a fork began diverging. */
+  fork_sequence_id?: number | null;
+  /** Serialized changes a fork applied. */
+  fork_mutations?: unknown[] | null;
+  /** Groups one sweep's variants. */
+  fork_group_id?: string | null;
   /** When the run reached a terminal status (`null` if still running). */
   completed_at: Date | null;
   /** When the run was archived by the retention service (`null` if hot). */
   archived_at: Date | null;
+}
+
+/**
+ * What produced a run.
+ *
+ * `subgraph` and `counterfactual` both carry a `parent_run_id`, so the column
+ * alone cannot distinguish them.
+ */
+export type RunKind = 'primary' | 'subgraph' | 'counterfactual';
+
+/** Provenance recorded on a run that came from forking another. */
+export interface RunLineage {
+  kind: RunKind;
+  /** The run this one forked. */
+  parent_run_id: string;
+  /** Sequence in the parent's log where divergence began. */
+  fork_sequence_id: number;
+  /** The changes applied, in wire form. */
+  fork_mutations: unknown[];
+  /** Sweep this variant belongs to, when it is one of several. */
+  fork_group_id?: string;
 }
 
 /**
@@ -173,6 +202,14 @@ export interface PersistenceProvider {
 
   /** Update only the status of a run. Returns rows affected (`0` or `1`). */
   updateRunStatus(runId: string, status: string): Promise<number>;
+
+  /**
+   * Record that a run was forked from another, and what it changed.
+   *
+   * Optional: a provider that does not model lineage simply omits it, and
+   * `fork()` skips the call. The run row must already exist.
+   */
+  saveRunLineage?(runId: string, lineage: RunLineage): Promise<void>;
 
   // ── Workflow State Operations ──
 

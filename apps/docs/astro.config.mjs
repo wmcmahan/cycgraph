@@ -127,6 +127,7 @@ export default defineConfig({
             { label: 'Context Engine', slug: 'docs/concepts/context-engine' },
             { label: 'Memory System', slug: 'docs/concepts/memory' },
             { label: 'Persistence', slug: 'docs/concepts/persistence' },
+            { label: 'Counterfactual Replay', slug: 'docs/concepts/counterfactual-replay' },
             { label: 'Distributed Execution', slug: 'docs/concepts/distributed-execution' },
             { label: 'Error Handling', slug: 'docs/concepts/error-handling' },
           ],

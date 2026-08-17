@@ -2,25 +2,17 @@
 
 # @cycgraph/tools
 
-**Curated plug-in tools for @cycgraph/orchestrator. SSRF-guarded web access and pure data utilities, built on `defineTool`.**
-
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 
-[📚 Documentation](https://flattop.io/docs/guides/tool-library/) &nbsp;·&nbsp; [🔧 Custom tools guide](https://flattop.io/docs/guides/custom-tools/) &nbsp;·&nbsp; [📖 Tools & MCP concepts](https://flattop.io/docs/concepts/tools-and-mcp/)
-
 </div>
 
----
-
-Pre-built tools for cycgraph workflows. Every export is a factory returning a `defineTool()` result: register it on `GraphRunnerOptions.tools`, declare the tool by name in agent or node config, and the orchestrator handles schema validation, timeouts, and taint tracking.
-
-This is a curated set, not a grab-bag. Every tool ships with Zod-validated inputs, an explicit taint declaration, tests, and a maintenance owner. Tools that touch the network are SSRF-guarded and size-capped by construction.
+Tool library for [@cycgraph/orchestrator](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator). These are optional dependencies that provide tools that can be used by agents.
 
 ## Install
 
 ```bash
-npm install @cycgraph/tools @cycgraph/orchestrator
+npm install @cycgraph/tools
 ```
 
 Subpath imports keep dependencies scoped:
@@ -52,59 +44,171 @@ tools: ['web_fetch', 'calculator']
 
 ## The tools
 
-### `web_search` — `@cycgraph/tools/web`
+### Web Search
 
-Provider-pluggable search (Brave, Tavily) with normalized `{ title, url, snippet }` results. Taint-tracked; the API key is factory config the model never sees. Works in hosted deployments where the stdio MCP transport is disabled.
+```typescript
+import { webSearchTool } from '@cycgraph/tools/web';
 
-### `web_fetch` — `@cycgraph/tools/web`
+const search = webSearchTool({
+  provider: 'brave',
+  apiKey: process.env.BRAVE_API_KEY!,
+  maxResults: 10,
+  timeoutMs: 15_000,
+});
+```
 
-GET a public URL and return its body as text. Taint-tracked (`taints: true`).
+The model calls it with `{ query }`.
 
-- **SSRF guard on every hop**: private/loopback/link-local hosts are rejected in any IP encoding, DNS-resolved addresses are re-checked (rebinding), and redirects are followed manually so each hop is validated. Max 5 redirects.
-- **Size-capped**: bodies stream in and stop at the cap (1 MiB default); the result carries a `truncated` flag.
-- Options: `allowedHosts`, `maxResponseBytes`, `extract` ('markdown' | 'text' conversion of HTML bodies), `timeoutMs` (15s default), `userAgent`, `allowPrivateHosts` (dev only).
+Provider-pluggable search (Brave, Tavily) with normalized results. The API key stays config-side — it is never part of the model-facing schema.
 
-### `html_to_markdown` — `@cycgraph/tools/web`
+### Web Fetch
 
-Streaming HTML → markdown/text extraction (no DOM): headings, links, lists, code, and table cells survive; scripts, styles, and navigation chrome are dropped. Also available as `web_fetch`'s `extract` option.
+```typescript
+import { webFetchTool } from '@cycgraph/tools/web';
 
-### `http_request` — `@cycgraph/tools/web`
+const fetch = webFetchTool({
+  allowedHosts: ['example.com'],
+  maxResponseBytes: 1024 * 1024,
+  extract: 'markdown',
+  timeoutMs: 15_000,
+  userAgent: 'My Agent',
+});
+```
 
-Structured HTTP against a fixed set of hosts. Taint-tracked.
+The model calls it with `{ url }` — which URL to fetch is the model's decision; which hosts it may reach is yours.
 
-- **Allowlist-first**: creating it without a non-empty `allowedHosts` throws. Methods default to GET/POST.
-- **Secrets stay config-side**: operator `defaultHeaders` (API keys) merge over LLM-supplied headers and never appear in the tool schema.
-- Same SSRF guard, redirect discipline, and size cap as `web_fetch`.
+GET a public URL and return its body as text.
 
-### `current_time` — `@cycgraph/tools/data`
+SSRF-protected: private/loopback/link-local hosts are rejected in any IP encoding, DNS-resolved addresses are re-checked (rebinding), and redirects are followed manually so each hop is validated. Max 5 redirects.
 
-The current instant as `{ iso, unixMs, timezone, human }`, localized to a requested IANA timezone. Safe under durable replay: tool results are recorded in the event log, and replay replays actions rather than re-executing tools.
+### HTML to Markdown
 
-### `calculator` — `@cycgraph/tools/data`
+```typescript
+import { htmlToMarkdownTool } from '@cycgraph/tools/web';
 
-Arithmetic and boolean expressions with named variables, evaluated by a small built-in parser (tokenizer + recursive descent) that yields only numbers or booleans. No `eval`, no dependency. Pure, untainted.
+const markdown = htmlToMarkdownTool({
+  maxInputBytes: 5 * 1024 * 1024,
+  timeoutMs: 10_000,
+});
+```
 
-### `json_transform` — `@cycgraph/tools/data`
+The model calls it with `{ html, mode?, baseUrl? }` — `mode` is `'markdown'` (default) or `'text'`, and `baseUrl` resolves relative links.
 
-Extract and reshape JSON: resolve a dot/bracket path (`orders[0].total`) and optionally pick a key subset. Accepts a JSON value or a JSON string. Pure, untainted.
+### HTTP Request
 
-### `csv_parse` — `@cycgraph/tools/data`
+```typescript
+import { httpRequestTool } from '@cycgraph/tools/web';
 
-RFC-4180-style CSV parsing (quoted fields, escaped quotes, delimiters/newlines inside quotes, CRLF). Header mode returns object rows; output is row-capped with `totalRows` + `truncated` so large files never flood the context.
+const request = httpRequestTool({
+  allowedHosts: ['api.example.com'],
+  allowedMethods: ['GET', 'POST'],
+  defaultHeaders: { authorization: `Bearer ${process.env.API_TOKEN}` },
+  maxResponseBytes: 1024 * 1024,
+  timeoutMs: 15_000,
+});
+```
 
-### `stats` — `@cycgraph/tools/data`
+The model calls it with `{ url, method?, headers?, body? }`. `allowedHosts` is required and non-empty — this tool exists for a fixed set of APIs, and `defaultHeaders` merge over the model's headers so credentials stay config-side.
+
+### Current Time
+
+```typescript
+import { currentTimeTool } from '@cycgraph/tools/data';
+
+const now = currentTimeTool({
+  timezone: 'America/New_York',
+});
+```
+### Calculator
+
+```typescript
+import { calculatorTool } from '@cycgraph/tools/data';
+
+const calc = calculatorTool();
+```
+
+The model calls it with `{ expression, variables? }` — e.g. `{ expression: 'x + y * z', variables: { x: 1, y: 2, z: 3 } }`.
+
+### JSON Transform
+
+```typescript
+import { jsonTransformTool } from '@cycgraph/tools/data';
+
+const transform = jsonTransformTool();
+```
+
+The model calls it with `{ data, path?, keys? }` — e.g. `{ data: { orders: [{ id: 1, total: 100 }] }, path: 'orders[0].total' }`. `data` accepts a JSON value or a JSON-encoded string.
+
+Extract and reshape JSON. Resolve a dot/bracket path and optionally pick a key subset. Accepts a JSON value or a JSON string.
+
+### CSV Parse
+
+```typescript
+import { csvParseTool } from '@cycgraph/tools/data';
+
+const csv = csvParseTool({ maxRows: 1000 });
+```
+
+The model calls it with `{ csv, delimiter?, hasHeader? }` — e.g. `{ csv: 'id,name\n1,Alice\n2,Bob', hasHeader: true }`.
+
+### Stats
+
+```typescript
+import { statsTool } from '@cycgraph/tools/data';
+
+const stats = statsTool();
+```
+
+The model calls it with `{ values }` — an array of finite numbers.
 
 Descriptive statistics: count, sum, mean, median, min, max, sample stdDev, and interpolated p25/p75/p95.
 
-### `text_extract` — `@cycgraph/tools/data`
+### Text Extract
+
+```typescript
+import { textExtractTool } from '@cycgraph/tools/data';
+
+const extract = textExtractTool({
+  regexTimeoutMs: 2000,
+  maxMatches: 100,
+});
+```
+
+The model calls it with `{ text, pattern, flags? }` — e.g. `{ text: 'order_123 total $100', pattern: 'order_(\\d+)' }` (no surrounding slashes; escape backslashes when authoring the pattern in a string literal).
 
 Regex extraction with a structural ReDoS guard: the pattern runs in a worker thread terminated at the deadline (a promise race can't interrupt synchronous backtracking), plus pattern/input/match caps. Returns matches with indexes, positional groups, and named groups.
 
-### `memory_search` — `@cycgraph/tools/memory`
+### Memory Search
+
+```typescript
+import { memorySearchTool } from '@cycgraph/tools/memory';
+import { InMemoryMemoryStore, InMemoryMemoryIndex } from '@cycgraph/memory';
+
+const search = memorySearchTool({
+  store: new InMemoryMemoryStore(),
+  index: new InMemoryMemoryIndex(),
+  scopeTags: ['customer-123'],
+  maxResults: 10,
+});
+```
+
+The model calls it with `{ query?, entityIds?, tags?, limit? }` — e.g. `{ tags: ['order'] }`. Free-text `query` needs the `embed` hook, and is rejected without one.
 
 Agent-initiated retrieval over the `@cycgraph/memory` temporal knowledge graph: search by tags, seed entity ids (subgraph expansion), or free text via an `embed` hook. `scopeTags` namespace-restrict results regardless of what the model searched; fact ids come back for caller-side outcome attribution. Requires `@cycgraph/memory` (optional peer dependency, loaded only via this subpath).
 
-### `sandboxed_js` — `@cycgraph/tools/sandbox`
+### Sandboxed JS
+
+```typescript
+import { sandboxedJsTool } from '@cycgraph/tools/sandbox';
+
+const sandbox = sandboxedJsTool({
+  deadlineMs: 2000,
+  memoryLimitBytes: 64 * 1024 * 1024,
+  maxResultBytes: 1024 * 1024,
+});
+```
+
+The model calls it with `{ code, input? }` — e.g. `{ code: 'input.x + input.y * 2', input: { x: 1, y: 2 } }`. The last expression is the result; there is no `return` at the top level.
 
 Evaluate agent-authored JavaScript against workflow data and return a JSON result. Two nested boundaries: QuickJS-in-WASM (no fs/network/timers/modules; only a string-only `console.log` bridge) inside a `worker_threads` worker terminated at the deadline. Synchronous; last expression is the result; optional JSON `input` global. Defaults 2s deadline / 64 MiB / 1 MiB result cap. Carries the QuickJS WASM engine, so it lives behind its own subpath.
 

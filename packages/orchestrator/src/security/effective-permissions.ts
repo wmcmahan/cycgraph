@@ -144,6 +144,8 @@ export function impliedResultKeys(node: GraphNode): string[] {
  * nested-delegation visibility.
  */
 export function effectiveReadKeys(node: GraphNode, graph: Graph): string[] {
+  if (node.type === 'approval') return approvalReadKeys(node);
+
   if (node.type !== 'supervisor' || node.read_keys.length > 0) {
     return node.read_keys;
   }
@@ -163,6 +165,31 @@ export function effectiveReadKeys(node: GraphNode, graph: Graph): string[] {
     derived.add(`${managedId}_output`);
   }
   return [...derived];
+}
+
+/**
+ * An approval node's reads, widened by the keys it puts in front of a reviewer.
+ *
+ * Naming a key in `review_keys` is a declaration that this node shows that key,
+ * which is the same statement as reading it. Without the union the two configs
+ * silently disagree: the node builds its review payload out of the sliced
+ * state, so a key it was told to display but not to read is dropped, and the
+ * reviewer is handed an empty panel with nothing to explain it.
+ *
+ * A wildcard is deliberately NOT widened. `['*']` is the default, and it means
+ * "everything this node can see" rather than "escalate this node to everything"
+ * — reading it the other way would hand full memory to every approval gate
+ * nobody had configured.
+ */
+function approvalReadKeys(node: GraphNode): string[] {
+  const review = node.approval_config?.review_keys ?? [];
+  const named = review.filter((key) => key !== '*');
+  if (named.length === 0 || node.read_keys.includes('*')) return node.read_keys;
+
+  const union = new Set([...node.read_keys, ...named]);
+  // Identity when nothing was added: `withEffectiveReads` returns the same
+  // node object in that case, and callers compare by identity.
+  return union.size === node.read_keys.length ? node.read_keys : [...union];
 }
 
 /**

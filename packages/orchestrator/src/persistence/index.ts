@@ -14,6 +14,8 @@ export type {
   GraphDefinitionJson,
   WorkflowStateJson,
   WorkflowRunRow,
+  RunKind,
+  RunLineage,
   WorkflowEventRow,
   GraphRow,
   PersistenceProvider,

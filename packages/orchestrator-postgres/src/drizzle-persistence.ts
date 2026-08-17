@@ -16,6 +16,7 @@ import type {
   PersistenceProvider,
   GraphRow,
   WorkflowRunRow,
+  RunLineage,
   WorkflowEventRow as IWorkflowEventRow,
   WorkflowStateJson as IWorkflowStateJson,
 } from '@cycgraph/orchestrator';
@@ -299,6 +300,26 @@ export class DrizzlePersistenceProvider implements PersistenceProvider {
       .returning({ id: workflow_runs.id }));
 
     return result.length;
+  }
+
+  /**
+   * Stamp fork provenance onto an existing run row.
+   *
+   * Separate from `saveWorkflowRun` because lineage is not derivable from
+   * `WorkflowState`: it describes where a run came from, not what it holds.
+   * Keeping it out of the state schema also keeps it out of event replay.
+   */
+  async saveRunLineage(runId: string, lineage: RunLineage): Promise<void> {
+    await this.read((q) => q
+      .update(workflow_runs)
+      .set({
+        parent_run_id: lineage.parent_run_id,
+        run_kind: lineage.kind,
+        fork_sequence_id: lineage.fork_sequence_id,
+        fork_mutations: lineage.fork_mutations,
+        fork_group_id: lineage.fork_group_id ?? null,
+      })
+      .where(and(eq(workflow_runs.id, runId), this.tenantEq(workflow_runs.tenant_id))));
   }
 
   // ── Workflow State Operations ──

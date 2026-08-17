@@ -399,3 +399,44 @@ describe('effectiveReadKeys', () => {
     expect(effectiveReadKeys(supervisor, wildcardWrite)).toContain('*');
   });
 });
+
+describe('effectiveReadKeys — approval review keys', () => {
+  const gate = (approval: Record<string, unknown>, readKeys: string[] = []) => ({
+    id: 'gate',
+    type: 'approval' as const,
+    read_keys: readKeys,
+    write_keys: [],
+    approval_config: {
+      approval_type: 'human_review' as const,
+      prompt_message: 'ok?',
+      timeout_ms: 1000,
+      ...approval,
+    },
+    failure_policy: { max_retries: 0, backoff_ms: 0, backoff_strategy: 'fixed' as const },
+  });
+  const graph = { nodes: [], edges: [] } as never;
+
+  it('widens reads by the keys the reviewer is shown', () => {
+    const node = gate({ review_keys: ['draft_result'] });
+
+    expect(effectiveReadKeys(node as never, graph)).toEqual(['draft_result']);
+  });
+
+  it('keeps declared reads alongside the reviewed keys', () => {
+    const node = gate({ review_keys: ['draft_result'] }, ['goal']);
+
+    expect(effectiveReadKeys(node as never, graph).sort()).toEqual(['draft_result', 'goal']);
+  });
+
+  it('does not widen a wildcard into a full-memory grant', () => {
+    const node = gate({ review_keys: ['*'] }, ['draft_result']);
+
+    expect(effectiveReadKeys(node as never, graph)).toEqual(['draft_result']);
+  });
+
+  it('leaves a node whose reviewed keys it already reads untouched', () => {
+    const node = gate({ review_keys: ['draft_result'] }, ['draft_result']);
+
+    expect(effectiveReadKeys(node as never, graph)).toBe(node.read_keys);
+  });
+});

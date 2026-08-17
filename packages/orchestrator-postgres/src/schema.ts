@@ -49,6 +49,14 @@ const WORKFLOW_STATUSES = [
 ] as const;
 
 /**
+ * What produced a run row.
+ *
+ * `subgraph` and `counterfactual` both set `parent_run_id`, so the column
+ * alone cannot tell them apart.
+ */
+const RUN_KINDS = ['primary', 'subgraph', 'counterfactual'] as const;
+
+/**
  * Tenant-isolation column shared by every tenant-owned table.
  *
  * `NOT NULL` so a row can never escape its tenant. The `.default(SEED_TENANT_ID)`
@@ -159,10 +167,26 @@ export const workflow_runs = pgTable('workflow_runs', {
   claim_epoch: integer('claim_epoch').notNull().default(0),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   parent_run_id: uuid('parent_run_id').references((): AnyPgColumn => workflow_runs.id, { onDelete: 'set null' }),
+  /**
+   * What kind of run this row is. `parent_run_id` alone is ambiguous: subgraph
+   * children have used it since before forking existed. Analytics, retention,
+   * and the outcome ledger filter on this so counterfactual runs do not leak
+   * into production numbers unless asked for.
+   */
+  run_kind: text('run_kind', { enum: RUN_KINDS }).notNull().default('primary'),
+  /** Sequence in the parent's log where a counterfactual run began diverging. */
+  fork_sequence_id: integer('fork_sequence_id'),
+  /** The serialized changes a counterfactual applied, so the fork is reproducible from this row. */
+  fork_mutations: jsonb('fork_mutations').$type<unknown[]>(),
+  /** Ties one `forkEach` sweep's variants together. Null for a single fork. */
+  fork_group_id: uuid('fork_group_id'),
   completed_at: timestamp('completed_at', { withTimezone: true }),
   archived_at: timestamp('archived_at', { withTimezone: true }),
 }, (table) => [
   index('idx_workflow_runs_status').on(table.status),
+  // Listing a run's forks, and excluding forks from primary-run analytics.
+  index('idx_workflow_runs_kind_parent').on(table.run_kind, table.parent_run_id),
+  index('idx_workflow_runs_fork_group').on(table.fork_group_id).where(sql`fork_group_id IS NOT NULL`),
   index('idx_workflow_runs_graph_id').on(table.graph_id),
   index('idx_workflow_runs_created_at_desc').on(table.created_at),
   index('idx_workflow_runs_completed_not_archived').on(table.completed_at).where(sql`archived_at IS NULL`),
