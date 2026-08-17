@@ -1,5 +1,99 @@
 # @cycgraph/orchestrator
 
+## 1.1.0
+
+### Minor Changes
+
+- 8468828: `memoryKeys` declares a graph's memory keys once, so they stop being retyped.
+
+  A key several nodes share has no owning node to name it. In a repair loop two nodes write the same key and a third reads it, so the `writes`-on-one-node pattern cannot help. Without a declaration the name is repeated at every use: node grants, verifier targets, edge conditions, the seeded state, the readback, and — most fragile of all — inside prompt text, where a rename leaves the agent's instructions describing a key that no longer exists while everything still compiles.
+
+  ```ts
+  const mem = memoryKeys({
+    email_text: { seeded: true, schema: { type: "string" } },
+    purchase_order: { schema: { type: "object" } },
+  });
+
+  node({ reads: [mem.email_text], writes: mem.purchase_order });
+  graph({ nodes, inputs: mem.inputs });
+  state({ workflowId: g.id, goal, memory: mem.seed({ email_text: body }) });
+  ```
+
+  Each property's type is the key's own literal name, so a misspelling does not compile. `mem.inputs` derives the graph's declared inputs from the seeded keys, which is what `strictKeys` needs to tell a seeded value from a typo. `mem.seed` refuses an undeclared key, a key a node writes rather than the caller seeding, and a required key left out.
+
+  `inputs` and `seed` are reserved names; declaring a key called either throws `GraphSpecError`.
+
+  The `verifier-fix-loop` example uses it. Renaming a key there moves all eleven use sites, prompts included.
+
+### Patch Changes
+
+- 8468828: `strictKeys` turns a dangling read from a warning into an error.
+
+  A `read_keys` entry that no node writes resolves to an empty value at run time: the node produces something plausible from nothing and passes any assertion that only checks the key exists. The validator has always warned, but a warning on every run is a warning nobody reads.
+
+  Now that declared `inputs` count as producible, the check is unambiguous — a key that is neither produced by a node nor declared as an input is a mistake rather than a seeded value the validator cannot see. `strictKeys: true` on a graph makes it an error, refused at preflight with a message naming the fix. Reflection `source_keys` are held to the same standard.
+
+  Default stays warn-only, so nothing changes for existing graphs.
+
+- 8468828: The examples are type-checked.
+
+  Every package excluded `examples/**` from its tsconfig `include`, so nothing checked them — they ran under `tsx`, which does not type-check. Two real defects had been sitting there unseen, one of them consequential: `postgres-persistence` set `provider` twice in each agent config, so a hardcoded `'anthropic'` silently overrode the configured `PROVIDER` and the example could never run against a local model. `hardening-validation` passed a string where its security policy wants a list.
+
+  The `graph-interface` example also imported without file extensions throughout, which the project's own ESM standard requires; directory imports now name `index.js` explicitly.
+
+  Checking runs through a separate `tsconfig.examples.json` rather than the build config, whose `rootDir` is `src/` and whose declaration emit makes an exported node value unnameable. `npm run lint` runs it after the src pass, so it needs a build first — examples resolve the package through `dist/`.
+
+- 8468828: An authored node carries the memory keys it writes, so readers name them instead of retyping the convention.
+
+  A node's outputs are derived from its id: a map node writes `${id}_results`, a tool node `${id}_result`, singular. Getting one wrong is a silent failure — the reader receives an empty slice, produces something plausible from nothing, and passes any assertion that only checks the key exists.
+
+  ```ts
+  const fan = mapReduce(worker, { id: "fan", into: "reduce" });
+  node({ id: "reduce", type: "synthesizer", reads: [fan.results] });
+  ```
+
+  `mapReduce`, `voting`, `evolution`, `reflection`, and `node()` for tool, synthesizer, and agent types now return values carrying their own keys. A typo is a compile error and renaming a node updates its readers.
+
+  The properties are non-enumerable, so `graph()` — which builds the wire node by spreading the authored value — never sees them. Nothing reaches the schema or a serialized graph. They mirror `impliedResultKeys`, which stays the runtime authority for what a node may write, and the two are checked against each other in the test suite.
+
+  A node's declared `writes` is kept at its literal type too, so a downstream `reads: [draft.writes]` is checked rather than retyped. The two differ in strength and the JSDoc says so: an output key is written by executor machinery and is there whenever the node succeeds, while `writes` is a grant — the agent may write that key, write nothing, or have its text routed to `${id}_output` when no write key claims it.
+
+  The shipped examples use the new form. Note the declaration order it forces: a reducer needs the fan-out's key and the fan-out needs the reducer, so declare the fan-out first and pass `into` the synthesizer's id as a string.
+
+- 8468828: `subgraph` and `a2a` keep their output mapping, so a reader can name a parent key without retyping it.
+
+  Both helpers fold `outputs` into the node's config, so the mapping was gone from the authored value by the time a downstream node wanted it — and the parent-side name, a local rename with no other definition site, had to be retyped.
+
+  ```ts
+  const research = subgraph(child, {
+    id: "research",
+    outputs: { notes: "findings" },
+  });
+  node({ id: "write", reads: [research.outputs.notes] }); // 'findings'
+  ```
+
+  Reaching through the _child's_ name rather than the parent's is deliberate: the child-side key is the delegate's declared output and stable across callers, where the parent-side name exists only in this mapping. Renaming the parent key now updates every reader.
+
+  `outputs` is non-enumerable, so it does not travel back onto the wire node; the mapping still lands in `subgraph_config.output_mapping` as before. It is `{}` rather than absent when a node maps nothing out.
+
+- 8468828: A tool declared inline on a node no longer has to be declared again on the runner.
+
+  `node({ tools: [probe] })` names the tool; `GraphRunner` then also required it on `GraphRunnerOptions.tools`, and omitting the second half failed preflight. `run()` threaded the closure for you, so only the explicit path carried the papercut.
+
+  `GraphRunner` now registers the inline tools a facade-authored graph carries. Gap-filling only: a tool supplied on options shadows an inline one of the same name, so an explicit override still overrides. Agents are deliberately not threaded — a caller supplying its own registry usually does so to change an agent's model, and auto-registering would fight that.
+
+- 8468828: `runTool` returns its result key, like the tool node it builds.
+
+  `node({ type: 'tool' })` carried `.result`; `runTool`, which builds the same node, did not. Both now do.
+
+- 8468828: `validateGraph` now warns when `read_keys` lists `goal` or `constraints`.
+
+  Both are first-class state fields, set on every state view regardless of grants — a node with `reads: []` already receives them. Listing them reads as a permission that was needed and teaches the wrong model of what `read_keys` controls, which is _additional memory_ the node may see.
+
+  The warning is suppressed when a node genuinely writes a memory key of that name, since a memory key named `goal` is distinct from `state.goal` and reading it is a real grant.
+
+  The shipped examples listed one or both in 39 places, contradicting the `reads` documentation. They no longer do.
+
 ## 1.0.0
 
 ### Major Changes
