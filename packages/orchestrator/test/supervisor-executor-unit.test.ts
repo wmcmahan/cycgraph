@@ -140,6 +140,50 @@ describe('SupervisorExecutor', () => {
       ).rejects.toThrow(SupervisorConfigError);
     });
 
+    it('routes at the configured temperature', async () => {
+      const { generateText } = await import('ai');
+      (generateText as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        output: { next_node: 'worker-a', reasoning: 'go' },
+        usage: { totalTokens: 7 },
+      });
+      const node = makeNode({
+        agent_id: 'sup-agent',
+        supervisor_config: { managed_nodes: ['worker-a'], max_iterations: 10 },
+      });
+
+      await executeSupervisor(node, makeStateView(), [], 1);
+
+      expect((generateText as ReturnType<typeof vi.fn>).mock.calls[0]![0].temperature).toBe(0.5);
+    });
+
+    it('omits temperature when the agent declares none', async () => {
+      const { agentFactory } = await import('../src/agents/factory/index.js');
+      (agentFactory.loadAgent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'sup-agent',
+        name: 'Supervisor',
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        system: 'You are a supervisor.',
+        maxSteps: 10,
+        tools: [],
+        read_keys: ['*'],
+        write_keys: ['*'],
+      });
+      const { generateText } = await import('ai');
+      (generateText as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        output: { next_node: 'worker-a', reasoning: 'go' },
+        usage: { totalTokens: 7 },
+      });
+      const node = makeNode({
+        agent_id: 'sup-agent',
+        supervisor_config: { managed_nodes: ['worker-a'], max_iterations: 10 },
+      });
+
+      await executeSupervisor(node, makeStateView(), [], 1);
+
+      expect('temperature' in (generateText as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toBe(false);
+    });
+
     it('falls back to node.agent_id when supervisor_config has no agent_id', async () => {
       const { generateText } = await import('ai');
       (generateText as ReturnType<typeof vi.fn>).mockResolvedValueOnce({

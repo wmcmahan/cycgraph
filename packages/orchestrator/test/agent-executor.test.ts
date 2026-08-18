@@ -822,6 +822,35 @@ describe('executeAgent — stream-reported provider errors', () => {
   });
 });
 
+describe('executeAgent — configured temperature', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (agentFactory.loadAgent as any).mockResolvedValue(makeAgentConfig());
+    (streamText as any).mockReturnValue(mockStreamTextResult());
+  });
+
+  it('applies the configured temperature when no override is given', async () => {
+    await executeAgent('test-agent', makeStateView(), {}, 1);
+
+    expect((streamText as any).mock.calls[0][0].temperature).toBe(0.7);
+  });
+
+  it('lets a schedule override win over the configured value', async () => {
+    await executeAgent('test-agent', makeStateView(), {}, 1, { temperatureOverride: 0.2 });
+
+    expect((streamText as any).mock.calls[0][0].temperature).toBe(0.2);
+  });
+
+  it('omits temperature entirely when the agent declares none', async () => {
+    const { temperature: _, ...rest } = makeAgentConfig();
+    (agentFactory.loadAgent as any).mockResolvedValue(rest);
+
+    await executeAgent('test-agent', makeStateView(), {}, 1);
+
+    expect('temperature' in (streamText as any).mock.calls[0][0]).toBe(false);
+  });
+});
+
 describe('executeAgent — temperature override clamping', () => {
   beforeEach(() => {
     vi.clearAllMocks();

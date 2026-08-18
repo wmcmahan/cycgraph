@@ -65,13 +65,18 @@ export async function indexBaseRun(
   events: readonly WorkflowEvent[],
   seedState: WorkflowState,
   registry: AgentRegistry,
-): Promise<Map<string, MemoEntry>> {
-  const index = new Map<string, MemoEntry>();
-  const poisoned = new Set<string>();
+  options?: {
+    /** Index only executions at or after this sequence id. */
+    fromSequenceId?: number;
+  },
+): Promise<Map<string, MemoEntry[]>> {
+  const index = new Map<string, MemoEntry[]>();
   const nodesById = new Map(graph.nodes.map(n => [n.id, n]));
 
+  const from = options?.fromSequenceId ?? 0;
   for (const [i, event] of events.entries()) {
     if (event.event_type !== 'node_started' || !event.node_id) continue;
+    if (event.sequence_id < from) continue;
     const node = nodesById.get(event.node_id);
     if (!node) continue;
 
@@ -88,23 +93,16 @@ export async function indexBaseRun(
     const fingerprint = await computeFingerprint({ node, graph, state: before, registry });
     if (!fingerprint) continue;
 
-    // A fingerprint seen twice is not memoizable at all. The node was handed
-    // identical inputs and produced two outputs, so something the fingerprint
-    // cannot see decides what it returns — which is exactly what a fix-loop
-    // relies on: `write` reruns on the same inputs expecting a different
-    // draft. Serving the first recording to both would freeze the loop at its
-    // first attempt, so a repeated fingerprint is poisoned instead.
-    const seen = index.get(fingerprint);
-    if (seen) {
-      poisoned.add(fingerprint);
-      continue;
-    }
-    index.set(fingerprint, { nodeId: node.id, fingerprint, action });
-  }
-
-  for (const fingerprint of poisoned) index.delete(fingerprint);
-  if (poisoned.size > 0) {
-    logger.debug('memo_poisoned', { fingerprints: poisoned.size });
+    // A fingerprint can recur: a fix-loop reruns a node on identical inputs
+    // expecting a different draft, and a supervisor can send a worker the
+    // same slice twice. Executions queue in recorded order and each hit
+    // consumes one, so a repeated node replays exactly the sequence of
+    // outputs the base run produced — the loop progresses as recorded rather
+    // than freezing at its first attempt, and a null fork reproduces a run
+    // whose node ran twice on the same inputs instead of resampling it live.
+    const queue = index.get(fingerprint) ?? [];
+    queue.push({ nodeId: node.id, fingerprint, action });
+    index.set(fingerprint, queue);
   }
 
   return index;
@@ -122,11 +120,12 @@ function findGroupAction(events: readonly WorkflowEvent[], startIndex: number): 
 
 /** Build the middleware that serves indexed outputs to unchanged nodes. */
 export function createMemoizer(deps: {
-  index: Map<string, MemoEntry>;
+  index: Map<string, MemoEntry[]>;
   graph: Graph;
   registry: AgentRegistry;
 }): Memoizer {
   const hits: MemoHit[] = [];
+  const consumed = new Map<string, number>();
 
   const middleware: GraphRunnerMiddleware = {
     async beforeNodeExecute(ctx: MiddlewareContext): Promise<BeforeNodeResult | void> {
@@ -138,11 +137,16 @@ export function createMemoizer(deps: {
       });
       if (!fingerprint) return;
 
-      const entry = deps.index.get(fingerprint);
+      const queue = deps.index.get(fingerprint);
+      const position = consumed.get(fingerprint) ?? 0;
+      const entry = queue?.[position];
+      // A tail that revisits a fingerprint more times than the base run
+      // recorded has exhausted the queue, and the extra visits run live.
       // The fingerprint covers the node id, so a match from a different node
       // is not possible; the check documents the invariant rather than
       // defending against it.
       if (!entry || entry.nodeId !== ctx.node.id) return;
+      consumed.set(fingerprint, position + 1);
 
       hits.push({ nodeId: ctx.node.id, fingerprint });
       logger.debug('memo_hit', { node_id: ctx.node.id, fingerprint });
@@ -152,7 +156,11 @@ export function createMemoizer(deps: {
 
   return {
     middleware,
-    get size() { return deps.index.size; },
+    get size() {
+      let total = 0;
+      for (const queue of deps.index.values()) total += queue.length;
+      return total;
+    },
     hits,
   };
 }

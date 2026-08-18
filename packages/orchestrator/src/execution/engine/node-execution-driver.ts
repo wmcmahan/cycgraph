@@ -106,7 +106,7 @@ export class NodeExecutionDriver {
     return runWithContext(
       (() => {
         const sink = this.deps.getLogSink?.();
-        return { run_id: state.run_id, graph_id: this.deps.getGraph().id, ...(sink ? { logger: sink } : {}) };
+        return { run_id: state.run_id, graph_id: this.deps.getGraph().id, node_id: node.id, ...(sink ? { logger: sink } : {}) };
       })(),
       () => withSpan(tracer, `node.execute.${node.type}`, (nodeSpan) => {
         nodeSpan.setAttribute('node.id', node.id);

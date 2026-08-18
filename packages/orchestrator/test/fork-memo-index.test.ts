@@ -75,7 +75,7 @@ describe('indexBaseRun', () => {
     const index = await indexBaseRun(graph, [started('a'), wrote('a', { a_out: 1 })], seed(), registry);
 
     expect(index.size).toBe(1);
-    expect([...index.values()][0]!.nodeId).toBe('a');
+    expect([...index.values()][0]![0]!.nodeId).toBe('a');
   });
 
   it('skips a node that produced no action', async () => {
@@ -95,7 +95,7 @@ describe('indexBaseRun', () => {
       graph, [started('a'), started('b'), wrote('b', { b_out: 1 })], seed(), registry,
     );
 
-    expect([...index.values()].map(e => e.nodeId)).toEqual(['b']);
+    expect([...index.values()].flat().map(e => e.nodeId)).toEqual(['b']);
   });
 
   it('skips a node the graph does not have', async () => {
@@ -119,19 +119,36 @@ describe('indexBaseRun', () => {
       .toBe(0);
   });
 
-  it('poisons a fingerprint seen twice rather than reusing the first output', async () => {
+  it('queues a fingerprint seen twice in recorded order', async () => {
     sequence = 0;
     const { registry, id } = registryWith('A');
     const graph = graphOf(node('a', id));
 
-    // Same node, same inputs, two different outputs — which is what a fix-loop
-    // relies on and what memoization must not collapse.
     const index = await indexBaseRun(graph, [
       started('a'), wrote('a', { a_out: 'first' }),
       started('a'), wrote('a', { a_out: 'second' }),
     ], seed(), registry);
 
-    expect(index.size).toBe(0);
+    const queue = [...index.values()][0]!;
+    expect(queue.map(e => (e.action.payload as { updates: { a_out: string } }).updates.a_out))
+      .toEqual(['first', 'second']);
+  });
+
+  it('excludes executions before the fork boundary from the queue', async () => {
+    sequence = 0;
+    const { registry, id } = registryWith('A');
+    const graph = graphOf(node('a', id));
+    const events = [
+      started('a'), wrote('a', { a_out: 'first' }),
+      started('a'), wrote('a', { a_out: 'second' }),
+    ];
+    const boundary = events[2]!.sequence_id;
+
+    const index = await indexBaseRun(graph, events, seed(), registry, { fromSequenceId: boundary });
+
+    const queue = [...index.values()][0]!;
+    expect(queue.map(e => (e.action.payload as { updates: { a_out: string } }).updates.a_out))
+      .toEqual(['second']);
   });
 
   it('keeps distinct executions whose inputs differ', async () => {
@@ -193,6 +210,58 @@ describe('createMemoizer', () => {
     } as MiddlewareContext);
 
     expect(result).toBeUndefined();
+  });
+
+  it('serves repeated executions in recorded order', async () => {
+    sequence = 0;
+    const { registry, id } = registryWith('A');
+    const graph = graphOf(node('a', id));
+    const index = await indexBaseRun(graph, [
+      started('a'), wrote('a', { a_out: 'first' }),
+      started('a'), wrote('a', { a_out: 'second' }),
+    ], seed(), registry);
+
+    const memo = createMemoizer({ index, graph, registry });
+    const ctx = { node: graph.nodes[0]!, state: seed(), graph, iteration: 0 } as MiddlewareContext;
+    const first = await memo.middleware.beforeNodeExecute!(ctx);
+    const second = await memo.middleware.beforeNodeExecute!(ctx);
+
+    expect(first?.shortCircuit?.payload).toEqual({ updates: { a_out: 'first' } });
+    expect(second?.shortCircuit?.payload).toEqual({ updates: { a_out: 'second' } });
+  });
+
+  it('lets a visit beyond the recorded count run live', async () => {
+    sequence = 0;
+    const { registry, id } = registryWith('A');
+    const graph = graphOf(node('a', id));
+    const index = await indexBaseRun(graph, [
+      started('a'), wrote('a', { a_out: 'only' }),
+    ], seed(), registry);
+
+    const memo = createMemoizer({ index, graph, registry });
+    const ctx = { node: graph.nodes[0]!, state: seed(), graph, iteration: 0 } as MiddlewareContext;
+    await memo.middleware.beforeNodeExecute!(ctx);
+    const exhausted = await memo.middleware.beforeNodeExecute!(ctx);
+
+    expect(exhausted).toBeUndefined();
+    expect(memo.hits).toHaveLength(1);
+  });
+
+  it('gives each memoizer its own consumption of a shared index', async () => {
+    sequence = 0;
+    const { registry, id } = registryWith('A');
+    const graph = graphOf(node('a', id));
+    const index = await indexBaseRun(graph, [
+      started('a'), wrote('a', { a_out: 'first' }),
+    ], seed(), registry);
+
+    const ctx = { node: graph.nodes[0]!, state: seed(), graph, iteration: 0 } as MiddlewareContext;
+    const one = createMemoizer({ index, graph, registry });
+    const two = createMemoizer({ index, graph, registry });
+    await one.middleware.beforeNodeExecute!(ctx);
+    const fresh = await two.middleware.beforeNodeExecute!(ctx);
+
+    expect(fresh?.shortCircuit?.payload).toEqual({ updates: { a_out: 'first' } });
   });
 
   it('reports how many executions it indexed', async () => {

@@ -133,6 +133,44 @@ describe('extractFactsExecutor', () => {
     vi.clearAllMocks();
   });
 
+  it('samples at the configured temperature', async () => {
+    const { generateText } = await import('ai');
+    (generateText as any).mockResolvedValueOnce({
+      output: { facts: ['f'], reasoning: 'r' },
+      usage: { totalTokens: 10 },
+    });
+
+    const { extractFactsExecutor } = await import('../src/agents/executors/extractor/executor.js');
+    await extractFactsExecutor('extractor-1', 'source text');
+
+    expect((generateText as any).mock.calls[0][0].temperature).toBe(0.2);
+  });
+
+  it('omits temperature when the agent declares none', async () => {
+    const { agentFactory } = await import('../src/agents/factory/index.js');
+    (agentFactory.loadAgent as any).mockResolvedValueOnce({
+      id: 'extractor-1',
+      name: 'Fact Extractor',
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      system: 'You are a distiller.',
+      maxSteps: 1,
+      tools: [],
+      read_keys: ['*'],
+      write_keys: [],
+    });
+    const { generateText } = await import('ai');
+    (generateText as any).mockResolvedValueOnce({
+      output: { facts: ['f'], reasoning: 'r' },
+      usage: { totalTokens: 10 },
+    });
+
+    const { extractFactsExecutor } = await import('../src/agents/executors/extractor/executor.js');
+    await extractFactsExecutor('extractor-1', 'source text');
+
+    expect('temperature' in (generateText as any).mock.calls[0][0]).toBe(false);
+  });
+
   it('loads the agent and returns facts, reasoning, and token usage', async () => {
     const { generateText } = await import('ai');
     (generateText as any).mockResolvedValueOnce({

@@ -87,6 +87,7 @@ export async function extractFactsExecutor(
         prompt,
         output: Output.object({ schema: ExtractionSchema }),
         ...(agentConfig.maxOutputTokens !== undefined ? { maxOutputTokens: agentConfig.maxOutputTokens } : {}),
+        ...(agentConfig.temperature !== undefined ? { temperature: agentConfig.temperature } : {}),
         ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
       });
       extraction = result.output;

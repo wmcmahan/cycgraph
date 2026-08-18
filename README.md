@@ -2,22 +2,18 @@
 
 # CYCGRAPH
 
-**An engine for running cyclic LLM agent workflows.**
-
 [![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?label=%40cycgraph%2Forchestrator&color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io/docs/)
 
 </div>
 
----
+Build and compose your own agent workflows with a unified engine for running custom workflows with helpful built-in patterns like supervisor, swarm, map-reduce, and reflection.
 
-**CYCGRAPH** is an orchestration engine for running cyclic LLM agent workflows — loops, conditional routing, parallel fan-out, and nested subgraphs. See [flattop.io](https://flattop.io/docs/) for full docs.
-
-- **[Quick Start](https://flattop.io/docs/getting-started/quick-start/)** — your first workflow in 5 minutes
-- **[Core Concepts](https://flattop.io/docs/concepts/overview/)** — graphs, nodes, agents, state
-- **[Patterns](https://flattop.io/docs/patterns/supervisor/)** — runnable guides for each built-in pattern
-- **[Troubleshooting](https://flattop.io/docs/getting-started/troubleshooting/)** — common errors, fixes, and the gotchas that fail silently
+- **[Quick Start](https://flattop.io/docs/getting-started/quick-start/)** - build your first workflow in 5 minutes
+- **[Core Concepts](https://flattop.io/docs/concepts/overview/)** - graphs, nodes, agents, state
+- **[Patterns](https://flattop.io/docs/patterns/supervisor/)** - runnable guides for each built-in pattern
+- **[Troubleshooting](https://flattop.io/docs/getting-started/troubleshooting/)** - common errors, fixes, and the gotchas that fail silently
 - **[Examples](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/)** - runnable examples for each built-in pattern and infrastructure setup
 
 ## Install
