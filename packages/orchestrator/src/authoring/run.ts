@@ -20,7 +20,9 @@
 import type { Graph } from '../graph/graph.js';
 import type { WorkflowState } from '../state/state.js';
 import { createWorkflowState, type WorkflowStateConfig } from '../state/state.js';
-import type { PersistenceProvider } from '../persistence/interfaces.js';
+import type { PersistenceProvider, AgentRegistry } from '../persistence/interfaces.js';
+import type { EventLogWriter } from '../persistence/event-log.js';
+import { InMemoryEventLogWriter } from '../persistence/event-log.js';
 import { InMemoryAgentRegistry, InMemoryPersistenceProvider } from '../persistence/in-memory.js';
 import type { ProviderRegistry } from '../agents/providers/provider-registry.js';
 import { GraphRunner, type GraphRunnerOptions } from '../execution/engine/graph-runner.js';
@@ -57,19 +59,46 @@ function isWorkflowState(value: RunInput | WorkflowState): value is WorkflowStat
 }
 
 /**
- * Run a graph and return its final memory.
+ * Everything a caller needs to inspect, resume, or fork a run after it ends.
  *
- * @param g - A graph, typically from `graph()` (facade agents auto-register;
- *   `subgraph()` children auto-resolve through a run-scoped `loadGraph`).
- * @param input - Workflow input (`goal` required) or a prebuilt `WorkflowState`.
- * @param options - Persistence / providers / runner overrides.
- * @returns The final `WorkflowState.memory`.
+ * `run()` returns memory alone, which is the right answer for a workflow you
+ * execute once. Anything that refers back to the run — a fork, a replay, a
+ * usage query — needs the run id and the log it was recorded into.
  */
-export async function run(
+export interface RecordedRun {
+  /** The run's id, the handle every after-the-fact API takes. */
+  runId: string;
+  /** Final `WorkflowState.memory`, identical to what {@link run} returns. */
+  memory: Record<string, unknown>;
+  /** Final state, for status, cost totals, and per-node breakdowns. */
+  state: WorkflowState;
+  /** The log the run was recorded into. */
+  eventLog: EventLogWriter;
+  /** The provider holding the graph and run rows. */
+  persistence: PersistenceProvider;
+  /**
+   * The run-scoped registry holding this graph's inline `agent()` definitions.
+   *
+   * `graph()` collects inline agents into a registry built per run, so they
+   * exist nowhere else. Anything that re-runs part of this graph later — a
+   * fork, a replay — needs it to resolve those agents. Absent when the graph
+   * references pre-registered agents by id instead.
+   */
+  registry?: AgentRegistry;
+}
+
+/** Shared wiring for {@link run} and {@link runRecorded}. */
+function buildRunner(
   g: Graph,
   input: RunInput | WorkflowState,
-  options: RunOptions = {},
-): Promise<Record<string, unknown>> {
+  options: RunOptions,
+  extra?: Partial<GraphRunnerOptions>,
+): {
+  runner: GraphRunner;
+  persistence: PersistenceProvider;
+  workflowState: WorkflowState;
+  registry?: AgentRegistry;
+} {
   // Scope the composition's facade agents into a fresh registry for this
   // run — no process-global mutation, so concurrent runs never contaminate.
   // A graph WITHOUT facade agents (raw createGraph, or a facade graph that
@@ -141,9 +170,77 @@ export async function run(
     ...(mergedTools.length > 0 ? { tools: mergedTools } : {}),
     ...(loadGraph ? { loadGraph } : {}),
     ...(Object.keys(mergedCeilings).length > 0 ? { capabilityCeilings: mergedCeilings } : {}),
+    ...extra,
     persistState: (s) => persistence.saveWorkflowSnapshot(s),
   });
 
+  return { runner, persistence, workflowState, registry };
+}
+
+/**
+ * Run a graph and return its final memory.
+ *
+ * @param g - A graph, typically from `graph()` (facade agents auto-register;
+ *   `subgraph()` children auto-resolve through a run-scoped `loadGraph`).
+ * @param input - Workflow input (`goal` required) or a prebuilt `WorkflowState`.
+ * @param options - Persistence / providers / runner overrides.
+ * @returns The final `WorkflowState.memory`.
+ */
+export async function run(
+  g: Graph,
+  input: RunInput | WorkflowState,
+  options: RunOptions = {},
+): Promise<Record<string, unknown>> {
+  const { runner } = buildRunner(g, input, options);
   const finalState = await runner.run();
   return finalState.memory;
+}
+
+/**
+ * Run a graph and keep everything needed to refer back to it.
+ *
+ * Same execution as {@link run}, three differences in what it leaves behind:
+ * an `EventLogWriter` is wired (an in-memory one when the caller supplies
+ * none), auto-compaction is off so the whole log stays addressable, and the
+ * graph is saved before execution so the run row resolves back to it.
+ *
+ * Those are the preconditions for replaying or forking the run afterwards.
+ * Compaction in particular deletes events behind the latest checkpoint, which
+ * silently removes the early history a fork would target.
+ *
+ * @param g - A graph, as for {@link run}.
+ * @param input - Workflow input (`goal` required) or a prebuilt `WorkflowState`.
+ * @param options - Persistence / providers / runner overrides. A caller-supplied
+ *   `runner.eventLog` or `runner.compactionInterval` wins.
+ */
+export async function runRecorded(
+  g: Graph,
+  input: RunInput | WorkflowState,
+  options: RunOptions = {},
+): Promise<RecordedRun> {
+  const runnerOverride = options.runner ?? {};
+  const eventLog = runnerOverride.eventLog ?? new InMemoryEventLogWriter();
+
+  const { runner, persistence, workflowState, registry } = buildRunner(g, input, options, {
+    eventLog,
+    // A recorded run exists to be replayed. Compaction would delete the
+    // events behind the latest checkpoint, so the default that keeps a long
+    // run's log bounded is the wrong default here.
+    compactionInterval: runnerOverride.compactionInterval ?? 0,
+  });
+
+  // A relational provider keys run rows to graphs, so the graph has to exist
+  // before the run does. In-memory providers do not care, which is what makes
+  // this easy to omit until a durable backend is wired.
+  await persistence.saveGraph(g);
+
+  const state = await runner.run();
+  return {
+    runId: workflowState.run_id,
+    memory: state.memory,
+    state,
+    eventLog,
+    persistence,
+    ...(registry ? { registry } : {}),
+  };
 }

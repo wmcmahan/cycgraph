@@ -221,6 +221,7 @@ export {
   GraphSpecError,
   memoryKeys,
   run,
+  runRecorded,
   state,
   computeRequirements,
   checkRequirements,
@@ -256,6 +257,7 @@ export type {
   EdgeSugar,
   RunInput,
   RunOptions,
+  RecordedRun,
   GraphInputSpec,
   GraphOutputSpec,
   InterfaceSchema,
@@ -265,6 +267,42 @@ export type {
   RequirementsCheck,
   BundleMeta,
 } from './authoring/index.js';
+
+// ─── Counterfactual Replay ──────────────────────────────────────────
+
+export { fork, forkEach, estimateSweep, change, diffRuns, formatRunDiff, forkPoints, resolveTarget, canonicalJson, canonicalEquals } from './replay/index.js';
+export {
+  ForkError,
+  ForkPointError,
+  TargetError,
+  OverlayError,
+  ReplayVersionMismatchError,
+  SideEffectBlockedError,
+} from './replay/index.js';
+export { ChangeSchema } from './replay/index.js';
+export type {
+  ForkOptions,
+  ForkResult,
+  ForkContext,
+  ForkEachOptions,
+  ForkEachResult,
+  VariantResult,
+  ForkPoint,
+  ForkPointSummary,
+  ResolvedTarget,
+  Change,
+  ChangeInput,
+  RunDiff,
+  DiffOptions,
+  MemoryDelta,
+  AlignedStep,
+  SideEffectPolicy,
+  SuppressedEffect,
+  TailEstimate,
+  MemoHit,
+  ForkSourceKind,
+  SnapshotPoint,
+} from './replay/index.js';
 
 // ─── Custom Tools ───────────────────────────────────────────────────
 

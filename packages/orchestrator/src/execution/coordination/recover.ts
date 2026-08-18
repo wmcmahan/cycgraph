@@ -22,10 +22,9 @@
  * @module execution/coordination/recover
  */
 
-import { v4 as uuidv4 } from 'uuid';
 import type { Graph } from '../../graph/graph.js';
-import type { WorkflowState, Action } from '../../state/state.js';
-import { rootReducer, internalReducer, REPLAY_VERSION } from '../../state/reducers.js';
+import type { WorkflowState } from '../../state/state.js';
+import { replayEvents } from '../../replay/replay-events.js';
 import type { EventLogWriter } from '../../persistence/event-log.js';
 import type { WorkflowEvent } from '../../persistence/event.js';
 import { EventLogCorruptionError } from '../errors.js';
@@ -134,7 +133,10 @@ export async function recoverGraphRunner(
       status: 'pending',
       goal: cfg.goal ?? '',
       constraints: cfg.constraints ?? [],
-      memory: {},
+      // Seeded input memory, when the run recorded it. Logs written before
+      // `workflow_started` carried it recover with an empty blackboard, which
+      // is the old behaviour and the best available for them.
+      memory: cfg.memory ?? {},
       taint_registry: {},
       lesson_provenance: {},
       policy_approvals: {},
@@ -177,52 +179,22 @@ export async function recoverGraphRunner(
 
   // 2. Replay events through the same reducers used at runtime.
   // The runner's initial state is the same `startState` we passed it.
-  let state: WorkflowState = startState;
-  const executedActionIds: Array<{ nodeId: string; iterationCount: number }> = [];
-  let replayedActions = 0;
-  let replayedInternals = 0;
-
-  for (const event of events) {
-    if (event.event_type === 'workflow_started') {
-      // The live run stamps this event with the reducer replay version.
-      // A mismatch means the log was written under different reducer
+  const { state, executedActionIds, replayedActions, replayedInternals } = replayEvents(
+    events,
+    startState,
+    {
+      // A version mismatch means the log was written under different reducer
       // semantics — replay may reconstruct a state the original run never
       // had. Surface it loudly; callers can decide whether to trust the run.
-      const loggedVersion = event.internal_payload?.replay_version;
-      if (loggedVersion !== undefined && loggedVersion !== REPLAY_VERSION) {
+      onVersionMismatch: (loggedVersion, currentVersion) => {
         logger.warn('replay_version_mismatch', {
           run_id: runId,
           logged_version: loggedVersion,
-          current_version: REPLAY_VERSION,
+          current_version: currentVersion,
         });
-      }
-      continue;
-    }
-    if (event.event_type === 'action_dispatched' && event.action) {
-      state = rootReducer(state, event.action);
-      const nodeId = event.node_id ?? event.action.metadata.node_id;
-      executedActionIds.push({ nodeId, iterationCount: state.iteration_count });
-      replayedActions++;
-    } else if (event.event_type === 'internal_dispatched' && event.internal_type) {
-      // Prefer the exact dispatch timestamp the live run stamped into the
-      // payload (see dispatchInternal) — the event row's `created_at` is
-      // written later and drifts by milliseconds, which would break the
-      // byte-identical replay guarantee for `started_at` / `updated_at`.
-      // Older logs (pre-stamp) fall back to `created_at` as before.
-      const dispatchedAt = typeof event.internal_payload?._dispatched_at === 'string'
-        ? new Date(event.internal_payload._dispatched_at as string)
-        : event.created_at;
-      const internalAction: Action = {
-        id: uuidv4(),
-        idempotency_key: `_replay:${event.internal_type}:${event.sequence_id}`,
-        type: event.internal_type as Action['type'],
-        payload: (event.internal_payload ?? {}) as Record<string, unknown>,
-        metadata: { node_id: '_runner', timestamp: dispatchedAt, attempt: 1 },
-      };
-      state = internalReducer(state, internalAction);
-      replayedInternals++;
-    }
-  }
+      },
+    },
+  );
 
   // 3. Atomically rehydrate the runner — state, idempotency keys, and the
   // next sequenceId apply in a single call so no consumer sees half-recovered

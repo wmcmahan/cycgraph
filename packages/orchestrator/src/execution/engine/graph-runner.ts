@@ -362,6 +362,13 @@ export interface GraphRunnerOptions {
    */
   compactionInterval?: number;
   /**
+   * Labels this run's metrics, so counterfactual and subgraph traffic is
+   * separable from production traffic in `mcai_workflows_*`.
+   *
+   * @default 'primary'
+   */
+  runKind?: 'primary' | 'subgraph' | 'counterfactual';
+  /**
    * Optional callback for persisting state deltas (patches).
    *
    * When provided alongside `persistState`, the runner uses a
@@ -516,6 +523,17 @@ export class GraphRunner extends EventEmitter {
   // Auto-compaction: compact event log every N events (0 = disabled)
   private readonly compactionInterval: number;
 
+  /**
+   * What kind of run this is, as a metrics label.
+   *
+   * Counterfactual runs go through the same engine as production traffic, so
+   * without a label a sweep of twelve variants reads as twelve workflows in
+   * `mcai_workflows_*`. Cost is already separable through `run_kind` on the run
+   * row; this is the same separation for the counters, which have no row to
+   * join against.
+   */
+  private readonly runKind: string;
+
   // Differential state persistence
   private readonly persistDeltaFn?: (patch: StatePatch) => Promise<void>;
   private readonly deltaTracker?: StateDeltaTracker;
@@ -592,6 +610,7 @@ export class GraphRunner extends EventEmitter {
     this.autoRollback = options?.autoRollback ?? false;
     this.allowImplicitCompletion = options?.allowImplicitCompletion ?? false;
     this.compactionInterval = options?.compactionInterval ?? DEFAULT_COMPACTION_INTERVAL;
+    this.runKind = options?.runKind ?? 'primary';
     this.persistDeltaFn = options?.persistDelta ?? options?.persistDeltaFn;
     if (this.persistDeltaFn) {
       this.deltaTracker = new StateDeltaTracker(options?.deltaTrackerOptions);
@@ -845,7 +864,7 @@ export class GraphRunner extends EventEmitter {
     }
 
     logger.info('execution_started', { graph_id: this.graph.id, workflow_id: this.state.workflow_id, run_id: this.state.run_id });
-    incrementWorkflowsStarted({ graph_id: this.graph.id });
+    incrementWorkflowsStarted({ graph_id: this.graph.id, kind: this.runKind });
 
     this.emit('workflow:start', {
       workflow_id: this.state.workflow_id,
@@ -945,6 +964,10 @@ export class GraphRunner extends EventEmitter {
         config: {
           goal: this.state.goal,
           constraints: this.state.constraints,
+          // The memory the run was seeded with. No action ever wrote it, so
+          // replay cannot derive it: a run started with input memory would
+          // otherwise recover — and fork — without it.
+          ...(Object.keys(this.state.memory).length > 0 ? { memory: this.state.memory } : {}),
           max_iterations: this.state.max_iterations,
           max_execution_time_ms: this.state.max_execution_time_ms,
           max_retries: this.state.max_retries,
@@ -1352,7 +1375,7 @@ export class GraphRunner extends EventEmitter {
           await this.persistState();
           yield* this.drainPendingEvents();
           this.lastRunError = deadEnd;
-          incrementWorkflowsFailed({ graph_id: this.graph.id });
+          incrementWorkflowsFailed({ graph_id: this.graph.id, kind: this.runKind });
           this.emit('workflow:failed', {
             workflow_id: this.state.workflow_id,
             run_id: this.state.run_id,
@@ -1393,7 +1416,7 @@ export class GraphRunner extends EventEmitter {
       const durationMs = Date.now() - (this.startTime ?? Date.now());
 
       if (this.state.status === 'completed') {
-        incrementWorkflowsCompleted({ graph_id: this.graph.id });
+        incrementWorkflowsCompleted({ graph_id: this.graph.id, kind: this.runKind });
         recordWorkflowDuration(durationMs, { status: 'completed', graph_id: this.graph.id });
         recordTokensUsed(this.state.total_tokens_used, { graph_id: this.graph.id });
         if (this.state.total_cost_usd > 0) {
@@ -1471,7 +1494,7 @@ export class GraphRunner extends EventEmitter {
         // These paths return a failed state rather than raising, and a
         // streaming consumer learning about the failure must not change that.
         const message = this.state.last_error ?? 'Workflow failed';
-        incrementWorkflowsFailed({ graph_id: this.graph.id });
+        incrementWorkflowsFailed({ graph_id: this.graph.id, kind: this.runKind });
         recordWorkflowDuration(durationMs, { status: 'failed', graph_id: this.graph.id });
         this.emit('workflow:failed', {
           workflow_id: this.state.workflow_id,
@@ -1546,7 +1569,7 @@ export class GraphRunner extends EventEmitter {
         await this.persistState();
         yield* this.drainPendingEvents();
 
-        incrementWorkflowsFailed({ graph_id: this.graph.id });
+        incrementWorkflowsFailed({ graph_id: this.graph.id, kind: this.runKind });
         recordWorkflowDuration(Date.now() - (this.startTime ?? Date.now()), {
           status: 'failed',
           graph_id: this.graph.id,

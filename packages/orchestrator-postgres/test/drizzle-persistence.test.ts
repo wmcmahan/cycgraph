@@ -329,3 +329,97 @@ describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
     });
   });
 });
+
+describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider — fork lineage', () => {
+  setupDatabaseTests();
+
+  const provider = new DrizzlePersistenceProvider();
+
+  it('defaults an ordinary run to the primary kind', async () => {
+    const runId = crypto.randomUUID();
+    await seedRun(runId);
+
+    expect(await provider.loadWorkflowRun(runId)).toMatchObject({
+      run_kind: 'primary',
+      fork_sequence_id: null,
+      fork_mutations: null,
+      fork_group_id: null,
+    });
+  });
+
+  it('stamps a fork with its parent, divergence point and changes', async () => {
+    const baseRunId = crypto.randomUUID();
+    const forkRunId = crypto.randomUUID();
+    await seedRun(baseRunId);
+    await seedRun(forkRunId);
+
+    await provider.saveRunLineage(forkRunId, {
+      kind: 'counterfactual',
+      parent_run_id: baseRunId,
+      fork_sequence_id: 47,
+      fork_mutations: [{ kind: 'model', target: 'write', model: 'claude-opus-5' }],
+    });
+
+    expect(await provider.loadWorkflowRun(forkRunId)).toMatchObject({
+      run_kind: 'counterfactual',
+      parent_run_id: baseRunId,
+      fork_sequence_id: 47,
+      fork_mutations: [{ kind: 'model', target: 'write', model: 'claude-opus-5' }],
+    });
+  });
+
+  it('groups a sweep of variants under one fork group', async () => {
+    const baseRunId = crypto.randomUUID();
+    const groupId = crypto.randomUUID();
+    await seedRun(baseRunId);
+
+    const variants = [crypto.randomUUID(), crypto.randomUUID()];
+    for (const runId of variants) {
+      await seedRun(runId);
+      await provider.saveRunLineage(runId, {
+        kind: 'counterfactual',
+        parent_run_id: baseRunId,
+        fork_sequence_id: 12,
+        fork_mutations: [],
+        fork_group_id: groupId,
+      });
+    }
+
+    const rows = await Promise.all(variants.map((id) => provider.loadWorkflowRun(id)));
+    expect(rows.map((r) => r?.fork_group_id)).toEqual([groupId, groupId]);
+  });
+
+  it('rejects a run kind the engine does not know', async () => {
+    const runId = crypto.randomUUID();
+    await seedRun(runId);
+
+    await expect(provider.saveRunLineage(runId, {
+      kind: 'bogus' as 'counterfactual',
+      parent_run_id: runId,
+      fork_sequence_id: 0,
+      fork_mutations: [],
+    })).rejects.toThrow();
+  });
+
+  it('leaves lineage intact when the run row is saved again', async () => {
+    const baseRunId = crypto.randomUUID();
+    const forkRunId = crypto.randomUUID();
+    await seedRun(baseRunId);
+    await seedRun(forkRunId);
+    await provider.saveRunLineage(forkRunId, {
+      kind: 'counterfactual',
+      parent_run_id: baseRunId,
+      fork_sequence_id: 3,
+      fork_mutations: [],
+    });
+
+    const state = createWorkflowState({ workflow_id: crypto.randomUUID(), goal: 'g' });
+    await provider.saveWorkflowRun({ ...state, run_id: forkRunId, status: 'completed' } as WorkflowState);
+
+    expect(await provider.loadWorkflowRun(forkRunId)).toMatchObject({
+      run_kind: 'counterfactual',
+      parent_run_id: baseRunId,
+      status: 'completed',
+    });
+  });
+});

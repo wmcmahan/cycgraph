@@ -45,5 +45,5 @@ export type { GraphRequirements, RequiredTool, RequirementsHost, RequirementsChe
 export { bundle, parseBundle, BundleIntegrityError } from './bundle.js';
 export type { BundleMeta } from './bundle.js';
 export type { GraphSpec, EdgeSugar, NodeRef } from './graph.js';
-export { run, state } from './run.js';
-export type { RunInput, RunOptions } from './run.js';
+export { run, runRecorded, state } from './run.js';
+export type { RunInput, RunOptions, RecordedRun } from './run.js';

@@ -86,6 +86,7 @@ vi.mock('../src/security/taint', () => ({
 }));
 
 import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { ActionSchema } from '../src/state/state.js';
 import { InMemoryEventLogWriter, EventSequenceConflictError } from '../src/persistence/event-log.js';
 import { REPLAY_VERSION } from '../src/state/reducers.js';
 import { hydrateWorkflowState } from '../src/state/state.js';
@@ -672,6 +673,86 @@ describe('Durable Execution — Event Sourcing', () => {
       );
       expect(advance).toBeDefined();
       expect(resume!.sequence_id).toBeLessThan(advance!.sequence_id);
+    });
+
+    it('recovers the memory a run was seeded with', async () => {
+      const eventLog = new InMemoryEventLogWriter();
+      const graph: Graph = {
+        id: uuidv4(),
+        name: 'seeded',
+        nodes: [makeNode('start'), makeNode('end')],
+        edges: [makeEdge('start', 'end')],
+        start_node: 'start',
+        end_nodes: ['end'],
+      };
+      const state = makeState({
+        workflow_id: graph.id,
+        memory: { seeded_input: 'rec-42' },
+      });
+
+      const live = await new GraphRunner(graph, state, { eventLog }).run();
+      expect(live.memory['seeded_input']).toBe('rec-42');
+
+      const recovered = await GraphRunner.recover(graph, state.run_id, eventLog);
+
+      expect(recovered['state'].memory['seeded_input']).toBe('rec-42');
+    });
+
+    it('accepts a recorded action whose tool call carried no args or result', () => {
+      const action = {
+        id: uuidv4(),
+        idempotency_key: 'k',
+        type: 'update_memory',
+        payload: { updates: { out: 'v' } },
+        metadata: {
+          node_id: 'n',
+          timestamp: new Date(),
+          attempt: 1,
+          tool_executions: [{ tool: 'ping', args: undefined, result: undefined }],
+        },
+      };
+
+      const recorded = JSON.parse(JSON.stringify(action));
+
+      expect('result' in recorded.metadata.tool_executions[0]).toBe(false);
+      expect(ActionSchema.safeParse(recorded).success).toBe(true);
+    });
+
+    it('recovers a run resumed by a human who supplied no data', async () => {
+      const eventLog = new InMemoryEventLogWriter();
+      const graph: Graph = {
+        id: uuidv4(),
+        name: 'hitl-bare-approval',
+        nodes: [makeNode('gate'), makeNode('after')],
+        edges: [makeEdge('gate', 'after')],
+        start_node: 'gate',
+        end_nodes: ['after'],
+      };
+      const state = makeState({
+        workflow_id: graph.id,
+        status: 'waiting',
+        waiting_for: 'human_approval',
+        current_node: 'gate',
+        visited_nodes: ['gate'],
+        memory: { _pending_approval: { node_id: 'gate' } },
+      });
+
+      const runner = new GraphRunner(graph, state, { eventLog });
+      runner.applyHumanResponse({ decision: 'approved' });
+      const live = await runner.run();
+
+      // A durable log round-trips through JSON, which drops keys whose value
+      // is undefined — `response` here, since the approval carried no data.
+      const durable = new InMemoryEventLogWriter();
+      for (const event of eventLog.getEventsForRun(state.run_id)) {
+        const { id: _id, created_at: _created, ...rest } = JSON.parse(JSON.stringify(event));
+        await durable.append(rest);
+      }
+
+      const recovered = await GraphRunner.recover(graph, state.run_id, durable);
+
+      expect(recovered['state'].status).toBe(live.status);
+      expect(recovered['state'].waiting_for).toBeUndefined();
     });
 
     it('compactEvents() on fresh runner (no events) returns 0', async () => {

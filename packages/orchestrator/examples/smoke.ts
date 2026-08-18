@@ -40,6 +40,7 @@ const RUNNABLE = [
   'learning-research-agent/learning-research-agent.ts',
   'composition/composition.ts',
   'graph-interface/index.ts',
+  'counterfactual-replay/counterfactual-replay.ts',
 ];
 
 /**

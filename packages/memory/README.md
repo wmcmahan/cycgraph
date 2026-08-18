@@ -27,7 +27,7 @@ npm install @cycgraph/memory
 
 **Optional packages**
 
-- [@cycgraph/orchestrator-postgres](./packages/orchestrator-postgres) - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
+- [@cycgraph/orchestrator-postgres](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator-postgres) - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
 
 ## Core Concepts
 
