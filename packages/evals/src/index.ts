@@ -203,3 +203,62 @@ export type {
   WriteBaselineResult,
   CompareBaselineOptions,
 } from './baseline/index.js';
+
+// ─── Telemetry Insights ────────────────────────────────────────────
+
+export type {
+  TelemetryLogLine,
+  TelemetryNodeUsage,
+  TelemetryAssertion,
+  RunTelemetry,
+  TelemetryNodeTiming,
+  Finding,
+  FindingSeverity,
+  Detector,
+  InsightsReport,
+  WorkflowProfile,
+  NodeProfile,
+} from './insights/index.js';
+export {
+  detectSignals,
+  detectOutliers,
+  computeMs,
+  detectAssertionFailures,
+  buildWorkflowProfile,
+  describeLever,
+  buildInsightsReport,
+  formatInsightsReport,
+  DETECTORS,
+} from './insights/index.js';
+
+// ─── Knob Sweeps ───────────────────────────────────────────────────
+
+export type {
+  KnobSweep,
+  KnobValue,
+  SweepObjective,
+  VariantOutcome,
+  BaselineOutcome,
+  SweepProposal,
+  SweepRejection,
+  SweepVerdict,
+  SweepInputs,
+  PromptBrief,
+  CombinationPlan,
+  CombinationVerdict,
+} from './sweep/index.js';
+export {
+  enumerateSweeps,
+  enumerateFromFinding,
+  enumerateFromProfile,
+  decideSweep,
+  planCombination,
+  decideCombination,
+  enumeratePromptBrief,
+  enumerateLeanPromptBrief,
+  renderPromptBrief,
+  sanitizePromptCandidates,
+  buildPromptSweep,
+  describeProposal,
+  describeVerdict,
+} from './sweep/index.js';

@@ -81,6 +81,7 @@ export async function evaluateQualityExecutor(
         prompt,
         output: Output.object({ schema: EvaluationSchema }),
         ...(agentConfig.maxOutputTokens !== undefined ? { maxOutputTokens: agentConfig.maxOutputTokens } : {}),
+        ...(agentConfig.temperature !== undefined ? { temperature: agentConfig.temperature } : {}),
         ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
       });
       evaluation = result.output;

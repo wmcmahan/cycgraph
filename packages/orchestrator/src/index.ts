@@ -270,7 +270,7 @@ export type {
 
 // ─── Counterfactual Replay ──────────────────────────────────────────
 
-export { fork, forkEach, estimateSweep, change, diffRuns, formatRunDiff, forkPoints, resolveTarget, canonicalJson, canonicalEquals } from './replay/index.js';
+export { fork, forkEach, estimateSweep, change, detectConflicts, describeChange, diffRuns, formatRunDiff, forkPoints, resolveTarget, canonicalJson, canonicalEquals } from './replay/index.js';
 export {
   ForkError,
   ForkPointError,

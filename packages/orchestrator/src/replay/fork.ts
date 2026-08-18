@@ -457,7 +457,10 @@ export async function fork(
   // not touch the world, so the guard has nothing left to protect.
   const memoizer = options.policy?.memoize
     ? createMemoizer({
-      index: await indexBaseRun(graph, events, seedState(graph, baseRunId, events), options.registry ?? emptyRegistry()),
+      index: await indexBaseRun(
+        graph, events, seedState(graph, baseRunId, events), options.registry ?? emptyRegistry(),
+        { fromSequenceId: forkSequenceId },
+      ),
       graph: overlays.graph,
       registry: overlays.registry,
     })

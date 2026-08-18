@@ -209,11 +209,15 @@ export async function executeAgent(
     });
     const taskPrompt = buildTaskPrompt(view, attempt);
 
+    const effectiveTemperature = options?.temperatureOverride ?? config.temperature;
+
     logger.info('executing', {
       agent_id: agentId,
       agent_name: config.name,
       model: effectiveConfig.model,
       ...(options?.modelOverride ? { original_model: config.model } : {}),
+      ...(effectiveTemperature !== undefined ? { temperature: effectiveTemperature } : {}),
+      ...(options?.temperatureOverride !== undefined ? { temperature_source: 'schedule' } : {}),
       attempt,
       tool_count: Object.keys(tools).length,
     });
@@ -255,8 +259,8 @@ export async function executeAgent(
         // applies and nothing changes for graphs that never configured it.
         ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
         onError: ({ error }) => { streamError = error; },
-        ...(options?.temperatureOverride !== undefined
-          ? { temperature: clampTemperature(options.temperatureOverride, effectiveConfig.provider, agentId) }
+        ...(effectiveTemperature !== undefined
+          ? { temperature: clampTemperature(effectiveTemperature, effectiveConfig.provider, agentId) }
           : {}),
         ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
         ...(options?.onToolCall ? {

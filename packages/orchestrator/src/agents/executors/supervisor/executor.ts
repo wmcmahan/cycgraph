@@ -159,6 +159,7 @@ export async function executeSupervisor(
       supervisor_id: node.id,
       agent_id: supervisorAgentId,
       managed_nodes: config.managed_nodes,
+      ...(agentConfig.temperature !== undefined ? { temperature: agentConfig.temperature } : {}),
       iteration: supervisorIterations + 1,
     });
 
@@ -172,6 +173,7 @@ export async function executeSupervisor(
         prompt: `Based on the current workflow state, decide which node should execute next. Choose from the available nodes or select '${SUPERVISOR_DONE}' if the goal is fully achieved.`,
         ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
         ...(agentConfig.maxOutputTokens !== undefined ? { maxOutputTokens: agentConfig.maxOutputTokens } : {}),
+        ...(agentConfig.temperature !== undefined ? { temperature: agentConfig.temperature } : {}),
         ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
       });
       decision = result.output;

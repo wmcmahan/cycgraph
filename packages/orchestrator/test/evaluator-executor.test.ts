@@ -151,6 +151,44 @@ describe('evaluateQualityExecutor', () => {
     expect(result.tokensUsed).toBe(150);
   });
 
+  it('samples at the configured temperature', async () => {
+    const { generateText } = await import('ai');
+    (generateText as any).mockResolvedValueOnce({
+      output: { score: 0.8, reasoning: 'r' },
+      usage: { totalTokens: 10 },
+    });
+
+    const { evaluateQualityExecutor } = await import('../src/agents/executors/evaluator/executor.js');
+    await evaluateQualityExecutor('eval-1', 'goal', 'output');
+
+    expect((generateText as any).mock.calls[0][0].temperature).toBe(0.3);
+  });
+
+  it('omits temperature when the agent declares none', async () => {
+    const { agentFactory } = await import('../src/agents/factory/index.js');
+    (agentFactory.loadAgent as any).mockResolvedValueOnce({
+      id: 'eval-1',
+      name: 'Quality Evaluator',
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      system: 'You are an expert evaluator.',
+      maxSteps: 1,
+      tools: [],
+      read_keys: ['*'],
+      write_keys: [],
+    });
+    const { generateText } = await import('ai');
+    (generateText as any).mockResolvedValueOnce({
+      output: { score: 0.8, reasoning: 'r' },
+      usage: { totalTokens: 10 },
+    });
+
+    const { evaluateQualityExecutor } = await import('../src/agents/executors/evaluator/executor.js');
+    await evaluateQualityExecutor('eval-1', 'goal', 'output');
+
+    expect('temperature' in (generateText as any).mock.calls[0][0]).toBe(false);
+  });
+
   it('returns 0 tokens when usage is missing', async () => {
     const { generateText } = await import('ai');
     (generateText as any).mockResolvedValueOnce({

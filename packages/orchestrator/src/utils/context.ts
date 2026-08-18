@@ -27,6 +27,8 @@ export interface RunContext {
   api_key_id?: string;
   /** Graph being executed. */
   graph_id?: string;
+  /** Node whose execution this async chain belongs to. */
+  node_id?: string;
   /**
    * Where log entries for this async chain go. Absent, they go to the process
    * streams. Async-local rather than global, so concurrent runs can send to
