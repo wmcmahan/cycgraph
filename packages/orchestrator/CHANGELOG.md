@@ -1,5 +1,24 @@
 # @cycgraph/orchestrator
 
+## 1.2.1
+
+### Patch Changes
+
+- cfef8c4: Memoized forks now replay repeated executions in recorded order. A fingerprint
+  seen twice used to be poisoned out of the memo index, so a base run whose node
+  ran twice on identical inputs — a supervisor sending a worker back, a fix-loop
+  iterating — could not be reproduced by a null fork: both executions re-ran
+  live and resampled. Executions now queue per fingerprint, each hit consumes
+  one, and the queue starts at the fork point so a fork taken between two
+  identical executions is served the one the prefix has not already consumed.
+- cfef8c4: Agents now sample at their configured `temperature`. The registry field was
+  documented and stored but never passed to the model call, so every agent,
+  supervisor, evaluator, and extractor ran at the provider's default and
+  `change.temperature` forks silently changed nothing. The effective temperature
+  is also logged per call (`agent.executor.executing`, supervisor `routing`),
+  and node-scoped log lines now carry `node_id` via the run context, so output
+  can be attributed to the conditions that produced it.
+
 ## 1.2.0
 
 ### Minor Changes
