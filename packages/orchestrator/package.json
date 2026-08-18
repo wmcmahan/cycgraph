@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/orchestrator",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Self-improving agent workflows: every run distills lessons into memory, and future runs retrieve them automatically. Cyclic graph engine with durable execution, per-node budgets, taint tracking, and human-in-the-loop gates.",
   "keywords": [
     "agents",
