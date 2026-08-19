@@ -109,6 +109,51 @@ export function forkPoints(events: readonly WorkflowEvent[]): ForkPointSummary[]
   return summaries;
 }
 
+/** One boundary inside a subgraph child, as listed by {@link childForkPoints}. */
+export interface ChildForkPointSummary {
+  /** Sequence id of the `child_node_started` in the parent's log. */
+  sequenceId: number;
+  /** Namespaced node id, e.g. `edit/locate`. */
+  nodeId: string;
+  /** The subgraph node whose child this boundary belongs to. */
+  subgraphNodeId: string;
+  /** The child's own run id, from `_child_run_id`. */
+  childRunId?: string;
+  /** Which execution of that namespaced node this was, 1-based. */
+  occurrence: number;
+}
+
+/**
+ * Every child-node boundary recorded in a run's log, in order.
+ *
+ * These are recorded but not yet addressable as fork points: forking at one
+ * would need the child's state reconstructed and the subgraph node resumed
+ * mid-child, which {@link planForkPoint} does not do yet. They exist so a
+ * session's log is inspectable to its full depth, and so tooling can name
+ * what happened inside a subgraph without loading anything else.
+ */
+export function childForkPoints(events: readonly WorkflowEvent[]): ChildForkPointSummary[] {
+  const summaries: ChildForkPointSummary[] = [];
+  const seen = new Map<string, number>();
+
+  for (const event of events) {
+    if (event.event_type !== 'child_node_started' || !event.node_id) continue;
+
+    const occurrence = (seen.get(event.node_id) ?? 0) + 1;
+    seen.set(event.node_id, occurrence);
+    const childRunId = event.internal_payload?.['_child_run_id'];
+    summaries.push({
+      sequenceId: event.sequence_id,
+      nodeId: event.node_id,
+      subgraphNodeId: event.node_id.split('/')[0]!,
+      ...(typeof childRunId === 'string' ? { childRunId } : {}),
+      occurrence,
+    });
+  }
+
+  return summaries;
+}
+
 /** Names of the nodes that executed, deduplicated, for error messages. */
 function executedNodes(points: readonly ForkPointSummary[]): string {
   const names = [...new Set(points.map(p => p.nodeId))];
@@ -118,12 +163,24 @@ function executedNodes(points: readonly ForkPointSummary[]): string {
 /** Pick the requested execution of a node, or explain why it is not there. */
 function selectOccurrence(
   points: readonly ForkPointSummary[],
+  events: readonly WorkflowEvent[],
   nodeId: string,
   occurrence: number | 'last' | undefined,
   form: string,
 ): ForkPointSummary {
   const matches = points.filter(p => p.nodeId === nodeId);
   if (matches.length === 0) {
+    // A namespaced id that DID record as a child boundary deserves a better
+    // answer than "never executed": the point exists in the log, the driver
+    // that resumes a run mid-child does not exist yet.
+    if (nodeId.includes('/') && childForkPoints(events).some(p => p.nodeId === nodeId)) {
+      const subgraphNodeId = nodeId.split('/')[0]!;
+      throw new ForkPointError(
+        `${form}: '${nodeId}' is inside subgraph node '${subgraphNodeId}'. Child boundaries are ` +
+        `recorded (childForkPoints() lists them) but not yet addressable as fork points — ` +
+        `fork { beforeNode: '${subgraphNodeId}' } to re-run the whole child under the change.`,
+      );
+    }
     throw new ForkPointError(
       `${form}: node '${nodeId}' never executed in this run. Nodes that did: ${executedNodes(points)}.`,
     );
@@ -279,7 +336,7 @@ export function planForkPoint(
 
   if ('beforeNode' in point) {
     const form = `{ beforeNode: '${point.beforeNode}' }`;
-    const match = selectOccurrence(points, point.beforeNode, point.occurrence, form);
+    const match = selectOccurrence(points, events, point.beforeNode, point.occurrence, form);
     return at(
       match.sequenceId,
       match.nodeId,
@@ -289,7 +346,7 @@ export function planForkPoint(
 
   if ('afterNode' in point) {
     const form = `{ afterNode: '${point.afterNode}' }`;
-    const match = selectOccurrence(points, point.afterNode, point.occurrence, form);
+    const match = selectOccurrence(points, events, point.afterNode, point.occurrence, form);
     const sequenceId = nextBoundaryAfter(events, match.sequenceId);
     const start = groupStart(events, sequenceId);
     return at(

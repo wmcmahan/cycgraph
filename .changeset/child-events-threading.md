@@ -1,0 +1,5 @@
+---
+"@cycgraph/orchestrator": patch
+---
+
+Subgraph child executions are recorded inline in the parent run's event log, and the recorded boundaries are forkable. Recording: `child_workflow_started`, `child_node_started`, `child_action_dispatched`, and `child_internal_dispatched` events with node ids namespaced under the subgraph node (`edit/locate`) and `internal_payload._child_run_id` carrying the child's run identity across nesting; parent state replay ignores child events by construction, so logs replay byte-identically with or without them and `REPLAY_VERSION` is unchanged. Addressing: `childForkPoints()` lists a log's child boundaries, and `forkInChild()` forks at one — the child session is extracted into a self-contained log and forked with the ordinary driver (overlays, side-effect guard, memoization included), then the parent tail optionally continues with the child variant's output mapped through the subgraph node's `output_mapping` as a `change.output` substitution. One nesting level per call.

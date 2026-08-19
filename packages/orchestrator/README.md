@@ -4,19 +4,17 @@
 
 [![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?label=%40cycgraph%2Forchestrator&color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io/docs)
+[![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io/docs/)
 
 </div>
 
----
+Build and compose your own agent workflows with a unified engine for running custom workflows with helpful built-in patterns like supervisor, swarm, map-reduce, and reflection.
 
-An orchestration engine for running cyclic LLM agent workflows — loops, conditional routing, parallel fan-out, and nested subgraphs. See [flattop.io](https://flattop.io/docs/) for full docs.
-
-- **[Quickstart](https://flattop.io/docs/getting-started/quickstart/)** — your first workflow in a handful of lines
-- **[Core Concepts](https://flattop.io/docs/concepts/overview/)** — graphs, nodes, agents, state, memory
-- **[Patterns](https://flattop.io/docs/patterns/supervisor/)** — runnable guides for each built-in pattern
-- **[Troubleshooting](https://flattop.io/docs/getting-started/troubleshooting/)** — common errors, fixes, and the gotchas that fail silently
-- **[Operations / Deployment](https://flattop.io/docs/operations/deployment/)** — durable persistence, distributed execution, monitoring
+- **[Quick Start](https://flattop.io/docs/getting-started/quick-start/)** - build your first workflow in 5 minutes
+- **[Core Concepts](https://flattop.io/docs/concepts/overview/)** - graphs, nodes, agents, state
+- **[Patterns](https://flattop.io/docs/patterns/supervisor/)** - runnable guides for each built-in pattern
+- **[Troubleshooting](https://flattop.io/docs/getting-started/troubleshooting/)** - common errors, fixes, and the gotchas that fail silently
+- **[Examples](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/)** - runnable examples for each built-in pattern and infrastructure setup
 
 ## Install
 
@@ -81,27 +79,6 @@ Each pattern is a node type. Declarative, composable, and traced through OpenTel
 - **[Verifier](https://flattop.io/docs/patterns/verifier/)** LLM-judge / filtrex expression / JSONPath assertion
 - **[Voting](https://flattop.io/docs/patterns/voting/)** consensus across N voter agents
 - **[Subgraph](https://flattop.io/docs/patterns/subgraph/)** Compose whole graphs as reusable blocks with isolated state
-
-## Counterfactual Replay
-
-The engine keeps a gap-validated event log so a crashed run can be rebuilt by replaying it. Point that at a question instead of a crash and you can fork a run: replay it to any node, change one thing, and re-run only the part the change could affect.
-
-```typescript
-import { runRecorded, fork, change } from '@cycgraph/orchestrator';
-
-const base = await runRecorded(workflow, { goal: 'Explain how vaccines work' });
-
-const terse = await fork(base, {
-  at: { beforeNode: 'write' },
-  change: change.prompt('write', 'Rewrite as exactly three bullet points.'),
-});
-
-console.log(terse.explain());
-```
-
-The replayed prefix is free — no model calls, because the stored actions already carry what the agents said. `forkEach()` runs one fork per variant off the same prefix, so the only thing separating them is the change. Nodes that touch the world are served their recorded result or blocked, never silently re-executed.
-
-See [Counterfactual Replay](https://flattop.io/docs/concepts/counterfactual-replay/).
 
 ## Examples
 

@@ -270,7 +270,7 @@ export type {
 
 // ─── Counterfactual Replay ──────────────────────────────────────────
 
-export { fork, forkEach, estimateSweep, change, detectConflicts, describeChange, diffRuns, formatRunDiff, forkPoints, resolveTarget, canonicalJson, canonicalEquals } from './replay/index.js';
+export { fork, forkEach, estimateSweep, change, applyChanges, detectConflicts, describeChange, diffRuns, formatRunDiff, forkPoints, childForkPoints, forkInChild, resolveTarget, canonicalJson, canonicalEquals } from './replay/index.js';
 export {
   ForkError,
   ForkPointError,
@@ -279,7 +279,8 @@ export {
   ReplayVersionMismatchError,
   SideEffectBlockedError,
 } from './replay/index.js';
-export { ChangeSchema } from './replay/index.js';
+export { ChangeSchema, ApplyError } from './replay/index.js';
+export type { AppliedChanges } from './replay/index.js';
 export type {
   ForkOptions,
   ForkResult,
@@ -289,6 +290,9 @@ export type {
   VariantResult,
   ForkPoint,
   ForkPointSummary,
+  ChildForkPointSummary,
+  ChildForkOptions,
+  ChildForkResult,
   ResolvedTarget,
   Change,
   ChangeInput,

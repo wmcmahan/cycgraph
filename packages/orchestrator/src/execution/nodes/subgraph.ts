@@ -25,6 +25,7 @@ import type { NodeExecutorContext } from './context.js';
 import { nodeIdempotencyKey } from './idempotency-key.js';
 import { SubgraphIncompleteError, SubgraphInterfaceError } from './errors.js';
 import { intersectCeilings } from '../../tools/registry.js';
+import { childEventLogWriter } from '../coordination/child-events.js';
 
 const logger = createLogger('runner.node.subgraph');
 const tracer = getTracer('orchestrator.subgraph');
@@ -221,6 +222,12 @@ export async function executeSubgraphNode(
     fitnessFunction: ctx.fitnessFunction,
     ...(ctx.rateLimiter ? { rateLimiter: ctx.rateLimiter } : {}),
     ...(ctx.logger ? { logger: ctx.logger } : {}),
+    // The child's execution recorded inline in the parent's log as `child_*`
+    // events under this node's namespace. Compaction stays off: the wrapper
+    // no-ops it anyway, and the child must never think it manages a log.
+    ...(ctx.recordChildEvent
+      ? { eventLog: childEventLogWriter(ctx.recordChildEvent, node.id), compactionInterval: 0 }
+      : {}),
   };
 
   // A prior run of this node paused its child for human approval and

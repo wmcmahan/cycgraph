@@ -163,6 +163,17 @@ export interface SweepInputs {
   models?: string[];
   /** The model in force, excluded from its own sweep. */
   currentModel?: string;
+  /**
+   * Fraction of the examined runs that hold their assertions (0–1).
+   *
+   * Decides which question a budget-exhaustion finding asks. A loop that
+   * exhausts its budget in FAILING runs motivates more room, which is the
+   * correctness sweep. One that exhausts its budget while every run passes
+   * has a stop condition doing its job, and more room would fix nothing —
+   * so the finding stands aside and the profile's cost sweep (cut the
+   * budget) claims the knob instead.
+   */
+  cleanRunRate?: number;
 }
 
 /**
@@ -395,7 +406,12 @@ export function enumerateSweeps(
 
   for (const finding of findings) {
     const sweep = enumerateFromFinding(finding, graph);
-    if (sweep) byKnob.set(sweep.id, sweep);
+    if (!sweep) continue;
+    // A correctness sweep exists to reproduce a failure; when every run
+    // passes there is none to reproduce, and letting it claim the knob would
+    // shadow the profile's cost question about the same budget.
+    if (sweep.objective === 'correctness' && inputs.cleanRunRate === 1) continue;
+    byKnob.set(sweep.id, sweep);
   }
 
   for (const node of profile?.nodes ?? []) {
