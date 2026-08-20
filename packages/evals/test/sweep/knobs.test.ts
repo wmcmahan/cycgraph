@@ -189,6 +189,29 @@ describe('enumerateSweeps', () => {
     expect(sweeps[0]!.objective).toBe('correctness');
   });
 
+  it('lets the cost question claim an exhausted cap when every run passes', () => {
+    const sweeps = enumerateSweeps(
+      [finding({ id: CAP_REACHED, nodeId: 'boss' })],
+      workflowProfile([nodeProfile({})]),
+      supervisorGraph(6),
+      { cleanRunRate: 1 },
+    );
+
+    expect(sweeps).toHaveLength(1);
+    expect(sweeps[0]!.objective).toBe('cost');
+  });
+
+  it('keeps the correctness question when any run fails', () => {
+    const sweeps = enumerateSweeps(
+      [finding({ id: CAP_REACHED, nodeId: 'boss' })],
+      workflowProfile([nodeProfile({})]),
+      supervisorGraph(6),
+      { cleanRunRate: 0.8 },
+    );
+
+    expect(sweeps[0]!.objective).toBe('correctness');
+  });
+
   it('works with no profile at all', () => {
     const sweeps = enumerateSweeps(
       [finding({ id: CAP_REACHED, nodeId: 'boss' })],

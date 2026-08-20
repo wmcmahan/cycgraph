@@ -41,7 +41,8 @@ import { NoopEventLogWriter } from '../../persistence/event-log.js';
 import type { AgentRegistry } from '../../persistence/interfaces.js';
 import type { ProviderRegistry } from '../../agents/providers/provider-registry.js';
 import { AgentFactory, agentFactory as globalAgentFactory } from '../../agents/factory/index.js';
-import { EventLogCoordinator } from '../coordination/event-log-coordinator.js';
+import { EventLogCoordinator, type AppendEventOptions } from '../coordination/event-log-coordinator.js';
+import type { EventType } from '../../persistence/event.js';
 import type { StreamEvent } from '../streaming/stream-events.js';
 import { computeMemoryDiff } from '../streaming/memory-differ.js';
 import { StateDeltaTracker, type StatePatch } from '../../persistence/delta-tracker.js';
@@ -765,6 +766,11 @@ export class GraphRunner extends EventEmitter {
       get tools() { return self.toolsOption; },
       get capabilityCeiling() { return self.capabilityCeiling; },
       get capabilityCeilings() { return self.capabilityCeilings; },
+      // The coordinator owns sequence assignment, so a subgraph child's
+      // events interleave into this run's log without a second writer.
+      get recordChildEvent() {
+        return (event_type: EventType, opts: AppendEventOptions) => self.events.append(event_type, opts);
+      },
       emit: (event, payload) => self.emit(event, payload),
       listenerCount: (event) => self.listenerCount(event),
     };

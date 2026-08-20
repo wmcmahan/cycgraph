@@ -13,8 +13,10 @@ export type {
   ReplayedAction,
 } from './replay-events.js';
 
-export { planForkPoint, forkPoints, ForkPointError } from './fork-point.js';
-export type { ForkPoint, ForkPointPlan, ForkPointSummary } from './fork-point.js';
+export { planForkPoint, forkPoints, childForkPoints, ForkPointError } from './fork-point.js';
+export { forkInChild, extractChildLog } from './fork-child.js';
+export type { ChildForkOptions, ChildForkResult } from './fork-child.js';
+export type { ForkPoint, ForkPointPlan, ForkPointSummary, ChildForkPointSummary } from './fork-point.js';
 
 export { fork } from './fork.js';
 export { forkEach, estimateSweep } from './fork-each.js';
@@ -44,6 +46,8 @@ export { canonicalJson, canonicalEquals } from './canonical.js';
 export { computeFingerprint } from './fingerprint.js';
 export type { FingerprintInput } from './fingerprint.js';
 
+export { applyChanges, ApplyError } from './apply.js';
+export type { AppliedChanges } from './apply.js';
 export { indexBaseRun, createMemoizer } from './memoize.js';
 export type { Memoizer, MemoEntry, MemoHit } from './memoize.js';
 

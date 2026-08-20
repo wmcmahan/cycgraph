@@ -46,8 +46,8 @@ class OverlayRegistry implements AgentRegistry {
   }
 }
 
-/** Apply one agent change to a cloned registry entry. */
-function patchEntry(entry: AgentRegistryEntry, c: AgentChange): AgentRegistryEntry {
+/** One agent change applied to a registry entry, id untouched. */
+export function patchEntry(entry: AgentRegistryEntry, c: AgentChange): AgentRegistryEntry {
   switch (c.kind) {
     case 'model':
       return { ...entry, model: c.model, ...(c.provider ? { provider: c.provider } : {}) };

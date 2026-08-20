@@ -19,6 +19,13 @@ import { ActionSchema } from '../state/state.js';
  * - `action_dispatched`   — an agent/node returned an Action (contains LLM response)
  * - `internal_dispatched` — `dispatchInternal()` was called (`_init`, `_advance`, `_complete`, etc.)
  * - `state_persisted`     — state snapshot was saved (marker only, no payload)
+ *
+ * The `child_*` variants are a subgraph child's execution recorded inline in
+ * the parent's log: same payloads as their plain counterparts, `node_id`
+ * prefixed with the subgraph node's id (`edit/locate`), and
+ * `internal_payload._child_run_id` carrying the child's own run id. Parent
+ * state replay ignores them — they exist so a session's log holds its
+ * children's history, addressable without leaving the run.
  */
 export const EventTypeSchema = z.enum([
   'workflow_started',
@@ -26,6 +33,10 @@ export const EventTypeSchema = z.enum([
   'action_dispatched',
   'internal_dispatched',
   'state_persisted',
+  'child_workflow_started',
+  'child_node_started',
+  'child_action_dispatched',
+  'child_internal_dispatched',
 ]);
 
 export type EventType = z.infer<typeof EventTypeSchema>;

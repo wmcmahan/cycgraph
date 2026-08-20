@@ -55,3 +55,29 @@ export type {
 // is an optional peer dependency, and the sandbox subpath carries the QuickJS WASM
 // engine — both are reached only via their subpaths (`@cycgraph/tools/memory`,
 // `@cycgraph/tools/sandbox`) so root-barrel consumers never load them.
+
+// ─── Workspace ─────────────────────────────────────────────────────
+
+export {
+  workspaceTools,
+  readFileTool,
+  searchTool,
+  editFileTool,
+  diagnosticsTool,
+  createWorkspaceSession,
+  contentHash,
+  readFileParameters,
+  searchParameters,
+  editFileParameters,
+  diagnosticsParameters,
+  jailedPath,
+  WorkspaceEscapeError,
+} from './workspace/index.js';
+export type {
+  ReadFileToolOptions,
+  SearchToolOptions,
+  EditFileToolOptions,
+  DiagnosticsToolOptions,
+  DiagnosticsResult,
+  WorkspaceSession,
+} from './workspace/index.js';

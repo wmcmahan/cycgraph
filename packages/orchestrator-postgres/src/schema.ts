@@ -221,7 +221,7 @@ export const workflow_events = pgTable('workflow_events', {
   run_id: uuid('run_id').references(() => workflow_runs.id, { onDelete: 'cascade' }).notNull(),
   sequence_id: integer('sequence_id').notNull(),
   event_type: text('event_type', {
-    enum: ['workflow_started', 'node_started', 'action_dispatched', 'internal_dispatched', 'state_persisted'],
+    enum: ['workflow_started', 'node_started', 'action_dispatched', 'internal_dispatched', 'state_persisted', 'child_workflow_started', 'child_node_started', 'child_action_dispatched', 'child_internal_dispatched'],
   }).notNull(),
   node_id: text('node_id'),
   action: jsonb('action'),

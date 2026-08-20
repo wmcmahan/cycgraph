@@ -30,6 +30,7 @@ import type { RateLimiter } from '../../agents/rate-limiter.js';
 import type { AgentRegistry } from '../../persistence/interfaces.js';
 import type { ProviderRegistry } from '../../agents/providers/provider-registry.js';
 import type { ToolsOption, CapabilityCeiling } from '../../tools/registry.js';
+import type { ChildEventSink } from '../coordination/child-events.js';
 
 /**
  * Raw tool definition — description + parameters without an execute function.
@@ -232,6 +233,12 @@ export interface NodeExecutorContext {
   capabilityCeiling?: CapabilityCeiling;
   /** Declared per-subgraph ceilings (from bundle manifests), threaded to child runners. */
   capabilityCeilings?: Record<string, CapabilityCeiling>;
+  /**
+   * Parent-log append facility for subgraph child events. When present, the
+   * subgraph executor records the child's execution as `child_*` events in
+   * this run's own log (see `coordination/child-events.ts`).
+   */
+  recordChildEvent?: ChildEventSink;
   /** Create a filtered state view for a node. */
   createStateView: (node: GraphNode) => StateView;
   /** Injected runtime dependencies. */

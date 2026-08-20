@@ -41,6 +41,7 @@ import type { AgentRegistry } from '../../persistence/interfaces.js';
 import type { ProviderRegistry } from '../../agents/providers/provider-registry.js';
 import type { ToolsOption, CapabilityCeiling } from '../../tools/registry.js';
 import { resolveBuiltinsOnly } from '../engine/fallback-tool-resolver.js';
+import type { ChildEventSink } from '../coordination/child-events.js';
 
 /**
  * Narrow view of the runner required by {@link buildExecutorContext}.
@@ -81,6 +82,7 @@ export interface ExecutorContextRunner {
   /** Capability ceilings (own + per-subgraph), for subgraph child capping. */
   capabilityCeiling?: CapabilityCeiling;
   capabilityCeilings?: Record<string, CapabilityCeiling>;
+  recordChildEvent?: ChildEventSink;
 
   emit(event: string, payload: unknown): boolean;
   listenerCount(event: string | symbol): number;
@@ -180,6 +182,7 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     tools: runner.tools,
     capabilityCeiling: runner.capabilityCeiling,
     capabilityCeilings: runner.capabilityCeilings,
+    recordChildEvent: runner.recordChildEvent,
     createStateView: (node: GraphNode) =>
       // Same derived-grants resolution as the execution driver's view build,
       // via the shared helper, so the two paths can never disagree.
