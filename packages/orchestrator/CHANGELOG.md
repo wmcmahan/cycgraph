@@ -1,5 +1,19 @@
 # @cycgraph/orchestrator
 
+## 1.2.2
+
+### Patch Changes
+
+- ad0f9c0: Subgraph child executions are recorded inline in the parent run's event log, and the recorded boundaries are forkable. Recording: `child_workflow_started`, `child_node_started`, `child_action_dispatched`, and `child_internal_dispatched` events with node ids namespaced under the subgraph node (`edit/locate`) and `internal_payload._child_run_id` carrying the child's run identity across nesting; parent state replay ignores child events by construction, so logs replay byte-identically with or without them and `REPLAY_VERSION` is unchanged. Addressing: `childForkPoints()` lists a log's child boundaries, and `forkInChild()` forks at one — the child session is extracted into a self-contained log and forked with the ordinary driver (overlays, side-effect guard, memoization included), then the parent tail optionally continues with the child variant's output mapped through the subgraph node's `output_mapping` as a `change.output` substitution. One nesting level per call.
+- ad0f9c0: `applyChanges(graph, registry, changes)`: permanent application of the replay
+  change vocabulary. The counterpart of the fork overlay for changes that have
+  earned their place — agents patch in place under their own ids, node configs
+  patch through schema and graph validation, and the durable subset (`model`,
+  `prompt`, `temperature`, `config`) is enforced by kind: the run-scoped kinds
+  (`output`, `tool`, `memory`, `route`, `human_response`) are rejected rather
+  than half-applied. Returns the patched graph and the changed registry entries
+  for the caller to persist.
+
 ## 1.2.1
 
 ### Patch Changes
