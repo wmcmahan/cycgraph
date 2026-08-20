@@ -1,5 +1,11 @@
 # @cycgraph/orchestrator-postgres
 
+## 4.1.1
+
+### Patch Changes
+
+- ad0f9c0: The `workflow_events.event_type` column type accepts the new `child_*` event types recorded by subgraph child-event threading. Text column, no migration required.
+
 ## 4.1.0
 
 ### Minor Changes
