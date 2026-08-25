@@ -1,0 +1,1 @@
+(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push(["object"==typeof document?document.currentScript:void 0,16850,e=>{"use strict";var t=e.i(49623),u=e.i(70187);e.s(["default",0,function(){let e=(0,u.useRouter)();return(0,t.useEffect)(()=>{e.replace("/runs/")},[e]),null}])}]);

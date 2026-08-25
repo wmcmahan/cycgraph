@@ -212,6 +212,31 @@ describe('enumerateSweeps', () => {
     expect(sweeps[0]!.objective).toBe('correctness');
   });
 
+  it('targets a subgraph child agent for a temperature sweep on its profile type', () => {
+    const flaky = finding({
+      id: 'assert:wf:memory_contains',
+      nodeId: undefined as never,
+    });
+    flaky.detector = 'assertions';
+    flaky.severity = 'medium';
+
+    const sweeps = enumerateSweeps(
+      [flaky],
+      workflowProfile([nodeProfile({
+        nodeId: 'edit/edit',
+        type: 'agent',
+        timeShare: 0.4,
+        temperature: { min: 0.1, max: 0.1 },
+      })]),
+      supervisorGraph(6),
+    );
+
+    const temp = sweeps.find((s) => s.knob === 'temperature');
+    expect(temp?.nodeId).toBe('edit/edit');
+    expect(temp?.objective).toBe('reliability');
+    expect(Object.keys(temp!.variants)).toContain('temperature=0.05');
+  });
+
   it('works with no profile at all', () => {
     const sweeps = enumerateSweeps(
       [finding({ id: CAP_REACHED, nodeId: 'boss' })],

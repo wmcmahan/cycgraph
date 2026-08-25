@@ -31,6 +31,22 @@ describe('buildWorkflowProfile', () => {
     expect(profile!.nodes.map(n => n.nodeId)).toEqual(['boss', 'worker']);
   });
 
+  it('shares child nodes against the top-level total, never a doubled one', () => {
+    const profile = buildWorkflowProfile('wf', [run({
+      runId: 'r',
+      nodeTiming: {
+        edit: { type: 'subgraph', total_ms: 800, visits: 1 },
+        'edit/locate': { type: 'agent', total_ms: 300, visits: 1 },
+        other: { type: 'tool', total_ms: 200, visits: 1 },
+      },
+    })]);
+
+    const share = Object.fromEntries(profile!.nodes.map((n) => [n.nodeId, n.timeShare]));
+    expect(share['edit']).toBe(0.8);
+    expect(share['edit/locate']).toBe(0.3);
+    expect(share['other']).toBe(0.2);
+  });
+
   it('orders nodes by what they contribute to a run', () => {
     const profile = buildWorkflowProfile('wf', [
       run({

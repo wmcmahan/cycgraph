@@ -65,6 +65,18 @@ const workflow = graph({
 run(workflow, { goal: 'Explain how LLMs work' });
 ```
 
+## Studio
+
+The studio is a dashboard over everything the engine records. Browse runs and
+their live log streams, inspect a workflow's topology, and let the improve lo op
+measure a workflow against its own evals. When a measured change wins, the
+studio walks it from proposal to a committed branch. Pushing stays yours.
+
+![A tour of the studio: workflow topology, the run browser, the log explorer, and a measured proposal](.github/assets/studio.gif)
+
+
+See [@cycgraph/studio](packages/studio) for setup.
+
 ## Built-in Patterns
 
 Each pattern is a node type. Declarative, composable, and traced through OpenTelemetry.

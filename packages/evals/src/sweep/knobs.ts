@@ -353,8 +353,15 @@ function temperatureSweep(
   if (!flaky) return undefined;
 
   const target = profile.nodes.find(node => {
-    const graphNode = graph.nodes.find(n => n.id === node.nodeId);
-    return graphNode?.agent_id !== undefined
+    // A namespaced id (`edit/edit`) is a subgraph child: it has no row in
+    // the parent graph, but the profile's type came from the child's own
+    // lifecycle events, so it is trusted the way the graph would be. The
+    // resulting change targets the namespaced id, which the fork driver
+    // dispatches into the child.
+    const agentBacked = node.nodeId.includes('/')
+      ? node.type === 'agent' || node.type === 'supervisor'
+      : graph.nodes.find(n => n.id === node.nodeId)?.agent_id !== undefined;
+    return agentBacked
       && node.timeShare >= WORTH_OPTIMISING
       && node.temperature !== undefined
       && node.temperature.min === node.temperature.max

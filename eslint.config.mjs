@@ -11,6 +11,8 @@ export default defineConfig(
       '**/dist/**',
       '**/coverage/**',
       '**/*.d.ts',
+      '**/.next/**',
+      '**/ui/out/**',
     ],
   },
   {

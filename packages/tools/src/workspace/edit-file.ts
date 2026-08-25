@@ -42,6 +42,27 @@ export const editFileParameters = z.object({
   replace: z.string().describe('What the snippet becomes.'),
 });
 
+/**
+ * Why an exact match failed, when the refusal can say more than "read again".
+ *
+ * The two diagnosable causes are both search-tool poisoning: search results
+ * print `NN:` line-number prefixes files do not contain, and they trim
+ * indentation. A find built from them can never match, so the refusal names
+ * the specific corruption instead of leaving the agent to rediscover it.
+ */
+function missDiagnosis(source: string, find: string): string {
+  if (/(^|\n)\s*\d+:\s/.test(find)) {
+    return "it carries 'NN:' line-number prefixes, which search results print but files do not contain; quote the exact text read_file shows";
+  }
+  const normalize = (text: string) =>
+    text.split('\n').map((line) => line.trim()).filter((line) => line.length > 0).join('\n');
+  const normalizedFind = normalize(find);
+  if (normalizedFind.length > 0 && normalize(source).includes(normalizedFind)) {
+    return 'it matches except for whitespace and indentation; copy the exact lines read_file shows, indentation included';
+  }
+  return 'read the file and use an exact snippet';
+}
+
 /** Replace one exact, unique snippet in one workspace file. */
 export function editFileTool(options: EditFileToolOptions): DefinedTool {
   return defineTool({
@@ -65,7 +86,7 @@ export function editFileTool(options: EditFileToolOptions): DefinedTool {
 
       const first = source.indexOf(find);
       if (first < 0) {
-        return `error: the find text does not appear in '${path}' — read the file and use an exact snippet`;
+        return `error: the find text does not appear in '${path}' — ${missDiagnosis(source, find)}`;
       }
       if (source.indexOf(find, first + 1) >= 0) {
         return `error: the find text appears more than once in '${path}' — include more surrounding context`;

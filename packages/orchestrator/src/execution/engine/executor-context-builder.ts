@@ -42,6 +42,7 @@ import type { ProviderRegistry } from '../../agents/providers/provider-registry.
 import type { ToolsOption, CapabilityCeiling } from '../../tools/registry.js';
 import { resolveBuiltinsOnly } from '../engine/fallback-tool-resolver.js';
 import type { ChildEventSink } from '../coordination/child-events.js';
+import type { ChildNodeEvent } from '../nodes/context.js';
 
 /**
  * Narrow view of the runner required by {@link buildExecutorContext}.
@@ -83,6 +84,8 @@ export interface ExecutorContextRunner {
   capabilityCeiling?: CapabilityCeiling;
   capabilityCeilings?: Record<string, CapabilityCeiling>;
   recordChildEvent?: ChildEventSink;
+  /** The `onChildNode` GraphRunnerOption, when this runner is itself a child. */
+  onChildNode?: (event: ChildNodeEvent) => void;
 
   emit(event: string, payload: unknown): boolean;
   listenerCount(event: string | symbol): number;
@@ -183,6 +186,23 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     capabilityCeiling: runner.capabilityCeiling,
     capabilityCeilings: runner.capabilityCeilings,
     recordChildEvent: runner.recordChildEvent,
+    // A nested runner forwards upward; the outermost one feeds its stream.
+    onChildNode: runner.onChildNode ?? ((event: ChildNodeEvent) => {
+      const streamEvent: StreamEvent = event.type === 'node:start'
+        ? { type: 'node:start', node_id: event.nodeId, node_type: event.nodeType, timestamp: Date.now() }
+        : {
+          type: 'node:complete',
+          node_id: event.nodeId,
+          node_type: event.nodeType,
+          duration_ms: event.durationMs ?? 0,
+          timestamp: Date.now(),
+        };
+      runner.emit(streamEvent.type, streamEvent);
+      if (runner.isStreaming) {
+        runner.tokenChannel.push(streamEvent);
+        runner.tokenNotify?.();
+      }
+    }),
     createStateView: (node: GraphNode) =>
       // Same derived-grants resolution as the execution driver's view build,
       // via the shared helper, so the two paths can never disagree.

@@ -97,7 +97,12 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, 
  * and dragging every median toward zero.
  */
 export function computeMs(run: RunTelemetry): number | undefined {
-  const entries = Object.values(run.nodeTiming ?? {});
+  // Top-level nodes only: a namespaced entry (`edit/locate`) is a subgraph
+  // child whose time is already inside its container node's duration, and
+  // summing both would double-count every subgraph span.
+  const entries = Object.entries(run.nodeTiming ?? {})
+    .filter(([nodeId]) => !nodeId.includes('/'))
+    .map(([, timing]) => timing);
   if (entries.length === 0) return undefined;
   return entries.reduce((sum, entry) => sum + entry.total_ms, 0);
 }

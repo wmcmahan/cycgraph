@@ -32,6 +32,14 @@ import type { ProviderRegistry } from '../../agents/providers/provider-registry.
 import type { ToolsOption, CapabilityCeiling } from '../../tools/registry.js';
 import type { ChildEventSink } from '../coordination/child-events.js';
 
+/** One child node's lifecycle beat, relative to the reporting runner. */
+export interface ChildNodeEvent {
+  type: 'node:start' | 'node:complete';
+  nodeId: string;
+  nodeType: string;
+  durationMs?: number;
+}
+
 /**
  * Raw tool definition — description + parameters without an execute function.
  */
@@ -239,6 +247,14 @@ export interface NodeExecutorContext {
    * this run's own log (see `coordination/child-events.ts`).
    */
   recordChildEvent?: ChildEventSink;
+  /**
+   * Where a subgraph child's node lifecycle surfaces. At the top-level
+   * runner this feeds the stream as namespaced `node:start` /
+   * `node:complete` events; inside a nested child it forwards upward,
+   * gaining one prefix per hop, so a grandchild's lifecycle reaches the
+   * outermost stream as `sub/inner/leaf`.
+   */
+  onChildNode?: (event: ChildNodeEvent) => void;
   /** Create a filtered state view for a node. */
   createStateView: (node: GraphNode) => StateView;
   /** Injected runtime dependencies. */

@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { resetLogLevelCache } from '../src/observability/logger.js';
 import { InMemoryEventLogWriter } from '../src/persistence/event-log.js';
 import { InMemoryAgentRegistry } from '../src/persistence/in-memory.js';
 import { defineTool } from '../src/tools/define-tool.js';
@@ -281,6 +282,43 @@ describe('subgraph child events in the parent log', () => {
   });
 });
 
+describe('subgraph child stream lifecycle', () => {
+  it('streams namespaced child node events inside the subgraph span', async () => {
+    const eventLog = new InMemoryEventLogWriter();
+    const graph = parentGraph();
+    const state = createWorkflowState({ workflowId: graph.id, goal: 'stream children' });
+    process.env['LOG_LEVEL'] = 'info';
+    resetLogLevelCache();
+    const logs: Array<{ context?: Record<string, unknown> }> = [];
+    const runner = new GraphRunner(graph, state, {
+      eventLog,
+      compactionInterval: 0,
+      loadGraphFn: async (id) => (id === 'child-graph' ? CHILD_GRAPH : null),
+      tools: TOOLS,
+      logger: (entry) => logs.push(entry),
+    });
+
+    const events: Array<{ type: string; node_id?: string; node_type?: string; duration_ms?: number }> = [];
+    for await (const event of runner.stream()) events.push(event as never);
+
+    const childStarts = events.filter((e) => e.type === 'node:start' && e.node_id?.includes('/'));
+    expect(childStarts.map((e) => e.node_id)).toEqual(['sub/step-a', 'sub/step-b']);
+
+    const childCompletes = events.filter((e) => e.type === 'node:complete' && e.node_id?.includes('/'));
+    expect(childCompletes).toHaveLength(2);
+    expect(childCompletes.every((e) => typeof e.duration_ms === 'number' && e.node_type === 'tool')).toBe(true);
+
+    const subStart = events.findIndex((e) => e.type === 'node:start' && e.node_id === 'sub');
+    const subComplete = events.findIndex((e) => e.type === 'node:complete' && e.node_id === 'sub');
+    const firstChild = events.findIndex((e) => e.node_id === 'sub/step-a');
+    expect(firstChild).toBeGreaterThan(subStart);
+    expect(firstChild).toBeLessThan(subComplete);
+
+    const namespacedLogs = logs.filter((entry) => String(entry.context?.['node_id'] ?? '').startsWith('sub/'));
+    expect(namespacedLogs.length).toBeGreaterThan(0);
+  });
+});
+
 describe('nested subgraph child events', () => {
   it('prefixes grandchild events with both subgraph node ids', async () => {
     const grandchild: Graph = {
@@ -348,9 +386,16 @@ describe('nested subgraph child events', () => {
       loadGraphFn: async (id) => graphs.get(id) ?? null,
       tools: TOOLS,
     });
-    const finalState = await runner.run();
+    const streamed: Array<{ type: string; node_id?: string }> = [];
+    let finalState = state;
+    for await (const event of runner.stream()) {
+      streamed.push(event as never);
+      if ('state' in event) finalState = (event as { state: typeof state }).state;
+    }
     const events: WorkflowEvent[] = await eventLog.loadEvents(finalState.run_id);
 
+    expect(streamed.filter((e) => e.type === 'node:start').map((e) => e.node_id))
+      .toEqual(['sub', 'sub/inner', 'sub/inner/leaf']);
     expect(finalState.status).toBe('completed');
     const starts = events.filter((e) => e.event_type === 'child_node_started').map((e) => e.node_id);
     expect(starts).toEqual(['sub/inner', 'sub/inner/leaf']);

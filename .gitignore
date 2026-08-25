@@ -22,3 +22,7 @@ packages/**/docs
 /docs
 .playground/
 packages/playground
+packages/template/
+.next/
+ui/out/
+next-env.d.ts
