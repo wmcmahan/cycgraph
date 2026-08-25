@@ -131,8 +131,13 @@ export function buildWorkflowProfile(
 
   if (totals.size === 0) return undefined;
 
-  const totalMs = [...totals.values()].reduce((sum, e) => sum + e.ms, 0);
-  const totalTokens = [...totals.values()].reduce((sum, e) => sum + e.tokens, 0);
+  // Denominators over top-level nodes only: a namespaced child's time and
+  // tokens are already inside its container's, so counting both would
+  // shrink every share. The child rows themselves stay — their share reads
+  // as the fraction of the run's real time spent inside that child node.
+  const topLevel = [...totals].filter(([nodeId]) => !nodeId.includes('/')).map(([, e]) => e);
+  const totalMs = topLevel.reduce((sum, e) => sum + e.ms, 0);
+  const totalTokens = topLevel.reduce((sum, e) => sum + e.tokens, 0);
 
   const nodes: NodeProfile[] = [...totals].map(([nodeId, entry]) => ({
     nodeId,

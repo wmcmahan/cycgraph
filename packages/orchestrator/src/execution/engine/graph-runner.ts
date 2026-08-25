@@ -43,6 +43,7 @@ import type { ProviderRegistry } from '../../agents/providers/provider-registry.
 import { AgentFactory, agentFactory as globalAgentFactory } from '../../agents/factory/index.js';
 import { EventLogCoordinator, type AppendEventOptions } from '../coordination/event-log-coordinator.js';
 import type { EventType } from '../../persistence/event.js';
+import type { ChildNodeEvent } from '../nodes/context.js';
 import type { StreamEvent } from '../streaming/stream-events.js';
 import { computeMemoryDiff } from '../streaming/memory-differ.js';
 import { StateDeltaTracker, type StatePatch } from '../../persistence/delta-tracker.js';
@@ -227,6 +228,12 @@ export interface GraphRunnerOptions {
   loadGraphFn?: (graphId: string) => Promise<Graph | null>;
   /** Optional event log writer for durable execution (event sourcing) */
   eventLog?: EventLogWriter;
+  /**
+   * Receives this runner's node lifecycle when it executes as a subgraph
+   * child. Set by the subgraph executor to chain lifecycle upward — hosts
+   * never set it directly.
+   */
+  onChildNode?: (event: ChildNodeEvent) => void;
   /** Token streaming callback — fires for each text delta from agent nodes */
   onToken?: (token: string, nodeId: string) => void;
   /** Middleware hooks for extending runner behavior */
@@ -454,6 +461,7 @@ export class GraphRunner extends EventEmitter {
   // barrier, failure tracking, and deferred appends are owned by the
   // coordinator; the runner keeps `eventLog` only for `getEventLog()`.
   private readonly eventLog: EventLogWriter;
+  private readonly onChildNodeOption?: (event: ChildNodeEvent) => void;
   private readonly events: EventLogCoordinator;
 
   // Token streaming callback
@@ -579,6 +587,7 @@ export class GraphRunner extends EventEmitter {
     this.persistStateFn = options?.persistState ?? options?.persistStateFn;
     this.loadGraphFn = options?.loadGraph ?? options?.loadGraphFn;
     this.eventLog = options?.eventLog ?? new NoopEventLogWriter();
+    this.onChildNodeOption = options?.onChildNode;
     this.events = new EventLogCoordinator({
       eventLog: this.eventLog,
       getRunId: () => this.state.run_id,
@@ -771,6 +780,7 @@ export class GraphRunner extends EventEmitter {
       get recordChildEvent() {
         return (event_type: EventType, opts: AppendEventOptions) => self.events.append(event_type, opts);
       },
+      get onChildNode() { return self.onChildNodeOption; },
       emit: (event, payload) => self.emit(event, payload),
       listenerCount: (event) => self.listenerCount(event),
     };

@@ -65,6 +65,17 @@ See the [Quickstart guide](https://flattop.io/docs/getting-started/quickstart/) 
 - **[@cycgraph/tools](./packages/tools)** - MCP and tools library.
 - **[@cycgraph/evals](https://github.com/wmcmahan/cycgraph/tree/main/packages/evals)** - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
 
+## Studio
+
+The studio is a dashboard over everything the engine records. Browse runs and
+their live log streams, inspect a workflow's topology, fork a recorded run to
+let the improve loop measure a workflow against its own evals, then walk the
+winning change from proposal to a committed branch.
+
+![A tour of the studio: workflow topology, the run browser, the log explorer, and a measured proposal](../../.github/assets/studio.gif)
+
+See [@cycgraph/studio](https://github.com/wmcmahan/cycgraph/tree/main/packages/studio) for setup.
+
 ## Built-in Patterns
 
 Each pattern is a node type. Declarative, composable, and traced through OpenTelemetry.

@@ -149,6 +149,26 @@ describe('editFileTool', () => {
     expect(await readFile(join(root, 'src', 'config.ts'), 'utf8')).toContain('maxIterations = 6');
   });
 
+  it('names line-number prefixes as the cause when the find quotes search output', async () => {
+    const result = await editFileTool({ root }).execute({
+      path: 'src/config.ts', find: '1: export const maxIterations = 6;', replace: 'x',
+    });
+
+    expect(result).toContain("'NN:' line-number prefixes");
+    expect(await readFile(join(root, 'src', 'config.ts'), 'utf8')).toContain('maxIterations = 6');
+  });
+
+  it('names indentation as the cause when the find matches except for whitespace', async () => {
+    await writeFile(join(root, 'src', 'indented.ts'), 'if (x) {\n  const limit = 5;\n}\n');
+
+    const result = await editFileTool({ root }).execute({
+      path: 'src/indented.ts', find: 'if (x) {\nconst limit = 5;\n}', replace: 'if (x) {\nconst limit = 3;\n}',
+    });
+
+    expect(result).toContain('except for whitespace and indentation');
+    expect(await readFile(join(root, 'src', 'indented.ts'), 'utf8')).toContain('  const limit = 5;');
+  });
+
   it('refuses an ambiguous find, changing nothing', async () => {
     const result = await editFileTool({ root }).execute({
       path: 'src/config.ts', find: 'export const', replace: 'x',

@@ -233,6 +233,12 @@ export async function runRecorded(
   // before the run does. In-memory providers do not care, which is what makes
   // this easy to omit until a durable backend is wired.
   await persistence.saveGraph(g);
+  // Children too: their session rows reference their own graph ids, and a
+  // later reader (fork resolution, an importer) resolves them from the
+  // same store rather than from this process's closure.
+  for (const child of collectClosure(g).children.values()) {
+    await persistence.saveGraph(child);
+  }
 
   const state = await runner.run();
   return {

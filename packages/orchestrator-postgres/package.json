@@ -35,7 +35,8 @@
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js",
       "default": "./dist/schema.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

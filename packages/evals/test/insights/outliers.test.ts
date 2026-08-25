@@ -20,6 +20,15 @@ describe('computeMs', () => {
     expect(computeMs(run({ runId: 'r' }))).toBeUndefined();
   });
 
+  it('counts a subgraph child inside its container, never twice', () => {
+    const total = computeMs(run({
+      runId: 'r',
+      nodeTiming: { edit: timing(900), 'edit/locate': timing(400), 'edit/edit': timing(450) },
+    }));
+
+    expect(total).toBe(900);
+  });
+
   it('ignores wall clock entirely', () => {
     const total = computeMs(run({ runId: 'r', durationMs: 30_961, nodeTiming: ran(4) }));
 

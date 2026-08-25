@@ -21,7 +21,8 @@ import {
   validateInbound,
   type BoundaryFailure,
 } from './boundary.js';
-import type { NodeExecutorContext } from './context.js';
+import type { ChildNodeEvent, NodeExecutorContext } from './context.js';
+import type { LogEntry } from '../../observability/logger.js';
 import { nodeIdempotencyKey } from './idempotency-key.js';
 import { SubgraphIncompleteError, SubgraphInterfaceError } from './errors.js';
 import { intersectCeilings } from '../../tools/registry.js';
@@ -62,6 +63,39 @@ function reviveChildState(raw: unknown): WorkflowState {
     ...(s.waiting_since != null ? { waiting_since: d(s.waiting_since) } : {}),
     ...(s.waiting_timeout_at != null ? { waiting_timeout_at: d(s.waiting_timeout_at) } : {}),
   } as WorkflowState;
+}
+
+/**
+ * Middleware reporting a child runner's node lifecycle to the parent.
+ *
+ * `node:complete` carries the same execution duration the parent's own
+ * stream events carry, so telemetry that sums per-node time can treat a
+ * child node exactly like a top-level one.
+ */
+function childLifecycleMiddleware(
+  subgraphNodeId: string,
+  onChildNode: (event: ChildNodeEvent) => void,
+): import('../middleware/middleware.js').GraphRunnerMiddleware {
+  const enteredAt = new Map<string, number>();
+  return {
+    async beforeNodeExecute(mw) {
+      enteredAt.set(mw.node.id, Date.now());
+      onChildNode({
+        type: 'node:start',
+        nodeId: `${subgraphNodeId}/${mw.node.id}`,
+        nodeType: mw.node.type,
+      });
+    },
+    async afterReduce(mw) {
+      const started = enteredAt.get(mw.node.id);
+      onChildNode({
+        type: 'node:complete',
+        nodeId: `${subgraphNodeId}/${mw.node.id}`,
+        nodeType: mw.node.type,
+        ...(started !== undefined ? { durationMs: Date.now() - started } : {}),
+      });
+    },
+  };
 }
 
 /**
@@ -221,12 +255,34 @@ export async function executeSubgraphNode(
     factSanitizer: ctx.factSanitizer,
     fitnessFunction: ctx.fitnessFunction,
     ...(ctx.rateLimiter ? { rateLimiter: ctx.rateLimiter } : {}),
-    ...(ctx.logger ? { logger: ctx.logger } : {}),
+    // Child log lines carry child-local node ids; the prefix keeps them
+    // attributable in a log stream shared with the parent (and stacks per
+    // nesting hop, since each level wraps again).
+    ...(ctx.logger
+      ? {
+        logger: (entry: LogEntry) => ctx.logger!(
+          entry.context && typeof entry.context['node_id'] === 'string'
+            ? { ...entry, context: { ...entry.context, node_id: `${node.id}/${entry.context['node_id'] as string}` } }
+            : entry,
+        ),
+      }
+      : {}),
     // The child's execution recorded inline in the parent's log as `child_*`
     // events under this node's namespace. Compaction stays off: the wrapper
     // no-ops it anyway, and the child must never think it manages a log.
     ...(ctx.recordChildEvent
       ? { eventLog: childEventLogWriter(ctx.recordChildEvent, node.id), compactionInterval: 0 }
+      : {}),
+    // Node lifecycle, surfaced two ways: this runner's own middleware
+    // reports the child's direct nodes, and the option below chains any
+    // grandchildren upward — each hop adds its prefix, so the outermost
+    // stream sees `sub/inner/leaf`.
+    ...(ctx.onChildNode
+      ? {
+        middleware: [childLifecycleMiddleware(node.id, ctx.onChildNode)],
+        onChildNode: (event: ChildNodeEvent) =>
+          ctx.onChildNode!({ ...event, nodeId: `${node.id}/${event.nodeId}` }),
+      }
       : {}),
   };
 
