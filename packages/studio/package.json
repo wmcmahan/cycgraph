@@ -1,7 +1,7 @@
 {
   "name": "@cycgraph/studio",
-  "version": "0.1.0",
-  "description": "The cycgraph studio: debug, improve, and monitor cycgraph runs \u2014 dashboard, counterfactual forking, and the tune/improve ladder over your own graphs.",
+  "version": "0.1.1",
+  "description": "The cycgraph studio: debug, improve, and monitor cycgraph runs — dashboard, counterfactual forking, and the tune/improve ladder over your own graphs.",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
@@ -30,11 +30,11 @@
   "dependencies": {
     "@ai-sdk/openai": "^4.0.36",
     "@cycgraph/a2a": "^1.0.0",
-    "@cycgraph/evals": "^0.3.0",
+    "@cycgraph/evals": "^0.3.1",
     "@cycgraph/memory": "^0.8.0",
-    "@cycgraph/orchestrator": "^1.2.2",
-    "@cycgraph/orchestrator-postgres": "^4.1.1",
-    "@cycgraph/tools": "^1.1.0",
+    "@cycgraph/orchestrator": "^1.2.3",
+    "@cycgraph/orchestrator-postgres": "^4.1.2",
+    "@cycgraph/tools": "^1.1.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@opentelemetry/api": "^1.9.0",
     "zod": "^4.3.6",

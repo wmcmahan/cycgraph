@@ -1,5 +1,11 @@
 # @cycgraph/orchestrator-postgres
 
+## 4.1.2
+
+### Patch Changes
+
+- 2adb2f1: Expose `./package.json` through the exports map, so tooling (e.g. a project-local migration script locating the shipped `drizzle/` folder) can resolve the package root.
+
 ## 4.1.1
 
 ### Patch Changes
