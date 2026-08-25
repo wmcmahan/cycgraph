@@ -1,5 +1,15 @@
 # @cycgraph/evals
 
+## 0.3.1
+
+### Patch Changes
+
+- 2adb2f1: The package is now published: `@cycgraph/studio` depends on its sweep, insight, and verdict machinery, so installing the studio pulls it from the registry.
+- 2adb2f1: Insights and sweeps understand namespaced child nodes: profile and outlier denominators count top-level nodes only (a child's time is already inside its container's), child boundaries appear as first-class profile rows, and temperature sweeps recognize a `/`-namespaced agent or supervisor row as agent-backed without a parent-graph lookup.
+- Updated dependencies [2adb2f1]
+- Updated dependencies [2adb2f1]
+  - @cycgraph/orchestrator@1.2.3
+
 ## 0.3.0
 
 ### Minor Changes

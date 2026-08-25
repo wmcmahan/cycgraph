@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/orchestrator-postgres",
-  "version": "4.1.1",
+  "version": "4.1.2",
   "description": "PostgreSQL persistence adapter for @cycgraph/orchestrator with Drizzle ORM, pgvector, and event sourcing.",
   "keywords": [
     "orchestrator",
@@ -68,7 +68,7 @@
     "dotenv": "^17.3.1"
   },
   "devDependencies": {
-    "@cycgraph/orchestrator": "^1.2.2",
+    "@cycgraph/orchestrator": "^1.2.3",
     "@cycgraph/memory": "^0.8.0",
     "@types/pg": "^8.18.0",
     "drizzle-kit": "^0.31.10",

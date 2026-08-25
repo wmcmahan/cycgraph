@@ -1,5 +1,12 @@
 # @cycgraph/orchestrator
 
+## 1.2.3
+
+### Patch Changes
+
+- 2adb2f1: Subgraph child nodes surface on the telemetry channel: a new `GraphRunnerOptions.onChildNode` seam reports namespaced `node:start`/`node:complete` lifecycle events (one path prefix per nesting hop) to the outermost runner's stream, and child log lines carry the same namespaced `node_id`, so a nested run's boundaries stay attributable end to end.
+- 2adb2f1: runRecorded persists the composition's child graphs alongside the root, so child-session rows reference graph ids the store actually holds and later readers (fork resolution, importers) resolve them without the recording process's in-memory closure.
+
 ## 1.2.2
 
 ### Patch Changes
