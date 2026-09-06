@@ -1,0 +1,42 @@
+# Core upkeep: sense the codebase's owed upkeep mechanically and file it
+# as deduped, capped GitHub issues. No model involved — the detectors are
+# grep and eslint — so the only credential is the token that reads and
+# writes issues. The issues are the upkeep ledger: the fix cycle over
+# them is a later tier, and nothing here edits code.
+
+name: Core upkeep
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: core-upkeep
+  cancel-in-progress: false
+
+jobs:
+  upkeep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools
+
+      - name: Sense and file upkeep issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run maintain --workspace=ops/maintenance -- core-upkeep --maxIssues 3

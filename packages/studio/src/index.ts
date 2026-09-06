@@ -17,8 +17,10 @@ export { catalogOf, availability } from './scenarios/catalog.js';
 // Generic plumbing a host's own maintenance workflow needs: clone, edit,
 // commit, and print the publish script. The workflows themselves belong to
 // whoever owns the repository, not to the studio.
-export { cloneToBranch, commit, pendingDiff, publishScript, changedIn } from './maintenance/branch.js';
-export type { Branch } from './maintenance/branch.js';
+// Delivery mechanics live in @cycgraph/tools/git; re-exported here so
+// existing studio consumers keep working.
+export { cloneToBranch, commit, pendingDiff, publishScript, publishBranch, changedIn } from '@cycgraph/tools/git';
+export type { Branch, Published } from '@cycgraph/tools/git';
 export type { Catalog, ScenarioAvailability } from './scenarios/catalog.js';
 export { loadScenarioFile, looksLikeScenarioFile, bundleScenario, ScenarioLoadError } from './scenarios/loader.js';
 export { loadStudioConfig, catalogFromConfig, stackDefaultsFrom, StudioConfigSchema, StudioConfigError } from './config.js';

@@ -56,6 +56,11 @@
       "types": "./dist/workspace/index.d.ts",
       "import": "./dist/workspace/index.js",
       "default": "./dist/workspace/index.js"
+    },
+    "./git": {
+      "types": "./dist/git/index.d.ts",
+      "import": "./dist/git/index.js",
+      "default": "./dist/git/index.js"
     }
   },
   "engines": {

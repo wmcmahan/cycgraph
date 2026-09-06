@@ -1,0 +1,55 @@
+# Optimization proposals: benchmark, make one optimization, re-benchmark.
+# A verified improvement — beyond the floor and the noise, nothing
+# regressed, scope respected, the orchestrator's test suite green —
+# becomes a ticket carrying the measured table and the diff, never a PR.
+# A human approves the ticket; the fix cycle applies it.
+#
+# Manual dispatch only: a proposal run spends real model and bench time
+# and routinely (honestly) produces nothing. Promote to a schedule once
+# a few dispatched runs have earned it.
+
+name: Optimization proposals
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Vitest bench file filter (empty benches everything)'
+        default: 'reducer'
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: opt-propose
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools
+
+      - name: Propose one measured optimization
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
+        # The benchmark cannot tell faster from doing less; the test
+        # suite is the correctness guard, so it gates the ticket.
+        run: >
+          npm run maintain --workspace=ops/maintenance -- opt-propose
+          --target "${{ inputs.target }}"
+          --checks "npm run test --workspace=packages/orchestrator"

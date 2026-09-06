@@ -1,0 +1,34 @@
+{
+  "name": "@cycgraph/maintenance",
+  "version": "0.0.0",
+  "private": true,
+  "description": "This repository's maintenance workflows: project operations, not a product package. Never published.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "maintain": "tsx src/run.ts",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^4.0.36",
+    "@cycgraph/orchestrator": "*",
+    "@cycgraph/orchestrator-postgres": "*",
+    "@cycgraph/tools": "*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "7.0.2",
+    "vitest": "^4.0.18"
+  }
+}

@@ -9,7 +9,8 @@
     "url": "git+https://github.com/wmcmahan/cycgraph.git"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "ops/*"
   ],
   "scripts": {
     "build": "npm run build --workspace=packages/orchestrator && npm run build --workspace=packages/memory && npm run build --workspace=packages/context-engine && npm run build --workspace=packages/tools && npm run build --workspace=packages/a2a && npm run build --workspace=packages/orchestrator-postgres && npm run build --workspace=packages/evals && npm run build --workspace=packages/studio",

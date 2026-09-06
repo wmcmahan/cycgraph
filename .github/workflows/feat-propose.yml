@@ -1,0 +1,52 @@
+# Feature proposals: study the codebase read-only, file one well-formed
+# feature ticket. The machine gate is structural — motivation, design,
+# evidence naming real files, mechanically checkable acceptance criteria
+# — and the quality gate is the human deciding whether the ticket earns
+# the `maintenance-approved` label. Nothing is edited; the merge of the
+# eventual implementation PR is the feature's only honest fitness signal.
+#
+# Manual dispatch only: proposal quality rides on the model and on a
+# human reviewing every ticket, so runs happen when someone wants one.
+
+name: Feature proposals
+
+on:
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: 'Steer the proposal toward an area or goal (empty lets the agent choose)'
+        default: ''
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: feat-propose
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools
+
+      - name: Propose one feature
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
+        run: >
+          npm run maintain --workspace=ops/maintenance -- feat-propose
+          --focus "${{ inputs.focus }}"
