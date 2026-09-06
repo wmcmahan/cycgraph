@@ -24,28 +24,34 @@ export interface FeatureProposal {
 
 const SECTIONS = ['MOTIVATION', 'DESIGN', 'EVIDENCE', 'ACCEPTANCE'] as const;
 
-/** Parse the line-oriented proposal format the proposer agent is told to emit. */
+/**
+ * Parse the line-oriented proposal format the proposer agent is told to
+ * emit. Tolerant of a capable model's instinct to typeset: headers
+ * survive markdown emphasis and heading marks (`**MOTIVATION:**`,
+ * `## DESIGN`), and acceptance bullets may be dashed, starred, or
+ * numbered.
+ */
 export function parseProposal(text: string): FeatureProposal {
-  const title = text.match(/^TITLE:\s*(.+)$/m)?.[1]?.trim() ?? '';
+  const title = text.match(/^[#*\s]*TITLE:\s*(.+)$/m)?.[1]
+    ?.trim().replace(/^\*+\s*/, '').replace(/\s*\*+$/, '').trim() ?? '';
 
   const sections: Record<string, string[]> = {};
   let current: string | undefined;
   for (const line of text.split('\n')) {
-    const header = line.match(/^([A-Z]+):\s*$/)?.[1];
+    const header = line.match(/^[#*\s]*([A-Z]+):?[*\s]*$/)?.[1];
     if (header !== undefined && (SECTIONS as readonly string[]).includes(header)) {
       current = header;
       sections[current] = [];
       continue;
     }
-    if (line.startsWith('TITLE:')) { current = undefined; continue; }
+    if (/^[#*\s]*TITLE:/.test(line)) { current = undefined; continue; }
     if (current !== undefined) sections[current]!.push(line);
   }
 
   const body = (name: string) => (sections[name] ?? []).join('\n').trim();
   const acceptance = (sections['ACCEPTANCE'] ?? [])
     .map((line) => line.trim())
-    .filter((line) => line.startsWith('-') || line.startsWith('*'))
-    .map((line) => line.slice(1).trim())
+    .map((line) => line.match(/^(?:[-*]|\d+[.)])\s+(.*)$/)?.[1] ?? '')
     .filter((line) => line.length > 0);
 
   const missing: string[] = [];

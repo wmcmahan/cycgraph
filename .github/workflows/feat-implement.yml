@@ -48,4 +48,4 @@ jobs:
         run: >
           npm run maintain --workspace=ops/maintenance -- feat-implement
           --issueNumber ${{ inputs.issueNumber || 0 }}
-          --checks "npm run lint"
+          --checks "npm run lint:eslint"

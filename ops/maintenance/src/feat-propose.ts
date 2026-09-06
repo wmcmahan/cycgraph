@@ -89,6 +89,9 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
             acceptance_count: parsed.acceptance.length,
             evidence_paths: evidencePaths,
             missing: parsed.missing,
+            // A refusal in CI is only diagnosable from the run log, so an
+            // invalid proposal carries its own head.
+            ...(valid ? {} : { proposal_head: String(proposal ?? '').slice(0, 400) }),
             detail: valid
               ? `well-formed: '${parsed.title}' with ${parsed.acceptance.length} acceptance criteria`
               : parsed.missing.length > 0
@@ -153,6 +156,7 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
           'EVIDENCE:', '<real repository paths you read, with what each shows>',
           'ACCEPTANCE:', '- <a mechanically checkable criterion: a command that must pass, or a concrete observable behavior>',
           'Every acceptance bullet must be checkable by a machine or a reviewer without judgement calls.',
+          'Command criteria should be workspace-scoped (npm run <script> --workspace=<pkg>, or npx vitest run <path>) so they run fast and only exercise what the feature touches.',
           'If a previous attempt is reported as malformed, fix exactly what the report names.',
         ].join('\n'),
         tools: [hands.search, hands.read],
@@ -205,7 +209,9 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
           startNode: clone,
           endNodes: [report],
         }),
-        input: { goal: 'Propose one well-formed feature.', maxIterations: 4 + p.attempts * 3 },
+        // clone + attempts × (propose, shape, gate) + ticket + report:
+        // exactly enough for the last allowed attempt to finish filing.
+        input: { goal: 'Propose one well-formed feature.', maxIterations: 3 + p.attempts * 3 },
         runner: {},
       };
     },
