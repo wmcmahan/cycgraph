@@ -22,7 +22,9 @@ export type { CoreFinding } from './core-scan.js';
 export { issueFix } from './issue-fix.js';
 export { optPropose } from './opt-workflow.js';
 export { featPropose } from './feat-propose.js';
-export { parseProposal, pathTokens, proposalKey } from './proposal.js';
+export { optApply } from './opt-apply.js';
+export { featImplement } from './feat-implement.js';
+export { extractTicketDiff, parseProposal, pathTokens, proposalKey, safeAcceptanceCommand } from './proposal.js';
 export type { FeatureProposal } from './proposal.js';
 export { compareBench, parseBenchJson, runAliasedBench } from './bench.js';
 export type { BenchComparison, BenchDelta, BenchRow } from './bench.js';
@@ -50,3 +52,9 @@ export const optWorkflowSourcePath = fileURLToPath(new URL('./opt-workflow.ts', 
 
 /** Where the feat-propose workflow's source lives, likewise. */
 export const featProposeSourcePath = fileURLToPath(new URL('./feat-propose.ts', import.meta.url));
+
+/** Where the opt-apply workflow's source lives, likewise. */
+export const optApplySourcePath = fileURLToPath(new URL('./opt-apply.ts', import.meta.url));
+
+/** Where the feat-implement workflow's source lives, likewise. */
+export const featImplementSourcePath = fileURLToPath(new URL('./feat-implement.ts', import.meta.url));

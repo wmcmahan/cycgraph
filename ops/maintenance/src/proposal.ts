@@ -76,3 +76,32 @@ export function pathTokens(text: string): string[] {
   return [...new Set((text.match(/[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+/g) ?? [])
     .map((token) => token.replace(/[.,;:)]+$/, '')))];
 }
+
+/**
+ * Command shapes an acceptance criterion may execute. An issue body is
+ * only semi-trusted — its author can edit it after approval — so a
+ * runnable criterion must invoke the repository's own scripts and
+ * checkers, never arbitrary programs or arguments. What these reject is
+ * still a criterion; it just waits for the human PR review instead.
+ */
+const SAFE_COMMANDS = [
+  /^npm test$/,
+  /^npm run [A-Za-z0-9:._-]+(?: --workspace=[A-Za-z0-9@/._-]+)?$/,
+  /^npx vitest run(?: [A-Za-z0-9/._-]+)?$/,
+  /^npx tsc --noEmit$/,
+];
+
+/** The runnable command inside an acceptance bullet, or `undefined`. */
+export function safeAcceptanceCommand(bullet: string): string | undefined {
+  const backticked = bullet.match(/`([^`]+)`/)?.[1] ?? bullet;
+  const command = backticked.trim();
+  return SAFE_COMMANDS.some((shape) => shape.test(command)) ? command : undefined;
+}
+
+/** The verified diff an optimization ticket carries in its fenced block. */
+export function extractTicketDiff(body: string): string | undefined {
+  const match = body.match(/```diff\n([\s\S]*?)```/);
+  const diff = match?.[1];
+  if (diff === undefined || diff.includes('… (truncated)')) return undefined;
+  return diff;
+}

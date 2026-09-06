@@ -22,6 +22,8 @@ headless runner here is what CI uses.
 | `issue-fix` | Fixes one `maintenance-approved` issue per run and opens a PR that closes it; the judge refuses erasure per finding class |
 | `opt-propose` | Benchmarks, makes one optimization, re-benchmarks; a verified improvement becomes a ticket carrying the measured table and diff — never a PR |
 | `feat-propose` | Studies the codebase read-only and files one well-formed feature ticket: motivation, design, evidence naming real files, mechanical acceptance criteria |
+| `opt-apply` | Implements one approved optimization ticket: re-applies its verified diff, re-benchmarks, PRs only if the improvement still holds; no model |
+| `feat-implement` | Implements one approved feature ticket against its own acceptance criteria; runnable criteria execute as the judge, the rest wait for PR review |
 
 ## Running
 
@@ -56,7 +58,12 @@ runs' combined error margins), `--scope <dir>` (changes outside it are
 refused), `--attempts n`. For `feat-propose`: `--focus <area>` steers
 the proposal; the gate is structural, and the quality gate is you —
 approve a ticket only when its evidence and acceptance criteria hold
-up. Benchmarks resolve the orchestrator from the
+up. For `opt-apply` and `feat-implement`: `--issueNumber n` targets a
+specific ticket, and `--ticketFile <path>` runs the same cycle from a
+saved ticket body without reading or closing anything on GitHub — how
+both are testable locally. Acceptance criteria only execute when they
+match a safe allowlist of repository script shapes; anything else waits
+for the PR review. Benchmarks resolve the orchestrator from the
 clone's own source via aliases, so the edit is what gets measured, and
 both sides of the comparison run the same way. Pass the repository's
 test suite as `--checks` when filing for real: the benchmark cannot

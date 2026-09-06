@@ -20,6 +20,8 @@ import { docsMaintenance, repoDocsMaintenance, websiteDocsMaintenance } from './
 import { issueFix } from './issue-fix.js';
 import { optPropose } from './opt-workflow.js';
 import { featPropose } from './feat-propose.js';
+import { featImplement } from './feat-implement.js';
+import { optApply } from './opt-apply.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { maintenanceEnvFromProcess } from './env.js';
@@ -34,6 +36,8 @@ const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
   'issue-fix': issueFix,
   'opt-propose': optPropose,
   'feat-propose': featPropose,
+  'opt-apply': optApply,
+  'feat-implement': featImplement,
 };
 
 const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts']);
@@ -191,6 +195,8 @@ async function main(): Promise<void> {
       : String(pick['detail'] ?? 'nothing')}`);
   }
   if (judgeResult !== undefined) say(`judge: ${String(judgeResult['detail'] ?? '')}`);
+  const accept = memory['accept_result'];
+  if (accept !== undefined) say(`acceptance: ${String(accept['detail'] ?? '')}`);
   const benchVerdict = memory['verdict_result'];
   if (benchVerdict !== undefined) say(`verdict: ${String(benchVerdict['detail'] ?? '')}`);
   const ticket = memory['ticket_result'];
