@@ -1,5 +1,20 @@
 # @cycgraph/orchestrator
 
+## 1.2.4
+
+### Patch Changes
+
+- 16b9cd8: The built-in Anthropic model registry and pricing table now know the
+  Claude 5 family — `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5`
+  — so agent configs naming them validate and cost accounting prices them
+  ($5/$25, $2/$10, and $10/$50 per MTok respectively) without a manual
+  `registry.addModel` call.
+- 16b9cd8: `runRecorded` now persists the workflow run row before executing, not
+  just the graph. With a durable event log the first flush's appends were
+  refused for lack of a run record to reference, silently losing the
+  run's earliest events; in-memory writers never cared, which is how the
+  omission survived.
+
 ## 1.2.3
 
 ### Patch Changes
