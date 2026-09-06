@@ -5,9 +5,8 @@
  * CLI and the dashboard drive the identical path. The one decision made
  * here rather than by the caller is WHICH repository to clone: the real one
  * when it tracks the target's source, a freshly built fixture when the
- * source is gitignored — the same check either way, so the day the
- * playground becomes tracked, every front end silently starts producing
- * publishable branches.
+ * source is gitignored. A host that wants no detection sets `repo` in its
+ * studio config; `config.applyRepo` bypasses this entirely.
  *
  * Publishing stays outside: the outcome carries the prepared PR script and
  * the committed diff, and running the script is the person's step.
@@ -54,17 +53,24 @@ export interface ApplyProposalOutcome {
 /**
  * The repository an apply should clone.
  *
- * The real repository wins when it tracks the target's source; a gitignored
- * playground gets a fixture built from the current tree instead, because a
- * clone of the real repo would not contain the file the editor must edit.
+ * The real repository wins when it tracks the target's source; an
+ * untracked target gets a fixture built from the current tree instead,
+ * because a clone of the real repo would not contain the file the editor
+ * must edit. When the catalog knows the target's source path the check is
+ * that file exactly; without one it falls back to asking whether the
+ * playground is tracked, the old whole-harness sentinel.
  */
 export async function resolveApplyRepo(
   repoRoot: string,
   playgroundRoot: string,
+  sourcePath?: string,
 ): Promise<{ root: string; fixture: boolean }> {
   const real = resolve(repoRoot);
+  const sentinel = sourcePath !== undefined && !relative(real, sourcePath).startsWith('..')
+    ? relative(real, sourcePath)
+    : 'packages/playground/src';
   const { stdout } = await exec(
-    'git', ['-C', real, 'ls-files', 'packages/playground/src'],
+    'git', ['-C', real, 'ls-files', sentinel],
   ).catch(() => ({ stdout: '' }));
   if (stdout.trim().length > 0) return { root: real, fixture: false };
 

@@ -40,17 +40,18 @@ export async function applyCommand(ctx: CliContext): Promise<void> {
   const requested = resolve(repoAt >= 0 ? args[repoAt + 1] ?? '.' : join('..', '..'));
   const stack = await resolveStack(config);
   try {
+    const sourcePath = ctx.catalog.find(record.workflow)?.sourcePath;
     const repo = repoAt >= 0
       ? { root: requested, fixture: false }
       : config.applyRepo
         ? { root: config.applyRepo, fixture: false }
-        : await resolveApplyRepo(requested, process.cwd());
+        : await resolveApplyRepo(requested, process.cwd(), sourcePath);
     if (repo.fixture) {
-      process.stdout.write(`  the repository does not track the playground — using a fixture at ${repo.root}\n`);
+      process.stdout.write(`  the repository does not track the workflow's source — using a fixture at ${repo.root}\n`);
     }
     const outcome = await applyProposal(stack, repo.root, record, (line) => {
       process.stdout.write(`  ${line}\n`);
-    }, ctx.catalog.find(record.workflow)?.sourcePath);
+    }, sourcePath);
 
     process.stdout.write(`\n${outcome.diff || '  (diff shown at commit)'}\n`);
     process.stdout.write(`  to open the PR:\n${outcome.prCommand.split('\n').map((l) => `    ${l}`).join('\n')}\n`);

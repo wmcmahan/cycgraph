@@ -22,6 +22,7 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { readEpoch, listProposals, saveProposals } from './proposals.js';
 import { loadHistory } from '../run/history.js';
+import { importAll } from '../run/import.js';
 import { tuneWorkflow } from './tune.js';
 import type { TuneOptions } from './tune.js';
 import type { Scenario } from '../scenarios/types.js';
@@ -121,6 +122,16 @@ export async function watchTick(
   const minRuns = options.minRuns ?? DEFAULT_MIN_RUNS;
   const rows: WatchRow[] = [];
   const epoch = await readEpoch(artifactRoot);
+
+  // The corpus self-refreshes before sensing reads it: runs any process
+  // recorded into the shared persistence — a headless runner, CI against
+  // the same database — are imported into the artifact tree first. An
+  // import that cannot happen never stops a tick.
+  const imported = (await importAll(stack, { limit: 200 }).catch(() => []))
+    .filter((outcome) => outcome.imported);
+  if (imported.length > 0) {
+    options.onProgress?.(`imported ${imported.length} external run(s) into the corpus`);
+  }
 
   for (const scenario of scenarios) {
     const row = await watchOne(stack, scenario, epoch, minRuns, options);

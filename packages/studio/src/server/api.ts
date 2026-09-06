@@ -900,14 +900,15 @@ export async function handle(
 
     watcher?.noteWorkStarted();
     try {
+      const sourcePath = catalog.find(record.workflow)?.sourcePath;
       const repo = config.applyRepo
         ? { root: config.applyRepo, fixture: false }
-        : await resolveApplyRepo(resolve(process.cwd(), '..', '..'), process.cwd());
-      if (repo.fixture) send('line', { message: `repository does not track the playground — using a fixture at ${repo.root}` });
+        : await resolveApplyRepo(resolve(process.cwd(), '..', '..'), process.cwd(), sourcePath);
+      if (repo.fixture) send('line', { message: `repository does not track the workflow's source — using a fixture at ${repo.root}` });
       const outcome = await applyProposal(stack, repo.root, record, (message) => {
         send('line', { message });
         bus?.publish({ kind: 'apply', scenarioId: record.workflow, data: { message } });
-      }, catalog.find(record.workflow)?.sourcePath);
+      }, sourcePath);
       send('done', {
         id: record.id,
         branch: outcome.branch,
