@@ -95,7 +95,7 @@ npx tsx examples/ollama-local/ollama-local.ts
 # MCP (needs BRAVE_API_KEY for web search)
 BRAVE_API_KEY=... ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/mcp-integration/mcp-integration.ts
 
-# Postgres (needs docker-compose up -d + npm run db:migrate)
+# Postgres (needs docker-compose up -d + npm run migrate --workspace=packages/orchestrator-postgres)
 ANTHROPIC_API_KEY=sk-ant-... DATABASE_URL=postgresql://... npx tsx examples/postgres-persistence/postgres-persistence.ts
 ```
 
