@@ -202,7 +202,13 @@ async function main(): Promise<void> {
   }
   if (judgeResult !== undefined) say(`judge: ${String(judgeResult['detail'] ?? '')}`);
   const accept = memory['accept_result'];
-  if (accept !== undefined) say(`acceptance: ${String(accept['detail'] ?? '')}`);
+  if (accept !== undefined) {
+    say(`acceptance: ${String(accept['detail'] ?? '')}`);
+    const firstFailure = (accept['failed'] as { command: string; output: string }[] | undefined)?.[0];
+    if (firstFailure !== undefined) {
+      say(`  ${firstFailure.command} output: …${firstFailure.output.replace(/\n/g, ' ⏎ ').slice(-400)}`);
+    }
+  }
   const shape = memory['shape_result'];
   if (shape !== undefined) {
     say(`shape: ${String(shape['detail'] ?? '')}`);

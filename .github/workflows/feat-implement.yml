@@ -36,7 +36,7 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/context-engine --workspace=packages/tools --workspace=packages/a2a --workspace=packages/orchestrator-postgres --workspace=packages/evals
 
       - name: Implement one approved feature
         env:
