@@ -64,6 +64,8 @@ const params = z.object({
     .describe('Findings to fix in one run: one branch, one commit per verified fix, one pull request'),
   since: z.string().default('')
     .describe('Diff mode: a git ref. Only findings a change since that ref plausibly staled are taken'),
+  budgetTokens: z.number().int().min(0).default(200000)
+    .describe('Hard token budget for the run; breach fails the run. Zero removes the cap'),
 });
 
 type Params = z.infer<typeof params>;
@@ -306,6 +308,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
           endNodes: [report],
         }),
         input: {
+          ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
           goal: p.batch > 1
             ? `Correct up to ${p.batch} stale claims in the documentation.`
             : 'Correct one stale claim in the documentation.',

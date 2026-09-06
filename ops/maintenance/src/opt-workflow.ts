@@ -58,6 +58,8 @@ const params = z.object({
     .describe('File the verified proposal as an issue. Off reports the verdict and diff only'),
   prompt: z.string().default('')
     .describe('Override the optimizer agent\'s instructions'),
+  budgetTokens: z.number().int().min(0).default(400000)
+    .describe('Hard token budget for the run; breach fails the run. Zero removes the cap'),
 });
 
 type Params = z.infer<typeof params>;
@@ -303,7 +305,8 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
           startNode: clone,
           endNodes: [report],
         }),
-        input: { goal: 'Propose one measured optimization.', maxIterations: 6 + p.attempts * 6 },
+        input: { goal: 'Propose one measured optimization.',
+          ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}), maxIterations: 6 + p.attempts * 6 },
         runner: {},
       };
     },

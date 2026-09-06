@@ -44,6 +44,44 @@ import { AgentTimeoutError, AgentExecutionError, type PartialUsage } from './err
 const logger = createLogger('agent.executor');
 const tracer = getTracer('orchestrator.agent');
 
+/**
+ * Mark the end of the current message prefix as an Anthropic cache
+ * breakpoint. The loop appends messages step over step, so a breakpoint
+ * on the last content part makes the next request re-read everything
+ * before it from cache. Exported for tests only.
+ */
+export function withCacheBreakpoint(messages: unknown[]): unknown[] {
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1] as { content: string | Array<Record<string, unknown>> };
+  const cache = { anthropic: { cacheControl: { type: 'ephemeral' } } };
+  const content = typeof last.content === 'string'
+    ? [{ type: 'text', text: last.content, providerOptions: cache }]
+    : last.content.map((part, index, all) => index === all.length - 1
+      ? { ...part, providerOptions: { ...(part['providerOptions'] as object | undefined), ...cache } }
+      : part);
+  return [...messages.slice(0, -1), { ...last, content }];
+}
+
+/** The per-step form of {@link withCacheBreakpoint}, for `prepareStep`. */
+export function cachePrepareStep({ messages }: { messages: unknown[] }): { messages: never } {
+  return { messages: withCacheBreakpoint(messages) as never };
+}
+
+/** Aggregate usage summed from per-step reports, totals derived when absent. */
+export function sumStepUsage(
+  steps: ReadonlyArray<{ usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }>,
+): { inputTokens: number; outputTokens: number; totalTokens: number } {
+  return steps.reduce(
+    (acc, step) => ({
+      inputTokens: acc.inputTokens + (step.usage?.inputTokens ?? 0),
+      outputTokens: acc.outputTokens + (step.usage?.outputTokens ?? 0),
+      totalTokens: acc.totalTokens + (step.usage?.totalTokens
+        ?? ((step.usage?.inputTokens ?? 0) + (step.usage?.outputTokens ?? 0))),
+    }),
+    { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+  );
+}
+
 /** Token usage from a single agent execution. */
 export interface TokenUsage {
   /** The number of input tokens consumed. */
@@ -66,6 +104,7 @@ interface AgentStep {
     toolCallId?: string;
     result?: unknown;
   }>;
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
 }
 
 /**
@@ -254,6 +293,14 @@ export async function executeAgent(
         prompt: taskPrompt,
         tools,
         stopWhen: isStepCount(config.maxSteps),
+        // Multi-step Anthropic agents re-send the whole growing transcript
+        // on every step at full price without cache markers; advancing a
+        // breakpoint to the end of each step's prefix turns every re-read
+        // into a cache hit. Single-step calls skip it — one request means
+        // one cache write and nothing to hit.
+        ...(effectiveConfig.provider === 'anthropic' && config.maxSteps > 2
+          ? { prepareStep: cachePrepareStep }
+          : {}),
         abortSignal: combinedSignal,
         // Omitted entirely when unset, so the provider's own default still
         // applies and nothing changes for graphs that never configured it.
@@ -346,12 +393,24 @@ export async function executeAgent(
       clearTimeout(timeoutId);
     }
 
+    // Providers differ in what the aggregate promise carries: some omit
+    // the total, some report nothing usable at all. Fall back to summing
+    // the per-step usage — a zero here silently disables cost accounting
+    // and token budgets for every run on the affected provider.
+    if ((usage?.inputTokens ?? 0) === 0 && (usage?.outputTokens ?? 0) === 0 && (usage?.totalTokens ?? 0) === 0) {
+      const summed = sumStepUsage(steps);
+      if (summed.totalTokens > 0) usage = summed;
+      else if (steps.length > 0) {
+        logger.warn('token_usage_missing', {
+          agent_id: agentId,
+          model: config.model,
+          steps: steps.length,
+        });
+      }
+    }
     const tokenUsage: TokenUsage = {
       inputTokens: usage?.inputTokens ?? 0,
       outputTokens: usage?.outputTokens ?? 0,
-      // Derived when absent: the Anthropic provider reports only input
-      // and output, and a zero total silently disables cost accounting
-      // and token budgets for every run on it.
       totalTokens: usage?.totalTokens ?? ((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)),
     };
 
