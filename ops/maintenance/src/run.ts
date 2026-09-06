@@ -193,6 +193,7 @@ async function main(): Promise<void> {
   const judgeResult = memory['judge_result'];
   say('');
   say(`status: ${recorded.state.status}`);
+  say(`tokens: ${recorded.state.total_tokens_used.toLocaleString('en-US')} · $${recorded.state.total_cost_usd.toFixed(4)}`);
   if (scan !== undefined) say(`findings in scope: ${String(scan['total'])}`);
   if (pick !== undefined) {
     say(`picked: ${pick['has_work'] === true
