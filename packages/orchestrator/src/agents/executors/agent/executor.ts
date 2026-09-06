@@ -349,7 +349,10 @@ export async function executeAgent(
     const tokenUsage: TokenUsage = {
       inputTokens: usage?.inputTokens ?? 0,
       outputTokens: usage?.outputTokens ?? 0,
-      totalTokens: usage?.totalTokens ?? 0,
+      // Derived when absent: the Anthropic provider reports only input
+      // and output, and a zero total silently disables cost accounting
+      // and token budgets for every run on it.
+      totalTokens: usage?.totalTokens ?? ((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)),
     };
 
     // Flatten tool calls and results from all steps
