@@ -225,6 +225,7 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
         model: env.model,
         provider: env.provider,
         temperature: 0.2,
+        maxSteps: 24,
         instructions: p.prompt !== '' ? p.prompt : [
           `You optimize one hot path in a codebase. The baseline benchmark table is in your context; the code lives under ${p.scope}.`,
           'Pick ONE benchmark with headroom, find the code it exercises, and make one focused change that plausibly raises its throughput: avoid redundant copies, hoist invariant work, cheapen the common case.',

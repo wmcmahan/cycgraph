@@ -78,6 +78,16 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
         description: 'Validate the proposal\'s structure and that its evidence names real files.',
         parameters: z.object({ proposal: z.unknown().optional() }),
         execute: async ({ proposal }) => {
+          if (String(proposal ?? '').trim() === '') {
+            return {
+              valid: false,
+              title: '',
+              acceptance_count: 0,
+              evidence_paths: [],
+              missing: ['everything'],
+              detail: 'the reply was empty — you likely spent every step exploring; read at most a handful of files, then write the full proposal in the required format',
+            };
+          }
           const parsed = parseProposal(String(proposal ?? ''));
           const evidencePaths = pathTokens(parsed.evidence)
             .filter((token) => existsSync(join(workspaceAt, token)));
@@ -145,6 +155,9 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
         model: env.model,
         provider: env.provider,
         temperature: 0.4,
+        // A capable model explores far more than the registry's 10-step
+        // default allows before writing; the cap must leave room to reply.
+        maxSteps: 24,
         instructions: p.prompt !== '' ? p.prompt : [
           'You study a codebase read-only and propose exactly ONE feature worth building.',
           p.focus !== '' ? `Focus area: ${p.focus}.` : 'Choose the highest-leverage gap you can defend with evidence.',
