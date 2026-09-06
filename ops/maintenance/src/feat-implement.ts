@@ -58,6 +58,8 @@ const params = z.object({
     .describe('Push and open the PR. Off leaves the prepared publish script'),
   prompt: z.string().default('')
     .describe('Override the implementer agent\'s instructions'),
+  budgetTokens: z.number().int().min(0).default(500000)
+    .describe('Hard token budget for the run; breach fails the run. Zero removes the cap'),
 });
 
 type Params = z.infer<typeof params>;
@@ -81,6 +83,33 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         search: searchTool({ root: workspaceAt }),
         edit: editFileTool({ root: workspaceAt, session }),
       };
+
+      // The implementer can run repository checks itself, so it iterates
+      // test-driven inside its turn instead of editing blind and waiting
+      // for the acceptance node's verdict. Same allowlist as acceptance:
+      // repository script shapes only, never arbitrary programs.
+      const runCheckTool = tool({
+        name: 'run_check',
+        description: 'Run one repository check command (npm test, npm run <script> [--workspace=pkg], npx vitest run [path], npx tsc --noEmit) in the workspace and see its output.',
+        parameters: z.object({ command: z.string().describe('The exact command to run; must match an allowed repository script shape') }),
+        timeoutMs: 960_000,
+        execute: async ({ command }) => {
+          const safe = safeAcceptanceCommand(command);
+          if (safe === undefined) {
+            return { passed: false, output: `refused: '${command}' is not an allowed repository check shape` };
+          }
+          try {
+            const { stdout } = await exec('sh', ['-c', safe], { cwd: workspaceAt, maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
+            return { passed: true, output: String(stdout).slice(-1_500) };
+          } catch (error) {
+            return {
+              passed: false,
+              output: String((error as { stdout?: string; stderr?: string }).stdout
+                ?? (error as { stderr?: string }).stderr ?? (error as Error).message).slice(-3_000),
+            };
+          }
+        },
+      });
 
       const delivery = deliveryNodes({
         repoRoot,
@@ -205,16 +234,17 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         model: env.model,
         provider: env.provider,
         temperature: 0.2,
-        maxSteps: 32,
+        maxSteps: 40,
         instructions: p.prompt !== '' ? p.prompt : [
           'You implement one approved feature in a codebase; the ticket in your context is the spec.',
           'Follow its design sketch and ground yourself in its evidence files. Write real code and real tests; the runnable acceptance criteria will be executed exactly as written and must pass.',
+          'After editing, run the ticket\'s runnable acceptance commands yourself with run_check and iterate on the failures; only reply once they pass for you.',
           'Use search to orient, read_file for exact bytes, edit_file to change them; the find text must match exactly once, and a multi-match refusal means retry with a longer find, never a different path.',
           'Match the surrounding code\'s style and conventions. Change nothing the feature does not need.',
           'If a previous attempt is reported with failing acceptance output, fix precisely what failed.',
           'When the implementation is complete, reply with one line: IMPLEMENTED <the ticket title>.',
         ].join(' '),
-        tools: [hands.search, hands.read, hands.edit],
+        tools: [hands.search, hands.read, hands.edit, runCheckTool],
       });
 
       const { clone, commit, publish } = delivery;
@@ -265,6 +295,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         }),
         input: {
           goal: 'Implement one approved feature ticket.',
+          ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
           maxIterations: 6 + p.attempts * 5,
         },
         runner: {},

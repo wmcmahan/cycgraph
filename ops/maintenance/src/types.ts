@@ -25,7 +25,7 @@ export interface MaintenanceEnv {
 /** What a build hands the runner. */
 export interface MaintenanceBuild {
   graph: Graph;
-  input: { goal: string; maxIterations?: number };
+  input: { goal: string; maxIterations?: number; maxTokenBudget?: number };
   runner: Partial<GraphRunnerOptions>;
 }
 

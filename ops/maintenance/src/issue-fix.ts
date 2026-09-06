@@ -56,6 +56,8 @@ const params = z.object({
     .describe('Push the committed branch to origin and open a pull request'),
   prompt: z.string().default('')
     .describe('Override the fixer agent\'s instructions. Empty uses the built-in prompt'),
+  budgetTokens: z.number().int().min(0).default(300000)
+    .describe('Hard token budget for the run; breach fails the run. Zero removes the cap'),
 });
 
 type Params = z.infer<typeof params>;
@@ -283,7 +285,8 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
           startNode: clone,
           endNodes: [report],
         }),
-        input: { goal: 'Resolve one approved upkeep issue.', maxIterations: 40 },
+        input: { goal: 'Resolve one approved upkeep issue.',
+          ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}), maxIterations: 40 },
         runner: {},
       };
     },

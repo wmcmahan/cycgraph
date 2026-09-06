@@ -40,6 +40,8 @@ const params = z.object({
     .describe('File the proposal as an issue. Off reports the proposal and verdict only'),
   prompt: z.string().default('')
     .describe('Override the proposer agent\'s instructions'),
+  budgetTokens: z.number().int().min(0).default(200000)
+    .describe('Hard token budget for the run; breach fails the run. Zero removes the cap'),
 });
 
 type Params = z.infer<typeof params>;
@@ -257,7 +259,8 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
         // clone + attempts × (propose, shape, gate) + ticket + report:
         // exactly enough for the last allowed attempt to finish filing.
         // clone + survey + attempts × (propose, shape, gate) + ticket + report.
-        input: { goal: 'Propose one well-formed feature.', maxIterations: 4 + p.attempts * 3 },
+        input: { goal: 'Propose one well-formed feature.',
+          ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}), maxIterations: 4 + p.attempts * 3 },
         runner: {},
       };
     },

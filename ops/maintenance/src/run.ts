@@ -40,7 +40,7 @@ const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
   'feat-implement': featImplement,
 };
 
-const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts']);
+const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens']);
 const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale']);
 const LIST_FLAGS = new Set(['checks']);
 
