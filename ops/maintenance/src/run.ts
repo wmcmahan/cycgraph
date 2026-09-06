@@ -20,7 +20,10 @@ import { docsMaintenance, repoDocsMaintenance, websiteDocsMaintenance } from './
 import { issueFix } from './issue-fix.js';
 import { optPropose } from './opt-workflow.js';
 import { featPropose } from './feat-propose.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { maintenanceEnvFromProcess } from './env.js';
+import { resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
@@ -34,7 +37,7 @@ const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
 };
 
 const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts']);
-const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file']);
+const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale']);
 const LIST_FLAGS = new Set(['checks']);
 
 function parseFlags(args: string[]): Record<string, unknown> {
@@ -98,6 +101,32 @@ function say(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
+/**
+ * Whether the repository is behind its origin's default branch, after a
+ * fetch. A stale local repository re-finds work that is already merged
+ * and delivers a duplicate, so a run against one is refused rather than
+ * wasted. Offline is not staleness: when the fetch cannot happen, the
+ * answer is "cannot tell" and the run proceeds.
+ */
+async function stalenessOf(repoRoot: string): Promise<string | undefined> {
+  const exec = promisify(execFile);
+  try {
+    await exec('git', ['fetch', '--quiet', 'origin'], { cwd: repoRoot, timeout: 20_000 });
+  } catch {
+    return undefined;
+  }
+  for (const ref of ['origin/HEAD', 'origin/main']) {
+    try {
+      const { stdout } = await exec('git', ['rev-list', '--count', `HEAD..${ref}`], { cwd: repoRoot });
+      const behind = Number(stdout.trim());
+      return behind > 0 ? `${behind} commit(s) behind ${ref}` : undefined;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
 async function main(): Promise<void> {
   const [id, ...rest] = process.argv.slice(2);
   const make = id !== undefined ? WORKFLOWS[id] : undefined;
@@ -108,9 +137,22 @@ async function main(): Promise<void> {
   }
 
   const workflow = make();
-  const params = workflow.params.parse(parseFlags(rest));
+  const raw = parseFlags(rest);
+  const params = workflow.params.parse(raw);
   const env = maintenanceEnvFromProcess();
   say(`${workflow.id} — model ${env.model} (${env.provider})`);
+
+  const repoRoot = await resolveRepo((params as { repoRoot?: string }).repoRoot ?? '');
+  const stale = await stalenessOf(repoRoot);
+  if (stale !== undefined) {
+    if (raw['allowStale'] !== true) {
+      say(`refusing: ${repoRoot} is ${stale} — a stale repository re-finds already-merged work.`);
+      say('Pull first, or pass --allowStale true to run anyway.');
+      process.exitCode = 1;
+      return;
+    }
+    say(`warning: ${stale} — proceeding because --allowStale was given`);
+  }
 
   const build = await workflow.build(params, env);
   const progress: GraphRunnerMiddleware = {

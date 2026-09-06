@@ -31,6 +31,12 @@ Headless, from the repository root (CI uses exactly this):
 npm run maintain --workspace=ops/maintenance -- repo-docs --batch 3
 ```
 
+The runner fetches first and refuses to run against a repository that
+is behind its origin's default branch — a stale local repository
+re-finds work that is already merged and delivers a duplicate PR. Pull
+first, or pass `--allowStale true` deliberately. Offline counts as
+"cannot tell", not stale, and the run proceeds.
+
 Flags mirror the workflow's params: `--batch n` (fixes per run, one
 commit each, one PR), `--since <ref>` (diff mode: only findings a change
 since that ref plausibly staled), `--skip n`, `--commit false` (inspect

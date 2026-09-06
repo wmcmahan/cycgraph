@@ -46,6 +46,7 @@ export const OPENAI_MODELS = [
 
 /** Known Anthropic model identifiers for provider inference and validation. */
 export const ANTHROPIC_MODELS = [
+  'claude-fable-5', 'claude-opus-5', 'claude-sonnet-5',
   'claude-opus-4-8', 'claude-sonnet-4-6',
   // Deprecated by Anthropic (retire 2026-06-15) — kept so existing configs still validate
   'claude-opus-4-20250514', 'claude-sonnet-4-20250514',

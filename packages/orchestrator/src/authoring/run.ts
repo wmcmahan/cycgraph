@@ -239,6 +239,10 @@ export async function runRecorded(
   for (const child of collectClosure(g).children.values()) {
     await persistence.saveGraph(child);
   }
+  // And the run row itself: a durable event log refuses to append before
+  // it exists, so without this the first flush's events are lost to
+  // foreign-key failures before the first snapshot creates the row.
+  await persistence.saveWorkflowRun(workflowState);
 
   const state = await runner.run();
   return {
