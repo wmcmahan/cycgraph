@@ -5,7 +5,8 @@
  */
 
 import { execFile } from 'node:child_process';
-import { isAbsolute, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 /**
@@ -24,4 +25,55 @@ export async function resolveRepo(value: string): Promise<string> {
   } catch {
     return process.cwd();
   }
+}
+
+/**
+ * A compact, deterministic map of the repository's tracked structure:
+ * each workspace package with its description and source layout, plus
+ * the root documents. Costs no model tokens to produce and spares an
+ * exploring agent the many searches it would otherwise spend
+ * rediscovering the same shape every run.
+ */
+export async function repoMap(root: string): Promise<string> {
+  const { stdout } = await promisify(execFile)(
+    'git', ['ls-files'], { cwd: root, maxBuffer: 32 * 1024 * 1024 },
+  );
+  const files = stdout.split('\n').filter(Boolean);
+
+  const packages = new Map<string, { srcDirs: Set<string>; srcFiles: number; docs: string[] }>();
+  const rootDocs: string[] = [];
+  for (const file of files) {
+    const match = file.match(/^(packages|ops|apps)\/([^/]+)\/(.*)$/);
+    if (!match) {
+      if (/^[^/]+\.md$/i.test(file)) rootDocs.push(file);
+      continue;
+    }
+    const key = `${match[1]}/${match[2]}`;
+    const rest = match[3]!;
+    const entry = packages.get(key) ?? { srcDirs: new Set<string>(), srcFiles: 0, docs: [] };
+    const srcMatch = rest.match(/^src\/(?:([^/]+)\/)?[^/]+\.(ts|tsx)$/);
+    if (srcMatch) {
+      entry.srcFiles += 1;
+      if (srcMatch[1] !== undefined) entry.srcDirs.add(srcMatch[1]);
+    }
+    if (/\.md$/i.test(rest) && !rest.includes('/')) entry.docs.push(rest);
+    packages.set(key, entry);
+  }
+
+  const lines: string[] = [`Repository map (tracked files). Root docs: ${rootDocs.join(', ')}`];
+  for (const [key, entry] of [...packages.entries()].sort()) {
+    let description = '';
+    try {
+      const manifest = JSON.parse(await readFile(join(root, key, 'package.json'), 'utf8')) as { description?: string };
+      description = manifest.description ?? '';
+    } catch {
+      // A directory without a manifest still lists its layout.
+    }
+    const dirs = [...entry.srcDirs].sort().join(' ');
+    lines.push(`${key} — ${description}`.trim());
+    if (entry.srcFiles > 0) lines.push(`  src (${entry.srcFiles} ts files): ${dirs || '(flat)'}`);
+    if (entry.docs.length > 0) lines.push(`  docs: ${entry.docs.join(', ')}`);
+  }
+  const map = lines.join('\n');
+  return map.length > 8_000 ? `${map.slice(0, 8_000)}\n… (truncated)` : map;
 }

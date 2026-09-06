@@ -26,7 +26,7 @@ import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { parseProposal, pathTokens, proposalKey } from './proposal.js';
-import { resolveRepo } from './repo.js';
+import { repoMap, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const params = z.object({
@@ -65,11 +65,15 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
 
       const cloneTool = tool({
         name: 'clone_repo',
-        description: 'Clone the repository into a disposable read-only workspace.',
+        description: 'Clone the repository and map it, so surveying starts oriented.',
         parameters: z.object({}),
+        timeoutMs: 120_000,
         execute: async () => {
           const ws = await cloneToBranch(repoRoot, `feat/scan-${randomUUID().slice(0, 8)}`, { at: workspaceAt });
-          return { workspace: ws.root };
+          // A deterministic map costs no model tokens to produce and is
+          // read once, replacing the many search calls a blind survey
+          // spends discovering the same structure every run.
+          return { workspace: ws.root, map: await repoMap(ws.root) };
         },
       });
 
@@ -149,37 +153,64 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
         },
       });
 
-      const proposer = agent({
-        id: 'feature-proposer',
-        name: 'Feature proposer',
+      // Proposing splits into two agents so an empty proposal is
+      // structurally impossible: the surveyor holds the tools and may
+      // spend its whole budget exploring; the drafter holds none, so its
+      // only possible act is writing. A deep-exploring model given one
+      // node for both reliably spends every step reading and never
+      // writes — this is the graph-space fix, not a prompt plea.
+      const surveyor = agent({
+        id: 'feature-surveyor',
+        name: 'Feature surveyor',
         model: env.model,
         provider: env.provider,
         temperature: 0.4,
-        // A capable model explores far more than the registry's 10-step
-        // default allows before writing; the cap must leave room to reply.
         maxSteps: 24,
-        instructions: p.prompt !== '' ? p.prompt : [
-          'You study a codebase read-only and propose exactly ONE feature worth building.',
+        instructions: [
+          'You survey a codebase read-only to find ONE feature worth proposing.',
+          'A map of the repository is in your context: use it to go straight to the few relevant files instead of searching for structure.',
           p.focus !== '' ? `Focus area: ${p.focus}.` : 'Choose the highest-leverage gap you can defend with evidence.',
-          'Use search and read_file to ground every claim; never invent files or APIs.',
+          'Use search and read_file to ground yourself; never invent files or APIs.',
+          'Reply with plain survey notes: the feature you chose and why, the real repository paths you read with one line on what each shows, existing conventions the change should follow, and which scripts or tests could mechanically verify it.',
+          'Cite a path only after read_file has shown you its contents; never infer filenames from directory names — the drafter can only use what you actually read.',
+        ].join('\n'),
+        tools: [hands.search, hands.read],
+      });
+
+      const drafter = agent({
+        id: 'feature-drafter',
+        name: 'Feature drafter',
+        model: env.model,
+        provider: env.provider,
+        temperature: 0.2,
+        maxSteps: 2,
+        instructions: p.prompt !== '' ? p.prompt : [
+          'You turn survey notes into exactly ONE feature proposal. You have no tools; write the proposal and nothing else.',
+          'Use only files and facts the survey names — never invent paths.',
           'Reply in exactly this format, with these headers on their own lines:',
           'TITLE: <one line naming the feature>',
-          'MOTIVATION:', '<why this matters, grounded in what the code does today>',
+          'MOTIVATION:', '<why this matters, grounded in what the survey observed>',
           'DESIGN:', '<a sketch of the change: which modules, which surfaces, what stays untouched>',
-          'EVIDENCE:', '<real repository paths you read, with what each shows>',
+          'EVIDENCE:', '<real repository paths from the survey, with what each shows>',
           'ACCEPTANCE:', '- <a mechanically checkable criterion: a command that must pass, or a concrete observable behavior>',
           'Every acceptance bullet must be checkable by a machine or a reviewer without judgement calls.',
           'Command criteria should be workspace-scoped (npm run <script> --workspace=<pkg>, or npx vitest run <path>) so they run fast and only exercise what the feature touches.',
           'If a previous attempt is reported as malformed, fix exactly what the report names.',
         ].join('\n'),
-        tools: [hands.search, hands.read],
+        tools: [],
       });
 
       const clone = node({ id: 'clone', type: 'tool', toolId: 'clone_repo', tools: [cloneTool] });
+      const survey = node({
+        id: 'survey',
+        agent: surveyor,
+        reads: ['clone_result'],
+        writes: 'survey',
+      });
       const propose = node({
         id: 'propose',
-        agent: proposer,
-        reads: ['shape_result'],
+        agent: drafter,
+        reads: ['survey', 'shape_result'],
         writes: 'proposal',
       });
       const shape = node({
@@ -210,9 +241,10 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
         graph: graph({
           name: 'feat-propose',
           description: 'Study the codebase read-only; a reviewable feature proposal becomes a ticket.',
-          nodes: [clone, propose, shape, gate, ticket, report],
+          nodes: [clone, survey, propose, shape, gate, ticket, report],
           edges: [
-            { from: clone, to: propose },
+            { from: clone, to: survey },
+            { from: survey, to: propose },
             { from: propose, to: shape },
             { from: shape, to: gate },
             { from: gate, to: ticket, when: 'memory.gate_verification_passed' },
@@ -224,7 +256,8 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
         }),
         // clone + attempts × (propose, shape, gate) + ticket + report:
         // exactly enough for the last allowed attempt to finish filing.
-        input: { goal: 'Propose one well-formed feature.', maxIterations: 3 + p.attempts * 3 },
+        // clone + survey + attempts × (propose, shape, gate) + ticket + report.
+        input: { goal: 'Propose one well-formed feature.', maxIterations: 4 + p.attempts * 3 },
         runner: {},
       };
     },
