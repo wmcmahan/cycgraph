@@ -83,16 +83,16 @@ These compose freely. Some useful combinations:
 
 ```bash
 # One suite only
-npm run evals -- --suite memory
+npm run evals --workspace=packages/evals -- --suite memory
 
 # Multi-sample to detect flakiness, no baseline
-npm run evals:ci -- --samples 5
+npm run evals:ci --workspace=packages/evals -- --samples 5
 
 # Tight baseline tolerance
 npm run evals:ci -- --baseline --baseline-noise-floor 1.0
 
 # CI mode but only library tests (fast PR gate without API costs)
-npm run evals -- --deterministic-only
+npm run evals --workspace=packages/evals -- --deterministic-only
 ```
 
 ## Environment variables
