@@ -89,7 +89,7 @@ npm run evals --workspace=packages/evals -- --suite memory
 npm run evals:ci --workspace=packages/evals -- --samples 5
 
 # Tight baseline tolerance
-npm run evals:ci -- --baseline --baseline-noise-floor 1.0
+npm run evals:ci --workspace=packages/evals -- --baseline --baseline-noise-floor 1.0
 
 # CI mode but only library tests (fast PR gate without API costs)
 npm run evals --workspace=packages/evals -- --deterministic-only
