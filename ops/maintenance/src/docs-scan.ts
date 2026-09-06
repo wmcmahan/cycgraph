@@ -170,7 +170,21 @@ async function knownScripts(root: string): Promise<Map<string, ScriptOwners>> {
   };
 
   await read(join(root, 'package.json'));
-  for (const group of ['packages', 'apps']) {
+  // Workspace groups come from the root manifest's own globs, so a group
+  // added later (ops/*) is known the day it appears; the static pair
+  // stays for directories docs mention that are not declared workspaces.
+  const groups = new Set(['packages', 'apps']);
+  try {
+    const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as
+      { workspaces?: string[] };
+    for (const pattern of manifest.workspaces ?? []) {
+      const group = /^([A-Za-z0-9_.-]+)\/\*$/.exec(pattern)?.[1];
+      if (group !== undefined) groups.add(group);
+    }
+  } catch {
+    // No readable root manifest; the static pair is the whole answer.
+  }
+  for (const group of groups) {
     let entries;
     try {
       entries = await readdir(join(root, group), { withFileTypes: true });

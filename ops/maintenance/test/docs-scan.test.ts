@@ -104,6 +104,17 @@ describe('scanDocs', () => {
     expect(await scanDocs(root)).toEqual([]);
   });
 
+  it('knows scripts in workspace groups the root manifest declares', async () => {
+    await write('package.json', JSON.stringify({
+      scripts: { build: 'tsc' },
+      workspaces: ['packages/*', 'ops/*'],
+    }));
+    await write('ops/thing/package.json', JSON.stringify({ name: 'thing', scripts: { maintain: 'x' } }));
+    await write('docs/guide.md', '```bash\nnpm run maintain --workspace=ops/thing -- repo-docs\n```\n');
+
+    expect(await scanDocs(root)).toEqual([]);
+  });
+
   it('reports a fenced command that cannot run where it is written', async () => {
     await write('packages/thing/package.json', JSON.stringify({ name: 'thing', scripts: { evals: 'x' } }));
     await write('docs/guide.md', '```bash\nnpm run evals -- --fast\n```\n');
