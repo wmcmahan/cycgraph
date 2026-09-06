@@ -9,17 +9,33 @@ import { withCacheBreakpoint } from '../src/agents/executors/agent/executor.js';
 const CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } };
 
 describe('withCacheBreakpoint', () => {
-  it('marks only the last part of the last message', () => {
+  it('marks the final part of each of the last three messages, none earlier', () => {
     const messages = [
       { role: 'user', content: [{ type: 'text', text: 'a' }] },
-      { role: 'tool', content: [{ type: 'tool-result', output: 'x' }, { type: 'tool-result', output: 'y' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'b' }] },
+      { role: 'tool', content: [{ type: 'tool-result', output: 'x' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'c' }] },
+      { role: 'tool', content: [{ type: 'tool-result', output: 'y' }, { type: 'tool-result', output: 'z' }] },
     ];
 
     const marked = withCacheBreakpoint(messages) as typeof messages;
 
     expect(marked[0]).toEqual(messages[0]);
-    expect((marked[1]!.content[0] as Record<string, unknown>)['providerOptions']).toBeUndefined();
-    expect((marked[1]!.content[1] as Record<string, unknown>)['providerOptions']).toEqual(CACHE);
+    expect(marked[1]).toEqual(messages[1]);
+    expect((marked[2]!.content[0] as Record<string, unknown>)['providerOptions']).toEqual(CACHE);
+    expect((marked[3]!.content[0] as Record<string, unknown>)['providerOptions']).toEqual(CACHE);
+    expect((marked[4]!.content[0] as Record<string, unknown>)['providerOptions']).toBeUndefined();
+    expect((marked[4]!.content[1] as Record<string, unknown>)['providerOptions']).toEqual(CACHE);
+  });
+
+  it('marks every message when there are fewer than three', () => {
+    const marked = withCacheBreakpoint([
+      { role: 'user', content: [{ type: 'text', text: 'a' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'b' }] },
+    ]) as { content: Array<Record<string, unknown>> }[];
+
+    expect(marked[0]!.content[0]!['providerOptions']).toEqual(CACHE);
+    expect(marked[1]!.content[0]!['providerOptions']).toEqual(CACHE);
   });
 
   it('wraps string content into a marked text part', () => {

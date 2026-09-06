@@ -45,21 +45,29 @@ const logger = createLogger('agent.executor');
 const tracer = getTracer('orchestrator.agent');
 
 /**
- * Mark the end of the current message prefix as an Anthropic cache
- * breakpoint. The loop appends messages step over step, so a breakpoint
- * on the last content part makes the next request re-read everything
- * before it from cache. Exported for tests only.
+ * Mark Anthropic cache breakpoints on the ends of the last three
+ * messages. Hits are looked up at the CURRENT request's breakpoints, so
+ * a single marker at the always-new end would never match anything
+ * previously written — every step would write the whole prefix and read
+ * nothing. Marking a trailing window keeps the previous request's
+ * boundary in this request too: the prefix up to it hits, and the new
+ * boundary writes only the delta. Three markers stays under Anthropic's
+ * four-breakpoint limit. Exported for tests only.
  */
 export function withCacheBreakpoint(messages: unknown[]): unknown[] {
   if (messages.length === 0) return messages;
-  const last = messages[messages.length - 1] as { content: string | Array<Record<string, unknown>> };
   const cache = { anthropic: { cacheControl: { type: 'ephemeral' } } };
-  const content = typeof last.content === 'string'
-    ? [{ type: 'text', text: last.content, providerOptions: cache }]
-    : last.content.map((part, index, all) => index === all.length - 1
-      ? { ...part, providerOptions: { ...(part['providerOptions'] as object | undefined), ...cache } }
-      : part);
-  return [...messages.slice(0, -1), { ...last, content }];
+  const firstMarked = Math.max(0, messages.length - 3);
+  return messages.map((entry, index) => {
+    if (index < firstMarked) return entry;
+    const message = entry as { content: string | Array<Record<string, unknown>> };
+    const content = typeof message.content === 'string'
+      ? [{ type: 'text', text: message.content, providerOptions: cache }]
+      : message.content.map((part, partIndex, all) => partIndex === all.length - 1
+        ? { ...part, providerOptions: { ...(part['providerOptions'] as object | undefined), ...cache } }
+        : part);
+    return { ...message, content };
+  });
 }
 
 /** The per-step form of {@link withCacheBreakpoint}, for `prepareStep`. */
@@ -273,7 +281,7 @@ export async function executeAgent(
       : controller.signal;
 
     let text: string;
-    let usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined;
+    let usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number; cachedInputTokens?: number } | undefined;
     let steps: AgentStep[];
     let result: Awaited<ReturnType<typeof streamText>> | undefined;
 
@@ -413,6 +421,14 @@ export async function executeAgent(
       outputTokens: usage?.outputTokens ?? 0,
       totalTokens: usage?.totalTokens ?? ((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)),
     };
+    // Cache reads bill at ~10%; surfacing them is how a run's log proves
+    // the prompt cache is hitting rather than writing on every step.
+    logger.info('token_usage', {
+      agent_id: agentId,
+      input_tokens: tokenUsage.inputTokens,
+      output_tokens: tokenUsage.outputTokens,
+      cached_input_tokens: usage?.cachedInputTokens ?? 0,
+    });
 
     // Flatten tool calls and results from all steps
     const toolCalls = steps.flatMap((step) => step.toolCalls ?? []);
