@@ -27,7 +27,7 @@ npm install
 # Optional: start Postgres + Jaeger for orchestrator-postgres work
 docker-compose up -d
 cp .env.example .env
-npm run db:migrate
+npm run migrate --workspace=packages/orchestrator-postgres
 ```
 
 ### Running Tests
