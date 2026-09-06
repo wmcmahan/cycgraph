@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The cycgraph studio: debug, improve, and monitor cycgraph runs — dashboard, counterfactual forking, and the tune/improve ladder over your own graphs.",
   "type": "module",
   "engines": {
@@ -42,7 +42,7 @@
     "@cycgraph/memory": "^0.8.0",
     "@cycgraph/orchestrator": "^1.2.3",
     "@cycgraph/orchestrator-postgres": "^4.1.2",
-    "@cycgraph/tools": "^1.1.1",
+    "@cycgraph/tools": "^1.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@opentelemetry/api": "^1.9.0",
     "zod": "^4.3.6",
