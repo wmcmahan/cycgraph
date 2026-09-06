@@ -90,3 +90,27 @@ describe('extractTicketDiff', () => {
     expect(extractTicketDiff('no diff here')).toBeUndefined();
   });
 });
+
+describe('parseProposal tolerance', () => {
+  it('accepts markdown-emphasized and heading-marked section headers', async () => {
+    const { parseProposal } = await import('../src/proposal.js');
+    const styled = [
+      '**TITLE:** Batch writer',
+      '## MOTIVATION',
+      'why',
+      '**DESIGN:**',
+      'how',
+      '### EVIDENCE',
+      'packages/x/src/a.ts shows it',
+      '**ACCEPTANCE:**',
+      '1. npm test',
+      '2) writeMany persists batches',
+    ].join('\n');
+
+    const parsed = parseProposal(styled);
+
+    expect(parsed.missing).toEqual([]);
+    expect(parsed.title).toBe('Batch writer');
+    expect(parsed.acceptance).toEqual(['npm test', 'writeMany persists batches']);
+  });
+});

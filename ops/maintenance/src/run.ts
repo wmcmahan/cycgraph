@@ -132,6 +132,11 @@ async function stalenessOf(repoRoot: string): Promise<string | undefined> {
 }
 
 async function main(): Promise<void> {
+  // Claude 5 models ignore sampling parameters and the AI SDK says so on
+  // every call; once understood, the repetition only buries real output
+  // in CI logs.
+  (globalThis as Record<string, unknown>)['AI_SDK_LOG_WARNINGS'] = false;
+
   const [id, ...rest] = process.argv.slice(2);
   const make = id !== undefined ? WORKFLOWS[id] : undefined;
   if (make === undefined) {
@@ -197,6 +202,19 @@ async function main(): Promise<void> {
   if (judgeResult !== undefined) say(`judge: ${String(judgeResult['detail'] ?? '')}`);
   const accept = memory['accept_result'];
   if (accept !== undefined) say(`acceptance: ${String(accept['detail'] ?? '')}`);
+  const shape = memory['shape_result'];
+  if (shape !== undefined) {
+    say(`shape: ${String(shape['detail'] ?? '')}`);
+    if (shape['proposal_head'] !== undefined) say(`  proposal began: ${String(shape['proposal_head']).replace(/\n/g, ' ⏎ ').slice(0, 300)}`);
+  }
+  const applyResult = memory['apply_result'];
+  if (applyResult !== undefined && applyResult['applied'] !== true) {
+    say(`apply: ${String(applyResult['detail'] ?? 'the diff did not apply')}`);
+  }
+  const checksResult = memory['checks_result'];
+  if (checksResult !== undefined && checksResult['clean'] === false) {
+    say(`checks failed: ${String(checksResult['output'] ?? '').replace(/\n/g, ' ⏎ ').slice(-400)}`);
+  }
   const benchVerdict = memory['verdict_result'];
   if (benchVerdict !== undefined) say(`verdict: ${String(benchVerdict['detail'] ?? '')}`);
   const ticket = memory['ticket_result'];
