@@ -205,6 +205,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         model: env.model,
         provider: env.provider,
         temperature: 0.2,
+        maxSteps: 32,
         instructions: p.prompt !== '' ? p.prompt : [
           'You implement one approved feature in a codebase; the ticket in your context is the spec.',
           'Follow its design sketch and ground yourself in its evidence files. Write real code and real tests; the runnable acceptance criteria will be executed exactly as written and must pass.',

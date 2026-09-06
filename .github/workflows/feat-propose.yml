@@ -49,4 +49,5 @@ jobs:
           CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
         run: >
           npm run maintain --workspace=ops/maintenance -- feat-propose
+          --attempts 3
           --focus "${{ inputs.focus }}"

@@ -213,6 +213,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         model: env.model,
         provider: env.provider,
         temperature: 0.1,
+        maxSteps: 16,
         instructions: p.prompt !== '' ? p.prompt : [
           'You resolve one piece of owed upkeep in a codebase: a TODO to implement, a skipped test to revive, or a lint warning to fix.',
           'Use search to orient, read_file to see exact bytes, and edit_file to change them.',
