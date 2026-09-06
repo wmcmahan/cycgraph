@@ -189,7 +189,7 @@ MuSiQue question ids encode how many documents the answer chains through. Retent
 cd packages/evals
 npm run bench          # hotpotqa-distractor-dev
 npm run bench -- --config bench.musique.config.json          # musique-ans-dev
-npm run bench:report -- bench-results/<artifacts...>
+npm run bench:report --workspace=packages/evals -- bench-results/<artifacts...>
 ```
 
 Requires `ANTHROPIC_API_KEY` (reader) and `npm run bench:setup-llmlingua` (LLMLingua-2 baseline). Subset selection is seeded — the same config reproduces the same questions on any machine; subset and config hashes above pin exactly what ran.
