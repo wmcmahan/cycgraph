@@ -1,0 +1,45 @@
+# Optimization apply: implement one approved optimization ticket. The
+# ticket carries a verified diff, so no model is involved: re-apply,
+# re-benchmark, and only an improvement that still holds — with the
+# orchestrator's test suite green — becomes the PR that closes it.
+
+name: Optimization apply
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+concurrency:
+  group: opt-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MAINTENANCE_PAT || github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools
+
+      - name: Apply one approved optimization
+        env:
+          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+          GIT_AUTHOR_NAME: cycgraph-maintenance
+          GIT_AUTHOR_EMAIL: maintenance@cycgraph.local
+        run: >
+          npm run maintain --workspace=ops/maintenance -- opt-apply
+          --checks "npm run test --workspace=packages/orchestrator"

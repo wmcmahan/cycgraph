@@ -203,7 +203,7 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
               '',
               `Measured: ${verdict?.detail ?? ''}`,
               '',
-              'Verified diff (re-verify on approval; apply via the fix cycle):',
+              'Verified diff (re-verified and applied by the opt-apply workflow on approval):',
               '```diff',
               diff.length > 60_000 ? `${diff.slice(0, 60_000)}\n… (truncated)` : diff,
               '```',
