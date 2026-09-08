@@ -23,4 +23,4 @@ export { ThemeSchema } from './theme.js';
 export type { Theme, ThemeInput } from './theme.js';
 
 export { MemoryQuerySchema, MemoryResultSchema } from './query.js';
-export type { MemoryQuery, MemoryResult } from './query.js';
+export type { MemoryQuery, MemoryQueryInput, MemoryResult } from './query.js';

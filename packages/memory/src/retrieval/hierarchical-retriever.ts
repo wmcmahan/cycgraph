@@ -10,7 +10,7 @@
  * @module retrieval/hierarchical-retriever
  */
 
-import type { MemoryQuery, MemoryResult } from '../schemas/query.js';
+import { MemoryQuerySchema, type MemoryQuery, type MemoryQueryInput, type MemoryResult } from '../schemas/query.js';
 import type { SemanticFact } from '../schemas/semantic.js';
 import type { Entity } from '../schemas/entity.js';
 import type { Theme } from '../schemas/theme.js';
@@ -31,13 +31,16 @@ import { filterValid } from './temporal-filter.js';
  *   `reflection` consumers that just want "lessons from graph X" without an
  *   embedding provider.
  * - All paths apply tag + temporal filtering and respect limits.
+ *
+ * The query is parsed through {@link MemoryQuerySchema}, so callers may pass
+ * a partial query and rely on the schema defaults; an invalid query throws.
  */
 export async function retrieveMemory(
   store: MemoryStore,
   index: MemoryIndex,
-  query: MemoryQuery,
+  query: MemoryQueryInput,
 ): Promise<MemoryResult> {
-  const result = await dispatch(store, index, query);
+  const result = await dispatch(store, index, MemoryQuerySchema.parse(query));
 
   // Usage bookkeeping: served facts get their access_count bumped so
   // consolidation's decay scoring can favor load-bearing facts. No-op for

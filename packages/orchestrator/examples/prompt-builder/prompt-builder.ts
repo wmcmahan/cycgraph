@@ -208,10 +208,17 @@ const edit = node({
   failurePolicy: { maxRetries: 2 },
 });
 
-// Declares no grants: its reads derive from what `manages` writes.
+// Derived reads would cover only the team's outputs; the routing
+// instructions also consult the plan keys, so the grant is the union.
 const lead = supervisor(supervisorAgent, {
   id: 'supervisor',
   manages: [research, write, edit],
+  reads: [
+    ...promptBuilder.writes,
+    ...research.writes,
+    ...write.writes,
+    ...edit.writes,
+  ],
   maxIterations: 10,
   failurePolicy: { maxRetries: 2 },
 });

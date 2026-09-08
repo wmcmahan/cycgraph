@@ -96,7 +96,7 @@ names.
 |---|---|
 | `index.ts` | Structural preflight, then a single run of `briefingGraph` |
 | `keys.ts` | The seeded memory keys, shared by the parent graph and the entry file |
-| `reaserchGraph/` | The reusable block: its agents, nodes, declared `inputs`/`outputs`, and its reflection node |
+| `researchGraph/` | The reusable block: its agents, nodes, declared `inputs`/`outputs`, and its reflection node |
 | `briefingGraph/` | The parent: embeds the block via `subgraph()` and formats its output |
 | `memory/` | The retriever and writer hooks over an in-memory store |
 | `context/` | The context-compressor hook over `@cycgraph/context-engine` |
