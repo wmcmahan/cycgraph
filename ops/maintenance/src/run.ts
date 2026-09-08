@@ -132,6 +132,11 @@ async function stalenessOf(repoRoot: string): Promise<string | undefined> {
 }
 
 async function main(): Promise<void> {
+  // Engine info logs carry the per-agent token_usage lines (cache reads
+  // and billed totals) that make a CI run's spend diagnosable; the
+  // logger's default level would hide them.
+  process.env['LOG_LEVEL'] ??= 'info';
+
   // Claude 5 models ignore sampling parameters and the AI SDK says so on
   // every call; once understood, the repetition only buries real output
   // in CI logs.

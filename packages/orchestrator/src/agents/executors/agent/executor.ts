@@ -75,6 +75,36 @@ export function cachePrepareStep({ messages }: { messages: unknown[] }): { messa
   return { messages: withCacheBreakpoint(messages) as never };
 }
 
+/** Usage as the AI SDK reports it, cache detail included when the provider has one. */
+export interface ReportedUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  inputTokenDetails?: {
+    noCacheTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
+}
+
+/**
+ * The billing-equivalent token total. Providers report cache reads
+ * inside `inputTokens` at full count while billing them at ~10% (and
+ * cache writes at 125%), so a budget counting raw volume kills runs
+ * whose real spend is a fraction of the number. Without cache detail
+ * this is plain input + output.
+ */
+export function billedTokenTotal(usage: ReportedUsage | undefined): number {
+  const input = usage?.inputTokens ?? 0;
+  const output = usage?.outputTokens ?? 0;
+  const details = usage?.inputTokenDetails;
+  const cacheRead = details?.cacheReadTokens ?? 0;
+  const cacheWrite = details?.cacheWriteTokens ?? 0;
+  if (cacheRead + cacheWrite === 0) return usage?.totalTokens ?? (input + output);
+  const noCache = details?.noCacheTokens ?? Math.max(0, input - cacheRead - cacheWrite);
+  return Math.round(noCache + 1.25 * cacheWrite + 0.1 * cacheRead + output);
+}
+
 /** Aggregate usage summed from per-step reports, totals derived when absent. */
 export function sumStepUsage(
   steps: ReadonlyArray<{ usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }>,
@@ -96,7 +126,10 @@ export interface TokenUsage {
   inputTokens: number;
   /** The number of output tokens generated. */
   outputTokens: number;
-  /** The total number of tokens (input + output). */
+  /**
+   * Billing-equivalent total: cache reads weighted at 0.1× and cache
+   * writes at 1.25×; plain input + output when no cache detail exists.
+   */
   totalTokens: number;
 }
 
@@ -281,7 +314,7 @@ export async function executeAgent(
       : controller.signal;
 
     let text: string;
-    let usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number; cachedInputTokens?: number } | undefined;
+    let usage: ReportedUsage | undefined;
     let steps: AgentStep[];
     let result: Awaited<ReturnType<typeof streamText>> | undefined;
 
@@ -419,7 +452,7 @@ export async function executeAgent(
     const tokenUsage: TokenUsage = {
       inputTokens: usage?.inputTokens ?? 0,
       outputTokens: usage?.outputTokens ?? 0,
-      totalTokens: usage?.totalTokens ?? ((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)),
+      totalTokens: billedTokenTotal(usage),
     };
     // Cache reads bill at ~10%; surfacing them is how a run's log proves
     // the prompt cache is hitting rather than writing on every step.
@@ -427,7 +460,9 @@ export async function executeAgent(
       agent_id: agentId,
       input_tokens: tokenUsage.inputTokens,
       output_tokens: tokenUsage.outputTokens,
-      cached_input_tokens: usage?.cachedInputTokens ?? 0,
+      cache_read_tokens: usage?.inputTokenDetails?.cacheReadTokens ?? 0,
+      cache_write_tokens: usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
+      billed_tokens: tokenUsage.totalTokens,
     });
 
     // Flatten tool calls and results from all steps

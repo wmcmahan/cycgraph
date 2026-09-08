@@ -89,3 +89,37 @@ describe('sumStepUsage', () => {
     expect(sumStepUsage([])).toEqual({ inputTokens: 0, outputTokens: 0, totalTokens: 0 });
   });
 });
+
+describe('billedTokenTotal', () => {
+  it('weights cache reads at a tenth and writes at a quarter premium', async () => {
+    const { billedTokenTotal } = await import('../src/agents/executors/agent/executor.js');
+
+    const billed = billedTokenTotal({
+      inputTokens: 1_000_000,
+      outputTokens: 10_000,
+      inputTokenDetails: { noCacheTokens: 50_000, cacheReadTokens: 900_000, cacheWriteTokens: 50_000 },
+    });
+
+    expect(billed).toBe(50_000 + 62_500 + 90_000 + 10_000);
+  });
+
+  it('derives the uncached share when the provider omits it', async () => {
+    const { billedTokenTotal } = await import('../src/agents/executors/agent/executor.js');
+
+    const billed = billedTokenTotal({
+      inputTokens: 100_000,
+      outputTokens: 1_000,
+      inputTokenDetails: { cacheReadTokens: 80_000, cacheWriteTokens: 10_000 },
+    });
+
+    expect(billed).toBe(10_000 + 12_500 + 8_000 + 1_000);
+  });
+
+  it('is plain input plus output without cache detail', async () => {
+    const { billedTokenTotal } = await import('../src/agents/executors/agent/executor.js');
+
+    expect(billedTokenTotal({ inputTokens: 500, outputTokens: 50 })).toBe(550);
+    expect(billedTokenTotal({ inputTokens: 500, outputTokens: 50, totalTokens: 555 })).toBe(555);
+    expect(billedTokenTotal(undefined)).toBe(0);
+  });
+});
