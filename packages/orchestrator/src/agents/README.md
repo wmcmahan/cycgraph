@@ -664,7 +664,7 @@ Zod-validated configuration schema. Agents are **pure config objects**, not clas
 }
 ```
 
-### `StateView` ([state.ts](../types/state.ts))
+### `StateView` ([state.ts](../state/state.ts))
 
 A **security-filtered** projection of `WorkflowState`. The `GraphRunner` constructs this using the agent's `read_keys`:
 
@@ -678,7 +678,7 @@ interface StateView {
 }
 ```
 
-### `Action` ([state.ts](../types/state.ts))
+### `Action` ([state.ts](../state/state.ts))
 
 The universal output type for all executors. Actions are processed by the `GraphRunner`'s reducer.
 

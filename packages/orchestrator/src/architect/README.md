@@ -448,7 +448,7 @@ Each handler (`handleDraftWorkflow`, `handlePublishWorkflow`, `handleGetWorkflow
 
 ## 9. Graph Validation
 
-### Integration: [graph-validator.ts](../validation/graph-validator.ts)
+### Integration: [graph-validator.ts](../graph/graph-validator.ts)
 
 The architect delegates structural validation to `validateGraph()`, which is shared with other subsystems. Validation returns a `ValidationResult` containing errors (hard failures) and warnings (potential issues).
 
