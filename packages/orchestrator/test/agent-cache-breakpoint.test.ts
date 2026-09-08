@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { withCacheBreakpoint } from '../src/agents/executors/agent/executor.js';
+import { withCacheBreakpoint, countCacheMarks } from '../src/agents/executors/agent/executor.js';
 
 const CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } };
 
@@ -139,5 +139,22 @@ describe('withCacheBreakpoint stale-mark stripping', () => {
     expect(marked[0]!.content[0]!['providerOptions']).toEqual({ anthropic: {}, other: { k: 1 } });
     expect(marked[1]!.content[0]!['providerOptions']).toEqual(CACHE);
     expect(marked[3]!.content[0]!['providerOptions']).toEqual(CACHE);
+  });
+});
+
+describe('countCacheMarks', () => {
+  it('counts marked parts across prepared messages', () => {
+    const prepared = withCacheBreakpoint([
+      { role: 'user', content: 'plain text message' },
+      { role: 'assistant', content: [{ type: 'text', text: 'a' }] },
+      { role: 'user', content: [{ type: 'text', text: 'b' }, { type: 'text', text: 'c' }] },
+    ]);
+
+    expect(countCacheMarks(prepared)).toBe(3);
+  });
+
+  it('returns zero for unmarked messages', () => {
+    expect(countCacheMarks([{ role: 'user', content: 'plain' }])).toBe(0);
+    expect(countCacheMarks([])).toBe(0);
   });
 });

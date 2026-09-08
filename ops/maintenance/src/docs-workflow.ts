@@ -60,6 +60,8 @@ const params = z.object({
     .describe('Push the committed branch to origin and open a pull request. Off leaves the prepared publish script in the commit result'),
   prompt: z.string().default('')
     .describe('Override the fixer agent\'s instructions. Empty uses the built-in prompt. A config knob so the tune loop can sweep it'),
+  attempts: z.number().int().min(1).max(6).default(3)
+    .describe('Fix attempts per finding before it is abandoned and the run moves to the next one'),
   batch: z.number().int().min(1).max(10).default(1)
     .describe('Findings to fix in one run: one branch, one commit per verified fix, one pull request'),
   since: z.string().default('')
@@ -150,8 +152,11 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
       const scanTool = tool({
         name: 'scan_docs',
         description: 'Find what the documentation claims that the repository contradicts.',
-        parameters: z.object({ commit_result: z.unknown().optional() }),
-        execute: async ({ commit_result }) => {
+        parameters: z.object({
+          commit_result: z.unknown().optional(),
+          judge_result: z.unknown().optional(),
+        }),
+        execute: async ({ commit_result, judge_result }) => {
           if (!deferredFetched) {
             deferredFetched = true;
             deferred = await openPrFiles(repoRoot, 'docs/');
@@ -163,7 +168,15 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
             changed = stdout.split('\n').filter(Boolean);
           }
           const findings = await scopedScan();
-          const finding = findings[p.skip];
+          // A finding with no candidates has no legitimate agent move: the
+          // referenced thing exists nowhere in the clone, correction is
+          // impossible and removal is what the judge refuses. Whether the
+          // reference or the absence is the mistake is a human question, so
+          // those findings are reported rather than burned against.
+          const abandoned = new Set(((judge_result as { abandoned_keys?: string[] } | undefined)?.abandoned_keys) ?? []);
+          const fixable = findings.filter((entry) => entry.candidates.length > 0 && !abandoned.has(findingKey(entry)));
+          const needsHuman = findings.filter((entry) => entry.candidates.length === 0);
+          const finding = fixable[p.skip];
           const fixedSoFar = (commit_result as { count?: number } | undefined)?.count ?? 0;
           const text = finding
             ? await readFile(join(workspaceAt, finding.file), 'utf8').catch(() => '')
@@ -172,6 +185,8 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
             total: findings.length,
             has_finding: finding !== undefined,
             any_fixed: fixedSoFar > 0,
+            needs_human: needsHuman.map((entry) => `${entry.file}: ${entry.detail.slice(0, 120)}`),
+            ...(abandoned.size > 0 ? { abandoned: [...abandoned] } : {}),
             findings: findings.slice(0, 20),
             // Complete, uncapped: the judge needs every before-key or
             // findings past the display cap read as introduced.
@@ -195,20 +210,43 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
       const judgeTool = tool({
         name: 'judge_fix',
         description: 'Re-scan and decide whether the targeted finding is gone.',
-        parameters: z.object({ scan_result: z.unknown().optional() }),
+        parameters: z.object({
+          scan_result: z.unknown().optional(),
+          judge_result: z.unknown().optional(),
+        }),
         // A tool node's read keys arrive as its arguments; tools get no
-        // ambient access to memory.
-        execute: async ({ scan_result }) => {
+        // ambient access to memory. Reading its own previous result is
+        // what lets the judge count attempts on a stuck finding and
+        // abandon it instead of grinding the run's whole iteration cap
+        // against it.
+        execute: async ({ scan_result, judge_result }) => {
           const before = scan_result as
             { finding?: DocsFinding; findings?: DocsFinding[]; finding_keys?: string[]; text?: string } | undefined;
+          const previous = judge_result as
+            { key?: string; resolved?: boolean; attempts?: number; abandoned_keys?: string[] } | undefined;
           const targeted = before?.finding;
           if (!targeted) return { resolved: false, weakened: false, detail: 'nothing was targeted' };
           const after = await scopedScan();
           const afterText = await readFile(join(workspaceAt, targeted.file), 'utf8').catch(() => '');
-          return judgeFix(targeted, before?.findings ?? [], after, {
+          const verdict = judgeFix(targeted, before?.findings ?? [], after, {
             before: before?.text ?? '',
             after: afterText,
           }, before?.finding_keys);
+          const key = findingKey(targeted);
+          const attempts = (previous?.key === key && previous.resolved !== true ? previous.attempts ?? 0 : 0) + 1;
+          const abandonedKeys = [...previous?.abandoned_keys ?? []];
+          const abandon = !verdict.resolved || verdict.weakened;
+          if (attempts >= p.attempts && abandon && !abandonedKeys.includes(key)) abandonedKeys.push(key);
+          return {
+            ...verdict,
+            key,
+            attempts,
+            gave_up: abandonedKeys.includes(key),
+            abandoned_keys: abandonedKeys,
+            ...(abandonedKeys.includes(key)
+              ? { detail: `${verdict.detail} — abandoned after ${attempts} attempt(s); a human should look` }
+              : {}),
+          };
         },
       });
 
@@ -245,7 +283,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
       });
 
       const { clone, commit, publish } = delivery;
-      const scan = node({ id: 'scan', type: 'tool', toolId: 'scan_docs', tools: [scanTool], reads: ['commit_result'] });
+      const scan = node({ id: 'scan', type: 'tool', toolId: 'scan_docs', tools: [scanTool], reads: ['commit_result', 'judge_result'] });
       const fix = node({
         id: 'fix',
         agent: fixer,
@@ -256,7 +294,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
         reads: [scan.result, 'judge_result', 'fix_report'],
         writes: 'fix_report',
       });
-      const judge = node({ id: 'judge', type: 'tool', toolId: 'judge_fix', tools: [judgeTool], reads: [scan.result] });
+      const judge = node({ id: 'judge', type: 'tool', toolId: 'judge_fix', tools: [judgeTool], reads: [scan.result, 'judge_result'] });
       const checks = node({ id: 'checks', type: 'tool', toolId: 'repo_checks', tools: [checksTool], reads: [] });
       const gate = verifier.expression(
         `memory.${judge.result}.resolved and not memory.${judge.result}.weakened`
@@ -295,7 +333,19 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
             { from: gate, to: commit, when: 'memory.gate_verification_passed' },
             // A fix that did not land goes back for another attempt, bounded
             // by the run's iteration cap.
-            { from: gate, to: fix, when: 'not memory.gate_verification_passed' },
+            {
+              from: gate,
+              to: fix,
+              when: `not memory.gate_verification_passed and not memory.${judge.result}.gave_up`,
+            },
+            // A finding the judge has abandoned goes back to scan, which
+            // skips it and takes the next one instead of grinding the
+            // iteration cap against work the agent cannot do.
+            {
+              from: gate,
+              to: scan,
+              when: `not memory.gate_verification_passed and memory.${judge.result}.gave_up`,
+            },
             // Batch: rescan for the next finding until the quota is met.
             // The re-scan no longer reports what earlier cycles fixed, so
             // the next finding is simply the first eligible one again.

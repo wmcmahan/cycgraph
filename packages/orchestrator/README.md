@@ -62,7 +62,7 @@ See the [Quickstart guide](https://flattop.io/docs/getting-started/quickstart/) 
 - **[@cycgraph/memory](https://github.com/wmcmahan/cycgraph/tree/main/packages/memory)** - Temporal knowledge graph + xMemory-inspired hierarchical retrieval (messages → episodes → facts → themes).
 - **[@cycgraph/context-engine](https://github.com/wmcmahan/cycgraph/tree/main/packages/context-engine)** - Optional prompt compression pipeline — strips redundant facts, verbose serialisation, and stale reasoning traces from memory payloads.
 - **[@cycgraph/orchestrator-postgres](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator-postgres)** - Postgres + pgvector adapter for durable state, event log, agent registry, and memory store.
-- **[@cycgraph/tools](./packages/tools)** - MCP and tools library.
+- **[@cycgraph/tools](https://github.com/wmcmahan/cycgraph/tree/main/packages/tools)** - MCP and tools library.
 - **[@cycgraph/evals](https://github.com/wmcmahan/cycgraph/tree/main/packages/evals)** - Regression-test harness for agent workflows with deterministic + LLM-as-judge assertions.
 
 ## Studio

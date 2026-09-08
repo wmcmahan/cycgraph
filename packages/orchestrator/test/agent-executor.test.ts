@@ -722,6 +722,17 @@ describe('executeAgent — error and timeout handling', () => {
     vi.useRealTimers();
   });
 
+  it('wires a mark-counting prepareStep for multi-step anthropic agents', async () => {
+    let captured: any;
+    mockStreamWithCallbacks((opts) => { captured = opts; });
+
+    await executeAgent('test-agent', makeStateView(), {}, 1);
+
+    const prepared = captured.prepareStep({ messages: [{ role: 'user', content: 'hello world' }] });
+
+    expect(prepared.messages[0].content[0].providerOptions.anthropic.cacheControl).toEqual({ type: 'ephemeral' });
+  });
+
   it('converts an abort into AgentTimeoutError when the timeout fires', async () => {
     (streamText as any).mockImplementation((opts: any) => {
       const signal: AbortSignal = opts.abortSignal;
