@@ -64,7 +64,7 @@ const params = z.object({
     .describe('Findings to fix in one run: one branch, one commit per verified fix, one pull request'),
   since: z.string().default('')
     .describe('Diff mode: a git ref. Only findings a change since that ref plausibly staled are taken'),
-  budgetTokens: z.number().int().min(0).default(200000)
+  budgetTokens: z.number().int().min(0).default(400000)
     .describe('Hard token budget for the run; breach fails the run. Zero removes the cap'),
 });
 
@@ -228,15 +228,18 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
         model: env.model,
         provider: env.provider,
         temperature: 0.1,
+        maxSteps: 16,
         instructions: p.prompt !== '' ? p.prompt : [
           'You correct one stale claim in a documentation file so it matches the repository.',
+          'The finding usually carries candidates: the repository\'s own scripts or files that likely replace the stale reference. Pick from them and confirm with read_file instead of searching broadly; search only when no candidate fits.',
           'Use search to find where the referenced thing actually lives, read_file to confirm, and edit_file to correct the document.',
           'The find text must be the file’s exact bytes as read_file shows them: never include line-number prefixes from search results, and never change indentation.',
           'If edit_file refuses because the find text matches more than one place, do not retry the same find and never try a different path: read the file, then use a longer find that includes the whole line and enough neighbouring text to match exactly once.',
           'Correct only the claim you were given. Do not rewrite prose, reformat, or fix anything else.',
           'Correct the claim — do not delete it. Replace a wrong path, link, or command with the right one; only remove a claim when the thing it describes genuinely no longer exists anywhere, and never replace an instruction with a comment.',
           'If your previous attempt is reported as removed rather than corrected, put a real reference back.',
-          'When the edit is made, reply with one line: FIXED <file>.',
+          'Never reply with nothing: when the edit is made, reply FIXED <file>; when you cannot make it, reply BLOCKED: <one line on what stopped you>.',
+          'End every reply with a NOTES: line — the file and finding you worked on and what you learned — so a retry starts oriented instead of re-searching.',
         ].join(' '),
         tools: [hands.search, hands.read, hands.edit],
       });
@@ -247,7 +250,10 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
         id: 'fix',
         agent: fixer,
         failurePolicy: { timeoutMs: 600_000 },
-        reads: [scan.result, 'judge_result'],
+        // Reading its own previous report carries knowledge across
+        // attempts: a retry starts from the prior NOTES instead of
+        // re-searching the same candidates into a fresh transcript.
+        reads: [scan.result, 'judge_result', 'fix_report'],
         writes: 'fix_report',
       });
       const judge = node({ id: 'judge', type: 'tool', toolId: 'judge_fix', tools: [judgeTool], reads: [scan.result] });
