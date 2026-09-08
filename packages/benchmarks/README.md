@@ -77,4 +77,4 @@ Shared CI runners are too noisy for benchmarks. The package is excluded from the
 - **LLM latency** — agents are out of scope; provider performance is the upstream problem.
 - **Persistence backend** — every bench uses in-memory persistence. Postgres throughput is the adapter's responsibility.
 - **MCP tool execution** — tool nodes use the in-process `save_to_memory` builtin to keep the runner overhead isolated.
-- **Memory index search** — no pgvector adapter ships yet. When it does, add a bench here.
+- **Memory index search** — `DrizzleMemoryIndex` (pgvector) ships in `@cycgraph/orchestrator-postgres`, but its throughput belongs to the adapter and the database, not the runner. No bench here.

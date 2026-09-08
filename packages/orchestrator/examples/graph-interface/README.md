@@ -94,18 +94,23 @@ names.
 
 | File | Role |
 |---|---|
-| `index.ts` | Structural preflight, then runs `briefingGraph` twice |
+| `index.ts` | Structural preflight, then a single run of `briefingGraph` |
+| `keys.ts` | The seeded memory keys, shared by the parent graph and the entry file |
 | `reaserchGraph/` | The reusable block: its agents, nodes, declared `inputs`/`outputs`, and its reflection node |
 | `briefingGraph/` | The parent: embeds the block via `subgraph()` and formats its output |
-| `memory/` | The three runner hooks: retriever, writer, and context compressor |
+| `memory/` | The retriever and writer hooks over an in-memory store |
+| `context/` | The context-compressor hook over `@cycgraph/context-engine` |
 
 Each graph directory keeps its agents and nodes in their own modules, so
 the graph file itself is only topology and contract.
 
 ## Memory across the composition boundary
 
-The graph runs twice, on two related topics, and the second run starts with
-what the first one learned.
+The block is wired for compound learning: lessons one run writes are
+retrieved by the next run against the same store. This entry file runs the
+graph once, so the retrieval side has nothing to fetch yet; run it again
+(or loop it over related topics) and the second run starts with what the
+first one learned.
 
 Both halves of that loop live **inside the child block**. Its `gather` node
 carries a `memoryQuery` directive, and a `reflection` node at the end of the
@@ -146,15 +151,6 @@ The writer runs every candidate through `checkFactAdmission` from
 also refuses re-entry of anything previously invalidated — a lesson an eval
 gate deliberately evicted must not walk back in under a fresh id.
 
-Run output reports the split:
-
-```
-  lessons available to this run: 7
-  admitted by the gate:          7
-  refused as already known:      0
-  lessons after reflection:      14
-```
-
 **Expect zero refusals here, and note what that does and does not mean.**
 The gate is wired and running. It has nothing to refuse, because its
 default comparison is token overlap and this content defeats it.
@@ -168,9 +164,9 @@ Same fact, almost no shared vocabulary — a semantic duplicate that lexical
 comparison cannot see.
 
 So treat the token-overlap default as a guard against near-verbatim
-repeats, not as duplicate detection for a reflection loop. Pass
-`embeddings` to `checkFactAdmission` for that, where the pairs above land
-unmeasured here, and worth checking against your own corpus.
+repeats, not as duplicate detection for a reflection loop. For that, pass
+`embeddings` to `checkFactAdmission` so comparison happens in embedding
+space — unmeasured here, and worth checking against your own corpus.
 
 Two things are easy to get wrong here. A `memoryRetriever` wired on the
 runner sits **dormant** until some node declares `memoryQuery` — the hook
@@ -225,6 +221,9 @@ error.
 ```bash
 cd packages/orchestrator
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/graph-interface/index.ts
+
+# or free, against a local model:
+CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/graph-interface/index.ts
 ```
 
 ## Errors the boundary raises

@@ -23,6 +23,7 @@ import { calculatorTool, jsonTransformTool, currentTimeTool } from '@cycgraph/to
 import { memorySearchTool } from '@cycgraph/tools/memory';
 import { sandboxedJsTool } from '@cycgraph/tools/sandbox';
 import { workspaceTools } from '@cycgraph/tools/workspace';
+import { deliveryNodes, publishConfigFromEnv } from '@cycgraph/tools/git';
 ```
 
 ## Quick start
@@ -213,7 +214,7 @@ The model calls it with `{ code, input? }` — e.g. `{ code: 'input.x + input.y 
 
 Evaluate agent-authored JavaScript against workflow data and return a JSON result. Two nested boundaries: QuickJS-in-WASM (no fs/network/timers/modules; only a string-only `console.log` bridge) inside a `worker_threads` worker terminated at the deadline. Synchronous; last expression is the result; optional JSON `input` global. Defaults 2s deadline / 64 MiB / 1 MiB result cap. Carries the QuickJS WASM engine, so it lives behind its own subpath.
 
-### Workspace: Search, Read File, Edit File, Diagnostics
+### Workspace: Search, Read File, Edit File, Create File, Diagnostics
 
 ```typescript
 import { workspaceTools } from '@cycgraph/tools/workspace';
@@ -235,15 +236,32 @@ const tools = [
 ];
 ```
 
-The model calls `search` with `{ query }`, `read_file` with `{ path, offset?, limit? }`, and `edit_file` with `{ path, find, replace }` — paths relative to the workspace root.
+The model calls `search` with `{ query }`, `read_file` with `{ path, offset?, limit? }`, `edit_file` with `{ path, find, replace }`, and `create_file` with `{ path, contents }` — paths relative to the workspace root.
 
-The file-access surface for a code-editing agent, and deliberately no more than that. Every path resolves through a jail that refuses anything outside the root, so the workspace should be a disposable clone — never a live checkout, never the host. `search` skips dependency and build directories and caps its hits. `read_file` is line-windowed: a large file comes back in slices with a marker saying how to read on, because sized tool results are the difference between editing a two-hundred line file and a three-thousand line one. `edit_file` requires its `find` text to appear exactly once and otherwise changes nothing, telling the model to bring more context — an agent must react to ambiguity, never have the tool guess where an edit half-fits. Reads and searches are taint-tracked (`taints: true`): workspace contents are someone's repository, not the engine's. Branching, verifying, and committing are procedures that belong to the caller, not the model.
+The file-access surface for a code-editing agent, and deliberately no more than that. Every path resolves through a jail that refuses anything outside the root, so the workspace should be a disposable clone — never a live checkout, never the host. `search` skips dependency and build directories and caps its hits. `read_file` is line-windowed: a large file comes back in slices with a marker saying how to read on, because sized tool results are the difference between editing a two-hundred line file and a three-thousand line one. `edit_file` requires its `find` text to appear exactly once and otherwise changes nothing, telling the model to bring more context — an agent must react to ambiguity, never have the tool guess where an edit half-fits. `create_file` brings a new file into existence and only that: a path that already exists is refused rather than overwritten, so the read-before-edit invariant cannot be routed around by clobbering a file nobody read. Reads and searches are taint-tracked (`taints: true`): workspace contents are someone's repository, not the engine's. Branching, verifying, and committing are procedures that belong to the caller, not the model.
 
-The `workspaceTools` bundle also arms **read-before-edit** as harness discipline: a shared session records a content hash at every read, and `edit_file` refuses a file that was never read or that changed since — the agent is told to read again, never left editing a stale picture. A successful edit records the new content, so iterating on one file needs no re-read. Wire it yourself with `createWorkspaceSession()` when composing individual factories.
+The `workspaceTools(root)` bundle is `search`, `read_file`, `edit_file`, and `create_file` over one root, and it arms **read-before-edit** as harness discipline: a shared session records a content hash at every read, and `edit_file` refuses a file that was never read or that changed since — the agent is told to read again, never left editing a stale picture. A successful edit or create records the new content, so iterating on one file needs no re-read. Wire it yourself with `createWorkspaceSession()` when composing individual factories.
 
 `diagnosticsTool({ cwd, command, args })` closes the feedback loop: the model calls it with `{}` and gets back `{ clean, output }` from a **caller-configured** check (typecheck, build, tests) — the agent chooses nothing, it can only ask the question the caller wired, which is what keeps a command-running tool inside the no-host-execution mandate. An editing agent that can see its own breakage iterates; one that cannot fails verification blind.
 
-Each tool's Zod schema is exported beside its factory (`searchParameters`, `readFileParameters`, `editFileParameters`, `diagnosticsParameters`), so a transport serving these tools remotely — an MCP server, for instance — never restates the parameters.
+Each tool's Zod schema is exported beside its factory (`searchParameters`, `readFileParameters`, `editFileParameters`, `createFileParameters`, `diagnosticsParameters`), so a transport serving these tools remotely, an MCP server for instance, never restates the parameters.
+
+### Git Delivery Helpers
+
+```typescript
+import { deliveryNodes, publishConfigFromEnv } from '@cycgraph/tools/git';
+
+const nodes = deliveryNodes({
+  repoRoot: '/path/to/repo',
+  workspaceAt: '/tmp/clone',
+  branch: 'chore/maintenance',
+  title: 'chore: automated maintenance',
+  detailFrom: 'change_summary',
+  config: publishConfigFromEnv(),
+});
+```
+
+The other half of the workspace surface: the procedures the *caller* runs around the jailed clone. Nothing here is a model-facing tool, deliberately — a model edits, the harness delivers. `deliveryNodes` builds the clone, commit, and publish nodes of a maintenance workflow (commit to a branch under a configured identity, push, open a PR whose body follows the repository's template); the caller wires them into its graph and owns every edge. Lower-level pieces (`cloneToBranch`, `commit`, `publishBranch`, `commentOnPr`, `createIssue`, …) are exported for workflows that compose their own tail.
 
 ## Development
 

@@ -33,7 +33,7 @@ sequenceDiagram
     Note over S: memory: {}
 
     loop until score >= 0.8
-        R->>W: execute (reads: goal, constraints, feedback, draft)
+        R->>W: execute (reads: goal, constraints, feedback, suggestions, draft)
         W->>W: LLM call → write/revise draft
         W->>S: reducer: set memory.draft
         R->>R: persist state, follow edge (always)
@@ -98,6 +98,9 @@ block-beta
 ```bash
 cd packages/orchestrator
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/eval-loop/eval-loop.ts
+
+# or free, against a local model:
+CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/eval-loop/eval-loop.ts
 ```
 
 ## Expected Output

@@ -70,5 +70,8 @@ tool ran and its result flowed through. A model cannot fake its way to a PASS.
 calling a tool, which a 7B model does not do every time. A failure here is
 worth re-running once before treating it as a regression.
 
-**Scenario 2 uses the raw `createGraph` API** rather than the authoring
-facade, deliberately: it is the only example covering the wire-level path.
+**Scenario 2 names its agent by registry id**, not by an `agent()` value:
+the id comes from `scopedRegistry.register(...)`, and the run resolves it
+through `GraphRunnerOptions.registry` with the tool threaded via
+`GraphRunnerOptions.tools` and the child graph via `loadGraph`. Resolving
+from that run-scoped registry is the thing under test.

@@ -5,7 +5,7 @@
 **Postgres + pgvector adapter for [`@cycgraph/orchestrator`](https://www.npmjs.com/package/@cycgraph/orchestrator)**
 
 [![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator-postgres?color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator-postgres)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE)
 
 </div>
 
@@ -15,6 +15,23 @@
 ```bash
 npm install @cycgraph/orchestrator-postgres
 ```
+
+## Setup
+
+Set `DATABASE_URL` to a Postgres 16 database with the pgvector extension available. The package ships its migration files in `drizzle/`; apply them with drizzle-orm's migrator:
+
+```typescript
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import pg from 'pg';
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+await migrate(drizzle(pool), {
+  migrationsFolder: 'node_modules/@cycgraph/orchestrator-postgres/drizzle',
+});
+```
+
+Working in the cycgraph monorepo instead: `docker-compose up -d` starts Postgres on port 5433, then `npm run migrate --workspace=packages/orchestrator-postgres` applies the migrations.
 
 ## Why
 
@@ -26,7 +43,7 @@ npm install @cycgraph/orchestrator-postgres
 
 ## Concepts
 
-All adapters share a single lazily-initialized connection pool from `getDb()`. Set `DATABASE_URL` in the environment and the pool is created on first use (call `getDb()` up front to fail fast). Constructors take no `db` argument.
+All adapters share a single lazily-initialized connection pool from `getDb()`. Set `DATABASE_URL` in the environment and the pool is created on first use (call `getDb()` up front to fail fast). Constructors take no `db` argument; each accepts an optional options object for concerns like tenant scoping, run fencing, or checkpoint retention.
 
 ```typescript
 import {
@@ -187,12 +204,40 @@ await ledger.getLessonHistory(factId);
 await ledger.getFitnessTrend({ limit: 100 });
 ```
 
+### Run fencing
+
+`createFencedRunnerOptions` wires the fencing epoch from a claimed job into per-job fenced persistence and event-log writers. A worker whose job is reclaimed (missed heartbeats during a GC pause or partition) gets `StaleClaimError` on its next write and aborts, instead of silently interleaving state with the new claimant. This is the required wiring when multiple workers share one queue.
+
+```typescript
+import { WorkflowWorker } from '@cycgraph/orchestrator';
+import {
+  DrizzleWorkflowQueue,
+  DrizzlePersistenceProvider,
+  DrizzleEventLogWriter,
+  createFencedRunnerOptions,
+} from '@cycgraph/orchestrator-postgres';
+
+const worker = new WorkflowWorker({
+  queue: new DrizzleWorkflowQueue(),
+  persistence: new DrizzlePersistenceProvider(),
+  eventLog: new DrizzleEventLogWriter(),
+  // Per-job fenced writers — factory results override the worker defaults.
+  runnerOptionsFactory: (job) => createFencedRunnerOptions(job),
+});
+```
+
+### Multi-tenancy
+
+The schema carries a `tenants` table with row-level security, and every adapter accepts a tenant option that stamps writes and filters reads. `withTenant` / `withPlatform` are the transaction-level isolation primitives; `createTenantScope` / `createPlatformScope` build per-request scopes for a hosted control plane, with `hashApiKey` / `generateApiKey` and a pluggable `TenantResolver` for credential resolution. Single-tenant deployments can ignore all of it — with no tenant option set, adapters operate unscoped. See [MULTI_TENANCY.md](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator-postgres/src/MULTI_TENANCY.md) for the full model.
+
 ## Workflow tables
 
 | Table | Purpose |
 |-------|---------|
+| `tenants` | Tenant registry for row-level-security isolation |
 | `graphs` | Reusable graph definitions |
-| `workflow_runs` | Execution run metadata |
+| `workflows` | User workflow instances |
+| `workflow_runs` | Execution run metadata, claim-epoch fencing, and fork lineage |
 | `workflow_states` | Versioned state snapshots |
 | `workflow_events` | Append-only event log with unique constraint |
 | `workflow_checkpoints` | State snapshots for event log compaction |
@@ -200,6 +245,8 @@ await ledger.getFitnessTrend({ limit: 100 });
 | `agents` | Agent configuration registry |
 | `usage_records` | Per-run token and cost tracking |
 | `mcp_servers` | Trusted MCP server registry with access-control rules |
+| `documents` | RAG source documents |
+| `embeddings` | Vector embeddings for semantic search |
 
 ### Memory tables
 
@@ -211,6 +258,14 @@ await ledger.getFitnessTrend({ limit: 100 });
 | `memory_facts` | Atomic semantic facts |
 | `memory_themes` | Fact clusters |
 | `memory_entity_facts` | Join table for entity ↔ fact lookups |
+
+### Learning tables
+
+| Table | Purpose |
+|-------|---------|
+| `run_outcomes` | Per-run outcome scores for the eval gate |
+| `run_outcome_facts` | Which injected facts each outcome attributes to |
+| `gate_decisions` | Append-only audit log of retention-gate passes |
 
 ## Contributing
 

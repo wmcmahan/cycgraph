@@ -23,15 +23,16 @@ Cyclic in two places, so `startNode` and `endNodes` are passed explicitly.
 
 | Key | Written by | Read by |
 | --- | --- | --- |
-| `refined_goal` | prompt_builder | supervisor, research, write |
-| `task_plan` | prompt_builder | supervisor, research |
-| `quality_criteria` | prompt_builder | supervisor, edit |
-| `prompt_score`, `prompt_feedback`, `prompt_suggestions` | prompt_critic | edge conditions, prompt_builder |
-| `research_notes`, `draft`, `final_draft` | the specialists | downstream nodes |
+| `refined_goal` | prompt_builder | prompt_critic, research, write, edit |
+| `task_plan` | prompt_builder | prompt_critic, research, write |
+| `quality_criteria` | prompt_builder | prompt_critic, write, edit |
+| `prompt_score` | prompt_critic | edge conditions |
+| `prompt_feedback`, `prompt_suggestions` | prompt_critic | prompt_builder (refinement rounds) |
+| `research_notes`, `draft`, `final_draft` | the specialists | downstream nodes and the supervisor's derived view |
 
-The supervisor declares `reads` explicitly here. Its inputs come from the
-enrichment phase rather than from its managed nodes, so the usual derivation
-would not reach them.
+The supervisor declares no grants of its own: its reads derive from what its
+managed nodes write. The enrichment keys reach the specialists instead — each
+one reads `refined_goal` and its slice of the plan directly.
 
 ## Run
 
@@ -42,13 +43,19 @@ ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/prompt-builder/prompt-builder.ts
 ## Expected Output
 
 ```
-━━━ Phase 1: enrichment ━━━
-  round 1: prompt_score 0.62 — "task plan lacks acceptance criteria"
-  round 2: prompt_score 0.85 — accepted
+═══ Self-Annealing Prompt Enrichment ═══
+  Rounds: 2 (builder → critic iterations)
+  Final prompt score: 0.85
 
-━━━ Phase 2: execution ━━━
-  supervisor → research → supervisor → write → supervisor → edit → supervisor
+═══ Supervisor Routing History ═══
+  [iter 1] → research (...)
+  [iter 2] → write (...)
+  [iter 3] → edit (...)
+  → __done__ (workflow completed)
 ```
+
+The refined goal, task plan, critic feedback, drafts, and run stats print in
+full between these two blocks.
 
 ## Notes
 

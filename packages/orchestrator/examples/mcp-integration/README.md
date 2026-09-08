@@ -44,13 +44,17 @@ resolved on first use, so the first run is slower.
 ## Expected Output
 
 ```
-Tool called: brave_web_search
-Tool called: fetch
+  ⚙ [research] Tool call started: brave_web_search (call_…)
+  ✓ [research] Tool call finished: brave_web_search — OK (812ms)
 
-═══ Notes ═══
+═══ Results ═══
+Status: completed
+
+Research Notes:
 - …
 
-Taint registry: { research_notes: { source: 'mcp', server_id: 'web-search' }, … }
+═══ Taint Registry ═══
+  research_notes: {"source":"mcp","server_id":"web-search",…}
 ```
 
 ## Notes

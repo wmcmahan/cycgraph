@@ -8,19 +8,19 @@
  * evicting the ones that hurt — including deliberately poisoned ones.
  *
  * The script runs the compound-learning workflow (research → critique →
- * reflect) over 9 topics in three acts:
+ * reflect) over 11 topics in three acts:
  *
  *   Act 1 (runs 1–3): clean learning. Reflection writes candidate
  *     lessons; scores climb. The gate then PROMOTES lessons whose runs
  *     beat the leave-one-out baseline → tagged `verified`.
  *
- *   Act 2 (runs 4–6): sabotage. Three poisoned lessons are seeded
- *     directly into the store as candidates ("omit counterarguments",
- *     "never cite sources", "no confidence labels"). The gated
- *     retriever trials them; scores dip. The gate then EVICTS them
- *     (`invalidated_by: 'eval-gate:harmful'`).
+ *   Act 2 (poison seeded after run 3): sabotage. Three poisoned lessons
+ *     are seeded directly into the store as candidates ("omit
+ *     counterarguments", "never cite sources", "no confidence labels").
+ *     The gated retriever trials them; scores dip. The gate then EVICTS
+ *     them (`invalidated_by: 'eval-gate:harmful'`).
  *
- *   Act 3 (runs 7–9): recovery. With the poison gone and verified
+ *   Act 3 (remaining runs): recovery. With the poison gone and verified
  *     lessons retained, scores recover without any human touching the
  *     memory store.
  *

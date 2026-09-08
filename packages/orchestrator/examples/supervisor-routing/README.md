@@ -36,7 +36,7 @@ sequenceDiagram
     R->>S: status = running
     Note over S: memory: {}
 
-    R->>SV: execute (reads: *)
+    R->>SV: execute (reads: team outputs)
     SV->>SV: LLM decides → route to "research"
     SV->>S: supervisor_history: [{to: "research"}]
 
@@ -45,7 +45,7 @@ sequenceDiagram
     RN->>S: reducer: set memory.research_notes
     Note over S: memory: { research_notes: "..." }
 
-    R->>SV: execute (reads: *)
+    R->>SV: execute (reads: team outputs)
     SV->>SV: LLM decides → route to "write"
     SV->>S: supervisor_history: [..., {to: "write"}]
 
@@ -54,7 +54,7 @@ sequenceDiagram
     WN->>S: reducer: set memory.draft
     Note over S: memory: { research_notes: "...", draft: "..." }
 
-    R->>SV: execute (reads: *)
+    R->>SV: execute (reads: team outputs)
     SV->>SV: LLM decides → route to "edit"
     SV->>S: supervisor_history: [..., {to: "edit"}]
 
@@ -63,7 +63,7 @@ sequenceDiagram
     EN->>S: reducer: set memory.final_draft
     Note over S: memory: { ..., final_draft: "..." }
 
-    R->>SV: execute (reads: *)
+    R->>SV: execute (reads: team outputs)
     SV->>SV: LLM decides → route to "__done__"
 
     R->>S: status = completed
@@ -72,7 +72,7 @@ sequenceDiagram
 
 ## State Slicing
 
-Each node only sees the keys it declares — the engine enforces zero-trust boundaries. The supervisor has full visibility to make routing decisions.
+Each node only sees the keys it declares; the engine enforces zero-trust boundaries. The supervisor declares no grants of its own: its reads derive from what its managed nodes write, so it sees its team's outputs rather than the whole blackboard, and its routing writes (`handoff`, completion) are implied by the node type.
 
 ```mermaid
 block-beta
@@ -85,8 +85,8 @@ block-beta
     space:4
 
     block:sv["supervisor node"]
-        sv_read["reads: *"]
-        sv_write["writes: *"]
+        sv_read["reads: derived (team outputs)"]
+        sv_write["writes: routing (implied)"]
     end
 
     block:rn["research node"]

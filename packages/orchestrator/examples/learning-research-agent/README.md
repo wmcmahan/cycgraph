@@ -78,7 +78,7 @@ The expected pattern is that run 2's notes reference the run-1 lessons in parent
 1. **InMemoryMemoryStore + InMemoryMemoryIndex** from `@cycgraph/memory` hold the lessons.
 2. **`memoryWriter`** is a small adapter that maps cycgraph's `MemoryWriterFact` shape onto `SemanticFact` and calls `memoryStore.putFact`.
 3. **The reflection node** uses the `rule_based` extractor — splits `research_notes` into sentences, filters by length, dedupes, emits one fact per unique sentence tagged with `lesson` and `graph:learning-research-v1`.
-4. **The researcher node declares `memory_query: { tags: [LESSON_TAG], max_facts: 20 }`.** Before building the agent prompt, the runner calls `memoryRetriever` with that query and renders the returned facts into a `## Relevant Memory` section ahead of the regular `<data>` block. Zero manual injection.
+4. **The researcher node declares `memoryQuery: { tags: [LESSON_TAG], maxFacts: 20 }`.** Before building the agent prompt, the runner calls `memoryRetriever` with that query and renders the returned facts into a `## Relevant Memory` section ahead of the regular `<data>` block. Zero manual injection.
 5. **`memoryRetriever`** is a small adapter that calls `retrieveMemory(store, index, { tags, ... })` and reshapes the result for the orchestrator.
 
 ## Production swap
@@ -96,5 +96,5 @@ const memoryIndex = new DrizzleMemoryIndex(db);
 ## Try this next
 
 - Run the demo 5+ times with different but related goals. Watch the lesson store grow and how much overlaps across runs.
-- Swap the extractor to `{ type: 'llm', agent_id: REFLECTOR_ID, max_facts: 5 }` to have an LLM distill structured lessons instead of using the sentence-splitter. Tag-based retrieval works the same way.
+- Swap the extractor to `{ type: 'llm', agentId: REFLECTOR_ID, maxFacts: 5 }` to have an LLM distill structured lessons instead of using the sentence-splitter. Tag-based retrieval works the same way.
 - Add a second reflection node with a different `tags` namespace to capture a different *kind* of lesson (e.g., `failures` vs `methodology`).

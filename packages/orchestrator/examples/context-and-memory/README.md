@@ -12,7 +12,7 @@ flowchart LR
     research -- always --> write
 ```
 
-Both nodes receive relevant memory facts via `memoryRetriever` and compressed context via `contextCompressor`.
+Both nodes declare `memoryQuery: { tags: ['llm-knowledge'], maxFacts: 10 }`, which is what activates `memoryRetriever` for them. Seeded facts are tagged `llm-knowledge` at ingest, so retrieval is scoped to that corpus. Compressed context arrives via `contextCompressor`.
 
 ## Lifecycle & State
 
@@ -72,7 +72,7 @@ sequenceDiagram
 | `createExactDedupStage` | Hash-based identical content removal |
 | `createFuzzyDedupStage` | Trigram Jaccard similarity with MinHash LSH pre-filter |
 | `createAllocatorStage` | Priority-weighted token budget distribution |
-| `PipelineLogger` | Structured logging for warnings and debug output |
+| `logger` option | Pipeline warnings routed to the example's structured logger |
 | `timeoutMs` | Pipeline-level timeout to bound compression latency |
 
 ### Orchestrator integration
@@ -81,12 +81,16 @@ sequenceDiagram
 |---------|---------|
 | `contextCompressor` | Compresses serialized memory before prompt injection; falls back to `JSON.stringify` if absent |
 | `memoryRetriever` | Retrieves relevant facts from the knowledge graph for prompt augmentation |
+| `memory_query` | Per-node directive (`memoryQuery` in the facade) that activates the retriever; without it the retriever sits dormant |
 
 ## Run
 
 ```bash
 cd packages/orchestrator
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/context-and-memory/context-and-memory.ts
+
+# or free, against a local model:
+CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/context-and-memory/context-and-memory.ts
 ```
 
 ## Expected Output

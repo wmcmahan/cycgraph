@@ -8,8 +8,12 @@ The "verified lessons" loop, end to end — including an adversarial test:
 | Act | Runs | What happens |
 |---|---|---|
 | Clean learning | 1–3 | Reflection writes lessons tagged `candidate`; scores climb; the gate **promotes** lessons whose runs beat the leave-one-out baseline → `verified` |
-| Sabotage | 4–6 | Three poisoned candidate lessons are seeded ("omit counterarguments", "never cite sources", "no confidence labels"); the gated retriever trials them; scores dip |
-| Recovery | 7–9 | The gate **evicts** the poison (`invalidated_by: 'eval-gate:harmful'`) on outcome evidence alone; scores recover with no human touching the store |
+| Sabotage | 4–5 | Three poisoned candidate lessons are seeded after run 3 ("omit counterarguments", "never cite sources", "no confidence labels"); the gated retriever trials them; scores dip |
+| Recovery | 6–11 | The gate **evicts** the poison (`invalidated_by: 'eval-gate:harmful'`) on outcome evidence alone; scores recover with no human touching the store |
+
+The script runs 11 topics; the act boundaries above are from the committed
+run — eviction timing depends on when the evidence accrues, so yours may
+shift by a run.
 
 ## The mechanism
 
@@ -23,7 +27,7 @@ The "verified lessons" loop, end to end — including an adversarial test:
 3. **The gate** — `evaluateRetention(store, ledger, policy)` compares each
    candidate's mean run score against the leave-one-out baseline:
    lift ≥ margin → promote; drop ≥ margin → evict as harmful; no lift by
-   `max_trials` → evict as useless.
+   `maxTrials` → evict as useless.
 4. **Gated retrieval** — `retrieveGatedLessons()` fills the prompt budget
    verified-first, reserving exploration slots filled **in-progress-first**
    (pass the `ledger`) so candidates — including the poison — accrue the
@@ -74,20 +78,20 @@ live experiment, not a fixture):
 clean learning runs     avg fitness: 0.958
 poison-trialled runs    avg fitness: 0.750   ← poison craters run 4 to 0.50
 post-eviction runs      avg fitness: 0.972
-poisoned lessons evicted: 3/3 (all gone after run 5, exactly min_trials later)
+poisoned lessons evicted: 3/3 (all gone after run 5, exactly minTrials later)
 lessons promoted to verified: 6
 ```
 
 **Known property, stated plainly:** the lift heuristic is correlational.
 Genuine lessons co-injected with poison in a disaster run can be
-co-evicted (three were, in the run above). Higher `min_trials` — or the
-`inference` decision rule — reduces this at the cost of slower verdicts,
-and eviction is a soft delete — recoverable via
-`findFacts({ include_invalidated: true })`.
+co-evicted (three were, in the run above). Higher `minTrials`, or the
+`inference` decision rule, reduces this at the cost of slower verdicts.
+Eviction is a soft delete, recoverable via
+`findFacts({ includeInvalidated: true })`.
 
 ## Margin rule vs inference rule (read this before copying the config)
 
-This demo pins `decision_rule: 'margin'` — the fast point-estimate rule —
+This demo pins `decisionRule: 'margin'`, the fast point-estimate rule,
 because its narrative fits in 11 runs with 2-trial cohorts, and the poison
 effect is enormous. The production default is `'inference'`: a Welch test
 with false-discovery and sequential (peeking) control. Under the inference

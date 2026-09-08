@@ -54,9 +54,9 @@ sequenceDiagram
 │  constraints│     │  ┌────────┐ ┌────────┐ ┌────────┐   │     │  mapper_     │
 │             │     │  │Worker 1│ │Worker 2│ │Worker N│   │     │   results    │
 │ writes:     │     │  │        │ │        │ │        │   │     │              │
-│  topics     │     │  │_map_   │ │_map_   │ │_map_   │   │     │ writes:      │
+│  topics     │     │  │map_    │ │map_    │ │map_    │   │     │ writes:      │
 │  (array)    │     │  │ item   │ │ item   │ │ item   │   │     │  summary     │
-└──────┬──────┘     │  │_map_   │ │_map_   │ │_map_   │   │     └──────────────┘
+└──────┬──────┘     │  │map_    │ │map_    │ │map_    │   │     └──────────────┘
        │            │  │ index  │ │ index  │ │ index  │   │
        └───────────>│  └────────┘ └────────┘ └────────┘   │
                     │                                      │
@@ -70,9 +70,9 @@ sequenceDiagram
 
 | Agent | Model | Temp | Reads | Writes |
 |-------|-------|------|-------|--------|
-| Splitter | claude-sonnet-4 | 0.5 | `goal`, `constraints` | `topics` |
-| Researcher | claude-sonnet-4 | 0.5 | `goal` (+ map item via Task Context) | `research` |
-| Synthesizer | claude-sonnet-4 | 0.4 | `goal`, `mapper_results`, `mapper_count` | `summary` |
+| Splitter | claude-sonnet-4-6 | 0.5 | `goal`, `constraints` | `topics` |
+| Researcher | claude-sonnet-4-6 | 0.5 | `goal` (+ map item via Task Context) | `research` |
+| Synthesizer | claude-sonnet-4-6 | 0.4 | `goal`, `mapper_results`, `mapper_count` | `summary` |
 
 ## Run
 

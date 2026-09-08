@@ -19,7 +19,7 @@ margin rule vs statistical inference).
 
 ## How to read the committed results
 
-With the documented configuration (5-trial cohorts, `min_trials: 3`,
+With the documented configuration (5-trial cohorts, `minTrials: 3`,
 doubling sequential control, noise SD 0.1):
 
 | True effect | Verdict measured | Rate by 25–100 runs |
@@ -32,7 +32,7 @@ doubling sequential control, noise SD 0.1):
 The shape is deliberate: the gate is **conservative**. Below its resolution
 (≈ |0.2| for 5-trial cohorts at this noise) it retires lessons as
 `eval-gate:no_lift` instead of guessing. Want resolution on smaller effects?
-The lever is evidence per cohort: raise `rest_after_trials` (detectable lift
+The lever is evidence per cohort: raise `restAfterTrials` (detectable lift
 shrinks roughly with `margin + 2.6·noise_sd/√trials`) or cut judge noise with
 more judge samples — `requiredTrials()` in `@cycgraph/memory` does this
 arithmetic for you.
@@ -51,7 +51,7 @@ Two more design facts this simulator surfaced, both now engine behavior:
 
 - **The decision window is finite.** A rested candidate's evidence is frozen
   while the bracket threshold keeps tightening — past a few brackets it can
-  never reach a verdict. `max_baseline_runs` closes that window explicitly
+  never reach a verdict. `maxBaselineRuns` closes that window explicitly
   (retire as no-lift) instead of holding forever.
 - **Co-injection blinds the gate.** Two opposite-effect lessons trialled in
   the same runs cancel in the outcome data and both get retired. That's the

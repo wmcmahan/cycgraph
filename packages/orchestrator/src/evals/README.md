@@ -23,12 +23,14 @@ The eval subsystem provides **automated quality assurance** for workflows. It ru
 - **Deterministic assertions** — exact value matching, key existence, regex patterns
 - **LLM-as-judge assertions** — semantic evaluation via the evaluator executor
 
+This is the **in-orchestrator harness**: a lightweight suite runner shipped with the engine. The standalone `@cycgraph/evals` package is a separate, larger regression harness (golden trajectories, semantic assertions, eval providers, per-package suites) and does not depend on this module.
+
 | Component | File | Purpose |
 |-----------|------|---------|
 | **Eval Runner** | `runner.ts` | Orchestrates suite execution: builds initial state → runs `GraphRunner` → checks assertions → aggregates results |
 | **Assertion Engine** | `assertions.ts` | Evaluates individual assertions against final `WorkflowState` |
 | **Type Definitions** | `types.ts` | `EvalSuite`, `EvalCase`, `EvalAssertion`, `AssertionResult`, `EvalCaseResult`, `EvalReport` |
-| **Public API** | `index.ts` | Re-exports `runEval`, `checkAssertion`, and all types |
+| **Public API** | `index.ts` | Explicit named re-exports of `runEval`, `checkAssertion`, and all types (no `export *`, so new leaf symbols never silently enter the semver surface) |
 
 ### Dependency Graph
 
@@ -59,9 +61,10 @@ The runner takes an `EvalSuite` (named collection of test cases) and:
 
 ### Assertion Engine — "How is output quality measured?"
 
-A dispatch-based evaluator that supports six assertion types:
+A dispatch-based evaluator that supports seven assertion types:
 - **`status_equals`** — Final workflow status matches expected value
 - **`memory_contains`** — A specific key exists in final memory
+- **`memory_not_empty`** — A key exists AND carries a non-empty value
 - **`memory_matches`** — A memory value matches via exact, contains, or regex mode
 - **`llm_judge`** — An LLM evaluator scores the output against criteria
 - **`node_visited`** — A specific graph node was executed during the run
@@ -125,7 +128,9 @@ export async function runEval(suite: EvalSuite): Promise<EvalReport>
 
 **Returns: `EvalReport`** — Aggregated results with overall score, pass/fail counts, and per-case details.
 
-**Why sequential execution:** Cases are run in a `for...of` loop, not `Promise.all()`. This prevents resource contention — each case spins up a full `GraphRunner` with LLM calls, and parallel execution could hit API rate limits or exhaust memory.
+**Why sequential execution:** Cases are run in a `for...of` loop, not `Promise.all()`. Each case spins up a full `GraphRunner` with LLM calls, so parallel execution could hit API rate limits or exhaust memory.
+
+The runner is constructed as `new GraphRunner(graph, initialState)` with no options, so eval runs use the default runner configuration: agents resolve through the process-global agent factory, and no persistence, retriever, or compressor is wired.
 
 ### Function: `runCase()` (internal)
 
@@ -151,22 +156,26 @@ CATCH:
 
 ### Function: `buildInitialState()` (internal)
 
-Constructs a `WorkflowState` from an eval case's input `Record`:
+Constructs a full schema-v2 `WorkflowState` from an eval case's input `Record`. Control fields are extracted with type guards, so a non-string `goal` or a non-numeric `max_token_budget` falls back to the default instead of poisoning the state:
 
 | Field | Source | Default |
 |-------|--------|---------|
 | `workflow_id` | `evalCase.graph.id` | — |
 | `run_id` | `uuidv4()` | Fresh UUID per case |
-| `goal` | `evalCase.input.goal` | `"Eval case execution"` |
-| `constraints` | `evalCase.input.constraints` | `[]` |
+| `goal` | `evalCase.input.goal` (if a string) | `"Eval case execution"` |
+| `constraints` | `evalCase.input.constraints`, filtered to string entries | `[]` |
 | `memory` | `evalCase.input` (entire input object) | — |
 | `max_execution_time_ms` | `evalCase.timeout_ms` | `60000` (1 min) |
-| `max_token_budget` | `evalCase.input.max_token_budget` | `undefined` (no limit) |
+| `max_token_budget` | `evalCase.input.max_token_budget` (if a number) | `undefined` (no limit) |
 | `status` | — | `"pending"` |
 | `iteration_count` | — | `0` |
 | `max_iterations` | — | `50` |
+| `max_retries` | — | `3` |
+| `state_schema_version` | — | `2` |
 
-**Why `memory` is set to the entire `input`:** The input object serves double-duty — it contains both control fields (`goal`, `constraints`) and data fields that agents will read. Setting `memory = evalCase.input` makes all input values available to agents via their `read_keys`.
+All remaining state fields (taint registry, lesson provenance, cost tracking, subgraph stack, and the rest) start at their empty schema values.
+
+**Why `memory` is set to the entire `input`:** The input object serves double duty. It contains both control fields like `goal` and `constraints` and data fields that agents will read. Setting `memory = evalCase.input` makes all input values available to agents via their `read_keys`.
 
 ---
 
@@ -204,17 +213,31 @@ Checks that the workflow terminated with the expected status.
 
 #### `memory_contains`
 
-Checks that a specific key exists in the final memory (value doesn't matter).
+Checks that a specific key exists in the final memory. The value does not matter.
 
 ```typescript
 { type: "memory_contains", key: "research_output" }
 ```
 
-| Check | `assertion.key in finalState.memory` |
-|-------|--------------------------------------|
+| Check | `Object.hasOwn(finalState.memory, assertion.key)` |
+|-------|---------------------------------------------------|
 | Actual | `Object.keys(finalState.memory)` |
 
+Uses `Object.hasOwn`, not the `in` operator, so a key named `constructor` or `toString` cannot pass via the prototype chain.
+
 **Common use:** Verify an agent produced its expected output key.
+
+---
+
+#### `memory_not_empty`
+
+Checks that a key exists AND carries something. A key whose value is `null`, `undefined`, a whitespace-only string, an empty array, or an empty object fails with a distinct "present but empty" message.
+
+```typescript
+{ type: "memory_not_empty", key: "research_output" }
+```
+
+**Common use:** Catch the failure mode `memory_contains` misses, where an agent wrote its key but produced no content.
 
 ---
 
@@ -225,8 +248,8 @@ Checks that a memory value matches an expected value or pattern. Supports three 
 | Mode | Comparison Logic |
 |------|-----------------|
 | `exact` | `JSON.stringify(actual) === JSON.stringify(expected)` |
-| `contains` | String `includes()` (falls back to JSON.stringify for non-strings) |
-| `regex` | `new RegExp(pattern).test(value)` (string values only) |
+| `contains` | String `includes()` when both sides are strings, JSON.stringify comparison otherwise |
+| `regex` | `new RegExp(pattern).test(value)` on string values, with the input capped at 10,000 chars to bound ReDoS worst-case time |
 
 ```typescript
 { type: "memory_matches", key: "draft", mode: "contains", expected: "conclusion" }
@@ -234,13 +257,13 @@ Checks that a memory value matches an expected value or pattern. Supports three 
 { type: "memory_matches", key: "email", mode: "regex", pattern: "^[^@]+@[^@]+$" }
 ```
 
-**Design note:** The `pattern` field is used for regex mode, while `expected` is used for exact and contains modes. Both fields exist on the type to support all three modes cleanly.
+**Design note:** The `pattern` field is used for regex mode, while `expected` is used for exact and contains modes. Both fields exist on the type to support all three modes cleanly. An invalid regex pattern does not throw; it returns a failed result with an `Invalid regex pattern` message.
 
 ---
 
 #### `llm_judge`
 
-Delegates to the evaluator executor for semantic scoring. This is the most powerful assertion type — it can evaluate subjective quality criteria that deterministic checks cannot.
+Delegates to the evaluator executor for semantic scoring. This is the most powerful assertion type because it can evaluate subjective quality criteria that deterministic checks cannot.
 
 ```typescript
 { type: "llm_judge", criteria: "Is the output well-structured?", threshold: 0.7, evaluator_agent_id: "eval-agent" }
@@ -257,7 +280,9 @@ Delegates to the evaluator executor for semantic scoring. This is the most power
 2. If `evalResult.score >= threshold` → pass
 3. On failure, includes both the score and the LLM's reasoning in the message
 
-**Error handling:** If the evaluator throws (model unavailable, timeout), the assertion fails with the error message — it does not crash the case.
+The evaluator agent resolves through the **process-global agent factory** (`evaluateQualityExecutor`'s default), so the evaluator's config must be registered there or the factory must be running in its lightweight no-registry mode.
+
+**Error handling:** If the evaluator throws because the model is unavailable or the call times out, the assertion fails with the error message. It does not crash the case.
 
 ---
 
@@ -295,7 +320,7 @@ Checks that total token usage stayed within the configured budget.
 
 ### Unknown Assertion Types
 
-The `default` branch returns `{ passed: false, message: "Unknown assertion type: ..." }` — unknown types fail silently rather than throwing, preventing a single misconfigured assertion from crashing the entire suite.
+The `default` branch is a compile-time exhaustiveness check: it assigns the assertion to a `never`-typed binding, so adding a new variant to `EvalAssertion` without handling it fails the build. At runtime an unrecognized type still returns `{ passed: false, message: "Unknown assertion type" }` rather than throwing, so a malformed assertion cannot crash the suite.
 
 ---
 
@@ -322,19 +347,20 @@ interface EvalCase {
   graph: Graph;                          // The workflow graph to execute
   input: Record<string, unknown>;        // Input data (becomes initial memory + goal)
   assertions: EvalAssertion[];           // What to check after execution
-  agent_configs?: Record<string, unknown>; // Optional agent config overrides
+  agent_configs?: Record<string, unknown>; // Reserved for future use — not read by the runner
   timeout_ms?: number;                   // Per-case timeout (default: 60s)
 }
 ```
 
 ### `EvalAssertion`
 
-Discriminated union of six assertion types:
+Discriminated union of seven assertion types:
 
 ```typescript
 type EvalAssertion =
   | { type: "status_equals"; expected: string }
   | { type: "memory_contains"; key: string }
+  | { type: "memory_not_empty"; key: string }
   | { type: "memory_matches"; key: string; pattern: string; mode: "exact" | "contains" | "regex"; expected?: unknown }
   | { type: "llm_judge"; criteria: string; threshold: number; evaluator_agent_id: string }
   | { type: "node_visited"; node_id: string }
@@ -401,7 +427,7 @@ score = passedAssertions / totalAssertions
 - If a case has 0 assertions: `score = 1.0` (vacuous truth)
 - If the `GraphRunner` throws: `score = 0.0` regardless of assertions
 
-The `passed` boolean is stricter than the score — a case only passes if **all** assertions pass.
+The `passed` boolean is stricter than the score: a case only passes if **all** assertions pass.
 
 ### Per-Suite Score
 
@@ -412,4 +438,4 @@ overall_score = mean(case_scores)
 - Each case contributes equally regardless of its assertion count
 - An empty suite produces `overall_score = 0`
 
-**Why mean instead of weighted:** Keeping the scoring model simple makes it interpretable. If one case has 2 assertions and another has 20, they contribute equally to the overall score — this prevents assertion-heavy cases from dominating the report.
+**Why mean instead of weighted:** Keeping the scoring model simple makes it interpretable. If one case has 2 assertions and another has 20, they contribute equally to the overall score, which prevents assertion-heavy cases from dominating the report.

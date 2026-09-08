@@ -42,14 +42,26 @@ ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/workflow-observer/run.ts
 ## Expected Output
 
 ```
-━━━ Target workflow ━━━
-Status: completed   Nodes: supervisor → researcher → supervisor → writer → supervisor
+═══ Phase 1: Target Workflow ═══
 
-━━━ Observer ━━━
-Triage report:
-  Token burn concentrated in the supervisor (3 routing turns, 61% of spend)
-  No stalls detected
-  No errors
+  Status:  completed
+  Nodes:   supervisor → researcher → supervisor → writer → supervisor
+
+═══ Phase 2: Observer Workflow ═══
+
+  Status:  completed
+  Nodes:   observer_supervisor → token_analyst → … → report_writer → observer_supervisor
+
+╔══════════════════════════════════════════════════════╗
+║          Triage Report                                ║
+╚══════════════════════════════════════════════════════╝
+
+  Overall health: HEALTHY
+  Token spend concentrated in the supervisor's routing turns
+  No stalls detected, no errors
+
+═══ Combined Stats ═══
+  Target tokens / observer tokens / total cost
 ```
 
 ## Notes

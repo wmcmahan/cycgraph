@@ -52,7 +52,7 @@ sequenceDiagram
     Note over S: memory: { draft, human_decision, human_response }
 
     U->>R: runner2.run()
-    R->>PN: execute (reads: goal, draft, human_response)
+    R->>PN: execute (reads: goal, draft, human_response, human_decision)
     PN->>PN: LLM call → published article
     PN->>S: reducer: set memory.published
 
@@ -108,7 +108,7 @@ block-beta
     end
 
     block:pn["publish node"]
-        p_read["reads: goal, draft, human_response"]
+        p_read["reads: goal, draft, human_response, human_decision"]
         p_write["writes: published"]
     end
 ```
