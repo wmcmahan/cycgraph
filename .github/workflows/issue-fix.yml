@@ -14,6 +14,8 @@ name: Issue fix
 on:
   schedule:
     - cron: '0 10 * * 2'
+  issues:
+    types: [labeled]
   workflow_dispatch:
 
 permissions:
@@ -22,11 +24,15 @@ permissions:
   issues: read
 
 concurrency:
-  group: issue-fix
+  group: issue-fix-${{ github.event.issue.number || 'sweep' }}
   cancel-in-progress: false
 
 jobs:
   fix:
+    # A label event only counts when the label is the approval itself —
+    # approving an issue starts its fix immediately instead of waiting
+    # for the weekly sweep.
+    if: github.event_name != 'issues' || github.event.label.name == 'maintenance-approved'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,4 +56,4 @@ jobs:
           CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
           GIT_AUTHOR_NAME: cycgraph-maintenance
           GIT_AUTHOR_EMAIL: maintenance@cycgraph.local
-        run: npm run maintain --workspace=ops/maintenance -- issue-fix --checks "npm run lint:eslint"
+        run: npm run maintain --workspace=ops/maintenance -- issue-fix --checks "npm run lint:eslint" --issueNumber ${{ github.event.issue.number || 0 }}
