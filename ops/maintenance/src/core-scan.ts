@@ -33,6 +33,22 @@ function keyFor(kind: CoreFinding['kind'], file: string, text: string): string {
   return `${kind}:${file}:${normalized}`;
 }
 
+/**
+ * A line with its string-literal contents blanked, for re-testing a
+ * grep match. A pattern spelled inside quotes is a fixture or a prompt,
+ * not the thing itself — this scanner's own tests and agent
+ * instructions mention `it.skip` and TODO precisely because the scanner
+ * greps for them, and sensing those spellings files work that does not
+ * exist. Line-level and unescaped-quote-naive, which is all a grep-
+ * shaped scan can honestly claim anyway.
+ */
+function withoutStringLiterals(text: string): string {
+  return text
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .replace(/`(?:[^`\\]|\\.)*`/g, '``');
+}
+
 async function gitGrep(root: string, pattern: string, pathspecs: string[]): Promise<{ file: string; line: number; text: string }[]> {
   // git grep exits 1 on no matches, which is an answer rather than a failure.
   const { stdout } = await run(
@@ -49,7 +65,11 @@ async function gitGrep(root: string, pattern: string, pathspecs: string[]): Prom
 }
 
 async function todoFindings(root: string): Promise<CoreFinding[]> {
-  const rows = await gitGrep(root, '(TODO|FIXME|HACK)(:|\\(| )', [':(glob)packages/*/src/**/*.ts', ':(glob)ops/*/src/**/*.ts']);
+  // The actionable convention only: the marker word followed by a colon
+  // or an owner in parentheses. The bare-word form matches prose that
+  // talks about such comments rather than owing one.
+  const rows = (await gitGrep(root, '(TODO|FIXME|HACK)(:|\\()', [':(glob)packages/*/src/**/*.ts', ':(glob)ops/*/src/**/*.ts']))
+    .filter((row) => /(TODO|FIXME|HACK)[:(]/.test(withoutStringLiterals(row.text)));
   return rows.map((row) => ({
     kind: 'todo' as const,
     file: row.file,
@@ -60,7 +80,8 @@ async function todoFindings(root: string): Promise<CoreFinding[]> {
 }
 
 async function skippedTestFindings(root: string): Promise<CoreFinding[]> {
-  const rows = await gitGrep(root, '(^|[^a-zA-Z0-9_.])(it|test|describe)\\.skip\\(', [':(glob)packages/*/test/**/*.ts', ':(glob)ops/*/test/**/*.ts']);
+  const rows = (await gitGrep(root, '(^|[^a-zA-Z0-9_.])(it|test|describe)\\.skip\\(', [':(glob)packages/*/test/**/*.ts', ':(glob)ops/*/test/**/*.ts']))
+    .filter((row) => /(^|[^a-zA-Z0-9_.])(it|test|describe)\.skip\(/.test(withoutStringLiterals(row.text)));
   return rows.map((row) => ({
     kind: 'skipped-test' as const,
     file: row.file,
