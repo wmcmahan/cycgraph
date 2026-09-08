@@ -1,5 +1,23 @@
 # @cycgraph/tools
 
+## 1.3.0
+
+### Minor Changes
+
+- 47455f8: New workspace tool `create_file`: the write hand that brings a file
+  into existence, so an agent driving a jailed workspace can add a
+  module, a test, or a changeset instead of only modifying what already
+  exists. Paths resolve through the same jail as the rest of the surface,
+  parent directories are created under the root only, and contents are
+  capped at 1 MiB by default. It is new-file-only — an existing path is
+  refused, so `edit_file`'s read-before-edit and unique-match refusals
+  cannot be routed around by overwriting. A successful create records the
+  content in the shared `WorkspaceSession`, letting an agent immediately
+  edit the file it just wrote, and `workspaceTools(root)` bundles it
+  beside search, read, and edit. Designed by the feat-implement
+  workflow's agent; landed by hand after review.
+- 47455f8: PR feedback helpers for review-driven revision loops: `pushBranch` pushes a workspace branch to a branch that already has a pull request (factored out of `publishBranch`), `prFeedback` reads a PR's review bodies, conversation comments, and diff-anchored line comments (undefined when unreadable), and `commentOnPr` posts a reply.
+
 ## 1.2.0
 
 ### Minor Changes
