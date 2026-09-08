@@ -448,6 +448,17 @@ export async function executeAgent(
       clearTimeout(timeoutId);
     }
 
+    if (combinedSignal.aborted) {
+      const partialUsage = await capturePartialUsage(result, config.model);
+      logger.error('agent_timeout', new AgentTimeoutError(agentId, timeoutMs), {
+        agent_id: agentId,
+        timeout_ms: timeoutMs,
+        duration_ms: Date.now() - startTime,
+      });
+      span.setAttribute('agent.error', 'timeout');
+      throw new AgentTimeoutError(agentId, timeoutMs, partialUsage);
+    }
+
     // Providers differ in what the aggregate promise carries: some omit
     // the total, some report nothing usable at all. Fall back to summing
     // the per-step usage — a zero here silently disables cost accounting

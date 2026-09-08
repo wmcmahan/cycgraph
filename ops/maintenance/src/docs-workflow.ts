@@ -246,6 +246,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
       const fix = node({
         id: 'fix',
         agent: fixer,
+        failurePolicy: { timeoutMs: 600_000 },
         reads: [scan.result, 'judge_result'],
         writes: 'fix_report',
       });

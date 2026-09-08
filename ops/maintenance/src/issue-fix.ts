@@ -299,6 +299,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
       const fix = node({
         id: 'fix',
         agent: fixer,
+        failurePolicy: { timeoutMs: 1_200_000 },
         reads: [baseline.result, 'judge_result', 'review'],
         writes: 'fix_report',
       });
@@ -323,6 +324,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
       const review = node({
         id: 'review',
         agent: reviewer,
+        failurePolicy: { timeoutMs: 300_000 },
         reads: [baseline.result, diff.result],
         writes: 'review',
       });

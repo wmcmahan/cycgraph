@@ -206,12 +206,14 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
       const survey = node({
         id: 'survey',
         agent: surveyor,
+        failurePolicy: { timeoutMs: 1_200_000 },
         reads: ['clone_result'],
         writes: 'survey',
       });
       const propose = node({
         id: 'propose',
         agent: drafter,
+        failurePolicy: { timeoutMs: 300_000 },
         reads: ['survey', 'shape_result'],
         writes: 'proposal',
       });

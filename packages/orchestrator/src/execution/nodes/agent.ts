@@ -84,6 +84,7 @@ export async function executeAgentNode(
     nodeId: node.id,
     idempotencyKey: nodeIdempotencyKey(node, ctx, attempt),
     grantedWriteKeys: node.write_keys,
+    ...(node.failure_policy.timeout_ms !== undefined ? { timeoutMs: node.failure_policy.timeout_ms } : {}),
     abortSignal: ctx.abortSignal,
     onToken,
     onToolCall,
