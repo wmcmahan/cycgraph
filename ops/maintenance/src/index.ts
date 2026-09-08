@@ -23,6 +23,7 @@ export { issueFix } from './issue-fix.js';
 export { optPropose } from './opt-workflow.js';
 export { featPropose } from './feat-propose.js';
 export { optApply } from './opt-apply.js';
+export { prRevise } from './pr-revise.js';
 export { featImplement } from './feat-implement.js';
 export { extractTicketDiff, parseProposal, pathTokens, proposalKey, safeAcceptanceCommand } from './proposal.js';
 export type { FeatureProposal } from './proposal.js';
@@ -55,6 +56,9 @@ export const featProposeSourcePath = fileURLToPath(new URL('./feat-propose.ts', 
 
 /** Where the opt-apply workflow's source lives, likewise. */
 export const optApplySourcePath = fileURLToPath(new URL('./opt-apply.ts', import.meta.url));
+
+/** Where the pr-revise workflow's source lives, likewise. */
+export const prReviseSourcePath = fileURLToPath(new URL('./pr-revise.ts', import.meta.url));
 
 /** Where the feat-implement workflow's source lives, likewise. */
 export const featImplementSourcePath = fileURLToPath(new URL('./feat-implement.ts', import.meta.url));

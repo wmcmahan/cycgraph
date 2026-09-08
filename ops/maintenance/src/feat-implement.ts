@@ -26,8 +26,9 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { changedIn, deliveryNodes, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
+import { changedIn, deliveryNodes, issueMarkers, listOpenIssues, pendingDiff } from '@cycgraph/tools/git';
 import {
+  createFileTool,
   createWorkspaceSession,
   editFileTool,
   readFileTool,
@@ -82,6 +83,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         read: readFileTool({ root: workspaceAt, session }),
         search: searchTool({ root: workspaceAt }),
         edit: editFileTool({ root: workspaceAt, session }),
+        create: createFileTool({ root: workspaceAt, session }),
       };
 
       // The implementer can run repository checks itself, so it iterates
@@ -184,6 +186,12 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
           const pick = pick_result as
             { issue_number?: number; runnable?: string[]; manual?: string[] } | undefined;
           const changed = await changedIn(workspaceAt);
+          // Snapshot before running: acceptance executes agent-authored
+          // code, and a test that writes source files is using the judge
+          // as a write hand — the create_file bootstrap incident. Any
+          // mutation of the tree during acceptance is refused as gaming,
+          // exactly like a deletion satisfying a detector.
+          const treeBefore = changed.join('\n');
           const failed: { command: string; output: string }[] = [];
           for (const command of pick?.runnable ?? []) {
             try {
@@ -196,18 +204,23 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
               });
             }
           }
-          const passed = failed.length === 0 && changed.length > 0;
+          const treeAfter = (await changedIn(workspaceAt)).join('\n');
+          const mutated = treeAfter !== treeBefore;
+          const passed = failed.length === 0 && changed.length > 0 && !mutated;
           const closes = pick?.issue_number !== undefined ? `Closes #${pick.issue_number}. ` : '';
           return {
             passed,
             changed_count: changed.length,
+            mutated_by_tests: mutated,
             failed,
             manual: pick?.manual ?? [],
             detail: changed.length === 0
               ? `${closes}nothing was changed`
-              : failed.length > 0
-                ? `${closes}acceptance failed: ${failed.map((f) => f.command).join('; ')}`
-                : `${closes}all ${pick?.runnable?.length ?? 0} runnable acceptance criteria passed; ${pick?.manual?.length ?? 0} left for review`,
+              : mutated
+                ? `${closes}running the acceptance criteria itself modified the tree — tests must not write source files; make the changes with your editing tools instead`
+                : failed.length > 0
+                  ? `${closes}acceptance failed: ${failed.map((f) => f.command).join('; ')}`
+                  : `${closes}all ${pick?.runnable?.length ?? 0} runnable acceptance criteria passed; ${pick?.manual?.length ?? 0} left for review`,
           };
         },
       });
@@ -225,6 +238,37 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
           } catch (error) {
             return { clean: false, output: String((error as { stdout?: string }).stdout ?? (error as Error).message).slice(-2_000) };
           }
+        },
+      });
+
+      const diffTool = tool({
+        name: 'workspace_diff',
+        description: 'The workspace\'s full uncommitted diff, for review.',
+        parameters: z.object({}),
+        execute: async () => {
+          const diff = await pendingDiff(workspaceAt);
+          return { diff: diff.length > 40_000 ? `${diff.slice(0, 40_000)}\n… (truncated)` : diff };
+        },
+      });
+
+      const reviewCheckTool = tool({
+        name: 'review_check',
+        description: 'Parse the reviewer\'s verdict and count review rounds.',
+        parameters: z.object({
+          review: z.unknown().optional(),
+          review_check_result: z.unknown().optional(),
+        }),
+        execute: async ({ review, review_check_result }) => {
+          const text = String(review ?? '');
+          const round = ((review_check_result as { round?: number } | undefined)?.round ?? 0) + 1;
+          const approved = /^\s*APPROVED/m.test(text);
+          return {
+            approved,
+            round,
+            detail: approved
+              ? `review approved (round ${round})`
+              : `review requested revisions (round ${round}): ${text.replace(/\n/g, ' ').slice(0, 240)}`,
+          };
         },
       });
 
@@ -246,7 +290,31 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
           'End EVERY reply with a NOTES: section — the key files with their relevant line ranges and what you learned — so a retry can start oriented instead of re-reading; when a previous attempt\'s NOTES are in your context, trust them and only re-read files you are about to edit.',
           'When the implementation is complete, reply with: IMPLEMENTED <the ticket title>, then the NOTES: section.',
         ].join(' '),
-        tools: [hands.search, hands.read, hands.edit, runCheckTool],
+        tools: [hands.search, hands.read, hands.edit, hands.create, runCheckTool],
+      });
+
+      // The reviewer is an advisory critic, not the verdict: the
+      // mechanical gate stays the gate and the human merge stays the
+      // judgment. Toolless and fed the actual diff, it exists to catch
+      // what mechanical criteria cannot — a test that writes source
+      // files, style violations, a design that ignores the ticket.
+      const reviewer = agent({
+        id: 'implementation-reviewer',
+        name: 'Implementation reviewer',
+        model: env.model,
+        provider: env.provider,
+        temperature: 0.2,
+        maxSteps: 2,
+        instructions: [
+          'You review one implementation diff against its ticket. You have no tools; judge only what is in front of you.',
+          'Refuse anything a careful human reviewer would: tests that write, delete, or mutate source files or anything outside a temp directory; eslint-disable or weakened assertions; code that ignores the ticket\'s design; missing or vacuous tests; style foreign to the surrounding codebase (comments narrating history, missing .js import extensions).',
+          'Do not nitpick working code that a reasonable reviewer would pass; the goal is one round.',
+          'Reply with exactly one of:',
+          'APPROVED: <one line on why it is sound>',
+          'REVISE:',
+          '1. <specific finding with the file and what to change>',
+        ].join('\n'),
+        tools: [],
       });
 
       const { clone, commit, publish } = delivery;
@@ -257,7 +325,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
       const implement = node({
         id: 'implement',
         agent: implementer,
-        reads: [pick.result, 'accept_result', 'implement_report'],
+        reads: [pick.result, 'accept_result', 'implement_report', 'review'],
         writes: 'implement_report',
       });
       const accept = node({
@@ -276,13 +344,27 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
           description: 'Something was built, every runnable acceptance criterion passed, and the checks pass',
         },
       );
+      const diff = node({ id: 'diff', type: 'tool', toolId: 'workspace_diff', tools: [diffTool], reads: [] });
+      const review = node({
+        id: 'review',
+        agent: reviewer,
+        reads: [pick.result, diff.result],
+        writes: 'review',
+      });
+      const reviewCheck = node({
+        id: 'review_check',
+        type: 'tool',
+        toolId: 'review_check',
+        tools: [reviewCheckTool],
+        reads: ['review', 'review_check_result'],
+      });
       const report = node({ id: 'report', type: 'router' });
 
       return {
         graph: graph({
           name: 'feat-implement',
           description: 'Implement an approved feature ticket against its own acceptance criteria.',
-          nodes: [clone, pick, implement, accept, checks, gate, commit, publish, report],
+          nodes: [clone, pick, implement, accept, checks, gate, diff, review, reviewCheck, commit, publish, report],
           edges: [
             { from: clone, to: pick },
             { from: pick, to: implement, when: `memory.${pick.result}.has_work` },
@@ -290,7 +372,22 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
             { from: implement, to: accept },
             { from: accept, to: checks },
             { from: checks, to: gate },
-            { from: gate, to: commit, when: 'memory.gate_verification_passed' },
+            { from: gate, to: diff, when: 'memory.gate_verification_passed' },
+            { from: diff, to: review },
+            { from: review, to: reviewCheck },
+            { from: reviewCheck, to: commit, when: `memory.${reviewCheck.result}.approved` },
+            // Findings loop back to the implementer, bounded; a review that
+            // never approves ends the run visibly rather than delivering.
+            {
+              from: reviewCheck,
+              to: implement,
+              when: `not memory.${reviewCheck.result}.approved and memory.${reviewCheck.result}.round < 3`,
+            },
+            {
+              from: reviewCheck,
+              to: report,
+              when: `not memory.${reviewCheck.result}.approved and memory.${reviewCheck.result}.round >= 3`,
+            },
             { from: gate, to: implement, when: 'not memory.gate_verification_passed' },
             { from: commit, to: publish },
             { from: publish, to: report },
@@ -301,7 +398,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         input: {
           goal: 'Implement one approved feature ticket.',
           ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
-          maxIterations: 6 + p.attempts * 5,
+          maxIterations: 10 + p.attempts * 9,
         },
         runner: {},
       };

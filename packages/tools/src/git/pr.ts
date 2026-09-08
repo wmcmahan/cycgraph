@@ -37,3 +37,82 @@ export async function openPrFiles(
     return undefined;
   }
 }
+
+/** One piece of human review feedback on a pull request. */
+export interface PrComment {
+  author: string;
+  body: string;
+  /** File and line, for review comments anchored to the diff. */
+  path?: string;
+  line?: number;
+}
+
+/** A pull request's head branch and the human feedback on it. */
+export interface PrFeedback {
+  headRefName: string;
+  title: string;
+  comments: PrComment[];
+}
+
+function ghEnv(token?: string): NodeJS.ProcessEnv | undefined {
+  return token !== undefined ? { ...process.env, GH_TOKEN: token } : undefined;
+}
+
+/**
+ * The review feedback on one pull request: submitted review bodies,
+ * conversation comments, and diff-anchored review comments with their
+ * file and line. `undefined` when it cannot be read.
+ */
+export async function prFeedback(
+  repoRoot: string,
+  prNumber: number,
+  options: { token?: string } = {},
+): Promise<PrFeedback | undefined> {
+  const env = ghEnv(options.token);
+  const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
+  try {
+    const { stdout } = await exec(
+      'gh', ['pr', 'view', String(prNumber), '--json', 'headRefName,title,reviews,comments'], opts);
+    const view = JSON.parse(stdout) as {
+      headRefName: string; title: string;
+      reviews?: { author?: { login?: string }; body?: string }[];
+      comments?: { author?: { login?: string }; body?: string }[];
+    };
+    const { stdout: lineJson } = await exec(
+      'gh', ['api', `repos/{owner}/{repo}/pulls/${prNumber}/comments`], opts);
+    const lineComments = JSON.parse(lineJson) as
+      { user?: { login?: string }; body?: string; path?: string; line?: number | null }[];
+    const comments: PrComment[] = [
+      ...(view.reviews ?? []).filter((r) => (r.body ?? '') !== '')
+        .map((r) => ({ author: r.author?.login ?? '', body: r.body ?? '' })),
+      ...(view.comments ?? []).filter((c) => (c.body ?? '') !== '')
+        .map((c) => ({ author: c.author?.login ?? '', body: c.body ?? '' })),
+      ...lineComments.filter((c) => (c.body ?? '') !== '').map((c) => ({
+        author: c.user?.login ?? '',
+        body: c.body ?? '',
+        ...(c.path !== undefined ? { path: c.path } : {}),
+        ...(c.line != null ? { line: c.line } : {}),
+      })),
+    ];
+    return { headRefName: view.headRefName, title: view.title, comments };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Comment on a pull request; the failure's message when it cannot. */
+export async function commentOnPr(
+  repoRoot: string,
+  prNumber: number,
+  body: string,
+  options: { token?: string } = {},
+): Promise<{ ok: boolean; detail: string }> {
+  const env = ghEnv(options.token);
+  try {
+    await exec('gh', ['pr', 'comment', String(prNumber), '--body', body],
+      { cwd: repoRoot, ...(env !== undefined ? { env } : {}) });
+    return { ok: true, detail: 'commented' };
+  } catch (error) {
+    return { ok: false, detail: (error as Error).message.split('\n')[0] ?? 'comment failed' };
+  }
+}

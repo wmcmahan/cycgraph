@@ -139,6 +139,36 @@ describe('openPrFiles', () => {
   });
 });
 
+describe('prFeedback', () => {
+  it('returns undefined when the PR cannot be read', async () => {
+    const { prFeedback } = await import('../src/git/pr.js');
+
+    expect(await prFeedback(root, 999999)).toBeUndefined();
+  });
+});
+
+describe('commentOnPr', () => {
+  it('reports the failure when the comment cannot be posted', async () => {
+    const { commentOnPr } = await import('../src/git/pr.js');
+
+    const outcome = await commentOnPr(root, 999999, 'hello');
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.detail.length).toBeGreaterThan(0);
+  });
+});
+
+describe('pushBranch', () => {
+  it('rejects when there is no remote to push to', async () => {
+    await exec('git', ['init', '--quiet', root]);
+    await writeFile(join(root, 'a.txt'), 'a\n');
+    await commit(root, 'seed');
+    const { pushBranch } = await import('../src/git/branch.js');
+
+    await expect(pushBranch({ root, branch: 'main' }, root)).rejects.toThrow();
+  });
+});
+
 describe('deliveryNodes', () => {
   function build(overrides: Partial<Parameters<typeof deliveryNodes>[0]> = {}) {
     return deliveryNodes({

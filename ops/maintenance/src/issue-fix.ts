@@ -7,8 +7,10 @@
  * finding in a fresh clone (an issue whose finding is already gone
  * routes to a clean exit), fix it with an agent, judge with the class's
  * anti-gaming guard (`issue-judge.ts`), run the repository's checks,
- * and deliver one PR whose body closes the issue. The human gates are
- * the label going in and the merge coming out.
+ * pass a toolless reviewer over the actual diff (advisory, bounded
+ * rounds — the mechanical gate stays the gate), and deliver one PR
+ * whose body closes the issue. The human gates are the label going in
+ * and the merge coming out.
  *
  * With no readable ledger, `--key` runs the same cycle detached — the
  * finding named directly, nothing closed — which is what makes the
@@ -26,6 +28,7 @@ import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { deliveryNodes, listOpenIssues, pendingDiff } from '@cycgraph/tools/git';
 import {
+  createFileTool,
   createWorkspaceSession,
   diagnosticsTool,
   editFileTool,
@@ -87,6 +90,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         read: readFileTool({ root: workspaceAt, session }),
         search: searchTool({ root: workspaceAt }),
         edit: editFileTool({ root: workspaceAt, session }),
+        create: createFileTool({ root: workspaceAt, session }),
       };
 
       const delivery = deliveryNodes({
@@ -209,6 +213,37 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         timeoutMs: 600_000,
       });
 
+      const diffTool = tool({
+        name: 'workspace_diff',
+        description: 'The workspace\'s full uncommitted diff, for review.',
+        parameters: z.object({}),
+        execute: async () => {
+          const diff = await pendingDiff(workspaceAt);
+          return { diff: diff.length > 40_000 ? `${diff.slice(0, 40_000)}\n… (truncated)` : diff };
+        },
+      });
+
+      const reviewCheckTool = tool({
+        name: 'review_check',
+        description: 'Parse the reviewer\'s verdict and count review rounds.',
+        parameters: z.object({
+          review: z.unknown().optional(),
+          review_check_result: z.unknown().optional(),
+        }),
+        execute: async ({ review, review_check_result }) => {
+          const text = String(review ?? '');
+          const round = ((review_check_result as { round?: number } | undefined)?.round ?? 0) + 1;
+          const approved = /^\s*APPROVED/m.test(text);
+          return {
+            approved,
+            round,
+            detail: approved
+              ? `review approved (round ${round})`
+              : `review requested revisions (round ${round}): ${text.replace(/\n/g, ' ').slice(0, 240)}`,
+          };
+        },
+      });
+
       const fixer = agent({
         id: 'upkeep-fixer',
         name: 'Upkeep fixer',
@@ -222,9 +257,34 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
           'The find text must be the file’s exact bytes as read_file shows them: never include line-number prefixes from search results, and never change indentation.',
           'If edit_file refuses because the find text matches more than one place, read the file and retry with a longer find that includes enough neighbouring text to match exactly once.',
           'Resolve the work, never erase its marker: the follow-up instruction states what counts as erasure for this finding, and erasure is refused.',
+          'If a reviewer\'s findings are in your context, address exactly what they name and nothing more.',
           'Change nothing unrelated. When the fix is made, reply with one line: FIXED <file>.',
         ].join(' '),
-        tools: [hands.search, hands.read, hands.edit],
+        tools: [hands.search, hands.read, hands.edit, hands.create],
+      });
+
+      // The reviewer is an advisory critic, not the verdict: the
+      // mechanical gate stays the gate and the human merge stays the
+      // judgment. Toolless and fed the actual diff, it exists to catch
+      // what the class guards cannot — a hollow fix, collateral edits,
+      // style foreign to the surrounding code.
+      const reviewer = agent({
+        id: 'upkeep-reviewer',
+        name: 'Upkeep reviewer',
+        model: env.model,
+        provider: env.provider,
+        temperature: 0.2,
+        maxSteps: 2,
+        instructions: [
+          'You review one upkeep-fix diff against the finding it resolves. You have no tools; judge only what is in front of you.',
+          'Refuse anything a careful human reviewer would: work erased instead of done (a TODO removed without its work, a test deleted or hollowed instead of revived, an eslint-disable instead of a fix); tests that write, delete, or mutate source files or anything outside a temp directory; edits unrelated to the finding; style foreign to the surrounding codebase (comments narrating history, missing .js import extensions).',
+          'Do not nitpick working code that a reasonable reviewer would pass; the goal is one round.',
+          'Reply with exactly one of:',
+          'APPROVED: <one line on why it is sound>',
+          'REVISE:',
+          '1. <specific finding with the file and what to change>',
+        ].join('\n'),
+        tools: [],
       });
 
       const { clone, commit, publish } = delivery;
@@ -239,7 +299,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
       const fix = node({
         id: 'fix',
         agent: fixer,
-        reads: [baseline.result, 'judge_result'],
+        reads: [baseline.result, 'judge_result', 'review'],
         writes: 'fix_report',
       });
       const judge = node({
@@ -259,13 +319,27 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
           description: 'The work was done rather than erased, nothing new broke, and the checks still pass',
         },
       );
+      const diff = node({ id: 'diff', type: 'tool', toolId: 'workspace_diff', tools: [diffTool], reads: [] });
+      const review = node({
+        id: 'review',
+        agent: reviewer,
+        reads: [baseline.result, diff.result],
+        writes: 'review',
+      });
+      const reviewCheck = node({
+        id: 'review_check',
+        type: 'tool',
+        toolId: 'review_check',
+        tools: [reviewCheckTool],
+        reads: ['review', 'review_check_result'],
+      });
       const report = node({ id: 'report', type: 'router' });
 
       return {
         graph: graph({
           name: 'issue-fix',
           description: 'Fix one approved upkeep issue and prove the work was done.',
-          nodes: [clone, pick, baseline, fix, judge, checks, gate, commit, publish, report],
+          nodes: [clone, pick, baseline, fix, judge, checks, gate, diff, review, reviewCheck, commit, publish, report],
           edges: [
             { from: clone, to: pick },
             { from: pick, to: baseline, when: `memory.${pick.result}.has_work` },
@@ -277,7 +351,22 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             { from: fix, to: judge },
             { from: judge, to: checks },
             { from: checks, to: gate },
-            { from: gate, to: commit, when: 'memory.gate_verification_passed' },
+            { from: gate, to: diff, when: 'memory.gate_verification_passed' },
+            { from: diff, to: review },
+            { from: review, to: reviewCheck },
+            { from: reviewCheck, to: commit, when: `memory.${reviewCheck.result}.approved` },
+            // Findings loop back to the fixer, bounded; a review that
+            // never approves ends the run visibly rather than delivering.
+            {
+              from: reviewCheck,
+              to: fix,
+              when: `not memory.${reviewCheck.result}.approved and memory.${reviewCheck.result}.round < 3`,
+            },
+            {
+              from: reviewCheck,
+              to: report,
+              when: `not memory.${reviewCheck.result}.approved and memory.${reviewCheck.result}.round >= 3`,
+            },
             { from: gate, to: fix, when: 'not memory.gate_verification_passed' },
             { from: commit, to: publish },
             { from: publish, to: report },

@@ -11,6 +11,7 @@
 
 export {
   branchDiff,
+  pushBranch,
   changedIn,
   cloneToBranch,
   commit,
@@ -18,7 +19,8 @@ export {
   publishBranch,
   publishScript,
 } from './branch.js';
-export { openPrFiles } from './pr.js';
+export { commentOnPr, openPrFiles, prFeedback } from './pr.js';
+export type { PrComment, PrFeedback } from './pr.js';
 export { createIssue, findingMarker, issueMarkers, listOpenIssues } from './issues.js';
 export type { IssueRef } from './issues.js';
 export type { Branch, Published } from './branch.js';
