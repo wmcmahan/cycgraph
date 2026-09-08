@@ -155,12 +155,20 @@ function remoteWebUrl(remote: string): string | undefined {
 }
 
 /**
- * Run the publish sequence `publishScript` prepares.
- *
- * Two pushes for the reason the script's comment gives: the clone's
- * `origin` is the local repository it came from, so the branch is handed
- * back there first and published from where `origin` is the real remote.
- * The pull request is opened with `gh`. When that fails for any reason,
+ * Push the workspace branch back through the source repository to its
+ * real remote, for updating a branch that already has a pull request.
+ * Two pushes because the clone's `origin` is the local repository it
+ * came from: the branch is handed back there first, then published from
+ * where `origin` is the real remote. Failures throw.
+ */
+export async function pushBranch(ws: Branch, repoRoot: string): Promise<void> {
+  await exec('git', ['push', 'origin', ws.branch], { cwd: ws.root });
+  await exec('git', ['push', '-u', 'origin', ws.branch], { cwd: repoRoot });
+}
+
+/**
+ * Run the publish sequence `publishScript` prepares: `pushBranch`, then
+ * a pull request opened with `gh`. When `gh` fails for any reason,
  * missing binary or missing auth alike, the pushed branch is not undone:
  * the result instead carries the pre-filled create-PR page as `openUrl`
  * and the failure's message in `detail`, so a caller can surface what a
@@ -173,8 +181,7 @@ export async function publishBranch(
   body: string,
   config: PublishConfig = {},
 ): Promise<Published> {
-  await exec('git', ['push', 'origin', ws.branch], { cwd: ws.root });
-  await exec('git', ['push', '-u', 'origin', ws.branch], { cwd: repoRoot });
+  await pushBranch(ws, repoRoot);
   try {
     const { stdout } = await exec(
       'gh',

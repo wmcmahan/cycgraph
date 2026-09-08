@@ -18,10 +18,13 @@ export { jailedPath, WorkspaceEscapeError } from './jail.js';
 export { createWorkspaceSession, contentHash } from './session.js';
 export type { WorkspaceSession } from './session.js';
 export { readFileTool, readFileParameters } from './read-file.js';
+export { createFileTool, createFileParameters } from './create-file.js';
+export type { CreateFileToolOptions } from './create-file.js';
 export type { ReadFileToolOptions } from './read-file.js';
 export { searchTool, searchParameters } from './search.js';
 export type { SearchToolOptions } from './search.js';
 export { editFileTool, editFileParameters } from './edit-file.js';
+import { createFileTool } from './create-file.js';
 export type { EditFileToolOptions } from './edit-file.js';
 export { diagnosticsTool, diagnosticsParameters } from './diagnostics.js';
 export type { DiagnosticsToolOptions, DiagnosticsResult } from './diagnostics.js';
@@ -42,5 +45,6 @@ export function workspaceTools(root: string): DefinedTool[] {
     searchTool({ root }),
     readFileTool({ root, session }),
     editFileTool({ root, session }),
+    createFileTool({ root, session }),
   ];
 }

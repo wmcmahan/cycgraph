@@ -22,6 +22,7 @@ import { optPropose } from './opt-workflow.js';
 import { featPropose } from './feat-propose.js';
 import { featImplement } from './feat-implement.js';
 import { optApply } from './opt-apply.js';
+import { prRevise } from './pr-revise.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { maintenanceEnvFromProcess } from './env.js';
@@ -38,10 +39,11 @@ const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
   'feat-propose': featPropose,
   'opt-apply': optApply,
   'feat-implement': featImplement,
+  'pr-revise': prRevise,
 };
 
-const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens']);
-const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale']);
+const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens', 'pr']);
+const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale', 'push']);
 const LIST_FLAGS = new Set(['checks']);
 
 function parseFlags(args: string[]): Record<string, unknown> {
@@ -214,6 +216,12 @@ async function main(): Promise<void> {
       say(`  ${firstFailure.command} output: …${firstFailure.output.replace(/\n/g, ' ⏎ ').slice(-400)}`);
     }
   }
+  const gather = memory['gather_result'];
+  if (gather !== undefined && gather['has_work'] !== true) say(`gather: ${String(gather['detail'] ?? '')}`);
+  const deliver = memory['deliver_result'];
+  if (deliver !== undefined) say(`deliver: ${String(deliver['detail'] ?? '')}`);
+  const reviewCheck = memory['review_check_result'];
+  if (reviewCheck !== undefined) say(`review: ${String(reviewCheck['detail'] ?? '')}`);
   const shape = memory['shape_result'];
   if (shape !== undefined) {
     say(`shape: ${String(shape['detail'] ?? '')}`);

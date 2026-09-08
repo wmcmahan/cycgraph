@@ -19,11 +19,12 @@ headless runner here is what CI uses.
 | `website-docs` | The documentation site under `apps/docs` |
 | `docs-maintenance` | Both at once — the unsplit original |
 | `core-upkeep` | Owed upkeep (TODOs, skipped tests, lint warnings) filed as deduped GitHub issues; no model, nothing edited |
-| `issue-fix` | Fixes one `maintenance-approved` issue per run and opens a PR that closes it; the judge refuses erasure per finding class |
+| `issue-fix` | Fixes one approved upkeep issue: re-locates the finding, fixes, judges against the class's anti-gaming guard, then a reviewer pass over the diff before the PR |
 | `opt-propose` | Benchmarks, makes one optimization, re-benchmarks; a verified improvement becomes a ticket carrying the measured table and diff — never a PR |
 | `feat-propose` | Studies the codebase read-only and files one well-formed feature ticket: motivation, design, evidence naming real files, mechanical acceptance criteria |
 | `opt-apply` | Implements one approved optimization ticket: re-applies its verified diff, re-benchmarks, PRs only if the improvement still holds; no model |
 | `feat-implement` | Implements one approved feature ticket against its own acceptance criteria; runnable criteria execute as the judge, the rest wait for PR review |
+| `pr-revise` | Addresses human review feedback on a maintenance PR: reads the comments, revises the same branch so the PR updates in place, and replies with what changed |
 
 ## Running
 
@@ -58,7 +59,8 @@ runs' combined error margins), `--scope <dir>` (changes outside it are
 refused), `--attempts n`. For `feat-propose`: `--focus <area>` steers
 the proposal; the gate is structural, and the quality gate is you —
 approve a ticket only when its evidence and acceptance criteria hold
-up. For `opt-apply` and `feat-implement`: `--issueNumber n` targets a
+up. For `pr-revise`: `--pr n` names the pull request whose feedback is
+addressed. For `opt-apply` and `feat-implement`: `--issueNumber n` targets a
 specific ticket, and `--ticketFile <path>` runs the same cycle from a
 saved ticket body without reading or closing anything on GitHub — how
 both are testable locally. Acceptance criteria only execute when they
@@ -102,3 +104,9 @@ write — pull requests created with the built-in `GITHUB_TOKEN` do not
 trigger CI, so without the PAT the maintenance PRs arrive without
 checks. Runs never merge anything, and the scan defers findings any
 open `docs/*` pull request already touches.
+`.github/workflows/pr-revise.yml` closes the human-in-the-loop review
+cycle: a changes-requested review on a maintenance branch, or a PR
+comment mentioning `@cycgraph`, dispatches a run that reads the
+feedback, revises the same branch so the pull request updates in place,
+and replies with what changed. The human verdict still ends every
+thread; the run never merges.

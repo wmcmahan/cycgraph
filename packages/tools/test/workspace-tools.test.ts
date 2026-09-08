@@ -8,6 +8,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  createFileTool,
   createWorkspaceSession,
   diagnosticsTool,
   editFileTool,
@@ -258,7 +259,7 @@ describe('diagnosticsTool', () => {
 
 describe('workspaceTools', () => {
   it('bundles the full editor surface over one root', () => {
-    expect(workspaceTools(root).map(tool => tool.name)).toEqual(['search', 'read_file', 'edit_file']);
+    expect(workspaceTools(root).map(tool => tool.name)).toEqual(['search', 'read_file', 'edit_file', 'create_file']);
   });
 
   it('arms the read-before-edit discipline across the bundle', async () => {
@@ -270,5 +271,52 @@ describe('workspaceTools', () => {
     await read!.execute({ path: 'src/config.ts' });
     const allowed = await edit!.execute({ path: 'src/config.ts', find: 'maxIterations = 6', replace: 'maxIterations = 3' });
     expect(allowed).toBe("edited 'src/config.ts'");
+  });
+});
+
+describe('createFileTool', () => {
+  it('creates a new file with parent directories and reports it', async () => {
+    const create = createFileTool({ root });
+
+    const result = await create.execute({ path: 'deep/dir/new.ts', contents: 'export const a = 1;\n' });
+
+    expect(result).toBe("created 'deep/dir/new.ts'");
+    expect(await readFile(join(root, 'deep/dir/new.ts'), 'utf8')).toBe('export const a = 1;\n');
+  });
+
+  it('refuses to overwrite an existing path', async () => {
+    await writeFile(join(root, 'existing.ts'), 'old\n');
+    const create = createFileTool({ root });
+
+    const result = await create.execute({ path: 'existing.ts', contents: 'new\n' });
+
+    expect(result).toBe("error: 'existing.ts' already exists — use edit_file to change it");
+    expect(await readFile(join(root, 'existing.ts'), 'utf8')).toBe('old\n');
+  });
+
+  it('refuses paths that escape the workspace', async () => {
+    const create = createFileTool({ root });
+
+    await expect(create.execute({ path: '../outside.ts', contents: 'x' })).rejects.toThrow();
+  });
+
+  it('refuses contents over the byte cap', async () => {
+    const create = createFileTool({ root, maxFileBytes: 10 });
+
+    const result = await create.execute({ path: 'big.ts', contents: 'x'.repeat(11) });
+
+    expect(result).toBe("error: 'big.ts' would be 11 bytes, over the 10 byte write limit");
+  });
+
+  it('records the created content as read, so an immediate edit succeeds', async () => {
+    const session = createWorkspaceSession();
+    const create = createFileTool({ root, session });
+    const edit = editFileTool({ root, session });
+
+    await create.execute({ path: 'made.ts', contents: 'const x = 1;\n' });
+    const result = await edit.execute({ path: 'made.ts', find: 'const x = 1;', replace: 'const x = 2;' });
+
+    expect(String(result)).toContain('made.ts');
+    expect(await readFile(join(root, 'made.ts'), 'utf8')).toBe('const x = 2;\n');
   });
 });
