@@ -739,6 +739,24 @@ describe('executeAgent — error and timeout handling', () => {
     await expect(executeAgent('test-agent', makeStateView(), {}, 1, { timeoutMs: 5 }))
       .rejects.toMatchObject({ name: 'AgentTimeoutError' });
   });
+
+  it('treats a stream that resolves after the abort fired as a timeout', async () => {
+    (streamText as any).mockImplementation((opts: any) => {
+      const signal: AbortSignal = opts.abortSignal;
+      const afterAbort = new Promise<void>((resolve) => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener('abort', () => resolve());
+      });
+      return {
+        text: afterAbort.then(() => ''),
+        totalUsage: afterAbort.then(() => ({ inputTokens: 40214, outputTokens: 3430, totalTokens: 43644 })),
+        steps: afterAbort.then(() => []),
+      };
+    });
+
+    await expect(executeAgent('test-agent', makeStateView(), {}, 1, { timeoutMs: 5 }))
+      .rejects.toMatchObject({ name: 'AgentTimeoutError' });
+  });
 });
 
 describe('executeAgent — stream-reported provider errors', () => {

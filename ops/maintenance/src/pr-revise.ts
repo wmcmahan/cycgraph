@@ -220,6 +220,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
       const revise = node({
         id: 'revise',
         agent: reviser,
+        failurePolicy: { timeoutMs: 1_200_000 },
         reads: [gather.result, 'checks_result'],
         writes: 'revise_report',
       });

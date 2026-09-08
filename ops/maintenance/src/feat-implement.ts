@@ -325,6 +325,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
       const implement = node({
         id: 'implement',
         agent: implementer,
+        failurePolicy: { timeoutMs: 1_800_000 },
         reads: [pick.result, 'accept_result', 'implement_report', 'review'],
         writes: 'implement_report',
       });
@@ -348,6 +349,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
       const review = node({
         id: 'review',
         agent: reviewer,
+        failurePolicy: { timeoutMs: 300_000 },
         reads: [pick.result, diff.result],
         writes: 'review',
       });

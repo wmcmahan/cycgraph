@@ -250,6 +250,7 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
       const propose = node({
         id: 'propose',
         agent: optimizer,
+        failurePolicy: { timeoutMs: 1_200_000 },
         reads: [benchBefore.result, 'verdict_result'],
         writes: 'proposal',
       });

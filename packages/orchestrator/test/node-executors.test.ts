@@ -142,6 +142,23 @@ describe('executeAgentNode', () => {
     expect(result.type).toBe('update_memory');
   });
 
+  it('passes the node timeout through to the agent call', async () => {
+    const deps = makeDeps();
+    const node = makeNode({ agent_id: 'agent-1' });
+    node.failure_policy.timeout_ms = 1_200_000;
+    const ctx = makeCtx({ deps });
+
+    await executeAgentNode(node, makeStateView(), 1, ctx);
+
+    expect(deps.executeAgent).toHaveBeenCalledWith(
+      'agent-1',
+      expect.any(Object),
+      expect.any(Object),
+      1,
+      expect.objectContaining({ timeoutMs: 1_200_000 }),
+    );
+  });
+
   it('loads agent config and tools before execution', async () => {
     const deps = makeDeps();
     const node = makeNode({ agent_id: 'agent-1' });
