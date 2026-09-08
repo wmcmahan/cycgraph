@@ -49,11 +49,22 @@ Podman works as a drop-in for Docker: `podman compose up -d postgres`.
 ## Expected Output
 
 ```
-Registered agents: researcher=<uuid>, writer=<uuid>
+═══ Results ═══
 Status: completed
-Snapshots persisted: 6
+Run ID: <uuid>
+
+Research Notes:
+...
+
+Article:
+...
+
+═══ Postgres Verification ═══
+State persisted: YES
 Events logged: 14
-Tokens: 2431   Cost: $0.0091
+
+Tokens used: 2431
+Cost (USD):  $0.0091
 ```
 
 Run it twice. The agent ids stay the same, and a second set of rows appears

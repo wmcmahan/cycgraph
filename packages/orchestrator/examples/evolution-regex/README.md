@@ -1,17 +1,15 @@
 # Evolution with Deterministic Fitness — Regex Matcher
 
-The classic [evolution](../evolution/) example uses an LLM-as-judge to score candidates. That works for subjective creative tasks (taglines, copy, prose) but suffers from judge variance — fitness scores can plateau or jitter even when the actual outputs improve.
+Like the sibling [evolution](../evolution/) example, this one scores candidates with a deterministic `fitnessFunction` on `GraphRunnerOptions` rather than an LLM judge. An LLM judge works for subjective creative tasks (taglines, copy, prose) but suffers from judge variance — fitness scores can plateau or jitter even when the actual outputs improve. Here the score for each candidate is computed by running the produced regex against a fixed corpus — no LLM, no variance, no judge tokens.
 
-This example shows the **deterministic-fitness path**: a `fitnessFunction` callback on `GraphRunnerOptions` replaces the LLM judge entirely. The score for each candidate is computed by running the produced regex against a fixed corpus — no LLM, no variance, no judge tokens.
-
-Result: a visibly clean fitness climb across generations, ending with a regex that classifies all 14 test cases correctly.
+Result: a visibly clean fitness climb across generations, ending with a regex that classifies all 22 test cases correctly.
 
 ## Graph
 
 Evolves a regex that matches HTTP 4xx status codes (`400`–`499`) **except** the three most common — `401`, `403`, `404` — and rejects everything else.
 
 - **Matches**: `400`, `402`, `405`, `406`, `408`, `409`, `410`, `418`, `422`, `429`, `451`, `499`
-- **Rejects**: `401`, `403`, `404`, `200`, `301`, `500`, `304`, `100`, `4000` (too long), `40` (too short), `xyz`
+- **Rejects**: `401`, `403`, `404`, `200`, `301`, `500`, `304`, `4000` (too long), `40` (too short), `xyz`
 
 ### Why this task, and an honest note about fitness shape
 
@@ -27,7 +25,7 @@ Rather than fight that with synthetic tasks, this example **runs all `max_genera
 - Deterministic fitness function called for every candidate
 - Cost-tracking that aggregates across all generations
 
-That's the proof the engine works mechanically. The fitness bars may all be 1.0 — that just means Haiku is too capable for *this* task. Generation-over-generation climbing requires either a substantially weaker candidate model, an LLM-unsolvable task, or both.
+That's the proof the engine works mechanically. The fitness bars may all be 1.0 — that just means the model is too capable for *this* task. Generation-over-generation climbing requires either a substantially weaker candidate model (try a small Ollama tag via `CYCGRAPH_MODEL`), an LLM-unsolvable task, or both.
 
 ### Where this pattern *does* show climbing
 
@@ -38,16 +36,19 @@ If your downstream use case involves:
 
 …then the engine wiring exposed by this example is exactly what you want, and the fitness climbing emerges naturally.
 
-Fitness = `correctly classified / total` (23 test cases).
+Fitness = `correctly classified / total` (22 test cases: 12 matches + 10 rejects).
 
 ### Model
 
-The example uses `claude-haiku-4-5-20251001` to keep cost low. Stronger models work the same way.
+The example resolves its model through the shared `examples/_model.ts` helper: a hosted Anthropic model by default, or any local Ollama tag via `CYCGRAPH_MODEL`.
 
 ## Run
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/evolution-regex/evolution-regex.ts
+
+# or free, against a local model:
+CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/evolution-regex/evolution-regex.ts
 ```
 
 Expected output:
@@ -93,8 +94,9 @@ Exact numbers vary across runs — LLM output is non-deterministic. The shape (u
 ## The key code
 
 ```typescript
-import { agent, node, graph, state, agentsForGraph, GraphRunner, InMemoryAgentRegistry } from '@cycgraph/orchestrator';
+import { agent, evolution, graph, state, agentsForGraph, GraphRunner, InMemoryAgentRegistry } from '@cycgraph/orchestrator';
 import type { FitnessFunction } from '@cycgraph/orchestrator';
+import { MODEL, PROVIDER } from '../_model.js';
 
 const SHOULD_MATCH = ['400', '402', '405', /* ... */];
 const SHOULD_REJECT = ['401', '403', '404', '200', /* ... */];
@@ -114,14 +116,14 @@ const fitnessFunction: FitnessFunction = async (output) => {
   return { score: hits / total };
 };
 
-// The candidate is authored as a facade agent() and placed in an evolution node.
-// `candidateAgentId` accepts the agent() value directly — graph() resolves it.
-const candidate = agent({ model: 'claude-haiku-4-5-20251001', instructions: '…' });
-const evolve = node({
+// The candidate is a facade agent() placed in an evolution node via the helper.
+const candidate = agent({ model: MODEL, provider: PROVIDER, instructions: '…' });
+const evolve = evolution(candidate, {
   id: 'evolve',
-  type: 'evolution',
-  agent: candidate,
-  evolutionConfig: { candidateAgentId: candidate, populationSize: 4, maxGenerations: 4 },
+  populationSize: 4,
+  maxGenerations: 4,
+  fitnessThreshold: 1.5,       // unreachable: run every generation regardless
+  stagnationGenerations: 99,   // likewise, never stop early on a plateau
 });
 const g = graph({ name: 'Regex Evolution', nodes: [evolve], edges: [], startNode: evolve, endNodes: [evolve] });
 
@@ -136,7 +138,7 @@ for (const config of agentsForGraph(g)) {
 const runner = new GraphRunner(g, state({ workflowId: g.id, goal: '…' }), { registry, fitnessFunction });
 ```
 
-The evolution node config drops `evaluatorAgentId` entirely — the runner-supplied `fitnessFunction` takes over.
+The evolution spec declares no `evaluator` — the runner-supplied `fitnessFunction` takes over.
 
 ## When to use this pattern
 
@@ -144,4 +146,4 @@ The evolution node config drops `evaluatorAgentId` entirely — the runner-suppl
 - When you've seen the LLM judge plateau or jitter and want clean, monotonic climbing.
 - When token budget for evaluation is a concern — deterministic fitness is free.
 
-Stick with the LLM-as-judge `evaluatorAgentId` for tasks with no objective answer (creative writing, design rationale, subjective quality).
+Stick with an LLM judge (the `evaluator` option on the `evolution()` spec) for tasks with no objective answer (creative writing, design rationale, subjective quality).

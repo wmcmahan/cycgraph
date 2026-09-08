@@ -42,6 +42,7 @@ Three properties this demonstrates:
 | `extract` | `agent` | Reads `email_text`, emits a structured `purchase_order` |
 | `verify_email` | `verifier` (`jsonpath`) | Asserts `$.customer_email` matches an email regex |
 | `fix` | `agent` | Re-extracts using `verify_email_verification.reasoning` |
+| `done` | `router` | Pass-through end node the success branch routes to |
 
 Edges:
 
@@ -86,6 +87,9 @@ a better attempt.
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/verifier-fix-loop/verifier-fix-loop.ts
+
+# or free, against a local model:
+CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/verifier-fix-loop/verifier-fix-loop.ts
 ```
 
 Expected output on a clean run (the model usually nails it first try):

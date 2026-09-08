@@ -22,12 +22,14 @@ This README is the **quick-start + API at-a-glance**. For concepts (drift gates,
 - **54 golden trajectories** across 3 suites (`orchestrator`, `memory`, `context-engine`) with stable IDs and provenance.
 - **Two assertion tracks**:
   - **Deterministic** — pure library calls (no LLM): segmentation, dedup, budget, subgraph, conflict detection, etc.
-  - **Semantic** — LLM-as-judge with three built-in rubric metrics (`answer_relevancy`, `faithfulness`, `logical_coherence`). Three reference-free metrics (`instruction_following`, `output_quality`, `safety`) are exposed but not yet wired into a default suite.
+  - **Semantic** — LLM-as-judge with three built-in rubric metrics (`answer_relevancy`, `faithfulness`, `logical_coherence`). Five reference-free metrics (`instruction_following`, `output_quality`, `safety`, `compression_fidelity`, `qa_answerability`) are exposed but not yet wired into a default suite.
 - **Multi-sample evaluation** — distinguishes flaky LLM responses from genuine regressions.
 - **Baseline persistence** — compares each run against the prior committed state and flags regressions that hide under the absolute drift ceiling.
 - **Recording infrastructure** — re-record any trajectory by running the input through the real System-Under-Test; goldens become observable behavior, not hand-authored intent.
 - **Tag-routed dispatch** — `branching` / `supervisor` / `retry` / etc. trajectories pick the right SUT graph automatically.
 - **Efficacy + bench runners** — sibling CLIs (`evals:efficacy`, `bench`) that measure absolute extraction/compression quality rather than drift.
+- **Telemetry insights** — deterministic, offline detectors over recorded runs that produce a ranked list of findings with supporting evidence (`buildInsightsReport`).
+- **Knob sweeps** — enumerate finite knob values from a finding, measure each against the same recorded prefix, and decide on the evidence (`enumerateSweeps`, `decideSweep`); no model proposes anything.
 
 ## Quick start
 
@@ -122,7 +124,19 @@ import {
   // Semantic — built-in LLM rubric metrics
   ANSWER_RELEVANCY, FAITHFULNESS, LOGICAL_COHERENCE, BUILT_IN_METRICS,
   // Reference-free — score without a comparison output
-  INSTRUCTION_FOLLOWING, OUTPUT_QUALITY, SAFETY, REFERENCE_FREE_METRICS,
+  INSTRUCTION_FOLLOWING, OUTPUT_QUALITY, SAFETY,
+  COMPRESSION_FIDELITY, QA_ANSWERABILITY, REFERENCE_FREE_METRICS,
+} from '@cycgraph/evals';
+```
+
+### Telemetry insights + knob sweeps
+
+```typescript
+import {
+  buildInsightsReport, formatInsightsReport, DETECTORS,   // findings from recorded runs
+  buildWorkflowProfile,                                    // per-node cost/latency profile
+  enumerateSweeps, decideSweep,                            // knob sweeps over a finding
+  planCombination, decideCombination,                      // combine winning knob values
 } from '@cycgraph/evals';
 ```
 
@@ -187,11 +201,11 @@ Trajectories are stored as compressed SQLite (`.sqlite.gz`) under `golden/data/`
 
 ```
 golden/
-├── manifest.json               # Versioned index with sha256
+├── manifest.json               # Versioned index with sha256 — points at the live files
 ├── data/
-│   ├── orchestrator-v1.sqlite.gz
-│   ├── memory-v1.sqlite.gz
-│   └── context-engine-v1.sqlite.gz
+│   ├── orchestrator-v3.sqlite.gz    # older -v1/-v2 files are retained alongside
+│   ├── memory-v3.sqlite.gz
+│   └── context-engine-v3.sqlite.gz
 └── baselines/                  # (gitignored) per-run baseline snapshots
     └── main-latest.json
 ```

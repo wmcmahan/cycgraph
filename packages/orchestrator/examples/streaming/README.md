@@ -48,7 +48,10 @@ sequenceDiagram
 
 ## Stream Events
 
-The `stream()` method yields typed `StreamEvent` objects. This example handles every event type:
+The `stream()` method yields typed `StreamEvent` objects. The full union is
+larger (tool calls, model resolution, context compression, HITL pauses, taint,
+and more — see `execution/streaming/stream-events.ts`); this example handles
+the common ones:
 
 | Event | When | Payload Highlights |
 |-------|------|--------------------|
@@ -63,7 +66,7 @@ The `stream()` method yields typed `StreamEvent` objects. This example handles e
 | `workflow:complete` | Workflow finishes successfully | `state` (terminal) |
 | `workflow:failed` | Workflow fails | `state`, `error` (terminal) |
 
-Terminal events are detected with the `isTerminalEvent()` type guard, which narrows the event type to `workflow:complete | workflow:failed`.
+Terminal events are detected with the `isTerminalEvent()` type guard, which narrows the event type to `workflow:complete | workflow:failed | workflow:timeout | workflow:cancelled | workflow:waiting`.
 
 ## State Slicing
 
@@ -107,13 +110,13 @@ Starting streaming workflow...
 [node:start] research (agent)
 • LLMs are neural networks trained on massive text corpora ...
 [node:complete] research (2340ms)
-[action:applied] set_memory on research
+[action:applied] update_memory on research
 [state:persisted] iteration=1
 
 [node:start] write (agent)
 Large language models are AI systems that have ...
 [node:complete] write (1820ms)
-[action:applied] set_memory on write
+[action:applied] update_memory on write
 [state:persisted] iteration=2
 
 [workflow:complete] Final status: completed
@@ -135,4 +138,4 @@ Large language models are AI systems trained on vast amounts of text ...
 - **Token streaming**: `agent:token_delta` events deliver each token as it arrives from the LLM — write directly to `stdout` for a typewriter effect
 - **Typed event discrimination**: Use a `switch` on `event.type` to handle each event with full TypeScript narrowing
 - **`isTerminalEvent()` guard**: A type guard that narrows `StreamEvent` to terminal variants, making it safe to access `event.state` and detect completion or failure
-- **Same graph, different consumption**: The graph definition is identical to the `research-and-write` example — only the runner call changes from `run()` to `stream()`
+- **Same graph, different consumption**: The graph is the same shape as the `research-and-write` example, but it runs through an explicit `GraphRunner` because `stream()` is a runner method the one-call `run()` helper does not expose

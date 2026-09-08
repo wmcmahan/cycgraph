@@ -3,17 +3,16 @@
 # @cycgraph/orchestrator
 
 [![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?label=%40cycgraph%2Forchestrator&color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io/docs/)
 
 </div>
 
 Build and compose your own agent workflows with a unified engine for running custom workflows with helpful built-in patterns like supervisor, swarm, map-reduce, and reflection.
 
-- **[Quick Start](https://flattop.io/docs/getting-started/quick-start/)** - build your first workflow in 5 minutes
+- **[Quick Start](https://flattop.io/docs/getting-started/quickstart/)** - build your first workflow in 5 minutes
 - **[Core Concepts](https://flattop.io/docs/concepts/overview/)** - graphs, nodes, agents, state
 - **[Patterns](https://flattop.io/docs/patterns/supervisor/)** - runnable guides for each built-in pattern
-- **[Troubleshooting](https://flattop.io/docs/getting-started/troubleshooting/)** - common errors, fixes, and the gotchas that fail silently
 - **[Examples](https://github.com/wmcmahan/cycgraph/tree/main/packages/orchestrator/examples/)** - runnable examples for each built-in pattern and infrastructure setup
 
 ## Install
@@ -52,7 +51,7 @@ const workflow = graph({
   edges: [{ from: research, to: write }],
 });
 
-run(workflow, { goal: 'Explain how LLMs work' });
+const { draft } = await run(workflow, { goal: 'Explain how LLMs work' });
 ```
 
 See the [Quickstart guide](https://flattop.io/docs/getting-started/quickstart/) for the full walkthrough.
@@ -90,6 +89,7 @@ Each pattern is a node type. Declarative, composable, and traced through OpenTel
 - **[Verifier](https://flattop.io/docs/patterns/verifier/)** LLM-judge / filtrex expression / JSONPath assertion
 - **[Voting](https://flattop.io/docs/patterns/voting/)** consensus across N voter agents
 - **[Subgraph](https://flattop.io/docs/patterns/subgraph/)** Compose whole graphs as reusable blocks with isolated state
+- **[A2A](https://flattop.io/docs/patterns/a2a/)** Delegate a step to a remote Agent2Agent agent through the trusted registry
 
 ## Examples
 

@@ -22,7 +22,7 @@ flowchart LR
 
 ## What the example does
 
-**1. Records a run.** `runRecorded()` rather than `run()`. The plain `run()` returns final memory and nothing else, and defaults to no event log, so a run made with it cannot be forked afterwards. `runRecorded()` wires a log, turns auto-compaction off so the whole log stays addressable, saves the graph so the run row resolves back to it, and hands you `{ runId, memory, state, eventLog, persistence }`.
+**1. Records a run.** `runRecorded()` rather than `run()`. The plain `run()` returns final memory and nothing else, and defaults to no event log, so a run made with it cannot be forked afterwards. `runRecorded()` wires a log, turns auto-compaction off so the whole log stays addressable, saves the graph so the run row resolves back to it, and hands you `{ runId, memory, state, eventLog, persistence, registry }`.
 
 **2. Forks it once.** `at: { beforeNode: 'write' }` replays everything up to the writer and then runs the writer live under a different system prompt. The research notes in the variant are byte-identical to the original, because that node was replayed rather than re-executed.
 
@@ -38,7 +38,7 @@ CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/counterfactual-replay/counterfactual-
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/counterfactual-replay/counterfactual-replay.ts
 ```
 
-Four model calls total: two for the base run, one for the single fork, three for the sweep — minus the two the fork and sweep skip by replaying the research node. The research prompt is answered once and reused six times.
+Six model calls total: two for the base run, one for the single fork, three for the sweep. Without replay it would be ten — the fork and every sweep variant skip re-running the research node. The research prompt is answered once and its notes reused in all four variants.
 
 ## Expected output
 

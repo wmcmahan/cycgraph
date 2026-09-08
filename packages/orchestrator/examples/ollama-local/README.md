@@ -25,7 +25,7 @@ Install [Ollama](https://ollama.com), pull a model, and make sure the server
 is up:
 
 ```bash
-ollama pull gemma2:9b
+ollama pull qwen2.5:7b
 ollama serve
 ```
 
@@ -41,14 +41,20 @@ OLLAMA_MODEL=qwen2.5:7b npx tsx examples/ollama-local/ollama-local.ts
 | Variable | Default |
 | --- | --- |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` |
-| `OLLAMA_MODEL` | `gemma2:9b` |
+| `OLLAMA_MODEL` | `qwen2.5:7b` |
 
 ## Expected Output
 
 ```
-Status: completed
-Tokens used: 1240
-Cost (USD):  $0.0000
+═══ Research Notes ═══
+- …
+
+═══ Final Draft ═══
+…
+
+═══ Stats ═══
+  Tokens used: 1240
+  Cost (USD):  $0.0000 (local — free)
 ```
 
 Cost is zero because local models carry no price entry.
@@ -61,7 +67,7 @@ either official or community clients serve:
 ```ts
 // @ai-sdk/openai-compatible
 registerOllamaProvider(providers, ({ baseURL }) =>
-  (modelId) => createOpenAICompatible({ name: 'ollama', baseURL, apiKey: 'ollama' }).chatModel(modelId));
+  (modelId) => createOpenAICompatible({ name: 'ollama', baseURL: `${baseURL}/v1`, apiKey: 'ollama' }).chatModel(modelId));
 
 // ollama-ai-provider-v2
 registerOllamaProvider(providers, ({ baseURL }) => createOllama({ baseURL }));

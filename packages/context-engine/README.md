@@ -5,8 +5,8 @@
 **A composable prompt-compression pipeline for TypeScript LLM stacks. Make every token count.**
 
 [![npm](https://img.shields.io/npm/v/@cycgraph/context-engine?color=cb3837)](https://www.npmjs.com/package/@cycgraph/context-engine)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
-[![Standalone](https://img.shields.io/badge/standalone-zero%20deps%20except%20zod-3b82f6)](#zero-dependency-core)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE)
+[![Standalone](https://img.shields.io/badge/standalone-zero%20deps%20except%20zod-3b82f6)](#capability-tiers)
 
 
 </div>
@@ -38,7 +38,7 @@ Three presets package measured configurations — or compose stages yourself wit
 | Preset | Stages | Measured latency* |
 |---|---|---|
 | **fast** | format → exact dedup → allocator | ~10–14 ms |
-| **balanced** | + CoT distillation, fuzzy dedup, heuristic pruning | ~16–28 ms |
+| **balanced** | + CoT distillation, fuzzy dedup, heuristic pruning | ~16–29 ms |
 | **maximum** | + hierarchy/graph formatters, model-aware format selection | ~16–29 ms |
 
 \* Mean per-compression latency on the benchmark's 1–5k-token multi-document payloads; small payloads run in low single-digit milliseconds. See [BENCHMARKS.md](./BENCHMARKS.md) for accuracy at matched compression ratios.
@@ -46,7 +46,7 @@ Three presets package measured configurations — or compose stages yourself wit
 ## Core Concepts
 
 - **Composable stages** — mix and match: format compression, exact, fuzzy, and semantic dedup, CoT distillation, heuristic pruning, self-information pruning, and budget allocation. Use the bundled **fast**, **balanced**, or **maximum** presets or build your own pipeline.
-- **Query-aware relevance allocation** — pass a `query` (the question or goal the context serves) and the presets' budget allocator concentrates budget on query-relevant segments via BM25 + pseudo-relevance feedback. At a 0.3 compression target it retained 67/82 answerable questions vs 51/82 for LLMLingua-2 on HotpotQA, and 23/47 vs 13/47 on multi-hop MuSiQue (both n=100, matched budgets, paired F1 deltas significant), at ~4ms vs ~600-950ms per compression. Without a query, allocation is proportional — identical to previous behavior. Full tables, negative results, and reproduction commands: [BENCHMARKS.md](./BENCHMARKS.md).
+- **Query-aware relevance allocation** — pass a `query` (the question or goal the context serves) and the presets' budget allocator concentrates budget on query-relevant segments via BM25 + pseudo-relevance feedback. At a 0.3 compression target it retained 67/82 answerable questions vs 51/82 for LLMLingua-2 on HotpotQA, and 23/47 vs 13/47 on multi-hop MuSiQue (both n=100, matched budgets, paired F1 deltas significant), at ~4ms vs ~600-1000ms per compression. Without a query, allocation is proportional — identical to previous behavior. Full tables, negative results, and reproduction commands: [BENCHMARKS.md](./BENCHMARKS.md).
 - **No LLM call required at the base tier** — default tier is pure TypeScript. Higher tiers add a token counter, an embedding provider, or a small local model for additional accuracy.
 - **Model-aware format routing** — checks the target model's capability profile and picks a representation that fits. Custom profiles can be merged in.
 - **Cache-aware prefix locking** — stabilises the static prompt prefix so provider-side prompt caches get consistent cache hits across turns. Pass a `model` and locking is skipped for providers without a prompt cache.
@@ -59,6 +59,9 @@ Three presets package measured configurations — or compose stages yourself wit
 - **Keep memory payloads within context budgets** - Use the bundled **fast**, **balanced**, or **maximum** presets or build your own pipeline to compress memory payloads to fit within token budgets
 - **Improve LLM performance** - Smaller prompts can lead to faster response times and improved model performance
 - **Reduce input token costs for prompts that contain:**
+  - Repeated or near-duplicate facts (exact, fuzzy, and semantic dedup)
+  - Verbose JSON serialisation (format re-serialization to compact tabular/nested forms)
+  - Stale reasoning traces (CoT distillation)
 
 The compression engine catches each of these with a dedicated stage, runs them in order, and stays within a token budget you set.
 
@@ -180,9 +183,11 @@ The pipeline runs at the tier you supply. Higher tiers add capabilities without 
 
 
 - **Tier 0** - Default (pure TypeScript)
-- **Tier 1** - A token counter
-- **Tier 2** - An embedding provider
-- **Tier 3** - A small local model (GPT-2 / Phi-2)
+- **Tier 1** - A token counter (e.g. `createTiktokenCounter`)
+- **Tier 2** - An embedding provider (enables semantic dedup)
+- **Tier 3** - A small local model or LLMLingua-style adapter for token-importance scoring
+
+Semantic dedup and self-information pruning need pre-computed embeddings or scores, so they are not part of any preset. Compose them explicitly with `createPipeline` (`createSemanticDedupStage`, `createSelfInformationStage`).
 
 ## Memory-payload formatting
 
@@ -198,7 +203,7 @@ A `selectFormat()` helper picks the representation from the target model's capab
 
 ## Observability
 
-Every compression call returns metrics: per-stage `tokensIn`, `tokensOut`, `durationMs`, total reduction percent, format selection decisions, cache stability diagnostics. Wire to Prometheus or your tracing of choice.
+Every compression call returns metrics: per-stage `tokensIn`, `tokensOut`, `durationMs`, plus overall ratio, reduction percent, and total duration. Format selection decisions come back from `selectFormat` as a `FormatSelection`, and `diagnoseCacheStability` produces cache-stability diagnostics. Wire any of it to Prometheus or your tracing of choice.
 
 Debug mode results also carry a **source map**: per-segment provenance (`original` -> `compressed`, which stages changed each segment in order, and which stage removed or introduced one). The incremental pipeline threads provenance across cached turns.
 

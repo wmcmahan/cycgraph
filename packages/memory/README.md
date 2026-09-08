@@ -5,8 +5,8 @@
 **A temporal knowledge graph + hierarchical memory layer**
 
 [![npm](https://img.shields.io/npm/v/@cycgraph/memory?color=cb3837)](https://www.npmjs.com/package/@cycgraph/memory)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../../LICENSE)
-[![Standalone](https://img.shields.io/badge/standalone-zero%20deps%20except%20zod-3b82f6)](#zero-dependency-core)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE)
+![Standalone](https://img.shields.io/badge/standalone-zero%20deps%20except%20zod-3b82f6)
 
 </div>
 
@@ -60,7 +60,7 @@ import {
 const store = new InMemoryMemoryStore();
 const index = new InMemoryMemoryIndex();
 
-const segmenter = new SimpleEpisodeSegmenter({ gap_threshold_ms: 30000 });
+const segmenter = new SimpleEpisodeSegmenter({ gapThresholdMs: 30_000 });
 const extractor = new RuleBasedExtractor({ minSentenceLength: 15 });
 
 const messages = [
@@ -97,10 +97,10 @@ for (const ep of await segmenter.segment(messages)) {
 
 const result = await retrieveMemory(store, index, {
   tags: ['business'],
-  max_hops: 0,
+  maxHops: 0,
   limit: 10,
-  min_similarity: 0,
-  include_invalidated: false,
+  minSimilarity: 0,
+  includeInvalidated: false,
 });
 ```
 
@@ -112,8 +112,8 @@ import {
   DrizzleMemoryIndex
 } from '@cycgraph/orchestrator-postgres';
 
-const store = new DrizzleMemoryStore(db);
-const index = new DrizzleMemoryIndex(db);
+const store = new DrizzleMemoryStore();
+const index = new DrizzleMemoryIndex();
 ```
 
 ## Retrieval patterns
@@ -124,9 +124,9 @@ const index = new DrizzleMemoryIndex(db);
 await retrieveMemory(store, index, {
   tags: ['lesson', 'graph:research-v1'],
   limit: 20,
-  max_hops: 0,
-  min_similarity: 0,
-  include_invalidated: false,
+  maxHops: 0,
+  minSimilarity: 0,
+  includeInvalidated: false,
 });
 ```
 
@@ -134,11 +134,12 @@ await retrieveMemory(store, index, {
 
 ```typescript
 await retrieveMemory(store, index, {
-  entity_ids: [aliceId],
-  max_hops: 2,
+  entityIds: [aliceId],
+  maxHops: 2,
   limit: 20,
-  min_similarity: 0.5,
-  include_invalidated: false,
+  minSimilarity: 0.5,
+  includeInvalidated: false,
+  tags: [],
 });
 ```
 
@@ -148,9 +149,10 @@ await retrieveMemory(store, index, {
 await retrieveMemory(store, index, {
   embedding: await embed('source credibility methodology'),
   limit: 20,
-  max_hops: 0,
-  min_similarity: 0.5,
-  include_invalidated: false,
+  maxHops: 0,
+  minSimilarity: 0.5,
+  includeInvalidated: false,
+  tags: [],
 });
 ```
 
@@ -158,11 +160,12 @@ await retrieveMemory(store, index, {
 
 ```typescript
 await retrieveMemory(store, index, {
-  valid_at: new Date('2026-01-15'),
+  validAt: new Date('2026-01-15'),
   limit: 20,
-  max_hops: 0,
-  min_similarity: 0,
-  include_invalidated: false,
+  maxHops: 0,
+  minSimilarity: 0,
+  includeInvalidated: false,
+  tags: [],
 });
 ```
 
@@ -183,7 +186,12 @@ const consolidator = new MemoryConsolidator(store, index, {
 const report = await consolidator.consolidate();
 ```
 
-A separate `ConflictDetector` finds facts that semantically contradict each other and applies a resolution policy (keep newest / keep highest-confidence / mark all conflicting). Useful in long-running stores where the LLM extracts subtly different versions of the same fact over time.
+A separate `ConflictDetector` finds facts that semantically contradict each other and applies a resolution policy: `supersede-on-newer`, `negation-invalidates-positive`, or `manual-review`. Useful in long-running stores where the LLM extracts subtly different versions of the same fact over time.
+
+Two companions round out store hygiene:
+
+- **`EntityResolver`** merges duplicate entity records. Extraction mints entity IDs per episode, so "Alice Smith" mentioned in ten episodes becomes ten entities with ten UUIDs; `new EntityResolver(store).resolve()` merges them by normalized name and type, remapping facts and relationships onto the canonical. Run it before conflict detection, because conflicts are only visible between facts that share entity IDs.
+- **`checkFactAdmission(store, { content }, options?)`** is a paraphrase-aware write gate for `MemoryWriter` adapters. Exact-match dedup fails on rewordings, so the pool bloats and an evicted lesson can re-enter under a fresh ID; the admission check compares by token overlap (or cosine, when you pass `embeddings`) and refuses re-entry of anything previously invalidated, eval-gate evictions included.
 
 ## Extractors
 
@@ -196,7 +204,7 @@ One fact per episode topic. Fast, minimal coverage. No LLM required.
 import { SimpleSemanticExtractor } from '@cycgraph/memory';
 
 const extractor = new SimpleSemanticExtractor();
-const facts = await extractor.extract(episode);
+const { facts } = await extractor.extract(episode);
 ```
 
 #### RuleBasedExtractor
@@ -206,7 +214,7 @@ Multi-fact extraction with regex-based entity detection + verb-inflection relati
 import { RuleBasedExtractor } from '@cycgraph/memory';
 
 const extractor = new RuleBasedExtractor({ minSentenceLength: 20 });
-const facts = await extractor.extract(episode);
+const { facts, entities, relationships } = await extractor.extract(episode);
 ```
 
 #### LLMExtractor
@@ -224,7 +232,7 @@ const provider: LLMProvider = {
 };
 
 const extractor = new LLMExtractor({ provider, maxFactsPerEpisode: 20 });
-const facts = await extractor.extract(episode);
+const { facts, entities, relationships } = await extractor.extract(episode);
 ```
 
 ## Eval-gated retention
@@ -243,17 +251,17 @@ const ledger = new InMemoryOutcomeLedger();
 await ledger.recordOutcome({ run_id, score, fact_ids });
 
 const report = await evaluateRetention(store, ledger, {
-  min_trials: 3,
-  promote_margin: 0.05,
-  evict_margin: 0.05,
-  max_baseline_runs: 40,
+  minTrials: 3,
+  promoteMargin: 0.05,
+  evictMargin: 0.05,
+  maxBaselineRuns: 40,
 });
 
 const lessons = await retrieveGatedLessons(store, {
   tags: ['lesson', 'graph:my-graph-v1'],
-  max_facts: 10,
-  candidate_slots: 4,
-  rest_after_trials: 5,
+  maxFacts: 10,
+  candidateSlots: 4,
+  restAfterTrials: 5,
   ledger,
 });
 ```

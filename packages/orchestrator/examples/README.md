@@ -21,7 +21,7 @@ changes. `npm run smoke` runs the whole suite this way.
 
 > For OpenAI, set `provider: 'openai'` and a `gpt-*` model with `OPENAI_API_KEY`.
 > Both are built in. Other providers register through `ProviderRegistry` — see
-> [Custom LLM Providers](../README.md#custom-llm-providers).
+> [Providers & Model Resolution](../src/agents/README.md#9-providers--model-resolution).
 
 ## Available Examples
 
@@ -59,6 +59,8 @@ changes. `npm run smoke` runs the whole suite this way.
 | [ollama-local](./ollama-local/) | 2-node workflow against a local Ollama instance via `registerOllamaProvider()` — no API key needed |
 | [postgres-persistence](./postgres-persistence/) | Durable state, event sourcing, and usage tracking via `@cycgraph/orchestrator-postgres` |
 | [workflow-observer](./workflow-observer/) | "Triage observer" pattern — a separate workflow reads another workflow's event log + state and produces a structured triage report |
+| [counterfactual-replay](./counterfactual-replay/) | Record a run with `runRecorded()`, fork it with a changed prompt, sweep three variants against the same recording — the replayed prefix makes no model calls |
+| [hardening-validation](./hardening-validation/) | Two live-model scenarios asserting engine guarantees (derived supervisor reads + taint; run-scoped registry + tool inheritance across a subgraph) — prints PASS/FAIL, exits non-zero on failure |
 
 ### Eval framework
 
@@ -89,6 +91,12 @@ ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/graph-interface/index.ts
 npx tsx examples/graph-interop/publish.ts
 ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/graph-interop/consume.ts
 
+# Counterfactual replay — record, fork, sweep (local model works well here)
+CYCGRAPH_MODEL=qwen2.5:7b npx tsx examples/counterfactual-replay/counterfactual-replay.ts
+
+# Hardening validation — asserts engine guarantees against a live local model
+npx tsx examples/hardening-validation/hardening-validation.ts
+
 # Ollama (no API key needed)
 npx tsx examples/ollama-local/ollama-local.ts
 
@@ -102,9 +110,9 @@ ANTHROPIC_API_KEY=sk-ant-... DATABASE_URL=postgresql://... npx tsx examples/post
 ## Conventions
 
 Every example is a folder containing a `README.md` and one entry `.ts` named
-after it. Examples that demonstrate composition (`graph-interface`,
-`graph-interop`, `evals`) span several files, because being split across
-modules is the thing they show.
+after it (`workflow-observer`'s entry is `run.ts`). Examples that demonstrate
+composition (`graph-interface`, `graph-interop`, `evals`) span several files,
+because being split across modules is the thing they show.
 
 The division of labour: the README carries the prose — what the example
 demonstrates, the topology, expected output, caveats, and variants. The source
@@ -132,4 +140,4 @@ runnable examples: `evals` indexes the eval suites, and `graph-interface` and
 
 ## Next Steps
 
-- [README.md](../README.md) — Package overview, API reference, and custom provider setup
+- [README.md](../README.md) — Package overview, install, built-in patterns, and docs links

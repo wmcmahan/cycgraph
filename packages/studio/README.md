@@ -76,7 +76,7 @@ the dashboard's Database-runs view — inspectable and forkable with no
 further wiring. To bring one into the measurement layer too, import it:
 
 ```bash
-npm --prefix $STUDIO run studio -- import <runId>     # or --all
+npm run studio -- import <runId>     # or --all
 ```
 
 Importing reconstructs the run's artifacts from the event log: per-node
@@ -94,6 +94,7 @@ same operation.
 |-------|---------|
 | `graphs` | Workflow modules (`.ts`/`.mjs`) or bundle files (`.json`), config-relative |
 | `model` | Model id every agent resolves through |
+| `database` | Postgres connection string, applied as `DATABASE_URL` unless already set |
 | `tenant` | Tenant Postgres-backed runs open against |
 | `artifactRoot` | Run artifact directory, config-relative |
 | `postgres` / `jaeger` / `servers` / `memory` | Opt out of stack features |

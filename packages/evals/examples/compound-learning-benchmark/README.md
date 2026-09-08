@@ -9,14 +9,14 @@ Runs the same research-brief task over 5 different topics, twice:
 
 | Condition | Graph | Memory |
 |---|---|---|
-| **learning** | `research → critique → reflect` | lessons accumulate; each run retrieves all prior lessons via `memory_query` |
+| **learning** | `research → critique → reflect` | lessons accumulate; each run retrieves all prior lessons via `memoryQuery` |
 | **control** | `research` only | none — same agent config, same topics, same order |
 
 The researcher never sees the quality rubric. A critic agent compares each
 brief against a fixed rubric and emits **generic, transferable lessons**
 ("cite named sources with years", "quantify claims"). A `reflection` node
 distills those into memory; the next run's researcher prompt includes them
-via `memory_query` — so run N benefits from the critiques of runs 1..N-1 on
+via `memoryQuery`, so run N benefits from the critiques of runs 1..N-1 on
 topics it has never seen.
 
 Scoring is **external to the workflow** (the agents never see the scores):

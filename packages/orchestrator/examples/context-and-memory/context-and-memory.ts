@@ -1,7 +1,7 @@
 /**
  * Context Engine + Memory — Runnable Example
  *
- * A supervisor-routed workflow that demonstrates persistent memory
+ * A 2-node linear workflow that demonstrates persistent memory
  * and context compression working together. A Research agent gathers
  * notes that are stored in the memory hierarchy, then a Writer agent
  * receives compressed, relevant memory facts in its prompt.
