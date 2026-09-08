@@ -58,14 +58,28 @@ export function withCacheBreakpoint(messages: unknown[]): unknown[] {
   if (messages.length === 0) return messages;
   const cache = { anthropic: { cacheControl: { type: 'ephemeral' } } };
   const firstMarked = Math.max(0, messages.length - 3);
+  // Marks from earlier steps persist in the loop's stored messages, so
+  // without stripping them each request accumulates breakpoints past
+  // Anthropic's limit of four and the newest — the useful ones — get
+  // dropped by the provider.
+  const strip = (part: Record<string, unknown>): Record<string, unknown> => {
+    const options = part['providerOptions'] as { anthropic?: Record<string, unknown> } | undefined;
+    if (options?.anthropic?.['cacheControl'] === undefined) return part;
+    const { cacheControl: _dropped, ...anthropicRest } = options.anthropic;
+    return { ...part, providerOptions: { ...options, anthropic: anthropicRest } };
+  };
   return messages.map((entry, index) => {
-    if (index < firstMarked) return entry;
     const message = entry as { content: string | Array<Record<string, unknown>> };
+    if (index < firstMarked) {
+      return typeof message.content === 'string'
+        ? entry
+        : { ...message, content: message.content.map(strip) };
+    }
     const content = typeof message.content === 'string'
       ? [{ type: 'text', text: message.content, providerOptions: cache }]
       : message.content.map((part, partIndex, all) => partIndex === all.length - 1
-        ? { ...part, providerOptions: { ...(part['providerOptions'] as object | undefined), ...cache } }
-        : part);
+        ? { ...strip(part), providerOptions: { ...(strip(part)['providerOptions'] as object | undefined), ...cache } }
+        : strip(part));
     return { ...message, content };
   });
 }

@@ -58,7 +58,7 @@ const params = z.object({
     .describe('Push and open the PR. Off leaves the prepared publish script'),
   prompt: z.string().default('')
     .describe('Override the implementer agent\'s instructions'),
-  budgetTokens: z.number().int().min(0).default(500000)
+  budgetTokens: z.number().int().min(0).default(900000)
     .describe('Hard token budget for the run; breach fails the run. Zero removes the cap'),
 });
 
@@ -240,19 +240,24 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
           'Follow its design sketch and ground yourself in its evidence files. Write real code and real tests; the runnable acceptance criteria will be executed exactly as written and must pass.',
           'After editing, run the ticket\'s runnable acceptance commands yourself with run_check and iterate on the failures; only reply once they pass for you.',
           'Use search to orient, read_file for exact bytes, edit_file to change them; the find text must match exactly once, and a multi-match refusal means retry with a longer find, never a different path.',
+          'read_file supports offset and limit: read windows of large files rather than whole files, and never re-read a file you have not edited since last reading.',
           'Match the surrounding code\'s style and conventions. Change nothing the feature does not need.',
           'If a previous attempt is reported with failing acceptance output, fix precisely what failed.',
-          'When the implementation is complete, reply with one line: IMPLEMENTED <the ticket title>.',
+          'End EVERY reply with a NOTES: section — the key files with their relevant line ranges and what you learned — so a retry can start oriented instead of re-reading; when a previous attempt\'s NOTES are in your context, trust them and only re-read files you are about to edit.',
+          'When the implementation is complete, reply with: IMPLEMENTED <the ticket title>, then the NOTES: section.',
         ].join(' '),
         tools: [hands.search, hands.read, hands.edit, runCheckTool],
       });
 
       const { clone, commit, publish } = delivery;
       const pick = node({ id: 'pick', type: 'tool', toolId: 'pick_ticket', tools: [pickTool], reads: [] });
+      // Reading its own previous report is what carries knowledge across
+      // attempts: a retry starts from the prior NOTES instead of paying to
+      // re-read the same files into a fresh transcript.
       const implement = node({
         id: 'implement',
         agent: implementer,
-        reads: [pick.result, 'accept_result'],
+        reads: [pick.result, 'accept_result', 'implement_report'],
         writes: 'implement_report',
       });
       const accept = node({

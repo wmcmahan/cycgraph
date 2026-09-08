@@ -123,3 +123,21 @@ describe('billedTokenTotal', () => {
     expect(billedTokenTotal(undefined)).toBe(0);
   });
 });
+
+describe('withCacheBreakpoint stale-mark stripping', () => {
+  it('removes marks that fell outside the trailing window', () => {
+    const stale = { role: 'user', content: [{ type: 'text', text: 'old', providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } }, other: { k: 1 } } }] };
+    const messages = [
+      stale,
+      { role: 'assistant', content: [{ type: 'text', text: 'a' }] },
+      { role: 'user', content: [{ type: 'text', text: 'b' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'c' }] },
+    ];
+
+    const marked = withCacheBreakpoint(messages) as { content: Array<Record<string, unknown>> }[];
+
+    expect(marked[0]!.content[0]!['providerOptions']).toEqual({ anthropic: {}, other: { k: 1 } });
+    expect(marked[1]!.content[0]!['providerOptions']).toEqual(CACHE);
+    expect(marked[3]!.content[0]!['providerOptions']).toEqual(CACHE);
+  });
+});
