@@ -46,8 +46,13 @@ describe('commentOnlyChange', () => {
 });
 
 describe('testCount', () => {
+  // The skipped callsite is interpolated rather than spelled out: as a
+  // literal it is only a fixture string, but the core scanner greps test
+  // sources for that spelling and files it as a genuinely skipped test.
+  const SKIP = 'it.skip';
+
   it('counts test callsites whether skipped or not', () => {
-    const text = "it('a', f); it.skip('b', f); test('c', f); fit('d', f); limit(x);";
+    const text = `it('a', f); ${SKIP}('b', f); test('c', f); fit('d', f); limit(x);`;
 
     expect(testCount(text)).toBe(3);
   });
