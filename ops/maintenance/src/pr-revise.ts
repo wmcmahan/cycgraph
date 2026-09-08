@@ -188,7 +188,10 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           } catch (error) {
             return { pushed: false, detail: `push failed: ${(error as Error).message.split('\n')[0] ?? ''}`, diff };
           }
-          const summary = String(revise_report ?? '').slice(0, 1_500);
+          // The reply posts through the same PAT that triggers the
+          // workflow, so an echoed mention would re-dispatch it on its
+          // own comment.
+          const summary = String(revise_report ?? '').replace(/@cycgraph/gi, 'cycgraph').slice(0, 1_500);
           const reply = await commentOnPr(repoRoot, p.pr,
             `Addressed the review feedback in the latest commit.\n\n${summary}`,
             token !== undefined ? { token } : {});

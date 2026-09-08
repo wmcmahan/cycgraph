@@ -93,9 +93,11 @@ npm run play -- run repo-docs --batch 2 --publish false
 
 `.github/workflows/core-upkeep.yml` runs the upkeep sense weekly with
 the built-in token (issues write is all it needs).
-`.github/workflows/issue-fix.yml` runs the fix cycle weekly: one
-approved issue per run, eslint as the pre-commit check, exiting clean
-when nothing carries the approval label.
+`.github/workflows/issue-fix.yml` runs the fix cycle weekly, and also
+the moment a human applies the `maintenance-approved` label — the label
+event carries the issue number, so approval starts that issue's fix
+immediately instead of waiting for the sweep. One issue per run, eslint
+as the pre-commit check, exiting clean when nothing carries the label.
 `.github/workflows/docs-maintenance.yml` runs both docs scopes nightly
 (batched full scan) and on every push to main (diff mode over the
 pushed change). It needs the `ANTHROPIC_API_KEY` secret, and a
