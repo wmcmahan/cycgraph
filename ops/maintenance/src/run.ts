@@ -202,6 +202,9 @@ async function main(): Promise<void> {
   say(`status: ${recorded.state.status}`);
   say(`tokens: ${recorded.state.total_tokens_used.toLocaleString('en-US')} · $${recorded.state.total_cost_usd.toFixed(4)}`);
   if (scan !== undefined) say(`findings in scope: ${String(scan['total'])}`);
+  for (const entry of (scan?.['needs_human'] as string[] | undefined) ?? []) {
+    say(`  needs a human (no candidate anywhere in the repo): ${entry}`);
+  }
   if (pick !== undefined) {
     say(`picked: ${pick['has_work'] === true
       ? `${String(pick['key'] ?? '')}${pick['issue_number'] !== undefined ? ` (issue #${String(pick['issue_number'])})` : ' (detached)'}`

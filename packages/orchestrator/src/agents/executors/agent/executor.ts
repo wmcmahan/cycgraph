@@ -84,6 +84,20 @@ export function withCacheBreakpoint(messages: unknown[]): unknown[] {
   });
 }
 
+/** How many content parts in a prepared message array carry a cache mark. */
+export function countCacheMarks(messages: unknown[]): number {
+  let marks = 0;
+  for (const entry of messages) {
+    const content = (entry as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content as Array<Record<string, unknown>>) {
+      const options = part['providerOptions'] as { anthropic?: Record<string, unknown> } | undefined;
+      if (options?.anthropic?.['cacheControl'] !== undefined) marks += 1;
+    }
+  }
+  return marks;
+}
+
 /** The per-step form of {@link withCacheBreakpoint}, for `prepareStep`. */
 export function cachePrepareStep({ messages }: { messages: unknown[] }): { messages: never } {
   return { messages: withCacheBreakpoint(messages) as never };
@@ -316,6 +330,12 @@ export async function executeAgent(
       tool_count: Object.keys(tools).length,
     });
 
+    // One entry per request: how many cache marks that request carried.
+    // Diagnosing a zero-cache run from its log needs to distinguish
+    // "marks never sent" from "provider returned nothing for them"; an
+    // absent field means the caching prepare-step was not active at all.
+    const cacheMarksPerRequest: number[] = [];
+
     // AbortController with configurable timeout to prevent hung LLM calls.
     // If an external abort signal is provided (workflow cancellation), combine
     // it with the internal timeout so either can abort the stream.
@@ -354,7 +374,13 @@ export async function executeAgent(
         // into a cache hit. Single-step calls skip it — one request means
         // one cache write and nothing to hit.
         ...(effectiveConfig.provider === 'anthropic' && config.maxSteps > 2
-          ? { prepareStep: cachePrepareStep }
+          ? {
+              prepareStep: (step: { messages: unknown[] }) => {
+                const prepared = cachePrepareStep(step);
+                cacheMarksPerRequest.push(countCacheMarks(prepared.messages));
+                return prepared;
+              },
+            }
           : {}),
         abortSignal: combinedSignal,
         // Omitted entirely when unset, so the provider's own default still
@@ -488,6 +514,7 @@ export async function executeAgent(
       cache_read_tokens: usage?.inputTokenDetails?.cacheReadTokens ?? 0,
       cache_write_tokens: usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
       billed_tokens: tokenUsage.totalTokens,
+      ...(cacheMarksPerRequest.length > 0 ? { cache_marks: cacheMarksPerRequest.join(',') } : {}),
     });
 
     // Flatten tool calls and results from all steps
