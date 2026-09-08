@@ -66,6 +66,30 @@ describe('scanCore', () => {
     expect(key(after)).toBe(key(before));
   });
 
+  it('does not sense a skip spelled inside a fixture string', async () => {
+    await writeFile(
+      join(root, 'packages', 'x', 'test', 'fixture.test.ts'),
+      `const text = "it('a', f); it.skip('b', f); test('c', f)";\n`,
+    );
+    await exec('git', ['add', '-A'], { cwd: root });
+
+    const findings = await scanCore(root, { lint: false });
+
+    expect(findings.filter((f) => f.file.includes('fixture'))).toHaveLength(0);
+  });
+
+  it('does not sense prose that mentions TODO without owing one', async () => {
+    await writeFile(
+      join(root, 'packages', 'x', 'src', 'prose.ts'),
+      "// a TODO comment is there or it is not\nconst prompt = 'resolve a TODO: like this one';\n",
+    );
+    await exec('git', ['add', '-A'], { cwd: root });
+
+    const findings = await scanCore(root, { lint: false });
+
+    expect(findings.filter((f) => f.file.includes('prose'))).toHaveLength(0);
+  });
+
   it('ignores untracked files', async () => {
     await writeFile(join(root, 'packages', 'x', 'src', 'scratch.ts'), '// TODO: untracked\n');
 
