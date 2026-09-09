@@ -1,5 +1,11 @@
 # @cycgraph/memory
 
+## 0.8.1
+
+### Patch Changes
+
+- 9671a03: `retrieveMemory` accepts a partial query (`MemoryQueryInput`, newly exported) and parses it through `MemoryQuerySchema`, so callers rely on schema defaults instead of spelling out every defaulted field; an invalid query now fails loudly at the call.
+
 ## 0.8.0
 
 ### Minor Changes

@@ -1,5 +1,17 @@
 # @cycgraph/evals
 
+## 0.3.2
+
+### Patch Changes
+
+- 9671a03: `migrate-golden` writes migrated datasets under the next MAJOR schema version derived from the manifest (via the new `nextMajorSchemaVersion` export) instead of a hardcoded `1.0.0`, which overwrote the retained v1 rollback file and downgraded the manifest entry.
+- Updated dependencies [9671a03]
+- Updated dependencies [9671a03]
+- Updated dependencies [9671a03]
+  - @cycgraph/context-engine@0.7.2
+  - @cycgraph/orchestrator@1.3.4
+  - @cycgraph/memory@0.8.1
+
 ## 0.3.1
 
 ### Patch Changes

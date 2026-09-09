@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/evals",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Automated eval harness and quality-assurance gatekeeper for @cycgraph/* packages.",
   "type": "module",
   "sideEffects": false,
