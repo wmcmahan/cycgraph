@@ -20,8 +20,14 @@ export const MemoryQuerySchema = z.object({
   text: z.string().optional(),
   /** Pre-computed query embedding vector. */
   embedding: z.array(z.number()).optional(),
-  /** Seed entity IDs for subgraph extraction. */
-  entityIds: z.array(z.string().uuid()).optional(),
+  /**
+   * Seed entity IDs for subgraph extraction. Id SHAPE is the store's
+   * concern, not the query's: the in-memory store accepts any string id
+   * and a UUID-typed store's adapter enforces its own constraint — the
+   * same split the orchestrator's agent registry uses. A `.uuid()` here
+   * would reject legitimate human-readable ids at parse time.
+   */
+  entityIds: z.array(z.string()).optional(),
   /** Filter entities by type. */
   entityTypes: z.array(z.string()).optional(),
   /** Filter relationships by type. */
@@ -48,6 +54,13 @@ export const MemoryQuerySchema = z.object({
 });
 
 export type MemoryQuery = z.infer<typeof MemoryQuerySchema>;
+
+/**
+ * Caller-facing query shape: fields with schema defaults are optional.
+ * `retrieveMemory` parses this through {@link MemoryQuerySchema}, so
+ * callers may pass a partial query and rely on the defaults.
+ */
+export type MemoryQueryInput = z.input<typeof MemoryQuerySchema>;
 
 export const MemoryResultSchema = z.object({
   /** Matched themes (highest level of hierarchy). */

@@ -28,8 +28,8 @@ import {
 
 if (!process.env.DATABASE_URL) {
   console.error('Error: DATABASE_URL environment variable is required');
-  console.error('Example: DATABASE_URL=postgres://postgres:postgres@localhost:5433/mc_ai');
-  console.error('Run: docker-compose up -d && npm run db:migrate');
+  console.error('Example: DATABASE_URL=postgres://postgres:postgres@localhost:5433/mcai');
+  console.error('Run: docker-compose up -d && npm run migrate --workspace=packages/orchestrator-postgres');
   process.exit(1);
 }
 

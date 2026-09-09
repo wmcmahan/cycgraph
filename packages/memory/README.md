@@ -124,9 +124,6 @@ const index = new DrizzleMemoryIndex();
 await retrieveMemory(store, index, {
   tags: ['lesson', 'graph:research-v1'],
   limit: 20,
-  maxHops: 0,
-  minSimilarity: 0,
-  includeInvalidated: false,
 });
 ```
 
@@ -136,10 +133,6 @@ await retrieveMemory(store, index, {
 await retrieveMemory(store, index, {
   entityIds: [aliceId],
   maxHops: 2,
-  limit: 20,
-  minSimilarity: 0.5,
-  includeInvalidated: false,
-  tags: [],
 });
 ```
 
@@ -149,10 +142,7 @@ await retrieveMemory(store, index, {
 await retrieveMemory(store, index, {
   embedding: await embed('source credibility methodology'),
   limit: 20,
-  maxHops: 0,
   minSimilarity: 0.5,
-  includeInvalidated: false,
-  tags: [],
 });
 ```
 
@@ -162,10 +152,6 @@ await retrieveMemory(store, index, {
 await retrieveMemory(store, index, {
   validAt: new Date('2026-01-15'),
   limit: 20,
-  maxHops: 0,
-  minSimilarity: 0,
-  includeInvalidated: false,
-  tags: [],
 });
 ```
 

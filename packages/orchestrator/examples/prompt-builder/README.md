@@ -23,16 +23,18 @@ Cyclic in two places, so `startNode` and `endNodes` are passed explicitly.
 
 | Key | Written by | Read by |
 | --- | --- | --- |
-| `refined_goal` | prompt_builder | prompt_critic, research, write, edit |
-| `task_plan` | prompt_builder | prompt_critic, research, write |
-| `quality_criteria` | prompt_builder | prompt_critic, write, edit |
+| `refined_goal` | prompt_builder | prompt_critic, research, write, edit, supervisor |
+| `task_plan` | prompt_builder | prompt_critic, research, write, supervisor |
+| `quality_criteria` | prompt_builder | prompt_critic, write, edit, supervisor |
 | `prompt_score` | prompt_critic | edge conditions |
 | `prompt_feedback`, `prompt_suggestions` | prompt_critic | prompt_builder (refinement rounds) |
-| `research_notes`, `draft`, `final_draft` | the specialists | downstream nodes and the supervisor's derived view |
+| `research_notes`, `draft`, `final_draft` | the specialists | downstream nodes and the supervisor |
 
-The supervisor declares no grants of its own: its reads derive from what its
-managed nodes write. The enrichment keys reach the specialists instead — each
-one reads `refined_goal` and its slice of the plan directly.
+The supervisor declares its reads explicitly. A supervisor with no declared
+grants derives reads from what its managed nodes write, but that derived set
+would not include the enrichment keys, and this supervisor's instructions
+consult the plan to route. So the grant is the union: the prompt_builder's
+three keys plus the team's outputs.
 
 ## Run
 

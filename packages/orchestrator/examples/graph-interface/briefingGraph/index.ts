@@ -1,5 +1,5 @@
 import { subgraph, graph } from '@cycgraph/orchestrator';
-import { researchGraph } from '../reaserchGraph/index.js';
+import { researchGraph } from '../researchGraph/index.js';
 import { briefNode } from './nodes/index.js';
 import { mem } from '../keys.js';
 

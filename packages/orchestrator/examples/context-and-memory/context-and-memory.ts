@@ -201,7 +201,9 @@ const memoryRetriever: MemoryRetriever = async (query, options) => {
   });
 
   return {
-    facts: result.facts.map(f => ({ content: f.content, validFrom: f.valid_from })),
+    // `id` passthrough is load-bearing: it feeds `state.lesson_provenance`
+    // so run outcomes can be attributed to injected facts.
+    facts: result.facts.map(f => ({ content: f.content, validFrom: f.valid_from, id: f.id })),
     entities: result.entities.map(e => ({ name: e.name, type: e.entity_type })),
     themes: result.themes.map(t => ({ label: t.label })),
   };

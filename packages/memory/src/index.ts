@@ -36,6 +36,7 @@ export type {
   Theme,
   ThemeInput,
   MemoryQuery,
+  MemoryQueryInput,
   MemoryResult,
 } from './schemas/index.js';
 

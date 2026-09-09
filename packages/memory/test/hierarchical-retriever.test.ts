@@ -129,6 +129,19 @@ describe('retrieveMemory', () => {
       expect(result.facts).toHaveLength(1);
     });
 
+    it('retrieves by human-readable entity ids because id shape is the store concern', async () => {
+      const alice = makeEntity({ id: 'e-alice', name: 'Alice' });
+      const fact = makeFact({ content: 'Alice works at Acme', entity_ids: ['e-alice'] });
+
+      await store.putEntity(alice);
+      await store.putFact(fact);
+
+      const result = await retrieveMemory(store, index, { ...DEFAULTS, entityIds: ['e-alice'], maxHops: 0 });
+
+      expect(result.entities.map((e) => e.id)).toEqual(['e-alice']);
+      expect(result.facts).toHaveLength(1);
+    });
+
     it('deduplicates a fact shared across multiple entities', async () => {
       const x = makeEntity({ name: 'X', entity_type: 'concept' });
       const y = makeEntity({ name: 'Y', entity_type: 'concept' });
