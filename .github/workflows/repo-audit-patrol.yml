@@ -53,7 +53,7 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools --workspace=packages/orchestrator-postgres
 
       - name: Run audit patrol
         env:
