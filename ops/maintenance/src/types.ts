@@ -13,6 +13,7 @@
 import type { z } from 'zod';
 import type { EvalAssertion, Graph, GraphRunnerOptions } from '@cycgraph/orchestrator';
 import type { PublishConfig } from '@cycgraph/tools/git';
+import type { AuditSchedule } from './audit-schedule.js';
 
 /** The environment a maintenance workflow needs from whatever runs it. */
 export interface MaintenanceEnv {
@@ -27,6 +28,12 @@ export interface MaintenanceEnv {
    * node with no writer injected fails the run at execution.
    */
   memory?: boolean;
+  /**
+   * Reader for the audit patrol's scheduler state, wired when lesson
+   * memory is. Absent, charter ordering degrades to the stateless
+   * diagonal — the same slice every run, rotated only by `skip`.
+   */
+  auditSchedule?: { load(): Promise<AuditSchedule | undefined> };
 }
 
 /** What a build hands the runner. */

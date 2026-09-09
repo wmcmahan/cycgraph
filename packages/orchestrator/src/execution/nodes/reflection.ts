@@ -70,15 +70,17 @@ export async function executeReflectionNode(
 
   let factIds: string[] = [];
   let tokensUsed = 0;
+  let extractorFailed = false;
   switch (config.extractor.type) {
     case 'rule_based': {
       factIds = await extractRuleBased(node, config, stateView, ctx.memoryWriter, ctx);
       break;
     }
     case 'llm': {
-      const outcome = await extractViaLLM(node, config, stateView, ctx.memoryWriter, ctx);
+      const outcome = await extractViaLLM(node, config, stateView, ctx.memoryWriter, ctx, attempt);
       factIds = outcome.factIds;
       tokensUsed = outcome.tokensUsed;
+      extractorFailed = outcome.extractorFailed === true;
       break;
     }
   }
@@ -90,7 +92,7 @@ export async function executeReflectionNode(
     tokens_used: tokensUsed,
   });
 
-  return buildReflectionAction(node, config, factIds, attempt, ctx, tokensUsed);
+  return buildReflectionAction(node, config, factIds, attempt, ctx, tokensUsed, extractorFailed);
 }
 
 // ─── rule_based extractor ───────────────────────────────────────────
@@ -164,6 +166,8 @@ async function extractRuleBased(
 interface LLMExtractionOutcome {
   factIds: string[];
   tokensUsed: number;
+  /** The extractor call itself failed; zero facts is a degradation, not an outcome. */
+  extractorFailed?: boolean;
 }
 
 /**
@@ -178,6 +182,7 @@ async function extractViaLLM(
   stateView: StateView,
   writer: MemoryWriter,
   ctx: NodeExecutorContext,
+  attempt: number,
 ): Promise<LLMExtractionOutcome> {
   if (config.extractor.type !== 'llm') {
     throw new Error(`extractViaLLM called with wrong extractor type: ${config.extractor.type}`);
@@ -193,12 +198,31 @@ async function extractViaLLM(
     return { factIds: [], tokensUsed: 0 };
   }
 
-  const extraction = await ctx.deps.extractFactsExecutor(
-    agent_id,
-    corpus,
-    max_facts,
-    instruction,
-  );
+  // The learning tail is best-effort: a run whose productive work already
+  // succeeded must not fail because the note-taker stumbled. An extractor
+  // error (structured output not matching the schema, a transient provider
+  // error) rethrows while the node still has retries — a flaky call often
+  // succeeds on the next attempt — and degrades to zero facts with a
+  // warning on the final one. Configuration errors (a missing writer)
+  // stay loud regardless.
+  let extraction;
+  try {
+    extraction = await ctx.deps.extractFactsExecutor(
+      agent_id,
+      corpus,
+      max_facts,
+      instruction,
+    );
+  } catch (error) {
+    const finalAttempt = attempt >= Math.max(1, node.failure_policy.max_retries);
+    if (!finalAttempt) throw error;
+    logger.warn('reflection_extractor_failed', {
+      node_id: node.id,
+      agent_id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { factIds: [], tokensUsed: 0, extractorFailed: true };
+  }
 
   if (extraction.facts.length === 0) {
     return { factIds: [], tokensUsed: extraction.tokensUsed };
@@ -402,6 +426,7 @@ function buildReflectionAction(
   attempt: number,
   ctx: NodeExecutorContext,
   tokensUsed: number,
+  extractorFailed = false,
 ): Action {
   const resultKey = config.result_key ?? `${node.id}_reflection`;
   return {
@@ -414,6 +439,7 @@ function buildReflectionAction(
           extractor_type: config.extractor.type,
           fact_ids: factIds,
           tags: config.tags,
+          ...(extractorFailed ? { extractor_failed: true } : {}),
           reflected_at: new Date().toISOString(),
         },
       },

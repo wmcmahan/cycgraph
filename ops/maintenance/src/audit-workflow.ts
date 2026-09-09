@@ -23,6 +23,8 @@
  * @module maintenance/audit-workflow
  */
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -34,6 +36,7 @@ import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { auditKey, siftAuditFindings, type AuditFinding } from './audit-findings.js';
+import { scheduleCharters } from './audit-schedule.js';
 import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
 import { repoMap, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
@@ -118,6 +121,29 @@ export function charterOrder(lenses: string[], scopes: string[]): Array<{ lens: 
   return pairs.map(({ lens, scope }) => ({ lens, scope }));
 }
 
+/**
+ * Scopes with commits since the last audited head. Any failure to
+ * answer — no recorded head, a head garbage-collected out of history —
+ * yields the empty set: the run then leans entirely on oldest-first
+ * rotation, which visits everything anyway.
+ */
+async function changedScopesSince(repoRoot: string, lastHead: string | undefined): Promise<Set<string>> {
+  if (lastHead === undefined) return new Set();
+  try {
+    const { stdout } = await promisify(execFile)(
+      'git', ['diff', '--name-only', `${lastHead}..HEAD`], { cwd: repoRoot, timeout: 20_000 },
+    );
+    const scopes = new Set<string>();
+    for (const file of stdout.split('\n')) {
+      const match = /^((?:packages|ops|apps)\/[^/]+)\//.exec(file);
+      if (match) scopes.add(match[1]!);
+    }
+    return scopes;
+  } catch {
+    return new Set();
+  }
+}
+
 /** The repo-audit workflow. */
 export function repoAudit(): MaintenanceWorkflow<typeof params> {
   return {
@@ -132,6 +158,12 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
       const workspaceAt = join(tmpdir(), `cycgraph-audit-${randomUUID()}`);
       const token = env.publish?.token;
 
+      // Patrol scheduling: changed scopes take slots first, the rest of
+      // the cross-product fills oldest-audited-first. With no recorded
+      // state both inputs are empty and the diagonal order stands.
+      const schedule = await env.auditSchedule?.load();
+      const changedScopes = await changedScopesSince(repoRoot, schedule?.head);
+
       const hands = {
         read: readFileTool({ root: workspaceAt, session }),
         search: searchTool({ root: workspaceAt }),
@@ -144,8 +176,9 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
         timeoutMs: 120_000,
         execute: async () => {
           const ws = await cloneToBranch(repoRoot, `audit/scan-${randomUUID().slice(0, 8)}`, { at: workspaceAt });
+          const { stdout: headRaw } = await promisify(execFile)('git', ['rev-parse', 'HEAD'], { cwd: ws.root });
           const scopes = p.scopes.length > 0 ? p.scopes : await deriveScopes(ws.root);
-          const charters: AuditCharter[] = charterOrder(p.lenses, scopes)
+          const charters: AuditCharter[] = scheduleCharters(charterOrder(p.lenses, scopes), { changedScopes, schedule })
             .slice(p.skip, p.skip + p.maxAuditors)
             .map(({ lens, scope }) => ({
               lens,
@@ -156,7 +189,14 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
                 ...(p.focus !== '' ? [`Focus: ${p.focus}.`] : []),
               ].join(' '),
             }));
-          return { workspace: ws.root, charter_count: charters.length, charters, map: await repoMap(ws.root) };
+          return {
+            workspace: ws.root,
+            head: headRaw.trim(),
+            charter_count: charters.length,
+            charters,
+            ...(changedScopes.size > 0 ? { changed_scopes: [...changedScopes] } : {}),
+            map: await repoMap(ws.root),
+          };
         },
       });
 
@@ -183,11 +223,16 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
           });
 
           const errorCount = typeof audit_error_count === 'number' ? audit_error_count : 0;
+          const ledgerUnavailable = issues === undefined && p.file;
           return {
             // Coherent means the fan-out produced something to judge: at
             // least one auditor reported, and the issue ledger was readable
             // when filing is on (filing blind would duplicate tickets).
-            ok: reports.length > 0 && (issues !== undefined || !p.file),
+            ok: reports.length > 0 && !ledgerUnavailable,
+            // An unreadable ledger is an ENVIRONMENTAL failure, not an
+            // audit-quality one — the caller must not record it as outcome
+            // evidence against the lessons injected into this run.
+            ...(ledgerUnavailable ? { ledger_unavailable: true } : {}),
             report_count: reports.length,
             worker_errors: errorCount,
             kept: sifted.kept,
@@ -247,6 +292,7 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
         instructions: p.prompt !== '' ? p.prompt : [
           'You audit a repository read-only under one charter. The charter — a lens and a scope — is in your Task Context; a map of the repository is in your context.',
           'Go deep, not wide: follow the charter into real source and chase a suspicion until you can prove or drop it. Never report a hunch you did not confirm with read_file.',
+          'Budget your steps: your report is the only thing that leaves this run, so an investigation that exhausts every step reporting nothing wasted all of them. Once roughly three quarters of your steps are spent, stop investigating and write your FINDING or CLEAN blocks from what you have confirmed.',
           'Read with intent: every read_file result rides the rest of your context, so each one must earn its place. read_file windows large files and reports the total line count — after a search hit, pull the exact slice with offset and limit instead of paging through the whole file, and never re-read a file or slice you already have; cite from what you read the first time. Reserve whole-file reads for small files and for the rare case where the charter genuinely needs the full picture.',
           'Report at most your three strongest findings. One proven finding beats five plausible ones: the sift drops anything whose evidence names no real path, and a human reviews every ticket.',
           'Reply with zero or more blocks in exactly this format, each header on its own line:',

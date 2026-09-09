@@ -19,6 +19,7 @@
 import { randomUUID } from 'node:crypto';
 import type { MemoryRetriever, MemoryWriter } from '@cycgraph/orchestrator';
 import type { RetentionReport } from '@cycgraph/memory';
+import { loadAuditSchedule, saveAuditSchedule, type AuditSchedule } from './audit-schedule.js';
 
 /** Tag every maintenance lesson carries; workflows add `wf:<id>` beside it. */
 export const LESSON_TAG = 'lesson';
@@ -34,6 +35,10 @@ export interface MaintenanceMemory {
   recordOutcome(runId: string, score: number, factIds: string[]): Promise<void>;
   /** Run the promote/evict gate over all candidate lessons. */
   retention(): Promise<RetentionReport>;
+  /** Read the audit patrol's scheduler state. */
+  loadAuditSchedule(): Promise<AuditSchedule | undefined>;
+  /** Record the pairs one audit run spent slots on. */
+  saveAuditSchedule(update: { head: string; auditedPairs: Array<{ lens: string; scope: string }>; at: Date }): Promise<void>;
 }
 
 /**
@@ -107,5 +112,7 @@ export async function memoryFromEnv(): Promise<MaintenanceMemory | undefined> {
       await ledger.recordOutcome({ run_id: runId, score, fact_ids: factIds });
     },
     retention: () => evaluateRetention(store, ledger, { candidateTag: CANDIDATE_TAG }),
+    loadAuditSchedule: () => loadAuditSchedule(store),
+    saveAuditSchedule: (update) => saveAuditSchedule(store, update),
   };
 }

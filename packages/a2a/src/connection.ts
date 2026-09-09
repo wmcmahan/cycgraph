@@ -3,8 +3,10 @@
  *
  * A client is built per call because auth and trace headers are resolved
  * per call; caching one would freeze the first caller's headers into every
- * later request. The Agent Card is cached per URL: it is stable public
- * metadata, resolved without per-call headers.
+ * later request. The Agent Card is cached per URL, fetched with the same
+ * per-server headers as every other request (a registry entry's auth gate
+ * covers its card endpoint too), and a failed resolution is evicted so a
+ * transient fault never outlives the request that hit it.
  *
  * @module connection
  */
@@ -42,8 +44,21 @@ export function sdkClientFactory(): CreateSdkClient {
     let card = cards.get(agentCardUrl);
     if (!card) {
       // The promise is cached, so concurrent first calls share one fetch.
-      card = new DefaultAgentCardResolver().resolve(agentCardUrl, '');
-      cards.set(agentCardUrl, card);
+      // It carries the caller's headers but not its signal: a shared
+      // promise must not be rejected for everyone by one caller's abort.
+      // deliver() still bounds the caller itself via raceAbort.
+      const cardFetch: typeof fetch = (input, init) =>
+        fetch(input, {
+          ...init,
+          headers: { ...(init?.headers as Record<string, string>), ...headers },
+        });
+      const resolving = new DefaultAgentCardResolver({ fetchImpl: cardFetch })
+        .resolve(agentCardUrl, '');
+      cards.set(agentCardUrl, resolving);
+      resolving.catch(() => {
+        if (cards.get(agentCardUrl) === resolving) cards.delete(agentCardUrl);
+      });
+      card = resolving;
     }
 
     const factory = new ClientFactory({

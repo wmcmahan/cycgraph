@@ -51,9 +51,9 @@ Baselines captured on a 2024 Mac (M-series, Node 22, no thermal throttling):
 | `internalReducer — _track_tokens` | ~12M ops/sec | Internal dispatch is essentially free |
 | `merge_parallel_results — 2 keys` | ~1.7M ops/sec | Fan-in merge fast at typical widths |
 | `merge_parallel_results — 50 keys` | ~118K ops/sec | 15× slower — scales with key count |
-| `10-node linear run()` | ~11.7K runs/sec | ~85µs per node |
-| `100-node linear run()` | ~725 runs/sec | ~14µs per node (amortizes setup) |
-| `1000-node linear run()` | ~9.6 runs/sec | ~104ms wall-clock — confirms linear scaling |
+| `10-node linear run()` | ~11.7K runs/sec | ~85µs per run (~8.5µs per node) |
+| `100-node linear run()` | ~725 runs/sec | ~1.4ms per run (~14µs per node) |
+| `1000-node linear run()` | ~9.6 runs/sec | ~104ms per run (~104µs per node) |
 | `100-node stream() vs run()` | 8% overhead | Streaming mode is essentially free |
 | `StreamChannel push 1000 tokens + drain` | ~16K cycles/sec | Token channel never bottlenecks |
 | `StreamChannel waitForNotify + notify (1000 cycles)` | ~34K cycles/sec | Async notify ~30µs per cycle |

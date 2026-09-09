@@ -176,7 +176,10 @@ export function optApply(): MaintenanceWorkflow<typeof params> {
           return {
             improved_count: comparison.improved.length,
             regressed_count: comparison.regressed.length,
-            detail: comparison.improved.length === 0
+            disappeared_count: comparison.disappeared.length,
+            detail: comparison.disappeared.length > 0
+              ? `${closes}benchmarks disappeared after the edit (broken or deleted, not a pass): ${comparison.disappeared.join(', ')}`
+              : comparison.improved.length === 0
               ? `${closes}the improvement no longer measures ≥${p.minImprovement}% beyond noise`
               : comparison.regressed.length > 0
                 ? `${closes}improvement holds but ${comparison.regressed.map((r) => r.id).join(', ')} regressed`
