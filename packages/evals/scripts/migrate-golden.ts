@@ -14,9 +14,9 @@
 
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadGoldenTrajectories, listAvailableSuites } from '../src/dataset/loader.js';
+import { loadGoldenTrajectories, loadManifest, listAvailableSuites } from '../src/dataset/loader.js';
 import { writeGoldenDataset } from '../src/dataset/writer.js';
-import { applyMigrations } from '../src/dataset/migration.js';
+import { applyMigrations, nextMajorSchemaVersion } from '../src/dataset/migration.js';
 import type { MigrationTransform } from '../src/dataset/migration.js';
 import type { SuiteName } from '../src/dataset/types.js';
 
@@ -53,13 +53,20 @@ function main(): void {
   let totalModified = 0;
   const allReviewItems: Array<{ suite: string; trajectoryId: string; param: string }> = [];
 
+  const manifest = loadManifest(GOLDEN_DIR);
+
   for (const suite of suites) {
     const trajectories = loadGoldenTrajectories(suite as SuiteName, GOLDEN_DIR);
     const result = applyMigrations(trajectories, transforms);
 
     if (result.modifiedCount > 0) {
-      writeGoldenDataset(suite as SuiteName, result.trajectories, '1.0.0', GOLDEN_DIR);
-      console.log(`  ${suite}: ${result.modifiedCount}/${trajectories.length} trajectories updated`);
+      // Written under the NEXT major so the current dataset file survives
+      // as the rollback — a fixed version would overwrite a retained
+      // rollback file and downgrade the manifest entry.
+      const current = manifest.datasets.find((d) => d.name === suite)?.schemaVersion;
+      const next = nextMajorSchemaVersion(current);
+      writeGoldenDataset(suite as SuiteName, result.trajectories, next, GOLDEN_DIR);
+      console.log(`  ${suite}: ${result.modifiedCount}/${trajectories.length} trajectories updated (schema ${current ?? 'none'} → ${next})`);
     } else {
       console.log(`  ${suite}: no changes`);
     }

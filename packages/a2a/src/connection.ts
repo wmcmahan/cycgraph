@@ -12,19 +12,32 @@
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
 import type { Client as SdkClient } from '@a2a-js/sdk/client';
 
-/** Builds the SDK client one call runs against. Injectable for tests. */
+/**
+ * Builds the SDK client one call runs against. Injectable for tests.
+ * The optional `signal` bounds every request THIS client issues — it is
+ * merged into the SDK transport's fetches so a stalled remote aborts at
+ * the caller's deadline instead of holding the socket open forever.
+ */
 export type CreateSdkClient = (
   agentCardUrl: string,
   headers: Record<string, string>,
+  signal?: AbortSignal,
 ) => Promise<SdkClient>;
 
 /** Default {@link CreateSdkClient}, with a per-URL Agent Card cache scoped to this factory. */
 export function sdkClientFactory(): CreateSdkClient {
   const cards = new Map<string, Promise<unknown>>();
 
-  return async (agentCardUrl, headers) => {
+  return async (agentCardUrl, headers, signal) => {
     const fetchImpl: typeof fetch = (input, init) =>
-      fetch(input, { ...init, headers: { ...(init?.headers as Record<string, string>), ...headers } });
+      fetch(input, {
+        ...init,
+        headers: { ...(init?.headers as Record<string, string>), ...headers },
+        // Combine rather than replace: the SDK may carry its own signal.
+        ...(signal !== undefined
+          ? { signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal }
+          : {}),
+      });
 
     let card = cards.get(agentCardUrl);
     if (!card) {

@@ -478,11 +478,25 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
       const perSegmentOrdered = input.segments.map(s => perSegmentOutputs.get(s.id)!);
 
       // --- Cross-segment phase ---
+      // A shrunk segment set is a change even when every surviving output
+      // is byte-identical: cross-segment stages compute over the SET — a
+      // dedup keeps one copy across segments, a budget allocates across
+      // all of them — so output cached for the old set is stale for the
+      // survivors. Compared against last turn's per-segment outputs, whose
+      // keys still carry that turn's full id set.
+      let segmentSetShrank = false;
+      for (const id of previousState.perSegmentOutputs.keys()) {
+        if (!perSegmentOutputs.has(id)) {
+          segmentSetShrank = true;
+          break;
+        }
+      }
+
       // Check if any per-segment OUTPUT actually changed (not just input).
       // A fresh input might produce the same per-segment output, in which
       // case cross-segment stages don't need to re-run.
-      let anyPerSegOutputChanged = false;
-      if (previousState.perSegmentOutputHashes) {
+      let anyPerSegOutputChanged = segmentSetShrank;
+      if (!anyPerSegOutputChanged && previousState.perSegmentOutputHashes) {
         for (const [id, seg] of perSegmentOutputs) {
           const newHash = hashSegment(seg);
           const prevHash = previousState.perSegmentOutputHashes.get(id);
@@ -491,7 +505,7 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
             break;
           }
         }
-      } else {
+      } else if (!anyPerSegOutputChanged) {
         // No previous output hashes (legacy state) — fall back to input-based detection
         anyPerSegOutputChanged = anyPerSegmentFresh || freshIds.size > 0;
       }
@@ -541,7 +555,9 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
       }
 
       // --- Build metrics ---
-      const allCached = freshIds.size === 0;
+      // A deletion turn re-ran the cross phase even with zero fresh
+      // segments, so its metrics are real, not last turn's.
+      const allCached = freshIds.size === 0 && !segmentSetShrank;
       let metrics: PipelineMetrics;
 
       if (allCached) {

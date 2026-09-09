@@ -61,6 +61,15 @@ export interface ParallelExecutionConfig {
    * per-task timeout of their own, so in-flight work can observe it too.
    */
   signal?: AbortSignal;
+  /**
+   * Dispatch gate, checked before each claim. Return `null` to dispatch;
+   * return a reason string to stop the pool claiming further tasks — the
+   * remaining tasks are recorded as unsuccessful results carrying that
+   * reason, and in-flight tasks settle normally. Lets a caller bound a
+   * fan-out on live conditions (a token budget) without discarding the
+   * work that already completed.
+   */
+  dispatchGate?: () => string | null;
 }
 
 /**
@@ -171,6 +180,24 @@ export async function executeParallel(
       // are left to settle: interrupting them is the task's business, and the
       // caller is discarding the results either way.
       if (config.signal?.aborted) return;
+      const gateRefusal = config.dispatchGate?.() ?? null;
+      if (gateRefusal !== null) {
+        // Record every unclaimed task as skipped so the caller can account
+        // for them, then stop this worker. Other workers hit the same gate.
+        while (true) {
+          const skipped = nextIndex++;
+          if (skipped >= tasks.length) return;
+          logger.warn('parallel_task_skipped', {
+            task_index: skipped, node_id: tasks[skipped].node.id, reason: gateRefusal,
+          });
+          results[skipped] = {
+            taskIndex: skipped,
+            nodeId: tasks[skipped].node.id,
+            success: false,
+            error: `skipped: ${gateRefusal}`,
+          };
+        }
+      }
       const current = nextIndex++;
       if (current >= tasks.length) return;
       await runOne(current);

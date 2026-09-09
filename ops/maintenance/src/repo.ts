@@ -77,3 +77,14 @@ export async function repoMap(root: string): Promise<string> {
   const map = lines.join('\n');
   return map.length > 8_000 ? `${map.slice(0, 8_000)}\n… (truncated)` : map;
 }
+
+/**
+ * Changeset discipline for agents that edit published-package source.
+ * Shared verbatim by every workflow whose editor can touch packages/ so
+ * the release convention cannot drift between prompts.
+ */
+export const CHANGESET_INSTRUCTION = [
+  'When your edits change the BEHAVIOR of a published package under packages/ (any package whose package.json lacks "private": true), also create_file one changeset at .changeset/<short-kebab-name>.md:',
+  'a "---" line, one line per affected package like \'"@cycgraph/orchestrator": patch\' (patch for a fix, minor for new capability), a closing "---" line, then a one-or-two-sentence summary of what changed and why it matters to a consumer.',
+  'Docs-only, test-only, and ops/ changes need no changeset.',
+].join(' ');

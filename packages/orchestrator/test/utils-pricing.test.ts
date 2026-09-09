@@ -46,6 +46,28 @@ describe('calculateCost', () => {
     expect(calculateCost('gpt-4o', 0, 0)).toBe(0);
   });
 
+  it('prices cache reads at a tenth and writes at a quarter premium of the input rate', () => {
+    const flat = calculateCost('claude-opus-5', 1_000_000, 0);
+
+    const cached = calculateCost('claude-opus-5', 1_000_000, 0, {
+      readTokens: 800_000,
+      writeTokens: 100_000,
+    });
+
+    expect(flat).toBeCloseTo(5.0);
+    expect(cached).toBeCloseTo((100_000 + 80_000 + 125_000) * 5 / 1_000_000);
+  });
+
+  it('prices flat when no cache detail is given', () => {
+    expect(calculateCost('claude-opus-5', 1_000_000, 0, {})).toBeCloseTo(5.0);
+  });
+
+  it('clamps cache counts that exceed the input total', () => {
+    const cost = calculateCost('claude-opus-5', 100_000, 0, { readTokens: 500_000 });
+
+    expect(cost).toBeCloseTo(100_000 * 0.1 * 5 / 1_000_000);
+  });
+
   it('never returns NaN for malformed (NaN) token counts', () => {
     const cost = calculateCost('gpt-4o', NaN, 100);
     expect(Number.isFinite(cost)).toBe(true);

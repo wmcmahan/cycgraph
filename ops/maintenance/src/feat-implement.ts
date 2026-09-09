@@ -35,7 +35,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { parseProposal, safeAcceptanceCommand } from './proposal.js';
-import { resolveRepo } from './repo.js';
+import { CHANGESET_INSTRUCTION, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -285,6 +285,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
           'After editing, run the ticket\'s runnable acceptance commands yourself with run_check and iterate on the failures; only reply once they pass for you.',
           'Use search to orient, read_file for exact bytes, edit_file to change them; the find text must match exactly once, and a multi-match refusal means retry with a longer find, never a different path.',
           'read_file supports offset and limit: read windows of large files rather than whole files, and never re-read a file you have not edited since last reading.',
+          CHANGESET_INSTRUCTION,
           'Match the surrounding code\'s style and conventions. Change nothing the feature does not need.',
           'If a previous attempt is reported with failing acceptance output, fix precisely what failed.',
           'End EVERY reply with a NOTES: section — the key files with their relevant line ranges and what you learned — so a retry can start oriented instead of re-reading; when a previous attempt\'s NOTES are in your context, trust them and only re-read files you are about to edit.',

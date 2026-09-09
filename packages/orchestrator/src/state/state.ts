@@ -722,6 +722,13 @@ export const ActionSchema = z.object({
       outputTokens: z.number().optional(),
       totalTokens: z.number(),
       /**
+       * Prompt-cache traffic within `inputTokens`. Reads bill at ~10% and
+       * writes at ~125% of the input rate; cost accounting prices input at
+       * those rates when these are present, flat otherwise.
+       */
+      cacheReadTokens: z.number().optional(),
+      cacheWriteTokens: z.number().optional(),
+      /**
        * Pre-computed USD cost for this action. When set, the runner adds it to
        * `total_cost_usd` directly instead of recomputing from tokens + model —
        * used by composite executors (e.g. subgraph) whose spend spans multiple

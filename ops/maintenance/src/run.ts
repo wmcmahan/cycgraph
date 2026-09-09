@@ -20,12 +20,15 @@ import { docsMaintenance, repoDocsMaintenance, websiteDocsMaintenance } from './
 import { issueFix } from './issue-fix.js';
 import { optPropose } from './opt-workflow.js';
 import { featPropose } from './feat-propose.js';
+import { repoAudit } from './audit-workflow.js';
 import { featImplement } from './feat-implement.js';
 import { optApply } from './opt-apply.js';
 import { prRevise } from './pr-revise.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { getInjectedFactIds } from '@cycgraph/orchestrator';
 import { maintenanceEnvFromProcess } from './env.js';
+import { memoryFromEnv } from './memory.js';
 import { resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -37,14 +40,15 @@ const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
   'issue-fix': issueFix,
   'opt-propose': optPropose,
   'feat-propose': featPropose,
+  'repo-audit': repoAudit,
   'opt-apply': optApply,
   'feat-implement': featImplement,
   'pr-revise': prRevise,
 };
 
-const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens', 'pr']);
+const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens', 'pr', 'maxAuditors', 'concurrency', 'steps', 'maxFindings']);
 const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale', 'push']);
-const LIST_FLAGS = new Set(['checks']);
+const LIST_FLAGS = new Set(['checks', 'lenses', 'scopes']);
 
 function parseFlags(args: string[]): Record<string, unknown> {
   const raw: Record<string, unknown> = {};
@@ -133,6 +137,29 @@ async function stalenessOf(repoRoot: string): Promise<string | undefined> {
   return undefined;
 }
 
+/**
+ * Run the retention gate over the candidate lesson pool: promote lessons
+ * whose runs pass their gates, evict ones that correlate with failures,
+ * hold the rest for more evidence.
+ */
+async function runMemoryGate(): Promise<void> {
+  const memory = await memoryFromEnv();
+  if (memory === undefined) {
+    say('memory-gate needs DATABASE_URL — there is no lesson pool without it.');
+    process.exitCode = 2;
+    return;
+  }
+  const { closeDb } = await import('@cycgraph/orchestrator-postgres');
+  try {
+    const report = await memory.retention();
+    say(`promoted: ${report.promoted.length} · evicted: ${report.evicted.length} · held: ${report.held.length}`);
+    for (const entry of report.promoted) say(`  promoted ${entry.factId}`);
+    for (const entry of report.evicted) say(`  evicted ${entry.factId} (${entry.reason})`);
+  } finally {
+    await closeDb();
+  }
+}
+
 async function main(): Promise<void> {
   // Engine info logs carry the per-agent token_usage lines (cache reads
   // and billed totals) that make a CI run's spend diagnosable; the
@@ -145,9 +172,17 @@ async function main(): Promise<void> {
   (globalThis as Record<string, unknown>)['AI_SDK_LOG_WARNINGS'] = false;
 
   const [id, ...rest] = process.argv.slice(2);
+
+  // Not a graph workflow: runs the promote/evict gate over the candidate
+  // lesson pool and reports what moved. Meant for the nightly cadence.
+  if (id === 'memory-gate') {
+    await runMemoryGate();
+    return;
+  }
+
   const make = id !== undefined ? WORKFLOWS[id] : undefined;
   if (make === undefined) {
-    say(`usage: maintain <${Object.keys(WORKFLOWS).join('|')}> [--batch n] [--since ref] [--skip n] [--commit false] [--publish false] [--checks "a,b"]`);
+    say(`usage: maintain <${Object.keys(WORKFLOWS).join('|')}|memory-gate> [--batch n] [--since ref] [--skip n] [--commit false] [--publish false] [--checks "a,b"]`);
     process.exitCode = 2;
     return;
   }
@@ -156,7 +191,9 @@ async function main(): Promise<void> {
   const raw = parseFlags(rest);
   const params = workflow.params.parse(raw);
   const env = maintenanceEnvFromProcess();
-  say(`${workflow.id} — model ${env.model} (${env.provider})`);
+  const lessonMemory = await memoryFromEnv();
+  env.memory = lessonMemory !== undefined;
+  say(`${workflow.id} — model ${env.model} (${env.provider})${env.memory ? ' · lessons: on' : ''}`);
 
   const repoRoot = await resolveRepo((params as { repoRoot?: string }).repoRoot ?? '');
   const stale = await stalenessOf(repoRoot);
@@ -186,8 +223,30 @@ async function main(): Promise<void> {
         ...build.runner,
         middleware: [progress],
         ...(durability.eventLog !== undefined ? { eventLog: durability.eventLog } : {}),
+        ...(lessonMemory !== undefined
+          ? { memoryRetriever: lessonMemory.memoryRetriever, memoryWriter: lessonMemory.memoryWriter }
+          : {}),
       },
     });
+
+    // Outcome evidence: attribute the gate verdict to the lessons that were
+    // injected into this run's prompts. Recorded only when a gate actually
+    // ran — a run that ended before its gate carries no signal either way.
+    if (lessonMemory !== undefined) {
+      const injected = getInjectedFactIds(recorded.state);
+      const gateVerdict = (recorded.memory as Record<string, unknown>)['gate_verification_passed'];
+      if (injected.length > 0 && typeof gateVerdict === 'boolean') {
+        await lessonMemory.recordOutcome(recorded.runId, gateVerdict ? 1 : 0, injected);
+        say(`lessons: ${injected.length} injected — ${gateVerdict ? 'pass' : 'fail'} outcome recorded against them`);
+      } else if (injected.length > 0) {
+        say(`lessons: ${injected.length} injected — no gate verdict this run, no outcome recorded`);
+      }
+      const reflected = (recorded.memory as Record<string, unknown>)['reflect_reflection'] as
+        { fact_ids?: string[] } | undefined;
+      if (reflected?.fact_ids !== undefined) {
+        say(`lessons: ${reflected.fact_ids.length} new candidate(s) written`);
+      }
+    }
   } finally {
     await durability.close();
   }
@@ -240,6 +299,16 @@ async function main(): Promise<void> {
   }
   const benchVerdict = memory['verdict_result'];
   if (benchVerdict !== undefined) say(`verdict: ${String(benchVerdict['detail'] ?? '')}`);
+  const sift = memory['sift_result'];
+  if (sift !== undefined) {
+    const drops = sift['drops'] as Record<string, number> | undefined;
+    say(`sift: ${String(sift['report_count'])} report(s) → kept ${String(sift['kept_count'])}, clean ${String(sift['clean_reports'])}${drops !== undefined
+      ? ` · dropped: malformed ${drops['malformed']}, no_evidence ${drops['no_evidence']}, duplicate ${drops['duplicate']}, already_filed ${drops['already_filed']}`
+      : ''}`);
+    for (const finding of (sift['kept'] as Array<{ severity: string; title: string }> | undefined) ?? []) {
+      say(`  [${finding.severity}] ${finding.title}`);
+    }
+  }
   const ticket = memory['ticket_result'];
   if (ticket !== undefined) {
     say(`ticket: ${String(ticket['detail'] ?? '')}`);

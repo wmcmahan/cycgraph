@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
+import { agent, graph, node, reflection, tool, verifier } from '@cycgraph/orchestrator';
 import {
   diagnosticsTool,
   editFileTool,
@@ -42,6 +42,7 @@ import {
 } from '@cycgraph/tools/workspace';
 import { readFile } from 'node:fs/promises';
 import { findingKey, judgeFix, scanDocs, scopeFindings, type DocsFinding } from './docs-scan.js';
+import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
 import { resolveRepo } from './repo.js';
 import { deliveryNodes, openPrFiles } from '@cycgraph/tools/git';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
@@ -293,7 +294,37 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
         // re-searching the same candidates into a fresh transcript.
         reads: [scan.result, 'judge_result', 'fix_report'],
         writes: 'fix_report',
+        // Lessons distilled by earlier runs' reflection, eval-gated.
+        ...(env.memory ? { memoryQuery: { tags: [`wf:${id}`], maxFacts: 8 } } : {}),
       });
+
+      // Cross-run learning tail: distill this run's fixer notes and judge
+      // verdicts into candidate lessons a later run retrieves. Only built
+      // when memory is wired — a reflection node with no writer fails the
+      // run at execution, not at build.
+      const distiller = agent({
+        id: `${id}-lesson-distiller`,
+        name: 'Lesson distiller',
+        model: env.model,
+        provider: env.provider,
+        temperature: 0.2,
+        maxSteps: 1,
+        instructions: [
+          'You distill a documentation-maintenance run\'s working notes and verdicts into transferable lessons.',
+          'A lesson is one present-tense sentence that would change how the NEXT run works: a tool behaviour, a repository convention, a failure pattern and its remedy.',
+          'Never include run-specific details (file names being fixed, finding text, dates). A lesson that only applies to this run is not a lesson — omit it.',
+          'Fewer, stronger lessons beat many weak ones. When nothing transferable happened, return no facts.',
+        ].join(' '),
+      });
+      const reflect = env.memory
+        ? reflection(['fix_report', 'judge_result'], {
+            id: 'reflect',
+            reads: ['fix_report', 'judge_result'],
+            failurePolicy: { maxRetries: 2 },
+            extractor: { type: 'llm', agentId: distiller, maxFacts: 4 },
+            tags: [LESSON_TAG, `wf:${id}`, CANDIDATE_TAG],
+          })
+        : undefined;
       const judge = node({ id: 'judge', type: 'tool', toolId: 'judge_fix', tools: [judgeTool], reads: [scan.result, 'judge_result'] });
       const checks = node({ id: 'checks', type: 'tool', toolId: 'repo_checks', tools: [checksTool], reads: [] });
       const gate = verifier.expression(
@@ -311,7 +342,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
         graph: graph({
           name: id,
           description: 'Fix mechanically-detected documentation staleness, and prove each fix.',
-          nodes: [clone, scan, fix, judge, checks, gate, commit, publish, report],
+          nodes: [clone, scan, fix, judge, checks, gate, commit, publish, ...(reflect ? [reflect] : []), report],
           edges: [
             { from: clone, to: scan },
             { from: scan, to: fix, when: `memory.${scan.result}.has_finding` },
@@ -359,7 +390,12 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
               to: publish,
               when: `not memory.${commit.result}.committed or memory.${commit.result}.count >= ${p.batch}`,
             },
-            { from: publish, to: report },
+            // Learning tail: fixes delivered (or none found after fixing
+            // some) flow through reflection so the run's working notes
+            // become candidate lessons before the run ends.
+            ...(reflect
+              ? [{ from: publish, to: reflect }, { from: reflect, to: report }]
+              : [{ from: publish, to: report }]),
           ],
           startNode: clone,
           endNodes: [report],
@@ -369,7 +405,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
           goal: p.batch > 1
             ? `Correct up to ${p.batch} stale claims in the documentation.`
             : 'Correct one stale claim in the documentation.',
-          maxIterations: 12 + p.batch * 10,
+          maxIterations: 13 + p.batch * 10,
         },
         runner: {},
       };

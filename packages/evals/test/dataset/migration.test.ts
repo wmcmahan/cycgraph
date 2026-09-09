@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyMigrations } from '../../src/dataset/migration.js';
+import { applyMigrations, nextMajorSchemaVersion } from '../../src/dataset/migration.js';
 import type { MigrationTransform } from '../../src/dataset/migration.js';
 import type { GoldenTrajectory } from '../../src/dataset/types.js';
 
@@ -15,6 +15,18 @@ function makeTrajectory(overrides: Partial<GoldenTrajectory> = {}): GoldenTrajec
     ...overrides,
   };
 }
+
+describe('nextMajorSchemaVersion', () => {
+  it('bumps the major above the current version', () => {
+    expect(nextMajorSchemaVersion('3.0.0')).toBe('4.0.0');
+    expect(nextMajorSchemaVersion('1.2.7')).toBe('2.0.0');
+  });
+
+  it('yields the first version when none exists', () => {
+    expect(nextMajorSchemaVersion(undefined)).toBe('1.0.0');
+    expect(nextMajorSchemaVersion('garbage')).toBe('1.0.0');
+  });
+});
 
 describe('applyMigrations', () => {
   describe('rename transform', () => {

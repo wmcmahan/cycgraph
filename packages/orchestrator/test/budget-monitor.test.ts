@@ -63,6 +63,29 @@ describe('BudgetMonitor.calculateActionCost', () => {
     expect(cost).toBeGreaterThanOrEqual(0);
   });
 
+  it('prices input at cache rates when the action carries cache detail', () => {
+    const monitor = new BudgetMonitor(makeCallbacks());
+    const withCache: Action = {
+      id: 'a',
+      idempotency_key: 'a',
+      type: 'update_memory',
+      payload: { updates: {} },
+      metadata: {
+        node_id: 'n', timestamp: new Date(), attempt: 1, model: 'claude-opus-5',
+        token_usage: { totalTokens: 200_000, inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 900_000, cacheWriteTokens: 100_000 },
+      },
+    };
+
+    const cached = monitor.calculateActionCost(1_000_000, 0, withCache);
+    const flat = monitor.calculateActionCost(1_000_000, 0, {
+      ...withCache,
+      metadata: { node_id: 'n', timestamp: new Date(), attempt: 1, model: 'claude-opus-5' },
+    });
+
+    expect(cached).toBeCloseTo((90_000 + 125_000) * 5 / 1_000_000);
+    expect(flat).toBeCloseTo(5.0);
+  });
+
   it('returns 0 for unknown models without throwing', () => {
     const monitor = new BudgetMonitor(makeCallbacks());
     const action: Action = {

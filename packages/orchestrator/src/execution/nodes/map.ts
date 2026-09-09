@@ -59,6 +59,10 @@ export async function executeWorkerWithStateView(
         nodeId: node.id,
         grantedWriteKeys: node.write_keys,
         abortSignal,
+        // Without this the executor's internal default (2 min) applies to
+        // every fan-out worker regardless of the node's declared timeout —
+        // the direct agent-node path threads it, so must this one.
+        ...(node.failure_policy.timeout_ms !== undefined ? { timeoutMs: node.failure_policy.timeout_ms } : {}),
         onToken,
         drainTaintEntries: ctx.deps.drainTaintEntries,
         ...(node.default_write_key ? { defaultWriteKey: node.default_write_key } : {}),
@@ -192,22 +196,62 @@ export async function executeMapNode(
     itemIndex: index,
   }));
 
+  // Budget-aware dispatch. A fan-out can spend the whole run budget inside
+  // one node: the runner's accounting only sees the merged action AFTER
+  // every worker has run, and the breach then fails the run with all the
+  // completed workers' output discarded. Track billed spend as workers
+  // finish and stop launching new ones once the projected total (spend so
+  // far plus one average worker) would cross the budget — skipped items are
+  // reported in the node's error output and everything completed survives.
+  const tokenBudget = ctx.state.max_token_budget;
+  const tokensAtStart = ctx.state.total_tokens_used ?? 0;
+  let workerTokens = 0;
+  let workersCompleted = 0;
+  const dispatchGate = tokenBudget
+    ? (): string | null => {
+        const average = workersCompleted > 0 ? workerTokens / workersCompleted : 0;
+        return tokensAtStart + workerTokens + average > tokenBudget
+          ? `token budget nearly exhausted (${tokensAtStart + workerTokens} of ${tokenBudget} spent)`
+          : null;
+      }
+    : undefined;
+
   const results = await executeParallel(
     tasks,
-    async (task, taskSignal) => executeWorkerWithStateView(task.node, task.stateView, 1, ctx, taskSignal),
+    async (task, taskSignal) => {
+      const action = await executeWorkerWithStateView(task.node, task.stateView, 1, ctx, taskSignal);
+      const usage = action.metadata.token_usage as { totalTokens?: number } | undefined;
+      workerTokens += usage?.totalTokens ?? 0;
+      workersCompleted += 1;
+      return action;
+    },
     {
       maxConcurrency: config.max_concurrency,
       errorStrategy: config.error_strategy,
       taskTimeoutMs: config.task_timeout_ms,
       ...(ctx.abortSignal ? { signal: ctx.abortSignal } : {}),
+      ...(dispatchGate ? { dispatchGate } : {}),
     },
   );
 
-  const successResults = results.filter(r => r.success).map(r => ({
-    index: r.taskIndex,
-    node_id: r.nodeId,
-    updates: r.action?.payload?.updates,
-  }));
+  // Workers' lesson provenance arrives nested inside their update payloads,
+  // where the reducer's top-level system-key routing never sees it — the
+  // run would then have no record that fan-out prompts injected retrieved
+  // facts, and eval-gated learning silently degrades to keep-everything.
+  // Hoist and merge it (entries are UUID-keyed, so a cross-worker merge
+  // cannot collide) and strip it from the stored per-worker results.
+  const lessonProvenance: Record<string, unknown> = {};
+  const successResults = results.filter(r => r.success).map(r => {
+    const raw = r.action?.payload?.updates as Record<string, unknown> | undefined;
+    if (raw === undefined || raw['_lesson_provenance'] === undefined) {
+      return { index: r.taskIndex, node_id: r.nodeId, updates: raw };
+    }
+    const { _lesson_provenance: provenance, ...updates } = raw;
+    if (provenance && typeof provenance === 'object' && !Array.isArray(provenance)) {
+      Object.assign(lessonProvenance, provenance);
+    }
+    return { index: r.taskIndex, node_id: r.nodeId, updates };
+  });
   const errorResults = results.filter(r => !r.success).map(r => ({
     index: r.taskIndex,
     node_id: r.nodeId,
@@ -220,6 +264,12 @@ export async function executeMapNode(
   let totalTokens = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
+  // Cache traffic is summed too: cost accounting prices input at cache
+  // rates only when the action carries the detail, and a fan-out node
+  // that drops it re-prices its workers' cached transcripts at full rate.
+  let totalCacheReadTokens = 0;
+  let totalCacheWriteTokens = 0;
+  let anyCacheDetail = false;
   let observedModel: string | undefined;
   for (const r of results) {
     const usage = r.action?.metadata.token_usage;
@@ -227,6 +277,11 @@ export async function executeMapNode(
     totalInputTokens += usage.inputTokens ?? 0;
     totalOutputTokens += usage.outputTokens ?? 0;
     totalTokens += usage.totalTokens ?? ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
+    if (usage.cacheReadTokens !== undefined || usage.cacheWriteTokens !== undefined) {
+      anyCacheDetail = true;
+      totalCacheReadTokens += usage.cacheReadTokens ?? 0;
+      totalCacheWriteTokens += usage.cacheWriteTokens ?? 0;
+    }
     if (!observedModel && typeof r.action?.metadata.model === 'string') {
       observedModel = r.action.metadata.model;
     }
@@ -260,6 +315,9 @@ export async function executeMapNode(
         ...(Object.keys(taintUpdates).length > 0
           ? { _taint_registry: taintUpdates }
           : {}),
+        ...(Object.keys(lessonProvenance).length > 0
+          ? { _lesson_provenance: lessonProvenance }
+          : {}),
       },
       total_tokens: totalTokens,
     },
@@ -272,6 +330,9 @@ export async function executeMapNode(
         totalTokens,
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
+        ...(anyCacheDetail
+          ? { cacheReadTokens: totalCacheReadTokens, cacheWriteTokens: totalCacheWriteTokens }
+          : {}),
       },
     },
   };

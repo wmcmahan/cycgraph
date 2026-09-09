@@ -22,6 +22,9 @@ export type { CoreFinding } from './core-scan.js';
 export { issueFix } from './issue-fix.js';
 export { optPropose } from './opt-workflow.js';
 export { featPropose } from './feat-propose.js';
+export { charterOrder, repoAudit } from './audit-workflow.js';
+export { auditKey, parseAuditFindings, siftAuditFindings, AUDIT_SEVERITIES } from './audit-findings.js';
+export type { AuditFinding, AuditSeverity, AuditSiftOptions, AuditSiftResult } from './audit-findings.js';
 export { optApply } from './opt-apply.js';
 export { prRevise } from './pr-revise.js';
 export { featImplement } from './feat-implement.js';
@@ -53,6 +56,9 @@ export const optWorkflowSourcePath = fileURLToPath(new URL('./opt-workflow.ts', 
 
 /** Where the feat-propose workflow's source lives, likewise. */
 export const featProposeSourcePath = fileURLToPath(new URL('./feat-propose.ts', import.meta.url));
+
+/** Where the repo-audit workflow's source lives, likewise. */
+export const repoAuditSourcePath = fileURLToPath(new URL('./audit-workflow.ts', import.meta.url));
 
 /** Where the opt-apply workflow's source lives, likewise. */
 export const optApplySourcePath = fileURLToPath(new URL('./opt-apply.ts', import.meta.url));

@@ -88,6 +88,31 @@ describe('sumStepUsage', () => {
 
     expect(sumStepUsage([])).toEqual({ inputTokens: 0, outputTokens: 0, totalTokens: 0 });
   });
+
+  it('carries cache detail through so the fallback path still bills cached tokens as cached', async () => {
+    const { sumStepUsage } = await import('../src/agents/executors/agent/executor.js');
+
+    const summed = sumStepUsage([
+      { usage: { inputTokens: 1_000, outputTokens: 10, totalTokens: 1_010, inputTokenDetails: { noCacheTokens: 1_000, cacheReadTokens: 0, cacheWriteTokens: 0 } } },
+      { usage: { inputTokens: 2_000, outputTokens: 20, totalTokens: 2_020, inputTokenDetails: { noCacheTokens: 100, cacheReadTokens: 1_500, cacheWriteTokens: 400 } } },
+      { usage: { inputTokens: 50, outputTokens: 5 } },
+    ]);
+
+    expect(summed.inputTokenDetails).toEqual({
+      noCacheTokens: 1_100,
+      cacheReadTokens: 1_500,
+      cacheWriteTokens: 400,
+    });
+    expect(summed).toMatchObject({ inputTokens: 3_050, outputTokens: 35, totalTokens: 3_085 });
+  });
+
+  it('omits cache detail entirely when no step reported any', async () => {
+    const { sumStepUsage } = await import('../src/agents/executors/agent/executor.js');
+
+    const summed = sumStepUsage([{ usage: { inputTokens: 100, outputTokens: 10 } }]);
+
+    expect(summed.inputTokenDetails).toBeUndefined();
+  });
 });
 
 describe('billedTokenTotal', () => {

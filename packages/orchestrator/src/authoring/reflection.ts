@@ -16,10 +16,15 @@
 import type { ReflectionConfig } from '../graph/graph.js';
 import type { Camelize } from '../utils/case-mapping.js';
 import { withOutputs, reflectionOutputs, type ReflectionOutputs } from './outputs.js';
-import { NODE_BRAND, type NodeCommon, type NodeValue } from './node.js';
+import { NODE_BRAND, type NodeCommon, type NodeValue, type WidenRefs } from './node.js';
 
-/** Extraction strategy: deterministic sentence splitting, or an LLM. */
-export type ReflectionExtractor = Camelize<ReflectionConfig>['extractor'];
+/**
+ * Extraction strategy: deterministic sentence splitting, or an LLM. The
+ * `llm` variant's `agentId` accepts an `agent()` value like every other
+ * agent reference — `graph()` collects it for registration and collapses
+ * it to its registry id.
+ */
+export type ReflectionExtractor = WidenRefs<Camelize<ReflectionConfig>['extractor']>;
 
 /** Authoring spec for {@link reflection}. */
 export interface ReflectionSpec extends NodeCommon {

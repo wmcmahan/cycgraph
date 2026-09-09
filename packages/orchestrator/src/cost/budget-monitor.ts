@@ -62,11 +62,16 @@ export class BudgetMonitor {
 
   /**
    * Cost of a single action's LLM call. Falls back to 0 for unknown models.
-   * Pure — no callbacks invoked.
+   * Pure — no callbacks invoked. Prices input at cache rates when the
+   * action's token usage carries prompt-cache detail.
    */
   calculateActionCost(inputTokens: number, outputTokens: number, action: Action): number {
     const modelHint = action.metadata.model ?? '';
-    return calculateCost(modelHint, inputTokens, outputTokens);
+    const tokenUsage = action.metadata.token_usage;
+    return calculateCost(modelHint, inputTokens, outputTokens, {
+      ...(tokenUsage?.cacheReadTokens !== undefined ? { readTokens: tokenUsage.cacheReadTokens } : {}),
+      ...(tokenUsage?.cacheWriteTokens !== undefined ? { writeTokens: tokenUsage.cacheWriteTokens } : {}),
+    });
   }
 
   /**
