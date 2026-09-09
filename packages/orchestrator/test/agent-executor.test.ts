@@ -127,6 +127,59 @@ describe('executeAgent', () => {
     expect(action.idempotency_key).toBeDefined();
   });
 
+  it('falls back to the last step that produced text when the final step is empty', async () => {
+    const result = mockStreamTextResult({ text: Promise.resolve('') });
+    (result as any).steps = Promise.resolve([
+      { text: 'Reading the module under audit.', toolCalls: [], toolResults: [] },
+      { text: 'FINDING: the report written mid-loop', toolCalls: [], toolResults: [] },
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (streamText as any).mockReturnValue(result);
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates['worker_output']).toContain('FINDING: the report written mid-loop');
+  });
+
+  it('bills cached tokens as cached when usage falls back to the per-step sum', async () => {
+    const result = mockStreamTextResult({
+      totalUsage: Promise.resolve({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }),
+    });
+    (result as any).steps = Promise.resolve([
+      {
+        text: 'report',
+        toolCalls: [],
+        toolResults: [],
+        usage: {
+          inputTokens: 10_000,
+          outputTokens: 100,
+          totalTokens: 10_100,
+          inputTokenDetails: { noCacheTokens: 1_000, cacheReadTokens: 9_000, cacheWriteTokens: 0 },
+        },
+      },
+    ]);
+    (streamText as any).mockReturnValue(result);
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    const tokenUsage = action.metadata.token_usage as { inputTokens: number; totalTokens: number };
+    expect(tokenUsage.inputTokens).toBe(10_000);
+    expect(tokenUsage.totalTokens).toBe(2_000);
+  });
+
+  it('writes nothing when no step produced any text', async () => {
+    const result = mockStreamTextResult({ text: Promise.resolve('') });
+    (result as any).steps = Promise.resolve([
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (streamText as any).mockReturnValue(result);
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    expect(action.payload.updates).toEqual({});
+  });
+
   it('loads agent config from factory', async () => {
     await executeAgent('test-agent', makeStateView(), {}, 1);
     expect(agentFactory.loadAgent).toHaveBeenCalledWith('test-agent');

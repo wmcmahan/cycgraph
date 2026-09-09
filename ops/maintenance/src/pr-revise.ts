@@ -40,7 +40,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { safeAcceptanceCommand } from './proposal.js';
-import { resolveRepo } from './repo.js';
+import { CHANGESET_INSTRUCTION, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -211,6 +211,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           'The workspace is already on the PR branch. Fix exactly what the feedback names — nothing else.',
           'Use search to orient, read_file for exact bytes (window large files), edit_file and create_file to change things, and run_check to verify with the repository\'s own commands before replying.',
           'A multi-match edit refusal means retry with a longer find, never a different path.',
+          CHANGESET_INSTRUCTION,
           'When done, reply with a short summary of what you changed per comment, so it can be posted back to the reviewer.',
         ].join(' '),
         tools: [hands.search, hands.read, hands.edit, hands.create, runCheckTool],

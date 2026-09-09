@@ -325,6 +325,79 @@ describe('executeMapNode', () => {
       ...overrides,
     });
 
+    it('stops dispatching workers when the projected spend would cross the token budget', async () => {
+      const node = makeMapNode({ static_items: ['a', 'b', 'c', 'd'], max_concurrency: 1 });
+      const ctx = makeCtx({ state: { ...createState(), max_token_budget: 12, total_tokens_used: 0 } as any });
+
+      const action = await executeMapNode(node, makeStateView(), 1, ctx);
+
+      const updates = action.payload.updates as Record<string, unknown>;
+      expect(updates['mapper_results']).toHaveLength(2);
+      expect(updates['mapper_error_count']).toBe(2);
+      const errors = updates['mapper_errors'] as Array<{ error: string }>;
+      expect(errors[0]!.error).toContain('skipped: token budget nearly exhausted');
+    });
+
+    it('dispatches every worker when the token budget has headroom', async () => {
+      const node = makeMapNode({ static_items: ['a', 'b', 'c', 'd'], max_concurrency: 1 });
+      const ctx = makeCtx({ state: { ...createState(), max_token_budget: 1_000, total_tokens_used: 0 } as any });
+
+      const action = await executeMapNode(node, makeStateView(), 1, ctx);
+
+      const updates = action.payload.updates as Record<string, unknown>;
+      expect(updates['mapper_results']).toHaveLength(4);
+      expect(updates['mapper_error_count']).toBe(0);
+    });
+
+    it('sums worker cache traffic into the merged token usage', async () => {
+      const deps = makeDeps({
+        executeAgent: vi.fn(async (agentId: string, _sv: any, _t: any, attempt: number) => ({
+          id: uuidv4(),
+          idempotency_key: uuidv4(),
+          type: 'update_memory',
+          payload: { updates: { report: 'ok' } },
+          metadata: {
+            node_id: agentId, timestamp: new Date(), attempt, model: 'claude-opus-5',
+            token_usage: { totalTokens: 100, inputTokens: 1_000, outputTokens: 10, cacheReadTokens: 900, cacheWriteTokens: 50 },
+          },
+        })) as any,
+      });
+      const node = makeMapNode({ static_items: ['a', 'b'] });
+
+      const action = await executeMapNode(node, makeStateView(), 1, makeCtx({ deps }));
+
+      expect(action.metadata.token_usage).toMatchObject({
+        inputTokens: 2_000,
+        cacheReadTokens: 1_800,
+        cacheWriteTokens: 100,
+      });
+    });
+
+    it('hoists worker lesson provenance to the merged payload for reducer routing', async () => {
+      const deps = makeDeps({
+        executeAgent: vi.fn(async (agentId: string, sv: any, _t: any, attempt: number) => ({
+          id: uuidv4(),
+          idempotency_key: uuidv4(),
+          type: 'update_memory',
+          payload: {
+            updates: {
+              report: 'ok',
+              _lesson_provenance: { [uuidv4()]: { node_id: 'worker', agent_id: agentId, fact_ids: ['f1'], retrieved_at: 'now' } },
+            },
+          },
+          metadata: { node_id: agentId, timestamp: new Date(), attempt, model: 'claude-sonnet-4-6', token_usage: { totalTokens: 5, inputTokens: 3, outputTokens: 2 } },
+        })) as any,
+      });
+      const node = makeMapNode({ static_items: ['a', 'b'] });
+
+      const action = await executeMapNode(node, makeStateView(), 1, makeCtx({ deps }));
+
+      const updates = action.payload.updates as Record<string, unknown>;
+      expect(Object.keys(updates['_lesson_provenance'] as Record<string, unknown>)).toHaveLength(2);
+      const entries = updates['mapper_results'] as Array<{ updates: Record<string, unknown> }>;
+      expect(entries[0]!.updates).toEqual({ report: 'ok' });
+    });
+
     it('throws when map_reduce_config is missing', async () => {
       const node = { ...makeMapNode(), map_reduce_config: undefined } as GraphNode;
 
@@ -454,6 +527,30 @@ describe('executeWorkerWithStateView', () => {
     const node = agentNode({ agent_id: undefined });
 
     await expect(executeWorkerWithStateView(node, makeStateView(), 1, makeCtx())).rejects.toThrow('agent_id');
+  });
+
+  it('forwards the worker node timeout to executeAgent', async () => {
+    const deps = makeDeps();
+    const node = agentNode({
+      failure_policy: {
+        max_retries: 1, backoff_strategy: 'fixed', initial_backoff_ms: 100, max_backoff_ms: 100,
+        timeout_ms: 900_000,
+      },
+    } as Partial<GraphNode>);
+
+    await executeWorkerWithStateView(node, makeStateView(), 1, makeCtx({ deps }));
+
+    const callArgs = (deps.executeAgent as any).mock.calls[0][4];
+    expect(callArgs.timeoutMs).toBe(900_000);
+  });
+
+  it('leaves the agent timeout unset when the worker node declares none', async () => {
+    const deps = makeDeps();
+
+    await executeWorkerWithStateView(agentNode(), makeStateView(), 1, makeCtx({ deps }));
+
+    const callArgs = (deps.executeAgent as any).mock.calls[0][4];
+    expect(callArgs.timeoutMs).toBeUndefined();
   });
 
   it('forwards default_write_key to executeAgent for an agent worker', async () => {

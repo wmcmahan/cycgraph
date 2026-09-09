@@ -2,7 +2,7 @@
  * Tests for the A2A client adapter.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createA2AClient, normalizeState, partsToValue, toResult } from '../src/index.js';
 
 const textPart = (value: string) => ({ content: { $case: 'text', value } });
@@ -116,6 +116,137 @@ describe('toResult', () => {
 });
 
 describe('createA2AClient', () => {
+  it('rejects within the budget when message/send never responds', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: () => new Promise(() => {}),
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 5_000,
+      });
+      const outcome = expect(pending).rejects.toThrow('did not complete within the 5000ms budget');
+      await vi.advanceTimersByTimeAsync(5_000);
+      await outcome;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects immediately when the caller signal is already aborted', async () => {
+    const client = createA2AClient({
+      createClient: async () => ({
+        sendMessage: () => new Promise(() => {}),
+      }) as never,
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(client.runTask({
+      agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 5_000,
+      abortSignal: controller.signal,
+    })).rejects.toThrow('aborted by the caller');
+  });
+
+  it('polls a working task until it completes and returns the settled result', async () => {
+    vi.useFakeTimers();
+    try {
+      const polled: string[] = [];
+      let polls = 0;
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: async () => ({ id: 't9', status: { state: 'TASK_STATE_WORKING' } }),
+          getTask: async (params: { name: string }) => {
+            polled.push(params.name);
+            polls += 1;
+            return polls < 2
+              ? { id: 't9', status: { state: 'TASK_STATE_WORKING' } }
+              : {
+                  id: 't9',
+                  status: { state: 'TASK_STATE_COMPLETED' },
+                  artifacts: [{ parts: [{ content: { $case: 'data', value: { answer: 42 } } }] }],
+                };
+          },
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 60_000,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await pending;
+
+      expect(result.state).toBe('completed');
+      expect(polled).toEqual(['tasks/t9', 'tasks/t9']);
+      expect(result.artifacts[0]?.value).toEqual({ answer: 42 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up on a pending task that carries no id instead of polling blind', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: async () => ({ status: { state: 'TASK_STATE_WORKING' } }),
+          getTask: async () => { throw new Error('must not be called without a task id'); },
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 60_000,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await pending;
+
+      expect(result.state).not.toBe('completed');
+      expect(result.taskId).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns the last observed task when a poll hangs past the deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: async () => ({ id: 't1', status: { state: 'TASK_STATE_WORKING' } }),
+          getTask: () => new Promise(() => {}),
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 3_000,
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+      const result = await pending;
+
+      expect(result.taskId).toBe('t1');
+      expect(result.state).not.toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hands the delivery signal to the client factory', async () => {
+    let received: AbortSignal | undefined;
+    const client = createA2AClient({
+      createClient: async (_url, _headers, signal) => {
+        received = signal;
+        return { sendMessage: async () => ({ id: 't', status: { state: 'completed' }, artifacts: [] }) } as never;
+      },
+    });
+
+    await client.runTask({ agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 1_000 });
+
+    expect(received).toBeInstanceOf(AbortSignal);
+  });
+
   it('sends the mapped input as a data part', async () => {
     const sent: any[] = [];
     const client = createA2AClient({

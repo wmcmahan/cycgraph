@@ -157,6 +157,20 @@ function sanitizeTokens(n: number): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/** Prompt-cache read tokens bill at this fraction of the input rate. */
+export const CACHE_READ_INPUT_RATE = 0.1;
+
+/** Prompt-cache write tokens bill at this multiple of the input rate. */
+export const CACHE_WRITE_INPUT_RATE = 1.25;
+
+/** Prompt-cache token counts for cache-aware cost calculation. */
+export interface CacheTokens {
+  /** Input tokens served from the prompt cache (billed at ~10%). */
+  readTokens?: number;
+  /** Input tokens written to the prompt cache (billed at ~125%). */
+  writeTokens?: number;
+}
+
 /**
  * Calculate cost in USD for a given model and token counts.
  *
@@ -167,15 +181,25 @@ function sanitizeTokens(n: number): number {
  * `false`, that single bad value would permanently stop the USD budget from
  * ever enforcing again.
  *
+ * When `cache` is provided, input is priced at cache-aware rates: reads at
+ * {@link CACHE_READ_INPUT_RATE} and writes at {@link CACHE_WRITE_INPUT_RATE}
+ * of the input rate, with the remainder at full price. Providers report
+ * cached tokens inside `inputTokens` at full count, so pricing the raw
+ * number flat overstates a well-cached agentic run several-fold — and a
+ * `max_cost_usd` budget fed that number trips long before real spend
+ * reaches it.
+ *
  * @param model - Model identifier resolved via {@link getModelPricing} (runtime overrides, then {@link MODEL_PRICING}).
- * @param inputTokens - Number of input (prompt) tokens.
+ * @param inputTokens - Number of input (prompt) tokens, cache traffic included.
  * @param outputTokens - Number of output (completion) tokens.
+ * @param cache - Optional prompt-cache read/write token counts within `inputTokens`.
  * @returns Estimated cost in USD (always finite and >= 0).
  */
 export function calculateCost(
   model: string,
   inputTokens: number,
   outputTokens: number,
+  cache?: CacheTokens,
 ): number {
   const input = sanitizeTokens(inputTokens);
   const output = sanitizeTokens(outputTokens);
@@ -189,8 +213,16 @@ export function calculateCost(
     }
     return 0;
   }
+
+  const cacheRead = Math.min(sanitizeTokens(cache?.readTokens ?? 0), input);
+  const cacheWrite = Math.min(sanitizeTokens(cache?.writeTokens ?? 0), input - cacheRead);
+  const noCache = input - cacheRead - cacheWrite;
+  const inputEquivalent = noCache
+    + cacheRead * CACHE_READ_INPUT_RATE
+    + cacheWrite * CACHE_WRITE_INPUT_RATE;
+
   return (
-    (input * pricing.inputPerMToken) / 1_000_000 +
+    (inputEquivalent * pricing.inputPerMToken) / 1_000_000 +
     (output * pricing.outputPerMToken) / 1_000_000
   );
 }

@@ -133,19 +133,50 @@ export function billedTokenTotal(usage: ReportedUsage | undefined): number {
   return Math.round(noCache + 1.25 * cacheWrite + 0.1 * cacheRead + output);
 }
 
-/** Aggregate usage summed from per-step reports, totals derived when absent. */
+/**
+ * Aggregate usage summed from per-step reports, totals derived when absent.
+ *
+ * Cache detail is carried through: dropping it here would make the fallback
+ * path bill every cached token at full price — the budget and the
+ * `token_usage` log would then claim a zero-cache execution that actually
+ * cached fine. `inputTokenDetails` is present in the result only when at
+ * least one step reported it, so {@link billedTokenTotal}'s no-detail
+ * fallback still applies to providers that never report cache fields.
+ */
 export function sumStepUsage(
-  steps: ReadonlyArray<{ usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }>,
-): { inputTokens: number; outputTokens: number; totalTokens: number } {
-  return steps.reduce(
-    (acc, step) => ({
-      inputTokens: acc.inputTokens + (step.usage?.inputTokens ?? 0),
-      outputTokens: acc.outputTokens + (step.usage?.outputTokens ?? 0),
-      totalTokens: acc.totalTokens + (step.usage?.totalTokens
-        ?? ((step.usage?.inputTokens ?? 0) + (step.usage?.outputTokens ?? 0))),
-    }),
-    { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+  steps: ReadonlyArray<{ usage?: ReportedUsage }>,
+): ReportedUsage & { inputTokens: number; outputTokens: number; totalTokens: number } {
+  let anyDetails = false;
+  const summed = steps.reduce(
+    (acc, step) => {
+      const details = step.usage?.inputTokenDetails;
+      if (details) anyDetails = true;
+      return {
+        inputTokens: acc.inputTokens + (step.usage?.inputTokens ?? 0),
+        outputTokens: acc.outputTokens + (step.usage?.outputTokens ?? 0),
+        totalTokens: acc.totalTokens + (step.usage?.totalTokens
+          ?? ((step.usage?.inputTokens ?? 0) + (step.usage?.outputTokens ?? 0))),
+        noCacheTokens: acc.noCacheTokens + (details?.noCacheTokens ?? 0),
+        cacheReadTokens: acc.cacheReadTokens + (details?.cacheReadTokens ?? 0),
+        cacheWriteTokens: acc.cacheWriteTokens + (details?.cacheWriteTokens ?? 0),
+      };
+    },
+    { inputTokens: 0, outputTokens: 0, totalTokens: 0, noCacheTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
   );
+  return {
+    inputTokens: summed.inputTokens,
+    outputTokens: summed.outputTokens,
+    totalTokens: summed.totalTokens,
+    ...(anyDetails
+      ? {
+          inputTokenDetails: {
+            noCacheTokens: summed.noCacheTokens,
+            cacheReadTokens: summed.cacheReadTokens,
+            cacheWriteTokens: summed.cacheWriteTokens,
+          },
+        }
+      : {}),
+  };
 }
 
 /** Token usage from a single agent execution. */
@@ -159,10 +190,18 @@ export interface TokenUsage {
    * writes at 1.25×; plain input + output when no cache detail exists.
    */
   totalTokens: number;
+  /**
+   * Prompt-cache traffic within `inputTokens`, carried so cost accounting
+   * can price input at cache rates. Absent when the provider reported no
+   * cache detail.
+   */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 /** Minimal shape of a single step. */
 interface AgentStep {
+  text?: string;
   toolCalls?: Array<{
     toolCallId: string;
     toolName: string;
@@ -173,7 +212,7 @@ interface AgentStep {
     toolCallId?: string;
     result?: unknown;
   }>;
-  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  usage?: ReportedUsage;
 }
 
 /**
@@ -436,6 +475,18 @@ export async function executeAgent(
 
       // Extract tool calls and results from ALL steps.
       steps = ((await result.steps) ?? []) as AgentStep[];
+
+      // `result.text` is the FINAL step's text only. A multi-step agent
+      // that writes its answer mid-loop and then ends on an empty step
+      // (models do this after a last verification tool call) would have
+      // that answer silently discarded — and downstream, an empty
+      // response writes no memory at all. Fall back to the last step
+      // that said anything.
+      if (text.trim() === '') {
+        const lastSpoken = [...steps].reverse()
+          .find((step) => typeof step.text === 'string' && step.text.trim() !== '');
+        if (lastSpoken?.text !== undefined) text = lastSpoken.text;
+      }
     } catch (error) {
       // Best-effort: a failed/aborted attempt may still have spent tokens.
       // Read them so the runner can account for failed-attempt spend instead
@@ -489,10 +540,16 @@ export async function executeAgent(
     // the total, some report nothing usable at all. Fall back to summing
     // the per-step usage — a zero here silently disables cost accounting
     // and token budgets for every run on the affected provider.
+    // Which path produced the usage below. Logged so a zero-cache execution
+    // in the token_usage line can be attributed: 'step_sum' means the
+    // aggregate promise reported nothing and the per-step sum stood in.
+    let usageSource: 'aggregate' | 'step_sum' = 'aggregate';
     if ((usage?.inputTokens ?? 0) === 0 && (usage?.outputTokens ?? 0) === 0 && (usage?.totalTokens ?? 0) === 0) {
       const summed = sumStepUsage(steps);
-      if (summed.totalTokens > 0) usage = summed;
-      else if (steps.length > 0) {
+      if (summed.totalTokens > 0) {
+        usage = summed;
+        usageSource = 'step_sum';
+      } else if (steps.length > 0) {
         logger.warn('token_usage_missing', {
           agent_id: agentId,
           model: config.model,
@@ -504,6 +561,12 @@ export async function executeAgent(
       inputTokens: usage?.inputTokens ?? 0,
       outputTokens: usage?.outputTokens ?? 0,
       totalTokens: billedTokenTotal(usage),
+      ...(usage?.inputTokenDetails
+        ? {
+            cacheReadTokens: usage.inputTokenDetails.cacheReadTokens ?? 0,
+            cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens ?? 0,
+          }
+        : {}),
     };
     // Cache reads bill at ~10%; surfacing them is how a run's log proves
     // the prompt cache is hitting rather than writing on every step.
@@ -514,6 +577,7 @@ export async function executeAgent(
       cache_read_tokens: usage?.inputTokenDetails?.cacheReadTokens ?? 0,
       cache_write_tokens: usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
       billed_tokens: tokenUsage.totalTokens,
+      usage_source: usageSource,
       ...(cacheMarksPerRequest.length > 0 ? { cache_marks: cacheMarksPerRequest.join(',') } : {}),
     });
 

@@ -169,3 +169,18 @@ export function applyMigrations(
 
   return { trajectories: updated, modifiedCount, reviewRequired };
 }
+
+/**
+ * The schema version a migration should write its output under: the next
+ * MAJOR above the suite's current version. The dataset filename encodes
+ * the major, so writing under the bumped major retains the current file
+ * as the rollback — writing under any older major would overwrite a
+ * retained rollback and downgrade the manifest entry.
+ *
+ * A malformed or missing current version yields `1.0.0` (a first write,
+ * nothing on disk to clobber).
+ */
+export function nextMajorSchemaVersion(current: string | undefined): string {
+  const major = /^(\d+)/.exec(current ?? '')?.[1];
+  return major === undefined ? '1.0.0' : `${Number(major) + 1}.0.0`;
+}

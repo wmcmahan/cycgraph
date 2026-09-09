@@ -20,6 +20,13 @@ export interface MaintenanceEnv {
   provider: string;
   /** Credentials and commit identity for the delivery tail. */
   publish?: PublishConfig;
+  /**
+   * Cross-run lesson memory is wired for this run. When true, a workflow
+   * may add `memoryQuery` directives and a reflection node; when absent it
+   * must build the exact graph it builds without memory — a reflection
+   * node with no writer injected fails the run at execution.
+   */
+  memory?: boolean;
 }
 
 /** What a build hands the runner. */

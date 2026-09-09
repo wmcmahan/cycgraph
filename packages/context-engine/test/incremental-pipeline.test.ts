@@ -343,6 +343,27 @@ describe('createIncrementalPipeline', () => {
     expect(turn2.state.compressedSegments.has('b')).toBe(false);
   });
 
+  it('re-runs cross-segment stages when a segment is deleted and the survivors are unchanged', () => {
+    const crossCounter: CompressionStage = {
+      name: 'cross-counter',
+      scope: 'cross-segment',
+      execute(segments: PromptSegment[]) {
+        return { segments: segments.map(s => ({ ...s, content: `${s.content}#${segments.length}` })) };
+      },
+    };
+    const pipeline = createIncrementalPipeline({ stages: [crossCounter] });
+    const budget = makeBudget();
+    const kept = seg('a', 'alpha');
+
+    const turn1 = pipeline.compress({ segments: [kept, seg('b', 'beta')], budget });
+    const turn2 = pipeline.compress({ segments: [kept], budget }, turn1.state);
+
+    expect(turn1.result.segments.map(s => s.content)).toEqual(['alpha#2', 'beta#2']);
+    expect(turn2.result.segments.map(s => s.content)).toEqual(['alpha#1']);
+    expect(turn2.result.metrics.cached).not.toBe(true);
+    expect(turn2.freshSegmentCount).toBe(0);
+  });
+
   it('increments the turn counter on every call', () => {
     const pipeline = createIncrementalPipeline({ stages: [createFormatStage()] });
     const segments = [seg('a', 'hello')];
