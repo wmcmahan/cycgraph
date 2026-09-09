@@ -102,6 +102,12 @@ export interface BenchComparison {
   improved: BenchDelta[];
   regressed: BenchDelta[];
   unchanged: number;
+  /**
+   * Ids present in `before` but absent from `after`. A bench that
+   * vanished was broken, renamed, or timed out by the edit under test —
+   * never a pass, so consumers must treat any entry here as a block.
+   */
+  disappeared: string[];
 }
 
 /**
@@ -116,6 +122,8 @@ export function compareBench(
   minImprovementPct: number,
 ): BenchComparison {
   const baseline = new Map(before.map((row) => [row.id, row]));
+  const afterIds = new Set(after.map((row) => row.id));
+  const disappeared = before.filter((row) => !afterIds.has(row.id)).map((row) => row.id);
   const improved: BenchDelta[] = [];
   const regressed: BenchDelta[] = [];
   let unchanged = 0;
@@ -128,5 +136,5 @@ export function compareBench(
     else if (pct <= -Math.max(5, noise)) regressed.push({ id: row.id, pct, noise });
     else unchanged += 1;
   }
-  return { improved, regressed, unchanged };
+  return { improved, regressed, unchanged, disappeared };
 }

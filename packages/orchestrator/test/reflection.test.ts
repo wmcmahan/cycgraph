@@ -581,6 +581,50 @@ describe('llm reflection extractor', () => {
     expect(instruction).toBe('Extract methodology lessons only.');
   });
 
+  it('rethrows an extractor failure while the node still has retries', async () => {
+    const node = makeNode({
+      id: 'reflect', type: 'reflection', agent_id: undefined,
+      read_keys: ['*'], write_keys: ['reflect_reflection'],
+      reflection_config: {
+        source_keys: ['draft'],
+        extractor: { type: 'llm', agent_id: 'reflector-agent', max_facts: 5 },
+        tags: ['lesson'],
+      },
+      failure_policy: { max_retries: 3, backoff_strategy: 'fixed', initial_backoff_ms: 1, max_backoff_ms: 1 },
+    });
+    const ctx = makeReflectCtx({
+      deps: { extractFactsExecutor: vi.fn().mockRejectedValue(new Error('No object generated')) } as never,
+    });
+
+    await expect(
+      executeReflectionNode(node, makeReflectStateView({ draft: 'some draft' }), 1, ctx),
+    ).rejects.toThrow('No object generated');
+  });
+
+  it('degrades to zero facts with extractor_failed on the final attempt instead of failing', async () => {
+    const node = makeNode({
+      id: 'reflect', type: 'reflection', agent_id: undefined,
+      read_keys: ['*'], write_keys: ['reflect_reflection'],
+      reflection_config: {
+        source_keys: ['draft'],
+        extractor: { type: 'llm', agent_id: 'reflector-agent', max_facts: 5 },
+        tags: ['lesson'],
+      },
+      failure_policy: { max_retries: 3, backoff_strategy: 'fixed', initial_backoff_ms: 1, max_backoff_ms: 1 },
+    });
+    const memoryWriter = vi.fn<MemoryWriter>(async () => ({ fact_ids: [] }));
+    const ctx = makeReflectCtx({
+      deps: { extractFactsExecutor: vi.fn().mockRejectedValue(new Error('No object generated')) } as never,
+      memoryWriter,
+    });
+
+    const action = await executeReflectionNode(node, makeReflectStateView({ draft: 'some draft' }), 3, ctx);
+
+    const envelope = (action.payload.updates as Record<string, unknown>)['reflect_reflection'];
+    expect(envelope).toMatchObject({ extractor_failed: true, fact_ids: [] });
+    expect(memoryWriter).not.toHaveBeenCalled();
+  });
+
   it('persists each returned fact with provenance.source="agent" and configured tags', async () => {
     mockExtract.mockResolvedValueOnce({
       facts: ['Prefer primary sources.', 'Cite the publication date.'],

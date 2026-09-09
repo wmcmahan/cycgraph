@@ -193,6 +193,9 @@ async function main(): Promise<void> {
   const env = maintenanceEnvFromProcess();
   const lessonMemory = await memoryFromEnv();
   env.memory = lessonMemory !== undefined;
+  if (lessonMemory !== undefined) {
+    env.auditSchedule = { load: () => lessonMemory.loadAuditSchedule() };
+  }
   say(`${workflow.id} — model ${env.model} (${env.provider})${env.memory ? ' · lessons: on' : ''}`);
 
   const repoRoot = await resolveRepo((params as { repoRoot?: string }).repoRoot ?? '');
@@ -235,7 +238,11 @@ async function main(): Promise<void> {
     if (lessonMemory !== undefined) {
       const injected = getInjectedFactIds(recorded.state);
       const gateVerdict = (recorded.memory as Record<string, unknown>)['gate_verification_passed'];
-      if (injected.length > 0 && typeof gateVerdict === 'boolean') {
+      const siftEnvFailure = ((recorded.memory as Record<string, unknown>)['sift_result'] as
+        { ledger_unavailable?: boolean } | undefined)?.ledger_unavailable === true;
+      if (siftEnvFailure) {
+        say('lessons: gate failed for an environmental reason (issue ledger unreadable) — no outcome recorded');
+      } else if (injected.length > 0 && typeof gateVerdict === 'boolean') {
         await lessonMemory.recordOutcome(recorded.runId, gateVerdict ? 1 : 0, injected);
         say(`lessons: ${injected.length} injected — ${gateVerdict ? 'pass' : 'fail'} outcome recorded against them`);
       } else if (injected.length > 0) {
@@ -245,6 +252,32 @@ async function main(): Promise<void> {
         { fact_ids?: string[] } | undefined;
       if (reflected?.fact_ids !== undefined) {
         say(`lessons: ${reflected.fact_ids.length} new candidate(s) written`);
+      }
+
+      // Patrol scheduling: advance the last-audited clock for the pairs
+      // this run actually spent slots on — skipped and failed workers
+      // stay at their old timestamps and re-surface oldest-first.
+      const cloneResult = (recorded.memory as Record<string, unknown>)['clone_result'] as
+        { head?: string; charters?: Array<{ lens: string; scope: string }> } | undefined;
+      // Only a COMPLETED run advances the audited clock: a run that died
+      // after auditing but before filing produced findings nobody saw,
+      // so its pairs must resurface rather than count as covered.
+      if (recorded.state.status === 'completed'
+        && typeof cloneResult?.head === 'string' && Array.isArray(cloneResult.charters)) {
+        // A pair counts as audited only when its worker delivered a
+        // report — a worker that ran out of steps reporting nothing
+        // leaves its pair stale, so it resurfaces oldest-first.
+        const reported = new Set(
+          (((recorded.memory as Record<string, unknown>)['audit_results'] as
+            Array<{ index: number; updates?: Record<string, unknown> }> | undefined) ?? [])
+            .filter((entry) => typeof entry.updates?.['audit_report'] === 'string' && entry.updates['audit_report'] !== '')
+            .map((entry) => entry.index),
+        );
+        const auditedPairs = cloneResult.charters.filter((_, index) => reported.has(index));
+        if (auditedPairs.length > 0) {
+          await lessonMemory.saveAuditSchedule({ head: cloneResult.head, auditedPairs, at: new Date() });
+          say(`audit schedule: ${auditedPairs.length} pair(s) recorded at ${cloneResult.head.slice(0, 7)}`);
+        }
       }
     }
   } finally {

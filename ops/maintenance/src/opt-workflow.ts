@@ -148,6 +148,8 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
             ? 'nothing was changed'
             : outOfScope.length > 0
               ? `changes left the allowed scope: ${outOfScope.join(', ')}`
+              : comparison.disappeared.length > 0
+                ? `benchmarks disappeared after the edit (broken or deleted, not a pass): ${comparison.disappeared.join(', ')}`
               : comparison.improved.length === 0
                 ? `no benchmark improved by ≥${p.minImprovement}% beyond noise`
                 : comparison.regressed.length > 0
@@ -158,6 +160,7 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
             ...comparison,
             improved_count: comparison.improved.length,
             regressed_count: comparison.regressed.length,
+            disappeared_count: comparison.disappeared.length,
             out_of_scope_count: outOfScope.length,
             changed_count: changed.length,
             changed_files: changed,
@@ -185,7 +188,7 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
         execute: async ({ verdict_result, proposal }) => {
           const verdict = verdict_result as (BenchComparison & { changed_files?: string[]; detail?: string }) | undefined;
           const files = verdict?.changed_files ?? [];
-          const key = keyFor(verdict ?? { improved: [], regressed: [], unchanged: 0 }, files);
+          const key = keyFor(verdict ?? { improved: [], regressed: [], unchanged: 0, disappeared: [] }, files);
           const diff = await pendingDiff(workspaceAt);
           if (!p.file) return { filed: false, key, detail: 'dry run', diff };
 

@@ -73,5 +73,14 @@ describe('compareBench', () => {
 
     expect(result.improved).toHaveLength(0);
     expect(result.unchanged).toBe(1);
+    expect(result.disappeared).toEqual([]);
+  });
+
+  it('reports a benchmark absent from the after run as disappeared', () => {
+    const result = compareBench([row('a', 1000), row('b', 1000)], [row('a', 1000)], 10);
+
+    expect(result.disappeared).toEqual(['b']);
+    expect(result.regressed).toHaveLength(0);
+    expect(result.unchanged).toBe(1);
   });
 });
