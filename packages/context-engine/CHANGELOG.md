@@ -1,5 +1,11 @@
 # @cycgraph/context-engine
 
+## 0.7.2
+
+### Patch Changes
+
+- 9671a03: The incremental pipeline re-runs cross-segment stages when a segment is deleted. Previously a shrunk segment set with byte-identical survivors reused the previous turn's cross-phase output — stale for the new set, since dedup and budget allocation compute over all segments together.
+
 ## 0.7.1
 
 ### Patch Changes
