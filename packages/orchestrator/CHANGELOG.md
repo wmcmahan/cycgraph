@@ -1,5 +1,11 @@
 # @cycgraph/orchestrator
 
+## 1.3.5
+
+### Patch Changes
+
+- 7c79357: Reflection nodes treat LLM extractor failures as best-effort: an extraction error (structured output not matching the schema, a transient provider error) rethrows while the node has retries left and degrades to zero facts on the final attempt — the result envelope carries `extractor_failed: true` — instead of failing a run whose productive work already succeeded. Configuration errors such as a missing `memoryWriter` stay loud.
+
 ## 1.3.4
 
 ### Patch Changes
