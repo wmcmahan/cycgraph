@@ -119,6 +119,36 @@ describe('toResult', () => {
     expect(result.message).toBe('Which region?');
   });
 
+  it('keeps every part of a multi-part status message so the question survives', () => {
+    const result = toResult({
+      id: 'task-1',
+      status: {
+        state: 'TASK_STATE_INPUT_REQUIRED',
+        message: { parts: [textPart('Which region?'), dataPart({ options: ['EMEA', 'APAC'] })] },
+      },
+    });
+
+    expect(result.message).toBe('Which region?\n{"options":["EMEA","APAC"]}');
+  });
+
+  it('renders a status message made only of a data part as its json', () => {
+    const result = toResult({
+      id: 'task-1',
+      status: { state: 'TASK_STATE_INPUT_REQUIRED', message: { parts: [dataPart({ question: 'region?' })] } },
+    });
+
+    expect(result.message).toBe('{"question":"region?"}');
+  });
+
+  it('omits the message when the status message carries no renderable parts', () => {
+    const result = toResult({
+      id: 'task-1',
+      status: { state: 'TASK_STATE_INPUT_REQUIRED', message: { parts: [] } },
+    });
+
+    expect(result.message).toBeUndefined();
+  });
+
   it('completes a bare message reply with its parts as the response artifact', () => {
     const result = toResult({
       taskId: 'task-7',
