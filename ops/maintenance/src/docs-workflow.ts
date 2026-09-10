@@ -43,7 +43,7 @@ import {
 import { readFile } from 'node:fs/promises';
 import { findingKey, judgeFix, scanDocs, scopeFindings, type DocsFinding } from './docs-scan.js';
 import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
-import { resolveRepo } from './repo.js';
+import { checksEnv, resolveRepo } from './repo.js';
 import { deliveryNodes, openPrFiles } from '@cycgraph/tools/git';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
@@ -259,6 +259,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
         command: p.checks.length > 0 ? 'sh' : 'true',
         ...(p.checks.length > 0 ? { args: ['-c', p.checks.join(' && ')] } : { args: [] }),
         timeoutMs: 600_000,
+        env: checksEnv(),
       });
 
       const fixer = agent({

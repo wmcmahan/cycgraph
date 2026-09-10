@@ -38,7 +38,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { compareBench, runAliasedBench, type BenchComparison, type BenchRow } from './bench.js';
-import { resolveRepo } from './repo.js';
+import { checksEnv, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const params = z.object({
@@ -175,6 +175,7 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
         command: p.checks.length > 0 ? 'sh' : 'true',
         ...(p.checks.length > 0 ? { args: ['-c', p.checks.join(' && ')] } : { args: [] }),
         timeoutMs: 600_000,
+        env: checksEnv(),
       });
 
       const ticketTool = tool({

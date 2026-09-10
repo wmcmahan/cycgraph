@@ -41,7 +41,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { safeAcceptanceCommand } from './proposal.js';
-import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, TRUSTED_ASSOCIATIONS, resolveRepo, stripMentions } from './repo.js';
+import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, TRUSTED_ASSOCIATIONS, checksEnv, resolveRepo, stripMentions } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -97,7 +97,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
             return { passed: false, output: `refused: '${command}' is not an allowed repository check shape` };
           }
           try {
-            const { stdout } = await exec('sh', ['-c', safe], { cwd: workspaceAt, maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
+            const { stdout } = await exec('sh', ['-c', safe], { cwd: workspaceAt, env: checksEnv(), maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
             return { passed: true, output: String(stdout).slice(-1_500) };
           } catch (error) {
             return {
@@ -168,7 +168,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           const treeBefore = (await changedIn(workspaceAt)).join('\n');
           if (p.checks.length > 0) {
             try {
-              await exec('sh', ['-c', p.checks.join(' && ')], { cwd: workspaceAt, maxBuffer: 64 * 1024 * 1024 });
+              await exec('sh', ['-c', p.checks.join(' && ')], { cwd: workspaceAt, env: checksEnv(), maxBuffer: 64 * 1024 * 1024 });
             } catch (error) {
               return { clean: false, output: String((error as { stdout?: string }).stdout ?? (error as Error).message).slice(-2_000) };
             }

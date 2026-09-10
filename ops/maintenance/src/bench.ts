@@ -18,6 +18,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { checksEnv } from './repo.js';
 
 const exec = promisify(execFile);
 
@@ -81,7 +82,7 @@ export async function runAliasedBench(
       ...(options.filter !== undefined && options.filter !== '' ? [options.filter] : [])],
     {
       cwd: join(cloneRoot, 'packages', 'benchmarks'),
-      env: { ...process.env, LOG_LEVEL: 'error' },
+      env: { ...checksEnv(), LOG_LEVEL: 'error' },
       maxBuffer: 64 * 1024 * 1024,
     },
   );

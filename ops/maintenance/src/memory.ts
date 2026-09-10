@@ -53,10 +53,13 @@ export async function memoryFromEnv(): Promise<MaintenanceMemory | undefined> {
   const url = process.env['DATABASE_URL'];
   if (url === undefined || url === '') return undefined;
 
-  const { DrizzleMemoryStore, DrizzleOutcomeLedger } = await import('@cycgraph/orchestrator-postgres');
+  const { DrizzleMemoryStore, DrizzleOutcomeLedger, SEED_TENANT_ID } = await import('@cycgraph/orchestrator-postgres');
   const { checkFactAdmission, retrieveGatedLessons, evaluateRetention } = await import('@cycgraph/memory');
-  const store = new DrizzleMemoryStore();
-  const ledger = new DrizzleOutcomeLedger();
+  // Tenant-scoped so every statement runs inside withTenant with the RLS
+  // GUC set: the runtime role is subject to row security, and an unscoped
+  // query does not degrade to empty results — it errors on the policy cast.
+  const store = new DrizzleMemoryStore({ tenant: { tenant_id: SEED_TENANT_ID } });
+  const ledger = new DrizzleOutcomeLedger({ tenant: { tenant_id: SEED_TENANT_ID } });
 
   const memoryWriter: MemoryWriter = async (facts) => {
     const now = new Date();

@@ -71,18 +71,36 @@ export async function executeReflectionNode(
   let factIds: string[] = [];
   let tokensUsed = 0;
   let extractorFailed = false;
-  switch (config.extractor.type) {
-    case 'rule_based': {
-      factIds = await extractRuleBased(node, config, stateView, ctx.memoryWriter, ctx);
-      break;
+  let writerFailed = false;
+  try {
+    switch (config.extractor.type) {
+      case 'rule_based': {
+        factIds = await extractRuleBased(node, config, stateView, ctx.memoryWriter, ctx);
+        break;
+      }
+      case 'llm': {
+        const outcome = await extractViaLLM(node, config, stateView, ctx.memoryWriter, ctx, attempt);
+        factIds = outcome.factIds;
+        tokensUsed = outcome.tokensUsed;
+        extractorFailed = outcome.extractorFailed === true;
+        break;
+      }
     }
-    case 'llm': {
-      const outcome = await extractViaLLM(node, config, stateView, ctx.memoryWriter, ctx, attempt);
-      factIds = outcome.factIds;
-      tokensUsed = outcome.tokensUsed;
-      extractorFailed = outcome.extractorFailed === true;
-      break;
-    }
+  } catch (error) {
+    // The learning tail is best-effort on I/O as well as extraction: a
+    // run whose productive work already succeeded must not fail because
+    // the lesson store refused the write. Retries run first, so a
+    // transient fault still recovers; only the final attempt degrades,
+    // carrying the failure on the result envelope.
+    const finalAttempt = attempt >= Math.max(1, node.failure_policy.max_retries);
+    if (!finalAttempt) throw error;
+    logger.warn('reflection_writer_failed', {
+      node_id: node.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    factIds = [];
+    tokensUsed = 0;
+    writerFailed = true;
   }
 
   logger.info('reflection_complete', {
@@ -92,7 +110,7 @@ export async function executeReflectionNode(
     tokens_used: tokensUsed,
   });
 
-  return buildReflectionAction(node, config, factIds, attempt, ctx, tokensUsed, extractorFailed);
+  return buildReflectionAction(node, config, factIds, attempt, ctx, tokensUsed, extractorFailed, writerFailed);
 }
 
 // ─── rule_based extractor ───────────────────────────────────────────
@@ -427,6 +445,7 @@ function buildReflectionAction(
   ctx: NodeExecutorContext,
   tokensUsed: number,
   extractorFailed = false,
+  writerFailed = false,
 ): Action {
   const resultKey = config.result_key ?? `${node.id}_reflection`;
   return {
@@ -440,6 +459,7 @@ function buildReflectionAction(
           fact_ids: factIds,
           tags: config.tags,
           ...(extractorFailed ? { extractor_failed: true } : {}),
+          ...(writerFailed ? { writer_failed: true } : {}),
           reflected_at: new Date().toISOString(),
         },
       },

@@ -35,7 +35,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { parseProposal, safeAcceptanceCommand } from './proposal.js';
-import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
+import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, checksEnv, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -101,7 +101,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
             return { passed: false, output: `refused: '${command}' is not an allowed repository check shape` };
           }
           try {
-            const { stdout } = await exec('sh', ['-c', safe], { cwd: workspaceAt, maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
+            const { stdout } = await exec('sh', ['-c', safe], { cwd: workspaceAt, env: checksEnv(), maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
             return { passed: true, output: String(stdout).slice(-1_500) };
           } catch (error) {
             return {
@@ -195,7 +195,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
           const failed: { command: string; output: string }[] = [];
           for (const command of pick?.runnable ?? []) {
             try {
-              await exec('sh', ['-c', command], { cwd: workspaceAt, maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
+              await exec('sh', ['-c', command], { cwd: workspaceAt, env: checksEnv(), maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
             } catch (error) {
               failed.push({
                 command,
@@ -233,7 +233,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         execute: async () => {
           if (p.checks.length === 0) return { clean: true, output: 'no checks configured' };
           try {
-            await exec('sh', ['-c', p.checks.join(' && ')], { cwd: workspaceAt, maxBuffer: 64 * 1024 * 1024 });
+            await exec('sh', ['-c', p.checks.join(' && ')], { cwd: workspaceAt, env: checksEnv(), maxBuffer: 64 * 1024 * 1024 });
             return { clean: true, output: 'checks passed' };
           } catch (error) {
             return { clean: false, output: String((error as { stdout?: string }).stdout ?? (error as Error).message).slice(-2_000) };

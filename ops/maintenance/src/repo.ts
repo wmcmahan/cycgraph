@@ -84,6 +84,21 @@ export async function repoMap(root: string): Promise<string> {
  * the release convention cannot drift between prompts.
  */
 /**
+ * Environment for anything a workflow spawns inside a checked-out tree
+ * (checks, acceptance commands, benches): the process env minus the
+ * maintenance run's own database credentials. The orchestrator-postgres
+ * test suite activates itself when DATABASE_URL is set and cleans every
+ * table it touches — inherited into a workspace's `npm test`, that is a
+ * production wipe, not a hypothetical.
+ */
+export function checksEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env['DATABASE_URL'];
+  delete env['SUPABASE_DB_URL'];
+  return env;
+}
+
+/**
  * Comment authors whose text a workflow may treat as instructions.
  * Commenting needs no repository permission, so association is the only
  * trust signal a comment carries; everything below COLLABORATOR is an
