@@ -113,6 +113,44 @@ describe('toResult', () => {
     expect(result.message).toBe('Which region?');
   });
 
+  it('completes a bare message reply with its parts as the response artifact', () => {
+    const result = toResult({
+      taskId: 'task-7',
+      role: 'ROLE_AGENT',
+      parts: [textPart('the answer')],
+    });
+
+    expect(result).toEqual({
+      taskId: 'task-7',
+      state: 'completed',
+      artifacts: [{ name: 'response', value: 'the answer' }],
+    });
+  });
+
+  it('completes a bare message reply that carries no task id', () => {
+    const result = toResult({
+      role: 'ROLE_AGENT',
+      parts: [dataPart({ score: 0.5 })],
+    });
+
+    expect(result).toEqual({
+      taskId: '',
+      state: 'completed',
+      artifacts: [{ name: 'response', value: { score: 0.5 } }],
+    });
+  });
+
+  it('keeps a task carrying both parts and status on the task path', () => {
+    const result = toResult({
+      id: 'task-8',
+      status: { state: 'TASK_STATE_FAILED' },
+      role: 'ROLE_AGENT',
+      parts: [textPart('ignored')],
+    });
+
+    expect(result).toEqual({ taskId: 'task-8', state: 'failed', artifacts: [] });
+  });
+
 });
 
 describe('createA2AClient', () => {
