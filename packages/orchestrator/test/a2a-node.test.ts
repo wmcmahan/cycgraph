@@ -12,6 +12,7 @@ import { executeA2ANode } from '../src/execution/nodes/a2a.js';
 import { A2ATaskFailedError } from '../src/execution/nodes/errors.js';
 import { NodeConfigError } from '../src/execution/errors.js';
 import { InMemoryA2AServerRegistry } from '../src/a2a/in-memory-registry.js';
+import { resetA2AServerConcurrency } from '../src/a2a/concurrency.js';
 import { a2a } from '../src/authoring/a2a.js';
 import { graph } from '../src/authoring/graph.js';
 import { impliedResultKeys } from '../src/security/effective-permissions.js';
@@ -195,6 +196,67 @@ describe('executeA2ANode', () => {
       .rejects.toThrow(/permitted to use/);
   });
 
+});
+
+describe('executeA2ANode — per-server concurrency cap', () => {
+  /** Yield past the microtask queue so queued branches can start. */
+  const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  /** Client whose tasks stay in flight until the test releases them. */
+  function gatedClient(gate: { release: Array<() => void>; inFlight: number; peak: number }): A2AClient {
+    return {
+      runTask: async () => {
+        gate.inFlight += 1;
+        gate.peak = Math.max(gate.peak, gate.inFlight);
+        await new Promise<void>((resolve) => gate.release.push(resolve));
+        gate.inFlight -= 1;
+        return { taskId: 'task-1', state: 'completed', artifacts: [] };
+      },
+      resumeTask: async () => ({ taskId: 'task-1', state: 'completed', artifacts: [] }),
+    };
+  }
+
+  it('holds fan-out to max_concurrent_tasks against one server', async () => {
+    resetA2AServerConcurrency();
+    const registry = await registryWith({ maxConcurrentTasks: 1 });
+    const gate = { release: [] as Array<() => void>, inFlight: 0, peak: 0 };
+    const client = gatedClient(gate);
+
+    const branches = Array.from({ length: 3 }, async () =>
+      executeA2ANode(node(), stateView(), 1, await ctxWith(client, registry)));
+
+    await tick();
+    // Two branches are queued on the semaphore, not in flight against the agent.
+    expect(gate.release.length).toBe(1);
+
+    for (let i = 0; i < 3; i++) {
+      gate.release.shift()?.();
+      await tick();
+      await tick();
+    }
+
+    await Promise.all(branches);
+    expect(gate.peak).toBe(1);
+  });
+
+  it('leaves a server without a cap free to fan out', async () => {
+    resetA2AServerConcurrency();
+    const registry = await registryWith({ id: 'uncapped-service', agentCardUrl: CARD_URL });
+    const gate = { release: [] as Array<() => void>, inFlight: 0, peak: 0 };
+    const uncapped = node({
+      a2a_config: { server_id: 'uncapped-service', input_mapping: {}, output_mapping: {} },
+    } as Partial<GraphNode>);
+
+    const branches = Array.from({ length: 3 }, async () =>
+      executeA2ANode(uncapped, stateView(), 1, await ctxWith(gatedClient(gate), registry)));
+
+    await tick();
+    expect(gate.release.length).toBe(3);
+
+    for (const release of gate.release.splice(0)) release();
+    await Promise.all(branches);
+    expect(gate.peak).toBe(3);
+  });
 });
 
 describe('executeA2ANode — non-completed task states', () => {

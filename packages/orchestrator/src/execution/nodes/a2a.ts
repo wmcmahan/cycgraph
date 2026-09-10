@@ -29,6 +29,7 @@ import { nodeIdempotencyKey } from './idempotency-key.js';
 import { A2AInterfaceError, A2ATaskFailedError } from './errors.js';
 import { mapInbound, mapOutbound, type BoundaryFailure } from './boundary.js';
 import { resolveAuthHeaders } from '../../a2a/schema.js';
+import { withA2AServerConcurrency } from '../../a2a/concurrency.js';
 import type { A2AArtifact, A2ATaskResult } from '../../a2a/client.js';
 import { markTainted, valueBytes } from '../../security/taint.js';
 import type { TaintRegistry } from '../../state/state.js';
@@ -120,7 +121,7 @@ export async function executeA2ANode(
   let result: A2ATaskResult;
   try {
     // Inner span carrying the remote-call attributes; `node.execute.a2a` wraps above.
-    result = await withSpan(tracer, 'a2a.task', async (span) => {
+    const runRemoteTask = () => withSpan(tracer, 'a2a.task', async (span) => {
       span.setAttribute('a2a.server_id', config.server_id);
       span.setAttribute('a2a.resumed', Boolean(resumingTaskId));
       span.setAttribute('a2a.trace_propagated', server.propagate_trace_context);
@@ -148,6 +149,12 @@ export async function executeA2ANode(
       span.setAttribute('a2a.state', taskResult.state);
       return taskResult;
     });
+
+    // Per-server cap on tasks in flight (`max_concurrent_tasks`): a map or
+    // voting fan-out queues here instead of hitting one remote agent with
+    // every branch at once. The slot is held for the whole exchange, and an
+    // uncapped server calls straight through.
+    result = await withA2AServerConcurrency(server, runRemoteTask);
   } catch (error) {
     // A throw is a transport failure; a task that ran and ended badly returns as a state.
     logger.error('a2a_transport_failed', error as Error, {
