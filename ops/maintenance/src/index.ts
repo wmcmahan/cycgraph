@@ -27,6 +27,7 @@ export { auditKey, parseAuditFindings, siftAuditFindings, AUDIT_SEVERITIES } fro
 export type { AuditFinding, AuditSeverity, AuditSiftOptions, AuditSiftResult } from './audit-findings.js';
 export { optApply } from './opt-apply.js';
 export { prRevise } from './pr-revise.js';
+export { prReview } from './pr-review.js';
 export { featImplement } from './feat-implement.js';
 export { extractTicketDiff, parseProposal, pathTokens, proposalKey, safeAcceptanceCommand } from './proposal.js';
 export type { FeatureProposal } from './proposal.js';
@@ -65,6 +66,9 @@ export const optApplySourcePath = fileURLToPath(new URL('./opt-apply.ts', import
 
 /** Where the pr-revise workflow's source lives, likewise. */
 export const prReviseSourcePath = fileURLToPath(new URL('./pr-revise.ts', import.meta.url));
+
+/** Where the pr-review workflow's source lives, likewise. */
+export const prReviewSourcePath = fileURLToPath(new URL('./pr-review.ts', import.meta.url));
 
 /** Where the feat-implement workflow's source lives, likewise. */
 export const featImplementSourcePath = fileURLToPath(new URL('./feat-implement.ts', import.meta.url));

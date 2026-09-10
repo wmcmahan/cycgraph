@@ -18,6 +18,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -40,7 +41,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { safeAcceptanceCommand } from './proposal.js';
-import { CHANGESET_INSTRUCTION, resolveRepo } from './repo.js';
+import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -122,6 +123,9 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
             return { has_work: false, detail: `PR #${p.pr} carries no review feedback to address` };
           }
           const head = feedback.headRefName;
+          // Idempotent under node retry: a failure after the clone must
+          // not leave a workspace the next attempt refuses to clone into.
+          await rm(workspaceAt, { recursive: true, force: true });
           // The clone copies local branches only; the PR head lives on the
           // source repository's remote, so it is fetched from the source's
           // remote-tracking ref into a local branch, then checked out.
@@ -211,6 +215,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           'The workspace is already on the PR branch. Fix exactly what the feedback names — nothing else.',
           'Use search to orient, read_file for exact bytes (window large files), edit_file and create_file to change things, and run_check to verify with the repository\'s own commands before replying.',
           'A multi-match edit refusal means retry with a longer find, never a different path.',
+          STANDARDS_BRIEF,
           CHANGESET_INSTRUCTION,
           'When done, reply with a short summary of what you changed per comment, so it can be posted back to the reviewer.',
         ].join(' '),

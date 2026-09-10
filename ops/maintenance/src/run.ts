@@ -24,6 +24,7 @@ import { repoAudit } from './audit-workflow.js';
 import { featImplement } from './feat-implement.js';
 import { optApply } from './opt-apply.js';
 import { prRevise } from './pr-revise.js';
+import { prReview } from './pr-review.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getInjectedFactIds } from '@cycgraph/orchestrator';
@@ -44,10 +45,11 @@ const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
   'opt-apply': optApply,
   'feat-implement': featImplement,
   'pr-revise': prRevise,
+  'pr-review': prReview,
 };
 
 const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens', 'pr', 'maxAuditors', 'concurrency', 'steps', 'maxFindings']);
-const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale', 'push']);
+const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale', 'push', 'comment']);
 const LIST_FLAGS = new Set(['checks', 'lenses', 'scopes']);
 
 function parseFlags(args: string[]): Record<string, unknown> {

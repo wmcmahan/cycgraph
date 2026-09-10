@@ -37,7 +37,7 @@ import {
 } from '@cycgraph/tools/workspace';
 import { scanCore, type CoreFinding } from './core-scan.js';
 import { judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
-import { CHANGESET_INSTRUCTION, resolveRepo } from './repo.js';
+import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const params = z.object({
@@ -298,6 +298,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
           'If edit_file refuses because the find text matches more than one place, read the file and retry with a longer find that includes enough neighbouring text to match exactly once.',
           'Resolve the work, never erase its marker: the follow-up instruction states what counts as erasure for this finding, and erasure is refused.',
           'If a reviewer\'s findings are in your context, address exactly what they name and nothing more.',
+          STANDARDS_BRIEF,
           CHANGESET_INSTRUCTION,
           'Change nothing unrelated. When the fix is made, reply with one line: FIXED <file>.',
         ].join(' '),
@@ -318,6 +319,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         maxSteps: 2,
         instructions: [
           'You review one upkeep-fix diff against the finding it resolves. You have no tools; judge only what is in front of you.',
+          STANDARDS_BRIEF,
           'Refuse anything a careful human reviewer would: work erased instead of done (a TODO removed without its work, a test deleted or hollowed instead of revived, an eslint-disable instead of a fix); tests that write, delete, or mutate source files or anything outside a temp directory; edits unrelated to the finding; style foreign to the surrounding codebase (comments narrating history, missing .js import extensions).',
           'Do not nitpick working code that a reasonable reviewer would pass; the goal is one round.',
           'Reply with exactly one of:',

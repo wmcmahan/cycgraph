@@ -1,0 +1,60 @@
+# PR review: a first-pass advisory code review on every opened PR.
+#
+# The reviewer reads the branch diff beside a checkout of the PR branch,
+# verifies findings against the tree (duplication, convention drift,
+# hollow tests), and posts one advisory comment. The human merge stays
+# the gate. Runs once per PR on open — revisions do not re-trigger it;
+# dispatch it manually for a re-review.
+#
+# Secrets and variables: as the other maintenance workflows
+# (ANTHROPIC_API_KEY required; MAINTENANCE_PAT and DATABASE_URL
+# recommended — the latter records the run and feeds the lesson loop).
+
+name: PR review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to review
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MAINTENANCE_PAT || github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools --workspace=packages/orchestrator-postgres
+
+      - name: Run PR review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
+        run: >
+          npm run maintain --workspace=ops/maintenance --
+          pr-review
+          --pr ${{ github.event.pull_request.number || inputs.pr }}
