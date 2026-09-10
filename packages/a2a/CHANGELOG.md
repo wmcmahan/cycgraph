@@ -1,5 +1,12 @@
 # @cycgraph/a2a
 
+## 1.1.2
+
+### Patch Changes
+
+- e2b590b: Translate a bare `Message` reply from `message/send` into a completed task result whose `response` artifact carries the reply's parts. Agents that answer statelessly without creating a task no longer fail every `a2a` node with a fabricated failure that discarded the reply.
+- a385ce1: A multi-part `status.message` is no longer dropped: every part now contributes to `A2ATaskResult.message`, joined by newline in wire order, so an `input-required` pause still shows the remote agent's question when it arrives as more than one part.
+
 ## 1.1.1
 
 ### Patch Changes
