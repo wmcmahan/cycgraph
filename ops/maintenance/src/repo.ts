@@ -83,6 +83,20 @@ export async function repoMap(root: string): Promise<string> {
  * Shared verbatim by every workflow whose editor can touch packages/ so
  * the release convention cannot drift between prompts.
  */
+/**
+ * The house coding standards, distilled for agent prompts. CLAUDE.md is
+ * the authority; this brief carries the rules an editing or reviewing
+ * agent most often breaks without it.
+ */
+export const STANDARDS_BRIEF = [
+  'House standards (.claude/CLAUDE.md in the repository is the full authority — read it when in doubt):',
+  'Comments are definitional: JSDoc on exports stating the contract, rare inline notes only for what the code cannot say (an invariant, a wire-format fact, a security rationale). Never development history, never narration of the line below.',
+  'Tests use it() with present-tense behavior names (no "should"), arrange-act-assert, exact assertions (toBe/toEqual over toBeTruthy), NO inline comments inside test bodies, and no timers or network.',
+  'ESM imports carry .js extensions; imports across packages use @cycgraph/* names, never relative paths.',
+  'TypeScript identifiers are camelCase; snake_case belongs only to serialization boundaries (Zod schema fields, wire payloads, stream events).',
+  'State changes go through reducers, agents are configs rather than classes, and every input/output boundary has a Zod schema.',
+].join(' ');
+
 export const CHANGESET_INSTRUCTION = [
   'When your edits change the BEHAVIOR of a published package under packages/ (any package whose package.json lacks "private": true), also create_file one changeset at .changeset/<short-kebab-name>.md:',
   'a "---" line, one line per affected package like \'"@cycgraph/orchestrator": patch\' (patch for a fix, minor for new capability), a closing "---" line, then a one-or-two-sentence summary of what changed and why it matters to a consumer.',
