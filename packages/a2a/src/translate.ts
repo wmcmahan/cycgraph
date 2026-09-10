@@ -110,12 +110,26 @@ function toArtifacts(artifacts: readonly WireArtifact[]): A2AArtifact[] {
   }));
 }
 
-/** The human-readable detail a non-completed task carries. */
+/**
+ * The human-readable detail a non-completed task carries.
+ *
+ * Every part contributes, joined by newline in wire order: the protocol lets
+ * an agent split one question across several parts, and an `input-required`
+ * pause has nothing else to show the human, so dropping any part can drop
+ * the question itself.
+ */
 function statusMessage(task: WireTask): string | undefined {
   const parts = task.status?.message?.parts;
   if (!parts) return undefined;
-  const value = partsToValue(parts);
-  return typeof value === 'string' ? value : undefined;
+  const text = parts.map(partToText).filter((piece) => piece.length > 0).join('\n');
+  return text.length > 0 ? text : undefined;
+}
+
+/** Render one status part as display text, structured parts as their JSON. */
+function partToText(part: WirePart): string {
+  const value = partToValue(part);
+  if (value === null || value === undefined) return '';
+  return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
 /**
