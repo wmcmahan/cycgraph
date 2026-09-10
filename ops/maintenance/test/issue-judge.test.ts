@@ -9,6 +9,7 @@ import {
   commentOnlyChange,
   eslintDisableCount,
   judgeIssueFix,
+  judgeAuditFix,
   parseIssueFinding,
   testCount,
   type IssueFixEvidence,
@@ -28,6 +29,53 @@ describe('parseIssueFinding', () => {
   it('returns undefined for a body without a marker or with an unknown kind', () => {
     expect(parseIssueFinding('no marker')).toBeUndefined();
     expect(parseIssueFinding(findingMarker('mystery:a.ts:x'))).toBeUndefined();
+  });
+
+  it('recovers an audit finding with its file left empty', () => {
+    expect(parseIssueFinding(findingMarker('audit:card-resolution-bypasses-auth'))).toEqual({
+      key: 'audit:card-resolution-bypasses-auth',
+      kind: 'audit',
+      file: '',
+    });
+  });
+
+  it('rejects a bare audit namespace with no slug', () => {
+    expect(parseIssueFinding(findingMarker('audit:'))).toBeUndefined();
+  });
+});
+
+describe('judgeAuditFix', () => {
+  it('refuses an empty workspace as unresolved', () => {
+    const verdict = judgeAuditFix({ beforeKeys: [], afterKeys: [], diff: '  ' });
+
+    expect(verdict.resolved).toBe(false);
+    expect(verdict.weakened).toBe(false);
+  });
+
+  it('resolves a changed tree that introduced nothing new', () => {
+    const verdict = judgeAuditFix({
+      beforeKeys: ['todo:a.ts:old'],
+      afterKeys: ['todo:a.ts:old'],
+      diff: '--- a/x.ts\n+++ b/x.ts\n+const fixed = true;\n',
+    });
+
+    expect(verdict).toEqual({
+      resolved: true,
+      introduced_count: 0,
+      weakened: false,
+      detail: 'the tree was changed; the reviewer judges fidelity to the audited finding',
+    });
+  });
+
+  it('counts findings the fix introduced', () => {
+    const verdict = judgeAuditFix({
+      beforeKeys: [],
+      afterKeys: ['todo:x.ts:new'],
+      diff: '+something\n',
+    });
+
+    expect(verdict.resolved).toBe(true);
+    expect(verdict.introduced_count).toBe(1);
   });
 });
 

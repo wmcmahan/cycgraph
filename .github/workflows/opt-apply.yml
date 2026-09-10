@@ -33,11 +33,12 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools --workspace=packages/orchestrator-postgres
 
       - name: Apply one approved optimization
         env:
           GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GIT_AUTHOR_NAME: cycgraph-maintenance
           GIT_AUTHOR_EMAIL: maintenance@cycgraph.local
         run: >
