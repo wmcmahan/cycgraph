@@ -3,10 +3,10 @@
  *
  * A client is built per call because auth and trace headers are resolved
  * per call; caching one would freeze the first caller's headers into every
- * later request. The Agent Card is cached per URL, fetched with the same
- * per-server headers as every other request (a registry entry's auth gate
- * covers its card endpoint too), and a failed resolution is evicted so a
- * transient fault never outlives the request that hit it.
+ * later request. The Agent Card is cached per URL AND header set, fetched
+ * with the same per-server headers as every other request (a registry
+ * entry's auth gate covers its card endpoint too), and a failed resolution
+ * is evicted so a transient fault never outlives the request that hit it.
  *
  * @module connection
  */
@@ -26,7 +26,35 @@ export type CreateSdkClient = (
   signal?: AbortSignal,
 ) => Promise<SdkClient>;
 
-/** Default {@link CreateSdkClient}, with a per-URL Agent Card cache scoped to this factory. */
+/**
+ * Trace-context headers, excluded from the card cache key: they change on
+ * every call and identify our trace, not the caller's credentials, so
+ * including them would reduce the cache to one fetch per request.
+ */
+const TRACE_HEADERS = new Set(['traceparent', 'tracestate', 'baggage']);
+
+/**
+ * Cache key for one Agent Card resolution.
+ *
+ * The URL alone is not the identity of a card fetch: two registry entries
+ * may share one `agent_card_url` and differ in `auth`, so a card resolved
+ * with one entry's credentials must never be served to the other. Header
+ * names are lowercased and sorted so an equivalent header set yields one
+ * key, and the key is a JSON array so a header value containing the
+ * delimiter cannot forge another entry's key.
+ */
+function cardKey(agentCardUrl: string, headers: Record<string, string>): string {
+  const identifying = Object.entries(headers)
+    .map(([name, value]) => [name.toLowerCase(), value] as const)
+    .filter(([name]) => !TRACE_HEADERS.has(name))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return JSON.stringify([agentCardUrl, identifying]);
+}
+
+/**
+ * Default {@link CreateSdkClient}, with an Agent Card cache scoped to this
+ * factory and keyed by URL plus the headers the card was fetched with.
+ */
 export function sdkClientFactory(): CreateSdkClient {
   const cards = new Map<string, Promise<unknown>>();
 
@@ -41,7 +69,8 @@ export function sdkClientFactory(): CreateSdkClient {
           : {}),
       });
 
-    let card = cards.get(agentCardUrl);
+    const key = cardKey(agentCardUrl, headers);
+    let card = cards.get(key);
     if (!card) {
       // The promise is cached, so concurrent first calls share one fetch.
       // It carries the caller's headers but not its signal: a shared
@@ -54,9 +83,9 @@ export function sdkClientFactory(): CreateSdkClient {
         });
       const resolving = new DefaultAgentCardResolver({ fetchImpl: cardFetch })
         .resolve(agentCardUrl, '');
-      cards.set(agentCardUrl, resolving);
+      cards.set(key, resolving);
       resolving.catch(() => {
-        if (cards.get(agentCardUrl) === resolving) cards.delete(agentCardUrl);
+        if (cards.get(key) === resolving) cards.delete(key);
       });
       card = resolving;
     }
