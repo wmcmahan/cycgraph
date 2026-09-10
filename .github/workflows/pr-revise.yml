@@ -1,8 +1,12 @@
-# PR revise: human review feedback, closed as a loop. A reviewer
-# requesting changes on a maintenance PR — or any comment mentioning
-# @cycgraph on one — dispatches a run that reads the feedback, revises
-# the same branch (updating the PR in place), and replies. The human
-# verdict still ends every thread: this never opens or merges anything.
+# PR revise: review feedback, closed as a loop. On a PR carrying the
+# maintenance-managed label (applied to bot PRs at birth; by hand to any
+# PR the loop should manage — GitHub restricts labeling to triage+
+# users, which is the consent check), a change-requesting review or a
+# comment mentioning @cycgraph dispatches a run that reads the feedback,
+# revises the same branch (updating the PR in place), and replies. The
+# human verdict still ends every thread: this never opens or merges
+# anything. The label name is a literal here — keep it in sync with
+# MANAGED_LABEL in ops/maintenance/src/repo.ts.
 
 name: PR revise
 
@@ -29,21 +33,26 @@ concurrency:
 
 jobs:
   revise:
-    # Fire only for: change-requesting reviews on our maintenance branches,
-    # explicit @cycgraph comments on PRs, or a manual dispatch. Never for
-    # the workflow identity's own comments.
+    # Fire only for: a manual dispatch, or — on a PR carrying the
+    # maintenance-managed label — a change-requesting review, or an
+    # @cycgraph comment from an OWNER/MEMBER/COLLABORATOR (commenting
+    # needs no permission, so association is the trust check). The workflow identity's comments trigger this
+    # only when they carry the mention deliberately (pr-review's
+    # handoff); every relayed reply strips mentions, so nothing echoes.
     if: >
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'pull_request_review' &&
        github.event.review.state == 'changes_requested' &&
-       (startsWith(github.event.pull_request.head.ref, 'docs/') ||
-        startsWith(github.event.pull_request.head.ref, 'feat/impl-') ||
-        startsWith(github.event.pull_request.head.ref, 'upkeep/') ||
-        startsWith(github.event.pull_request.head.ref, 'opt/'))) ||
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association) &&
+       contains(github.event.pull_request.labels.*.name, 'maintenance-managed')) ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
+       contains(github.event.issue.labels.*.name, 'maintenance-managed') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
        contains(github.event.comment.body, '@cycgraph')) ||
       (github.event_name == 'pull_request_review_comment' &&
+       contains(github.event.pull_request.labels.*.name, 'maintenance-managed') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
        contains(github.event.comment.body, '@cycgraph'))
     runs-on: ubuntu-latest
     steps:

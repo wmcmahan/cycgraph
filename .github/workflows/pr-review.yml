@@ -2,9 +2,15 @@
 #
 # The reviewer reads the branch diff beside a checkout of the PR branch,
 # verifies findings against the tree (duplication, convention drift,
-# hollow tests), and posts one advisory comment. The human merge stays
-# the gate. Runs once per PR on open — revisions do not re-trigger it;
-# dispatch it manually for a re-review.
+# hollow tests), and posts one advisory comment. On a REVISE verdict
+# against a PR carrying the maintenance-managed label (bot PRs are
+# labeled at creation; label your own to opt in), the comment ends with
+# the @cycgraph trigger, so pr-revise addresses the findings in the
+# same cycle (needs MAINTENANCE_PAT — the Actions token's comments fire
+# no workflows). Unlabeled PRs get findings only. The human merge stays
+# the gate.
+# Runs once per PR on open — revisions do not re-trigger it; dispatch
+# it manually for a re-review.
 #
 # Secrets and variables: as the other maintenance workflows
 # (ANTHROPIC_API_KEY required; MAINTENANCE_PAT and DATABASE_URL

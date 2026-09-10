@@ -197,7 +197,18 @@ export async function publishBranch(
       },
     );
     const prUrl = stdout.trim().split('\n').pop() ?? '';
-    return { pushed: true, prUrl, detail: `opened ${prUrl}` };
+    let labelNote = '';
+    for (const label of config.labels ?? []) {
+      try {
+        await exec('gh', ['pr', 'edit', prUrl, '--add-label', label], {
+          cwd: repoRoot,
+          ...(config.token !== undefined ? { env: { ...process.env, GH_TOKEN: config.token } } : {}),
+        });
+      } catch {
+        labelNote = `; label '${label}' not applied (missing from the repository?)`;
+      }
+    }
+    return { pushed: true, prUrl, detail: `opened ${prUrl}${labelNote}` };
   } catch (error) {
     const reason = (error as NodeJS.ErrnoException).code === 'ENOENT'
       ? 'gh is not installed'

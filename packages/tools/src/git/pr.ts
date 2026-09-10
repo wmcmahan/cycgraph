@@ -41,6 +41,14 @@ export async function openPrFiles(
 /** One piece of human review feedback on a pull request. */
 export interface PrComment {
   author: string;
+  /**
+   * The author's relationship to the repository, as GitHub stamps it
+   * (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE, …). Consumers that
+   * treat comment text as instructions must gate on it: commenting
+   * needs no permission, so on a public repository this field is the
+   * only thing separating a maintainer's feedback from anyone else's.
+   */
+  authorAssociation: string;
   body: string;
   /** File and line, for review comments anchored to the diff. */
   path?: string;
@@ -51,6 +59,8 @@ export interface PrComment {
 export interface PrFeedback {
   headRefName: string;
   title: string;
+  /** Label names on the PR; consent gates read these. */
+  labels: string[];
   comments: PrComment[];
 }
 
@@ -72,29 +82,34 @@ export async function prFeedback(
   const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
   try {
     const { stdout } = await exec(
-      'gh', ['pr', 'view', String(prNumber), '--json', 'headRefName,title,reviews,comments'], opts);
+      'gh', ['pr', 'view', String(prNumber), '--json', 'headRefName,title,labels,reviews,comments'], opts);
     const view = JSON.parse(stdout) as {
       headRefName: string; title: string;
-      reviews?: { author?: { login?: string }; body?: string }[];
-      comments?: { author?: { login?: string }; body?: string }[];
+      labels?: { name?: string }[];
+      reviews?: { author?: { login?: string }; authorAssociation?: string; body?: string }[];
+      comments?: { author?: { login?: string }; authorAssociation?: string; body?: string }[];
     };
     const { stdout: lineJson } = await exec(
       'gh', ['api', `repos/{owner}/{repo}/pulls/${prNumber}/comments`], opts);
-    const lineComments = JSON.parse(lineJson) as
-      { user?: { login?: string }; body?: string; path?: string; line?: number | null }[];
+    const lineComments = JSON.parse(lineJson) as {
+      user?: { login?: string }; author_association?: string;
+      body?: string; path?: string; line?: number | null;
+    }[];
     const comments: PrComment[] = [
       ...(view.reviews ?? []).filter((r) => (r.body ?? '') !== '')
-        .map((r) => ({ author: r.author?.login ?? '', body: r.body ?? '' })),
+        .map((r) => ({ author: r.author?.login ?? '', authorAssociation: r.authorAssociation ?? 'NONE', body: r.body ?? '' })),
       ...(view.comments ?? []).filter((c) => (c.body ?? '') !== '')
-        .map((c) => ({ author: c.author?.login ?? '', body: c.body ?? '' })),
+        .map((c) => ({ author: c.author?.login ?? '', authorAssociation: c.authorAssociation ?? 'NONE', body: c.body ?? '' })),
       ...lineComments.filter((c) => (c.body ?? '') !== '').map((c) => ({
         author: c.user?.login ?? '',
+        authorAssociation: c.author_association ?? 'NONE',
         body: c.body ?? '',
         ...(c.path !== undefined ? { path: c.path } : {}),
         ...(c.line != null ? { line: c.line } : {}),
       })),
     ];
-    return { headRefName: view.headRefName, title: view.title, comments };
+    const labels = (view.labels ?? []).map((label) => label.name ?? '').filter((name) => name !== '');
+    return { headRefName: view.headRefName, title: view.title, labels, comments };
   } catch {
     return undefined;
   }
