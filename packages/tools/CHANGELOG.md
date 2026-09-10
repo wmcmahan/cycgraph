@@ -1,5 +1,11 @@
 # @cycgraph/tools
 
+## 1.4.1
+
+### Patch Changes
+
+- e004a48: `diagnosticsTool` accepts an `env` option so callers can hand the spawned check a scrubbed environment instead of the full process env.
+
 ## 1.4.0
 
 ### Minor Changes
