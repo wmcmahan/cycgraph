@@ -69,6 +69,21 @@ response cannot leak one.
 - Budget and capability ceilings stop at the network. Remote spend is
   unmetered, bounded only by timeouts and the failure policy.
 
+## Agent Card caching
+
+A client resolves each Agent Card once per `agentCardUrl` and keeps it for
+the lifetime of that `createA2AClient()` instance. There is no TTL and no
+invalidation on success; only a failed resolution is evicted, so a
+transient fetch fault never outlives the request that hit it.
+
+Because the usage above hands one client to a runner for the whole run,
+a card that changes on the remote side — rotated skills, new capabilities,
+or the same URL repointed at a different deployment — is not picked up
+until you build a fresh client with `createA2AClient()` or restart the
+process. If an agent's card is expected to change while your process is
+up, construct a client per run rather than sharing one. Requests
+themselves are never cached: auth and trace headers are resolved per call.
+
 ## Trace context
 
 Set `propagateTraceContext: true` on a registry entry to send W3C
