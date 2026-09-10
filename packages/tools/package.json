@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/tools",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Curated, plug-in tools for @cycgraph/orchestrator: SSRF-guarded web access and pure data utilities, built on defineTool.",
   "keywords": [
     "cycgraph",
@@ -90,7 +90,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@cycgraph/orchestrator": "^1.2.3",
+    "@cycgraph/orchestrator": "^1.3.6",
     "@cycgraph/memory": "^0.8.0",
     "typescript": "7.0.2",
     "vitest": "^4.0.18"
