@@ -90,6 +90,8 @@ npm install @cycgraph/a2a
 
 Supplying your own implementation of the port is enough to swap transports or test without a network.
 
+A client resolves each Agent Card once per `agentCardUrl` and caches it for its own lifetime, with no TTL and no invalidation on success — only a failed resolution is evicted. Sharing one `createA2AClient()` across a long-lived runner therefore pins the card that was fetched first: a remote that rotates its skills or repoints the URL at a new deployment is not seen until you build a fresh client or restart the process. Construct a client per run when a card is expected to change under you.
+
 ## Publishing your own graph
 
 A graph's declared interface projects to an Agent Card, so others can discover it the same way:
