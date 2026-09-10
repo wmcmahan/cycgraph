@@ -36,7 +36,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { scanCore, type CoreFinding } from './core-scan.js';
-import { judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
+import { judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
 import { CHANGESET_INSTRUCTION, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -71,6 +71,12 @@ const GUIDANCE: Record<CoreFinding['kind'], string> = {
   'lint-warning': 'Fix the code the warning points at. Adding an eslint-disable comment or touching lint configuration will be refused.',
 };
 
+const AUDIT_GUIDANCE = [
+  'This finding came from a model-driven audit: the issue text above is the whole specification.',
+  'First confirm the finding against the EVIDENCE paths; then fix the root cause it describes, following the SUGGESTION where it is sound.',
+  'A reviewer will compare your diff against the finding — a change that skirts the described problem will be refused.',
+].join(' ');
+
 /** The issue-fix workflow. */
 export function issueFix(): MaintenanceWorkflow<typeof params> {
   return {
@@ -100,7 +106,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         title: 'chore: resolve owed upkeep',
         detailFrom: 'judge_result',
         evidence: (details: string[]) => ({
-          summary: `Found by core-upkeep, approved by label, fixed by the issue-fix workflow. ${details.join(' ')}`.trim(),
+          summary: `Filed by maintenance discovery (core-upkeep or repo-audit), approved by label, fixed by the issue-fix workflow. ${details.join(' ')}`.trim(),
           ...(details.length > 0 ? { changes: details } : {}),
           provenance: 'issue-fix: the finding was re-located mechanically, fixed by an agent in a jailed clone, and verified by re-scan, a class-specific anti-gaming guard, and repository checks before commit.',
         }),
@@ -131,7 +137,16 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             if (picked === undefined) {
               return { has_work: false, detail: `no open '${p.label}' issue carries a finding marker` };
             }
-            return { has_work: true, issue_number: picked.issue.number, ...picked.finding };
+            return {
+              has_work: true,
+              issue_number: picked.issue.number,
+              ...picked.finding,
+              // An audit finding lives in its issue text, not in the tree;
+              // carry it forward so the baseline can brief the fixer.
+              ...(picked.finding.kind === 'audit'
+                ? { issue_title: picked.issue.title, issue_body: picked.issue.body.slice(0, 12_000) }
+                : {}),
+            };
           }
           if (p.key !== '') {
             const kind = p.key.slice(0, p.key.indexOf(':'));
@@ -148,8 +163,23 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         parameters: z.object({ pick_result: z.unknown().optional() }),
         timeoutMs: 300_000,
         execute: async ({ pick_result }) => {
-          const pick = pick_result as { key?: string; issue_number?: number } | undefined;
+          const pick = pick_result as
+            { key?: string; kind?: string; issue_number?: number; issue_title?: string; issue_body?: string } | undefined;
           const findings = await scanCore(workspaceAt, { lint: p.lint });
+          if (pick?.kind === 'audit') {
+            return {
+              has_target: true,
+              audit: true,
+              keys: findings.map((f) => f.key),
+              instruction: [
+                `Resolve the audited finding this approved issue describes.`,
+                `# ${pick.issue_title ?? pick.key ?? ''}`,
+                pick.issue_body ?? '',
+                AUDIT_GUIDANCE,
+                'Change nothing unrelated.',
+              ].join('\n'),
+            };
+          }
           const target = findings.find((finding) => finding.key === pick?.key);
           if (target === undefined) {
             return {
@@ -184,7 +214,17 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         execute: async ({ pick_result, baseline_result }) => {
           const pick = pick_result as { issue_number?: number } | undefined;
           const baseline = baseline_result as
-            { keys?: string[]; target?: CoreFinding; text?: string } | undefined;
+            { keys?: string[]; target?: CoreFinding; text?: string; audit?: boolean } | undefined;
+          const closesPrefix = pick?.issue_number !== undefined ? `Closes #${pick.issue_number}. ` : '';
+          if (baseline?.audit === true) {
+            const afterAudit = await scanCore(workspaceAt, { lint: p.lint });
+            const verdict = judgeAuditFix({
+              beforeKeys: baseline.keys ?? [],
+              afterKeys: afterAudit.map((f) => f.key),
+              diff: await pendingDiff(workspaceAt),
+            });
+            return { ...verdict, detail: `${closesPrefix}${verdict.detail}` };
+          }
           const target = baseline?.target;
           if (target === undefined) return { resolved: false, weakened: false, detail: 'nothing was targeted' };
 
@@ -252,7 +292,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         temperature: 0.1,
         maxSteps: 16,
         instructions: p.prompt !== '' ? p.prompt : [
-          'You resolve one piece of owed upkeep in a codebase: a TODO to implement, a skipped test to revive, or a lint warning to fix.',
+          'You resolve one piece of owed upkeep in a codebase: a TODO to implement, a skipped test to revive, a lint warning to fix, or an audited finding whose specification is the issue text in your instructions.',
           'Use search to orient, read_file to see exact bytes, and edit_file to change them.',
           'The find text must be the file’s exact bytes as read_file shows them: never include line-number prefixes from search results, and never change indentation.',
           'If edit_file refuses because the find text matches more than one place, read the file and retry with a longer find that includes enough neighbouring text to match exactly once.',

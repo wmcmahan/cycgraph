@@ -16,7 +16,7 @@ import type { CoreFinding } from './core-scan.js';
 /** The finding an issue was filed for, recovered from its body. */
 export interface IssueFinding {
   key: string;
-  kind: CoreFinding['kind'];
+  kind: CoreFinding['kind'] | 'audit';
   file: string;
 }
 
@@ -27,6 +27,11 @@ export function parseIssueFinding(body: string): IssueFinding | undefined {
   const keys = issueMarkers([{ number: 0, title: '', body } satisfies IssueRef]);
   const key = [...keys][0];
   if (key === undefined) return undefined;
+  // Audit keys are `audit:<title-slug>` — no file component; the issue
+  // body itself carries the finding's evidence and location.
+  if (key.startsWith('audit:') && key.length > 'audit:'.length) {
+    return { key, kind: 'audit', file: '' };
+  }
   const [kind, file] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1, key.lastIndexOf(':'))];
   if (!(KINDS as readonly string[]).includes(kind) || file === '') return undefined;
   return { key, kind: kind as CoreFinding['kind'], file };
@@ -73,6 +78,30 @@ export interface IssueFixVerdict {
   introduced_count: number;
   weakened: boolean;
   detail: string;
+}
+
+/**
+ * The audit-kind verdict. A semantic finding has no mechanical detector,
+ * so this checks only what a scan can prove: the tree was changed and no
+ * new upkeep findings appeared. Fidelity to the finding is the diff
+ * reviewer's judgment, which reads the finding text beside the diff.
+ */
+export function judgeAuditFix(
+  evidence: { beforeKeys: readonly string[]; afterKeys: readonly string[]; diff: string },
+): IssueFixVerdict {
+  const before = new Set(evidence.beforeKeys);
+  const introduced = evidence.afterKeys.filter((key) => !before.has(key)).length;
+  const changed = evidence.diff.trim() !== '';
+  return {
+    resolved: changed,
+    introduced_count: introduced,
+    weakened: false,
+    detail: !changed
+      ? 'the workspace holds no change — an audit finding is resolved by editing what it names'
+      : introduced > 0
+        ? `changed the tree but introduced ${introduced} new finding(s)`
+        : 'the tree was changed; the reviewer judges fidelity to the audited finding',
+  };
 }
 
 /** Decide whether a fix resolved its finding without gaming its class. */

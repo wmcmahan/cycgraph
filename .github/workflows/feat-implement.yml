@@ -41,6 +41,7 @@ jobs:
       - name: Implement one approved feature
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
           CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
           GIT_AUTHOR_NAME: cycgraph-maintenance
