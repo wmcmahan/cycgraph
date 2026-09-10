@@ -56,8 +56,11 @@ export async function memoryFromEnv(): Promise<MaintenanceMemory | undefined> {
   const { DrizzleMemoryStore, DrizzleOutcomeLedger, SEED_TENANT_ID } = await import('@cycgraph/orchestrator-postgres');
   const { checkFactAdmission, retrieveGatedLessons, evaluateRetention } = await import('@cycgraph/memory');
   // Tenant-scoped so every statement runs inside withTenant with the RLS
-  // GUC set: the runtime role is subject to row security, and an unscoped
-  // query does not degrade to empty results — it errors on the policy cast.
+  // GUC set: the runtime role is subject to row security. Unscoped, the
+  // policies degrade by environment — an unset GUC reads as NULL on a
+  // direct connection (zero rows, the fail-safe 0018 documents) but as ''
+  // through a pooler that resets GUCs, which errors on the ::uuid cast.
+  // Neither is correct operation; the scope is what makes either sound.
   const store = new DrizzleMemoryStore({ tenant: { tenant_id: SEED_TENANT_ID } });
   const ledger = new DrizzleOutcomeLedger({ tenant: { tenant_id: SEED_TENANT_ID } });
 

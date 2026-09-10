@@ -11,13 +11,17 @@ afterEach(() => {
 });
 
 describe('checksEnv', () => {
-  it('drops the database credentials from the spawned environment', () => {
+  it('drops every database credential from the spawned environment', () => {
     vi.stubEnv('DATABASE_URL', 'postgres://user:pw@prod.example.com:5432/app');
+    vi.stubEnv('APP_DATABASE_URL', 'postgres://app:pw@prod.example.com:5432/app');
+    vi.stubEnv('PLATFORM_DATABASE_URL', 'postgres://admin:pw@prod.example.com:5432/app');
     vi.stubEnv('SUPABASE_DB_URL', 'postgres://user:pw@db.supabase.co:5432/postgres');
 
     const env = checksEnv();
 
     expect(env['DATABASE_URL']).toBeUndefined();
+    expect(env['APP_DATABASE_URL']).toBeUndefined();
+    expect(env['PLATFORM_DATABASE_URL']).toBeUndefined();
     expect(env['SUPABASE_DB_URL']).toBeUndefined();
   });
 

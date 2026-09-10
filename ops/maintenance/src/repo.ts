@@ -88,7 +88,13 @@ export async function repoMap(root: string): Promise<string> {
  */
 export function checksEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
+  // Every credential the postgres adapter reads: the primary URL, the
+  // RLS-subject app role, the BYPASSRLS platform role, and the local
+  // convenience alias. A new connection var belongs here before it is
+  // ever set in a deployment.
   delete env['DATABASE_URL'];
+  delete env['APP_DATABASE_URL'];
+  delete env['PLATFORM_DATABASE_URL'];
   delete env['SUPABASE_DB_URL'];
   return env;
 }
