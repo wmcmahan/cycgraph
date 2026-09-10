@@ -79,10 +79,26 @@ export async function repoMap(root: string): Promise<string> {
 }
 
 /**
- * Changeset discipline for agents that edit published-package source.
- * Shared verbatim by every workflow whose editor can touch packages/ so
- * the release convention cannot drift between prompts.
+ * Environment for anything a workflow spawns inside a checked-out tree
+ * (checks, acceptance commands, benches): the process env minus the
+ * maintenance run's own database credentials. The orchestrator-postgres
+ * test suite activates itself when DATABASE_URL is set and cleans every
+ * table it touches — inherited into a workspace's `npm test`, that is a
+ * production wipe, not a hypothetical.
  */
+export function checksEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  // Every credential the postgres adapter reads: the primary URL, the
+  // RLS-subject app role, the BYPASSRLS platform role, and the local
+  // convenience alias. A new connection var belongs here before it is
+  // ever set in a deployment.
+  delete env['DATABASE_URL'];
+  delete env['APP_DATABASE_URL'];
+  delete env['PLATFORM_DATABASE_URL'];
+  delete env['SUPABASE_DB_URL'];
+  return env;
+}
+
 /**
  * Comment authors whose text a workflow may treat as instructions.
  * Commenting needs no repository permission, so association is the only
@@ -126,6 +142,11 @@ export const STANDARDS_BRIEF = [
   'State changes go through reducers, agents are configs rather than classes, and every input/output boundary has a Zod schema.',
 ].join(' ');
 
+/**
+ * Changeset discipline for agents that edit published-package source.
+ * Shared verbatim by every workflow whose editor can touch packages/ so
+ * the release convention cannot drift between prompts.
+ */
 export const CHANGESET_INSTRUCTION = [
   'When your edits change the BEHAVIOR of a published package under packages/ (any package whose package.json lacks "private": true), also create_file one changeset at .changeset/<short-kebab-name>.md:',
   'a "---" line, one line per affected package like \'"@cycgraph/orchestrator": patch\' (patch for a fix, minor for new capability), a closing "---" line, then a one-or-two-sentence summary of what changed and why it matters to a consumer.',

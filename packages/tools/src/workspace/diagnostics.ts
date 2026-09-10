@@ -37,6 +37,12 @@ export interface DiagnosticsToolOptions {
   maxLines?: number;
   /** Per-call timeout forwarded to defineTool. @default 120000 */
   timeoutMs?: number;
+  /**
+   * Environment for the spawned command. Defaults to the process env;
+   * callers holding production credentials (a database URL a test suite
+   * would activate on) should pass a scrubbed copy.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Parameters, exported so transports serving this tool share one schema. */
@@ -61,7 +67,7 @@ export function diagnosticsTool(options: DiagnosticsToolOptions): DefinedTool {
     timeoutMs: options.timeoutMs ?? 120_000,
     execute: async (): Promise<DiagnosticsResult> => {
       try {
-        await exec(options.command, options.args ?? [], { cwd: options.cwd });
+        await exec(options.command, options.args ?? [], { cwd: options.cwd, ...(options.env !== undefined ? { env: options.env } : {}) });
         return { clean: true, output: 'no diagnostics' };
       } catch (err) {
         const raw = err instanceof Error

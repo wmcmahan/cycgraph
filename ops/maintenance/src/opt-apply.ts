@@ -29,7 +29,7 @@ import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { deliveryNodes, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { compareBench, runAliasedBench, type BenchRow } from './bench.js';
 import { extractTicketDiff } from './proposal.js';
-import { resolveRepo } from './repo.js';
+import { checksEnv, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -196,7 +196,7 @@ export function optApply(): MaintenanceWorkflow<typeof params> {
         execute: async () => {
           if (p.checks.length === 0) return { clean: true, output: 'no checks configured' };
           try {
-            await exec('sh', ['-c', p.checks.join(' && ')], { cwd: workspaceAt, maxBuffer: 64 * 1024 * 1024 });
+            await exec('sh', ['-c', p.checks.join(' && ')], { cwd: workspaceAt, env: checksEnv(), maxBuffer: 64 * 1024 * 1024 });
             return { clean: true, output: 'checks passed' };
           } catch (error) {
             return { clean: false, output: String((error as { stdout?: string }).stdout ?? (error as Error).message).slice(-2_000) };

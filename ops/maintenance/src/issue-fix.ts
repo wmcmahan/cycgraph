@@ -37,7 +37,7 @@ import {
 } from '@cycgraph/tools/workspace';
 import { scanCore, type CoreFinding } from './core-scan.js';
 import { judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
-import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
+import { checksEnv, CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const params = z.object({
@@ -251,6 +251,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         command: p.checks.length > 0 ? 'sh' : 'true',
         ...(p.checks.length > 0 ? { args: ['-c', p.checks.join(' && ')] } : { args: [] }),
         timeoutMs: 600_000,
+        env: checksEnv(),
       });
 
       const diffTool = tool({
