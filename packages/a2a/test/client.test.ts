@@ -66,6 +66,18 @@ describe('partsToValue', () => {
 
     expect(partsToValue([part])).toEqual({ bytes: true, mediaType: 'image/png', filename: 'a.png' });
   });
+
+  it('degrades an unrecognized part kind to null rather than throwing', () => {
+    const part = { content: { $case: 'file', value: { uri: 'file:///secret' } }, mediaType: 'image/png' };
+
+    expect(partsToValue([part])).toBeNull();
+  });
+
+  it('degrades an unrecognized part kind to null beside recognized parts', () => {
+    const part = { content: { $case: 'unknown', value: 'leaked' } };
+
+    expect(partsToValue([textPart('a'), part])).toEqual(['a', null]);
+  });
 });
 
 describe('toResult', () => {
