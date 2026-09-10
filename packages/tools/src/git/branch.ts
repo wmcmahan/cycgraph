@@ -85,6 +85,11 @@ export async function changedIn(root: string): Promise<string[]> {
 
 /** The uncommitted change as a patch. */
 export async function pendingDiff(root: string): Promise<string> {
+  // Intent-to-add first: a file the agent created is untracked, and a
+  // bare `git diff` omits it entirely — reviewers and judges would see
+  // imports of a file that "does not exist". commit() stages everything
+  // anyway, so registering the path early changes nothing downstream.
+  await exec('git', ['add', '--intent-to-add', '--all'], { cwd: root });
   const { stdout } = await exec('git', ['diff'], { cwd: root });
   return stdout;
 }

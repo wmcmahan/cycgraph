@@ -16,6 +16,7 @@ import {
   deliveryNodes,
   fillSection,
   openPrFiles,
+  pendingDiff,
   prBodyFor,
   publishConfigFromEnv,
 } from '../src/git/index.js';
@@ -130,6 +131,28 @@ describe('commit', () => {
 
     const { stdout } = await exec('git', ['log', '-1', '--format=%an <%ae>'], { cwd: root });
     expect(stdout.trim()).toBe(`${DEFAULT_IDENTITY.name} <${DEFAULT_IDENTITY.email}>`);
+  });
+});
+
+describe('pendingDiff', () => {
+  it('includes a modified tracked file', async () => {
+    await initRepo(root);
+    await writeFile(join(root, 'seed.txt'), 'changed\n');
+
+    const diff = await pendingDiff(root);
+
+    expect(diff).toContain('seed.txt');
+    expect(diff).toContain('+changed');
+  });
+
+  it('includes a newly created untracked file', async () => {
+    await initRepo(root);
+    await writeFile(join(root, 'created.ts'), 'export const fresh = true;\n');
+
+    const diff = await pendingDiff(root);
+
+    expect(diff).toContain('created.ts');
+    expect(diff).toContain('+export const fresh = true;');
   });
 });
 
