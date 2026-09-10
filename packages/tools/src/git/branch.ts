@@ -108,11 +108,22 @@ export async function commit(
 ): Promise<void> {
   await exec('git', ['add', '-A'], { cwd: root });
   // A server has no global git config to fall back on, and the commit
-  // belongs to the workflow rather than whoever started it.
+  // belongs to the workflow rather than whoever started it. git ranks
+  // GIT_AUTHOR_*/GIT_COMMITTER_* above `-c user.*`, so a CI runner that
+  // exports an author would outrank the identity unless it is set here too.
   await exec('git', [
     '-c', `user.name=${identity.name}`, '-c', `user.email=${identity.email}`,
     'commit', '--quiet', '-m', message,
-  ], { cwd: root });
+  ], {
+    cwd: root,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: identity.name,
+      GIT_AUTHOR_EMAIL: identity.email,
+      GIT_COMMITTER_NAME: identity.name,
+      GIT_COMMITTER_EMAIL: identity.email,
+    },
+  });
 }
 
 /**
