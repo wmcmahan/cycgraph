@@ -79,11 +79,6 @@ export async function repoMap(root: string): Promise<string> {
 }
 
 /**
- * Changeset discipline for agents that edit published-package source.
- * Shared verbatim by every workflow whose editor can touch packages/ so
- * the release convention cannot drift between prompts.
- */
-/**
  * Environment for anything a workflow spawns inside a checked-out tree
  * (checks, acceptance commands, benches): the process env minus the
  * maintenance run's own database credentials. The orchestrator-postgres
@@ -141,6 +136,11 @@ export const STANDARDS_BRIEF = [
   'State changes go through reducers, agents are configs rather than classes, and every input/output boundary has a Zod schema.',
 ].join(' ');
 
+/**
+ * Changeset discipline for agents that edit published-package source.
+ * Shared verbatim by every workflow whose editor can touch packages/ so
+ * the release convention cannot drift between prompts.
+ */
 export const CHANGESET_INSTRUCTION = [
   'When your edits change the BEHAVIOR of a published package under packages/ (any package whose package.json lacks "private": true), also create_file one changeset at .changeset/<short-kebab-name>.md:',
   'a "---" line, one line per affected package like \'"@cycgraph/orchestrator": patch\' (patch for a fix, minor for new capability), a closing "---" line, then a one-or-two-sentence summary of what changed and why it matters to a consumer.',

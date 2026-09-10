@@ -625,47 +625,6 @@ describe('llm reflection extractor', () => {
     expect(memoryWriter).not.toHaveBeenCalled();
   });
 
-  it('rethrows a writer failure while the node still has retries', async () => {
-    const node = makeNode({
-      id: 'reflect', type: 'reflection', agent_id: undefined,
-      read_keys: ['*'], write_keys: ['reflect_reflection'],
-      reflection_config: {
-        source_keys: ['draft'],
-        extractor: { type: 'rule_based', min_sentence_length: 5 },
-        tags: ['lesson'],
-      },
-      failure_policy: { max_retries: 3, backoff_strategy: 'fixed', initial_backoff_ms: 1, max_backoff_ms: 1 },
-    });
-    const ctx = makeReflectCtx({
-      memoryWriter: vi.fn<MemoryWriter>(async () => { throw new Error('permission denied for table memory_entity_facts'); }),
-    });
-
-    await expect(
-      executeReflectionNode(node, makeReflectStateView({ draft: 'A sentence long enough to become a fact.' }), 1, ctx),
-    ).rejects.toThrow('permission denied');
-  });
-
-  it('degrades to zero facts with writer_failed on the final attempt instead of failing', async () => {
-    const node = makeNode({
-      id: 'reflect', type: 'reflection', agent_id: undefined,
-      read_keys: ['*'], write_keys: ['reflect_reflection'],
-      reflection_config: {
-        source_keys: ['draft'],
-        extractor: { type: 'rule_based', min_sentence_length: 5 },
-        tags: ['lesson'],
-      },
-      failure_policy: { max_retries: 3, backoff_strategy: 'fixed', initial_backoff_ms: 1, max_backoff_ms: 1 },
-    });
-    const ctx = makeReflectCtx({
-      memoryWriter: vi.fn<MemoryWriter>(async () => { throw new Error('permission denied for table memory_entity_facts'); }),
-    });
-
-    const action = await executeReflectionNode(node, makeReflectStateView({ draft: 'A sentence long enough to become a fact.' }), 3, ctx);
-
-    const envelope = (action.payload.updates as Record<string, unknown>)['reflect_reflection'];
-    expect(envelope).toMatchObject({ writer_failed: true, fact_ids: [] });
-  });
-
   it('persists each returned fact with provenance.source="agent" and configured tags', async () => {
     mockExtract.mockResolvedValueOnce({
       facts: ['Prefer primary sources.', 'Cite the publication date.'],
@@ -774,6 +733,48 @@ describe('llm reflection extractor', () => {
     expect(memoryWriter).not.toHaveBeenCalled();
     const envelope = finalState.memory.reflect_reflection as { fact_ids: string[] };
     expect(envelope.fact_ids).toEqual([]);
+  });
+});
+
+// ─── Reflection writer failures (extractor-independent) ──────────────
+
+describe('reflection writer failures', () => {
+  function makeWriterFailureNode(): GraphNode {
+    return makeNode({
+      id: 'reflect', type: 'reflection', agent_id: undefined,
+      read_keys: ['*'], write_keys: ['reflect_reflection'],
+      reflection_config: {
+        source_keys: ['draft'],
+        extractor: { type: 'rule_based', min_sentence_length: 5 },
+        tags: ['lesson'],
+      },
+      failure_policy: { max_retries: 3, backoff_strategy: 'fixed', initial_backoff_ms: 1, max_backoff_ms: 1 },
+    });
+  }
+
+  function makeFailingWriterCtx(): NodeExecutorContext {
+    return makeReflectCtx({
+      memoryWriter: vi.fn<MemoryWriter>(async () => { throw new Error('permission denied for table memory_entity_facts'); }),
+    });
+  }
+
+  it('rethrows a writer failure while the node still has retries', async () => {
+    const node = makeWriterFailureNode();
+    const ctx = makeFailingWriterCtx();
+
+    await expect(
+      executeReflectionNode(node, makeReflectStateView({ draft: 'A sentence long enough to become a fact.' }), 1, ctx),
+    ).rejects.toThrow('permission denied');
+  });
+
+  it('degrades to zero facts with writer_failed on the final attempt instead of failing', async () => {
+    const node = makeWriterFailureNode();
+    const ctx = makeFailingWriterCtx();
+
+    const action = await executeReflectionNode(node, makeReflectStateView({ draft: 'A sentence long enough to become a fact.' }), 3, ctx);
+
+    const envelope = (action.payload.updates as Record<string, unknown>)['reflect_reflection'];
+    expect(envelope).toMatchObject({ writer_failed: true, fact_ids: [] });
   });
 });
 

@@ -570,6 +570,16 @@ export const ReflectionResultSchema = z.object({
   fact_ids: z.array(z.string()),
   /** Tags applied to every written fact. */
   tags: z.array(z.string()),
+  /**
+   * Set when extraction failed on the node's final attempt and the node
+   * degraded to zero facts rather than failing the run.
+   */
+  extractor_failed: z.boolean().optional(),
+  /**
+   * Set when the memory writer failed on the node's final attempt and
+   * the node degraded to zero facts rather than failing the run.
+   */
+  writer_failed: z.boolean().optional(),
   /** ISO timestamp at which reflection ran. */
   reflected_at: z.string(),
 });

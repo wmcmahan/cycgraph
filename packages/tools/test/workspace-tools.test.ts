@@ -3,7 +3,7 @@
  * unique-match edit, and the search surface an editor agent gets.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -245,6 +245,20 @@ describe('diagnosticsTool', () => {
 
     expect(result.clean).toBe(false);
     expect(result.output).toContain('boom');
+  });
+
+  it('passes the configured env to the spawned command', async () => {
+    vi.stubEnv('SECRET', 'inherited-credential');
+    const { SECRET: _scrubbed, ...scrubbed } = process.env;
+
+    const result = await diagnosticsTool({
+      cwd: root, command: 'node',
+      args: ['-e', 'console.error(process.env.SECRET ?? "unset"); process.exit(1)'],
+      env: scrubbed,
+    }).execute({}) as { clean: boolean; output: string };
+
+    expect(result).toEqual({ clean: false, output: 'unset' });
+    vi.unstubAllEnvs();
   });
 
   it('truncates a flood of findings to the line cap', async () => {

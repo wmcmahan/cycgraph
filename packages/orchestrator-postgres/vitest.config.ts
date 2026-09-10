@@ -6,11 +6,20 @@ import { defineConfig } from 'vitest/config';
 // than wipe it. CYCGRAPH_TEST_REMOTE_DB=1 overrides deliberately.
 const url = process.env.DATABASE_URL;
 if (url !== undefined && url !== '' && process.env.CYCGRAPH_TEST_REMOTE_DB !== '1') {
-  const host = new URL(url).hostname;
-  if (host !== 'localhost' && host !== '127.0.0.1' && host !== '::1') {
+  // URL.hostname keeps the brackets of an IPv6 literal, and a libpq
+  // keyword/value connstring ("host=... dbname=...") is not a URL at
+  // all — an unparseable value has no host to vouch for and is refused.
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    host = '(unparseable DATABASE_URL)';
+  }
+  const local = ['localhost', '127.0.0.1', '::1', '[::1]'];
+  if (!local.includes(host)) {
     throw new Error(
       `Refusing to run the orchestrator-postgres test suite against non-local host '${host}': `
-      + 'the suite deletes table contents. Point DATABASE_URL at a local instance, '
+      + 'the suite deletes table contents. Point DATABASE_URL at a local instance in URL form, '
       + 'or set CYCGRAPH_TEST_REMOTE_DB=1 to override deliberately.');
   }
 }
