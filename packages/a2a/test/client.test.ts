@@ -21,6 +21,12 @@ describe('normalizeState', () => {
     expect(normalizeState('input-required')).toBe('input-required');
   });
 
+  it('maps a still-running state to failure so a deadline never reads as success', () => {
+    expect(normalizeState('TASK_STATE_WORKING')).toBe('failed');
+    expect(normalizeState('working')).toBe('failed');
+    expect(normalizeState('TASK_STATE_SUBMITTED')).toBe('failed');
+  });
+
   it('treats an unspecified state as failure rather than guessing', () => {
     expect(normalizeState('TASK_STATE_UNSPECIFIED')).toBe('failed');
     expect(normalizeState('UNRECOGNIZED')).toBe('failed');
@@ -241,7 +247,7 @@ describe('createA2AClient', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       const result = await pending;
 
-      expect(result.state).not.toBe('completed');
+      expect(result.state).toBe('failed');
       expect(result.taskId).toBe('');
     } finally {
       vi.useRealTimers();
@@ -265,7 +271,7 @@ describe('createA2AClient', () => {
       const result = await pending;
 
       expect(result.taskId).toBe('t1');
-      expect(result.state).not.toBe('completed');
+      expect(result.state).toBe('failed');
     } finally {
       vi.useRealTimers();
     }
