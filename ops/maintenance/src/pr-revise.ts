@@ -41,7 +41,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { safeAcceptanceCommand } from './proposal.js';
-import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
+import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, TRUSTED_ASSOCIATIONS, resolveRepo, stripMentions } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -119,7 +119,13 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           if (feedback === undefined) {
             return { has_work: false, detail: `cannot read PR #${p.pr} — gh unavailable or the PR does not exist` };
           }
-          if (feedback.comments.length === 0) {
+          // Only maintainers' text may steer an agent that pushes code.
+          // Commenting needs no permission, so on a public repository
+          // every other association is an arbitrary account — and CI
+          // bots' deployment tables are noise besides.
+          const comments = feedback.comments.filter((comment) =>
+            TRUSTED_ASSOCIATIONS.has(comment.authorAssociation) && !comment.author.endsWith('[bot]'));
+          if (comments.length === 0) {
             return { has_work: false, detail: `PR #${p.pr} carries no review feedback to address` };
           }
           const head = feedback.headRefName;
@@ -142,11 +148,11 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
             has_work: true,
             head,
             title: feedback.title,
-            comment_count: feedback.comments.length,
+            comment_count: comments.length,
             instruction: [
-              `Address the human review feedback on pull request #${p.pr} ("${feedback.title}").`,
+              `Address the review feedback on pull request #${p.pr} ("${feedback.title}").`,
               'The feedback, verbatim:',
-              ...feedback.comments.map((comment: { author: string; body: string; path?: string; line?: number }, index: number) =>
+              ...comments.map((comment: { author: string; body: string; path?: string; line?: number }, index: number) =>
                 `${index + 1}. [${comment.author}${comment.path !== undefined ? ` on ${comment.path}${comment.line !== undefined ? `:${comment.line}` : ''}` : ''}] ${comment.body}`),
             ].join('\n'),
           };
@@ -168,9 +174,12 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
             }
           }
           const mutated = (await changedIn(workspaceAt)).join('\n') !== treeBefore;
-          return mutated
-            ? { clean: false, output: 'running the checks modified the tree — tests must not write source files' }
-            : { clean: true, output: 'checks passed' };
+          if (mutated) {
+            return { clean: false, has_changes: true, output: 'running the checks modified the tree — tests must not write source files' };
+          }
+          // A revision that changed nothing is a failed pass, not a
+          // success — the gate loops it back to the reviser.
+          return { clean: true, has_changes: treeBefore !== '', output: 'checks passed' };
         },
       });
 
@@ -195,7 +204,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           // The reply posts through the same PAT that triggers the
           // workflow, so an echoed mention would re-dispatch it on its
           // own comment.
-          const summary = String(revise_report ?? '').replace(/@cycgraph/gi, 'cycgraph').slice(0, 1_500);
+          const summary = stripMentions(String(revise_report ?? '')).slice(0, 1_500);
           const reply = await commentOnPr(repoRoot, p.pr,
             `Addressed the review feedback in the latest commit.\n\n${summary}`,
             token !== undefined ? { token } : {});
@@ -232,11 +241,11 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
       });
       const checks = node({ id: 'checks', type: 'tool', toolId: 'repo_checks', tools: [checksTool], reads: [] });
       const gate = verifier.expression(
-        `memory.${checks.result}.clean`,
+        `memory.${checks.result}.clean and memory.${checks.result}.has_changes`,
         {
           id: 'gate',
           reads: [checks.result],
-          description: 'The repository\'s checks pass and nothing mutated the tree',
+          description: 'The revision changed the tree, the checks pass, and nothing mutated it further',
         },
       );
       const deliver = node({

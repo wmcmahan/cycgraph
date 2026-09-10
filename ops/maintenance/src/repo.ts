@@ -84,6 +84,35 @@ export async function repoMap(root: string): Promise<string> {
  * the release convention cannot drift between prompts.
  */
 /**
+ * Comment authors whose text a workflow may treat as instructions.
+ * Commenting needs no repository permission, so association is the only
+ * trust signal a comment carries; everything below COLLABORATOR is an
+ * arbitrary account on a public repository.
+ */
+export const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+
+/**
+ * Label marking a PR the maintenance loop may push to. Applied to
+ * bot-created PRs at birth and by hand to any PR a maintainer wants the
+ * loop to manage; GitHub only lets triage+ users apply labels, so the
+ * label itself is the consent check. pr-revise.yml gates on the same
+ * literal name.
+ */
+export const MANAGED_LABEL = 'maintenance-managed';
+
+/**
+ * The mention that dispatches maintenance workflows from PR comments.
+ * Emitted deliberately by pr-review's handoff; relayed text must pass
+ * through {@link stripMentions} so arbitrary prose never carries it.
+ */
+export const WORKFLOW_MENTION = '@cycgraph';
+
+/** Neutralize workflow-dispatching mentions inside relayed text. */
+export function stripMentions(text: string): string {
+  return text.replace(/@cycgraph/gi, 'cycgraph');
+}
+
+/**
  * The house coding standards, distilled for agent prompts. CLAUDE.md is
  * the authority; this brief carries the rules an editing or reviewing
  * agent most often breaks without it.

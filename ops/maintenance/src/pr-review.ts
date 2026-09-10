@@ -11,8 +11,14 @@
  * advisory PR comment; the human merge stays the gate, and nothing is
  * ever pushed.
  *
- * pr-revise is the natural counterpart: this workflow writes the
- * feedback, that one addresses it.
+ * pr-revise is the counterpart: on a REVISE verdict against a PR that
+ * carries the maintenance-managed label, the posted comment ends with
+ * the @cycgraph trigger pr-revise listens for, so the finding is
+ * addressed without a human relaying it. The label is the consent:
+ * GitHub restricts labeling to triage+ users, bot PRs are labeled at
+ * creation, and an unlabeled PR gets findings only. The cycle is
+ * bounded — the revision's reply carries no mention and a branch push
+ * does not re-run this review — and a human can always take over.
  *
  * @module maintenance/pr-review
  */
@@ -29,7 +35,7 @@ import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { commentOnPr, prFeedback } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
-import { STANDARDS_BRIEF, resolveRepo } from './repo.js';
+import { MANAGED_LABEL, STANDARDS_BRIEF, WORKFLOW_MENTION, resolveRepo, stripMentions } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -43,6 +49,8 @@ const params = z.object({
     .describe('The branch the PR merges into; the review covers the diff against it'),
   comment: z.boolean().default(true)
     .describe('Post the review as a PR comment. Off prints it to the run state only'),
+  revise: z.boolean().default(true)
+    .describe('On a REVISE verdict against a PR carrying the maintenance-managed label, end the comment with an @cycgraph trigger so pr-revise addresses the findings. Unlabeled PRs get findings only. Needs the comment posted via a PAT — the Actions token\'s comments fire no workflows'),
   prompt: z.string().default('')
     .describe('Override the reviewer agent\'s instructions'),
   budgetTokens: z.number().int().min(0).default(400000)
@@ -106,6 +114,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
             has_work: true,
             head,
             title: feedback.title,
+            labels: feedback.labels,
             diff_bytes: diff.length,
             instruction: [
               `Review pull request #${p.pr} ("${feedback.title}"), branch ${head}, against ${p.base}.`,
@@ -139,18 +148,38 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
       const deliverTool = tool({
         name: 'post_review',
         description: 'Post the review as an advisory comment on the PR.',
-        parameters: z.object({ review: z.unknown().optional(), verdict_result: z.unknown().optional() }),
+        parameters: z.object({
+          review: z.unknown().optional(),
+          verdict_result: z.unknown().optional(),
+          gather_result: z.unknown().optional(),
+        }),
         timeoutMs: 60_000,
-        execute: async ({ review, verdict_result }) => {
-          const verdict = verdict_result as { detail?: string } | undefined;
+        execute: async ({ review, verdict_result, gather_result }) => {
+          const verdict = verdict_result as { detail?: string; approved?: boolean } | undefined;
+          const labels = (gather_result as { labels?: string[] } | undefined)?.labels ?? [];
           if (!p.comment) return { posted: false, detail: `comment is off — ${verdict?.detail ?? ''}` };
-          // Posted through the same PAT that dispatches workflows, so an
-          // echoed mention would re-trigger runs on the bot's own comment.
-          const body = String(review ?? '').replace(/@cycgraph/gi, 'cycgraph').slice(0, 12_000);
+          // Mentions inside the review text are stripped (an echoed
+          // mention would re-trigger workflows on arbitrary reviewer
+          // prose); the one deliberate trigger below is the exception.
+          const body = stripMentions(String(review ?? '')).slice(0, 12_000);
+          // A REVISE verdict hands off to pr-revise via its comment
+          // trigger — only on PRs carrying the managed label, which
+          // GitHub restricts to triage+ users: bot PRs are labeled at
+          // birth, a maintainer labels their own by hand, and anyone
+          // else gets the findings without the bot pushing to their
+          // branch unasked. Bounded: the revision reply strips mentions
+          // and a branch push does not re-run this review.
+          const handoff = p.revise && verdict?.approved === false && labels.includes(MANAGED_LABEL)
+            ? `\n\n${WORKFLOW_MENTION} please address the numbered findings above.`
+            : '';
           const reply = await commentOnPr(repoRoot, p.pr,
-            `Advisory review by the pr-review workflow — the human merge decision stands either way.\n\n${body}`,
+            `Advisory review by the pr-review workflow — the human merge decision stands either way.\n\n${body}${handoff}`,
             token !== undefined ? { token } : {});
-          return { posted: reply.ok, detail: `${verdict?.detail ?? ''}; ${reply.detail}` };
+          return {
+            posted: reply.ok,
+            revision_requested: handoff !== '',
+            detail: `${verdict?.detail ?? ''}${handoff !== '' ? '; revision requested' : ''}; ${reply.detail}`,
+          };
         },
       });
 
@@ -212,7 +241,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         type: 'tool',
         toolId: 'post_review',
         tools: [deliverTool],
-        reads: ['review', verdict.result],
+        reads: ['review', verdict.result, gather.result],
       });
       const report = node({ id: 'report', type: 'router' });
 

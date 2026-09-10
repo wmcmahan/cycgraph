@@ -25,7 +25,11 @@ describe('maintenanceEnvFromProcess', () => {
 
     expect(env.model).toBe('claude-sonnet-4');
     expect(env.provider).toBe('anthropic');
-    expect(env.publish).toEqual({ token: 'tok', identity: { name: 'Bot', email: 'bot@x.test' } });
+    expect(env.publish).toEqual({
+      token: 'tok',
+      identity: { name: 'Bot', email: 'bot@x.test' },
+      labels: ['maintenance-managed'],
+    });
   });
 
   it('lets CYCGRAPH_PROVIDER override the inference', () => {
@@ -34,11 +38,11 @@ describe('maintenanceEnvFromProcess', () => {
     expect(env.provider).toBe('openai');
   });
 
-  it('defaults to the local model with an empty publish config', () => {
+  it('defaults to the local model, publishing only the managed label', () => {
     const env = maintenanceEnvFromProcess({});
 
     expect(env.model).toBe('qwen2.5:7b');
     expect(env.provider).toBe('ollama');
-    expect(env.publish).toEqual({});
+    expect(env.publish).toEqual({ labels: ['maintenance-managed'] });
   });
 });

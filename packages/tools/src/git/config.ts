@@ -25,6 +25,11 @@ export interface PublishConfig {
   token?: string;
   /** Commit author. Absent, commits carry the default workflow identity. */
   identity?: CommitIdentity;
+  /**
+   * Labels applied to the pull request after creation, best-effort: a
+   * label the repository lacks is skipped, never a failed publish.
+   */
+  labels?: string[];
 }
 
 /** The identity used when a `PublishConfig` names none. */

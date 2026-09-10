@@ -12,6 +12,7 @@
  */
 
 import { publishConfigFromEnv } from '@cycgraph/tools/git';
+import { MANAGED_LABEL } from './repo.js';
 import type { MaintenanceEnv } from './types.js';
 
 /** Provider inferred from a model id: hosted prefixes, else local Ollama. */
@@ -29,6 +30,6 @@ export function maintenanceEnvFromProcess(
   return {
     model,
     provider: env['CYCGRAPH_PROVIDER'] ?? inferProvider(model),
-    publish: publishConfigFromEnv(env),
+    publish: { ...publishConfigFromEnv(env), labels: [MANAGED_LABEL] },
   };
 }
