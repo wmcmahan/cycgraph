@@ -1,7 +1,8 @@
 /**
  * Wire-to-engine translation
  *
- * Turns what the SDK hands back — a parsed protocol `Task` — into the
+ * Turns what the SDK hands back — a parsed protocol `Task`, or a bare
+ * `Message` for an agent that answers without creating one — into the
  * engine's `A2ATaskResult`. The translation is lossy in one deliberate way:
  * an artifact's `Part[]` collapses to a single value, by the rules on
  * {@link partsToValue}.
@@ -34,6 +35,38 @@ interface WireTask {
     message?: { parts?: WirePart[] };
   };
   artifacts?: WireArtifact[];
+}
+
+/** The slice of a protocol `Message` this adapter reads. */
+export interface WireMessage {
+  taskId?: string;
+  role?: unknown;
+  parts?: WirePart[];
+}
+
+/**
+ * The artifact name a bare `Message` reply lands under, since the protocol
+ * gives such a reply no name of its own. `output_mapping` matches on it.
+ */
+const MESSAGE_ARTIFACT_NAME = 'response';
+
+/**
+ * Whether the object `message/send` returned is a bare `Message` rather
+ * than a `Task`.
+ *
+ * The SDK's own `SendMessageResult` is `Message | Task`: an agent that
+ * holds no state answers with the reply itself and never creates a task.
+ * Only a `Task` carries `id`/`status`, and only a `Message` carries `role`
+ * beside its own `parts`, so the two shapes are distinguishable without a
+ * discriminator field.
+ */
+export function isWireMessage(value: unknown): value is WireMessage {
+  if (typeof value !== 'object' || value === null) return false;
+  const wire = value as WireTask & WireMessage;
+  return wire.id === undefined
+    && wire.status === undefined
+    && wire.role !== undefined
+    && Array.isArray(wire.parts);
 }
 
 /**
@@ -85,16 +118,32 @@ function statusMessage(task: WireTask): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-/** Translate an SDK task into the engine's shape. */
-export function toResult(task: unknown): A2ATaskResult {
-  const wire = task as WireTask;
-  const state = normalizeState(wire.status?.state);
-  const message = statusMessage(wire);
+/**
+ * A bare `Message` reply IS the answer: the agent created no task, so there
+ * is no state to normalize and nothing left to wait for. Sending it down the
+ * task path would read the absent `status` as `failed` and drop the reply's
+ * parts, which are the whole content of the exchange.
+ */
+function messageResult(message: WireMessage): A2ATaskResult {
+  return {
+    taskId: message.taskId ?? '',
+    state: 'completed',
+    artifacts: [{ name: MESSAGE_ARTIFACT_NAME, value: partsToValue(message.parts ?? []) }],
+  };
+}
+
+/** Translate what the SDK returned — a task or a bare message — into the engine's shape. */
+export function toResult(wire: unknown): A2ATaskResult {
+  if (isWireMessage(wire)) return messageResult(wire);
+
+  const task = wire as WireTask;
+  const state = normalizeState(task.status?.state);
+  const message = statusMessage(task);
 
   return {
-    taskId: wire.id ?? '',
+    taskId: task.id ?? '',
     state,
-    artifacts: state === 'completed' ? toArtifacts(wire.artifacts ?? []) : [],
+    artifacts: state === 'completed' ? toArtifacts(task.artifacts ?? []) : [],
     ...(message ? { message } : {}),
   };
 }
