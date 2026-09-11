@@ -196,6 +196,28 @@ describe('executeA2ANode', () => {
       .rejects.toThrow(/permitted to use/);
   });
 
+  it('refuses a node with no agent_id when the server has an allowlist', async () => {
+    const registry = await registryWith({ allowedAgents: ['approved-agent'] });
+    const anonymous = node();
+
+    await expect(executeA2ANode(anonymous, stateView(), 1, await ctxWith(fakeClient({}), registry)))
+      .rejects.toThrow(/permitted to use/);
+  });
+
+  it('allows a node with no agent_id when the server has no allowlist', async () => {
+    const registry = await registryWith({ allowedAgents: [] });
+    const anonymous = node();
+
+    const action = await executeA2ANode(
+      anonymous,
+      stateView(),
+      1,
+      await ctxWith(fakeClient({ artifacts: [{ name: 'report', value: 'ok' }] }), registry),
+    );
+
+    expect((action.payload as any).updates.findings).toBe('ok');
+  });
+
 });
 
 describe('executeA2ANode — per-server concurrency cap', () => {
