@@ -71,6 +71,15 @@ both sides of the comparison run the same way. Pass the repository's
 test suite as `--checks` when filing for real: the benchmark cannot
 tell faster from doing less, so correctness rides on the checks.
 
+Two ledger-only subcommands run without a graph. `memory-gate` runs the
+promote/evict gate over the candidate lesson pool. `reconcile-outcomes`
+scores every recently recorded run that published a PR by what became
+of it — merged records 1, closed-unmerged records 0, still-open waits —
+so human merge decisions become outcome evidence for the lessons those
+runs carried. `--sinceDays n` bounds the window (default 14) and
+`--apply false` reports what would be recorded without touching the
+ledger. Both need `DATABASE_URL`.
+
 Interactively, through the playground catalog:
 
 ```bash
@@ -106,6 +115,10 @@ write — pull requests created with the built-in `GITHUB_TOKEN` do not
 trigger CI, so without the PAT the maintenance PRs arrive without
 checks. Runs never merge anything, and the scan defers findings any
 open `docs/*` pull request already touches.
+`.github/workflows/reconcile-outcomes.yml` runs the outcome reconciler
+daily, after the previous day's pull requests have had their chance to
+be merged or closed. It needs the `DATABASE_URL` secret — without a
+ledger there is nothing to record — and a token that can read PR states.
 `.github/workflows/pr-revise.yml` closes the human-in-the-loop review
 cycle: a changes-requested review on a maintenance branch, or a PR
 comment mentioning `@cycgraph`, dispatches a run that reads the

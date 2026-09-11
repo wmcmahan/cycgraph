@@ -4,8 +4,9 @@
 # users, which is the consent check), a change-requesting review or a
 # comment mentioning @cycgraph dispatches a run that reads the feedback,
 # revises the same branch (updating the PR in place), and replies. The
-# human verdict still ends every thread: this never opens or merges
-# anything. The label name is a literal here — keep it in sync with
+# revision push then fires pr-review's verification pass over the prior
+# findings. The human verdict still ends every thread: this never opens
+# or merges anything. The label name is a literal here — keep it in sync with
 # MANAGED_LABEL in ops/maintenance/src/repo.ts.
 
 name: PR revise

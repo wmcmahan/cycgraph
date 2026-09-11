@@ -23,6 +23,7 @@
     "@cycgraph/orchestrator": "*",
     "@cycgraph/orchestrator-postgres": "*",
     "@cycgraph/tools": "*",
+    "drizzle-orm": "^0.45.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
