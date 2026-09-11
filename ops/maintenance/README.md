@@ -78,7 +78,24 @@ of it — merged records 1, closed-unmerged records 0, still-open waits —
 so human merge decisions become outcome evidence for the lessons those
 runs carried. `--sinceDays n` bounds the window (default 14) and
 `--apply false` reports what would be recorded without touching the
-ledger. Both need `DATABASE_URL`.
+ledger. `stats` prints the fleet scorecard — per-workflow completion,
+gate-pass and lesson-injection rates, reconciled outcomes, tokens,
+cost, and learning-tail degradations — over the same `--sinceDays`
+window, reading only what runs already recorded. All three need
+`DATABASE_URL`.
+
+`tune` closes the structural loop: it senses a target workflow's
+failures from the corpus, has an analyst propose one edit to that
+workflow's own instructions, trials control against variant as dry
+subprocess runs from a patched clone, and files a winning proposal as
+a marker-keyed ticket carrying the hypothesis, the measured table, and
+the exact diff. `--target <workflow>` picks the subject,
+`--trials n` sets runs per arm, `--file false` reports without filing.
+`tune` itself needs `DATABASE_URL` — the corpus is its sensor — but its
+trials run with the credential stripped, so the corpus never records
+them and neither arm gets lesson injection. The ticket rides
+the same `maintenance-approved` ladder as everything else — the tune
+loop proposes, the human disposes.
 
 Interactively, through the playground catalog:
 

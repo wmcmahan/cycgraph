@@ -22,6 +22,8 @@ import { optPropose } from './opt-workflow.js';
 import { featPropose } from './feat-propose.js';
 import { repoAudit } from './audit-workflow.js';
 import { reconcileOutcomes } from './reconcile.js';
+import { fetchStats, formatStats } from './stats.js';
+import { tunePropose } from './tune.js';
 import { featImplement } from './feat-implement.js';
 import { optApply } from './opt-apply.js';
 import { prRevise } from './pr-revise.js';
@@ -47,9 +49,10 @@ const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
   'feat-implement': featImplement,
   'pr-revise': prRevise,
   'pr-review': prReview,
+  tune: tunePropose,
 };
 
-const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens', 'pr', 'maxAuditors', 'concurrency', 'steps', 'maxFindings', 'sinceDays']);
+const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens', 'pr', 'maxAuditors', 'concurrency', 'steps', 'maxFindings', 'sinceDays', 'trials']);
 const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale', 'push', 'comment', 'revise', 'apply']);
 const LIST_FLAGS = new Set(['checks', 'lenses', 'scopes']);
 
@@ -140,6 +143,22 @@ async function stalenessOf(repoRoot: string): Promise<string | undefined> {
   return undefined;
 }
 
+/** Print the fleet scorecard over the recorded corpus. */
+async function runStats(flags: Record<string, unknown>): Promise<void> {
+  if ((process.env['DATABASE_URL'] ?? '') === '') {
+    say('stats needs DATABASE_URL — there is no corpus without it.');
+    process.exitCode = 2;
+    return;
+  }
+  const { closeDb } = await import('@cycgraph/orchestrator-postgres');
+  try {
+    const sinceDays = typeof flags['sinceDays'] === 'number' ? flags['sinceDays'] : 14;
+    for (const line of formatStats(await fetchStats(sinceDays), sinceDays)) say(line);
+  } finally {
+    await closeDb();
+  }
+}
+
 /**
  * Feed human merge decisions back as outcome evidence: every recently
  * recorded run that published a PR is scored by what became of it.
@@ -221,9 +240,23 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Read-only: the per-workflow scorecard the tune loop measures from.
+  if (id === 'stats') {
+    await runStats(parseFlags(rest));
+    return;
+  }
+
   const make = id !== undefined ? WORKFLOWS[id] : undefined;
   if (make === undefined) {
-    say(`usage: maintain <${Object.keys(WORKFLOWS).join('|')}|memory-gate|reconcile-outcomes> [--batch n] [--since ref] [--skip n] [--commit false] [--publish false] [--checks "a,b"]`);
+    say(`usage: maintain <${Object.keys(WORKFLOWS).join('|')}|memory-gate|reconcile-outcomes|stats> [--batch n] [--since ref] [--skip n] [--commit false] [--publish false] [--checks "a,b"]`);
+    process.exitCode = 2;
+    return;
+  }
+
+  // Tune's sensor is the corpus itself; fail before building providers
+  // rather than dying inside a graph node.
+  if (id === 'tune' && (process.env['DATABASE_URL'] ?? '') === '') {
+    say('tune needs DATABASE_URL — the corpus is its sensor.');
     process.exitCode = 2;
     return;
   }
@@ -334,6 +367,20 @@ async function main(): Promise<void> {
   say('');
   say(`status: ${recorded.state.status}`);
   say(`tokens: ${recorded.state.total_tokens_used.toLocaleString('en-US')} · $${recorded.state.total_cost_usd.toFixed(4)}`);
+  // Machine-readable result for harnesses that run maintain as a
+  // subprocess (the tune trials): status, gate, and spend, one file.
+  const resultPath = process.env['MAINTAIN_RESULT_JSON'];
+  if (resultPath !== undefined && resultPath !== '') {
+    const { writeFile } = await import('node:fs/promises');
+    const { MaintainResultSchema } = await import('./tune.js');
+    const verdict = (recorded.memory as Record<string, unknown>)['gate_verification_passed'];
+    await writeFile(resultPath, JSON.stringify(MaintainResultSchema.parse({
+      status: recorded.state.status,
+      gate: typeof verdict === 'boolean' ? verdict : null,
+      tokens: recorded.state.total_tokens_used,
+      cost_usd: recorded.state.total_cost_usd,
+    })));
+  }
   if (scan !== undefined) say(`findings in scope: ${String(scan['total'])}`);
   for (const entry of (scan?.['needs_human'] as string[] | undefined) ?? []) {
     say(`  needs a human (no candidate anywhere in the repo): ${entry}`);
