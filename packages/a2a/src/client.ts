@@ -7,6 +7,7 @@
 import type { Client as SdkClient } from '@a2a-js/sdk/client';
 import type { A2AClient, A2ATaskResult } from '@cycgraph/orchestrator';
 import { sdkClientFactory, type CreateSdkClient } from './connection.js';
+import { raceAbort } from './race.js';
 import { isPending } from './task-state.js';
 import { toResult } from './translate.js';
 
@@ -43,9 +44,9 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
     const signal = abortSignal ? AbortSignal.any([timeout.signal, abortSignal]) : timeout.signal;
 
     try {
-      const client = await raceAbort(create(agentCardUrl, headers, signal), signal);
+      const client = await raceDeliveryBound(create(agentCardUrl, headers, signal), signal);
       // Cast: the generated request type demands fields the server defaults.
-      const task = await raceAbort(client.sendMessage({ message } as never), signal);
+      const task = await raceDeliveryBound(client.sendMessage({ message } as never), signal);
       return toResult(await settle(client, task, deadline, signal));
     } catch (error) {
       // A rejection here means no task was ever observed (settle absorbs
@@ -88,22 +89,11 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
 
 /**
  * Race a promise against the delivery signal, so an await cannot outlive
- * the budget even when the underlying SDK call ignores cancellation. The
- * losing promise is left to settle on its own; the point is that the NODE
- * observes the bound, not that the socket is guaranteed closed.
+ * the budget even when the underlying SDK call ignores cancellation.
  */
-function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (!signal.aborted) {
-    return new Promise<T>((resolve, reject) => {
-      const onAbort = () => reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
-      signal.addEventListener('abort', onAbort, { once: true });
-      promise.then(
-        (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
-        (error: unknown) => { signal.removeEventListener('abort', onAbort); reject(error as Error); },
-      );
-    });
-  }
-  return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
+function raceDeliveryBound<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return raceAbort(promise, signal, () =>
+    signal.reason instanceof Error ? signal.reason : new Error('aborted'));
 }
 
 /**
@@ -155,7 +145,7 @@ async function settle(
       return task;
     }
     try {
-      task = await raceAbort(client.getTask({ name: `tasks/${task.id}` } as never), signal);
+      task = await raceDeliveryBound(client.getTask({ name: `tasks/${task.id}` } as never), signal);
     } catch (error) {
       // The bound fired while a poll was in flight: the last observed task
       // is still the honest answer. A non-abort rejection is a real

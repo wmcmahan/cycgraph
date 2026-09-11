@@ -15,6 +15,7 @@
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
 import type { Client as SdkClient } from '@a2a-js/sdk/client';
 import { isPrivateOrLoopbackHost } from '@cycgraph/orchestrator';
+import { raceAbort } from './race.js';
 
 /**
  * Builds the SDK client one call runs against. Injectable for tests.
@@ -119,25 +120,6 @@ export function requestFetch(headers: Record<string, string>, signal?: AbortSign
  */
 const CARD_TIMEOUT_MS = 30_000;
 
-/**
- * Settle with `promise`, or reject once `signal` aborts — whichever comes
- * first. The shared card promise MUST settle even when the underlying
- * fetch ignores its abort, because settling is what evicts the cache
- * entry; a forever-pending entry would fail every later call to that key.
- */
-function raceCardTimeout<T>(promise: Promise<T>, signal: AbortSignal, timeoutMs: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(
-      new Error(`agent card resolution did not complete within the ${timeoutMs}ms budget`,
-        { cause: signal.reason }));
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
-      (error: unknown) => { signal.removeEventListener('abort', onAbort); reject(error as Error); },
-    );
-  });
-}
-
 /** Options for {@link sdkClientFactory}. */
 export interface SdkClientFactoryOptions {
   /** Ceiling on one shared card resolution. Defaults to 30s. */
@@ -161,17 +143,21 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
       // The promise is cached, so concurrent first calls share one fetch.
       // It carries the caller's headers but not its signal: a shared
       // promise must not be rejected for everyone by one caller's abort.
-      // deliver() still bounds the caller itself via raceAbort.
+      // deliver() still bounds the caller itself against its own signal.
       //
       // Its own timeout replaces that missing signal: a remote that
       // accepts the connection and never answers would otherwise leave a
       // pending promise cached at this key for the life of the process.
       const cardTimeout = AbortSignal.timeout(cardTimeoutMs);
       const cardFetch = requestFetch(headers, cardTimeout);
-      const resolving = raceCardTimeout(
+      // The race is what guarantees the promise settles even if the fetch
+      // ignores its abort, and settling is what evicts the cache entry.
+      const resolving = raceAbort(
         new DefaultAgentCardResolver({ fetchImpl: cardFetch }).resolve(agentCardUrl, ''),
         cardTimeout,
-        cardTimeoutMs,
+        () => new Error(
+          `agent card resolution did not complete within the ${cardTimeoutMs}ms budget`,
+          { cause: cardTimeout.reason }),
       );
       cards.set(key, resolving);
       resolving.catch(() => {

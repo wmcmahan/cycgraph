@@ -146,7 +146,8 @@ describe('sdkClientFactory', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const create = sdkClientFactory({ cardTimeoutMs: 5 });
-    await expect(create(CARD_URL, {})).rejects.toThrow('budget');
+    await expect(create(CARD_URL, {}))
+      .rejects.toThrow('agent card resolution did not complete within the 5ms budget');
     await settled(create(CARD_URL, {}));
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
