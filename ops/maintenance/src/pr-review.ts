@@ -130,17 +130,26 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
       const verdictTool = tool({
         name: 'review_verdict',
         description: 'Parse the review into a verdict and finding count.',
-        parameters: z.object({ review: z.unknown().optional() }),
-        execute: async ({ review }) => {
+        parameters: z.object({ review: z.unknown().optional(), verdict_result: z.unknown().optional() }),
+        execute: async ({ review, verdict_result }) => {
           const text = String(review ?? '');
+          const round = ((verdict_result as { round?: number } | undefined)?.round ?? 0) + 1;
+          // No marker at all is a reviewer that ran out of steps
+          // mid-investigation, not a request for changes: inconclusive,
+          // retried once, and never handed to pr-revise.
+          const malformed = !/^\s*VERDICT:\s*(APPROVE|REVISE)/m.test(text);
           const approved = /^\s*VERDICT:\s*APPROVE/m.test(text);
           const findings = (text.match(/^\s*\d+\.\s/gm) ?? []).length;
           return {
             approved,
+            malformed,
+            round,
             finding_count: findings,
-            detail: approved
-              ? `approved with ${findings} advisory note(s)`
-              : `requested changes: ${findings} finding(s)`,
+            detail: malformed
+              ? `the review carries no VERDICT marker (round ${round}) — inconclusive`
+              : approved
+                ? `approved with ${findings} advisory note(s)`
+                : `requested changes: ${findings} finding(s)`,
           };
         },
       });
@@ -155,8 +164,11 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         }),
         timeoutMs: 60_000,
         execute: async ({ review, verdict_result, gather_result }) => {
-          const verdict = verdict_result as { detail?: string; approved?: boolean } | undefined;
+          const verdict = verdict_result as { detail?: string; approved?: boolean; malformed?: boolean } | undefined;
           const labels = (gather_result as { labels?: string[] } | undefined)?.labels ?? [];
+          if (verdict?.malformed === true) {
+            return { posted: false, detail: `nothing posted — ${verdict.detail ?? 'inconclusive review'}` };
+          }
           if (!p.comment) return { posted: false, detail: `comment is off — ${verdict?.detail ?? ''}` };
           // Mentions inside the review text are stripped (an echoed
           // mention would re-trigger workflows on arbitrary reviewer
@@ -195,6 +207,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           'Verify before you claim. Use search and read_file to check what the diff alone cannot show: whether a new helper duplicates something that already exists, whether the edit matches the conventions of the code around it, whether tests assert real behavior, whether names and structures fit where they were placed.',
           STANDARDS_BRIEF,
           'Report only findings you have verified against the tree, each with the file and what to change. Do not nitpick working code a reasonable reviewer would pass, and say what is good in one line when it is.',
+          'Budget your steps: the reply is the only thing that leaves this run, and a review that never reaches its VERDICT is worthless. Once roughly three quarters of your steps are spent, stop investigating and write the verdict from what you have confirmed.',
           'Structure your reply exactly as:',
           'VERDICT: APPROVE or VERDICT: REVISE',
           'then a one-line summary, then numbered findings (if any), each as: <file> — <the problem> — <what to do instead>.',
@@ -235,7 +248,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         writes: 'review',
         ...(env.memory ? { memoryQuery: { tags: ['wf:pr-review'], maxFacts: 6 } } : {}),
       });
-      const verdict = node({ id: 'verdict', type: 'tool', toolId: 'review_verdict', tools: [verdictTool], reads: ['review'] });
+      const verdict = node({ id: 'verdict', type: 'tool', toolId: 'review_verdict', tools: [verdictTool], reads: ['review', 'verdict_result'] });
       const deliver = node({
         id: 'deliver',
         type: 'tool',
@@ -254,7 +267,10 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
             { from: gather, to: review, when: `memory.${gather.result}.has_work` },
             { from: gather, to: report, when: `not memory.${gather.result}.has_work` },
             { from: review, to: verdict },
-            { from: verdict, to: deliver },
+            // An inconclusive review gets one fresh attempt; a second
+            // failure flows to deliver, which posts nothing for it.
+            { from: verdict, to: review, when: `memory.${verdict.result}.malformed and memory.${verdict.result}.round < 2` },
+            { from: verdict, to: deliver, when: `not memory.${verdict.result}.malformed or memory.${verdict.result}.round >= 2` },
             ...(reflect
               ? [{ from: deliver, to: reflect }, { from: reflect, to: report }]
               : [{ from: deliver, to: report }]),

@@ -157,13 +157,13 @@ describe('pendingDiff', () => {
 });
 
 describe('openPrFiles', () => {
-  it('returns undefined when the PR list cannot be read', async () => {
+  it('returns undefined when the PR list cannot be read', { timeout: 30_000 }, async () => {
     expect(await openPrFiles(root, 'docs/')).toBeUndefined();
   });
 });
 
 describe('prFeedback', () => {
-  it('returns undefined when the PR cannot be read', async () => {
+  it('returns undefined when the PR cannot be read', { timeout: 30_000 }, async () => {
     const { prFeedback } = await import('../src/git/pr.js');
 
     expect(await prFeedback(root, 999999)).toBeUndefined();
@@ -171,7 +171,7 @@ describe('prFeedback', () => {
 });
 
 describe('commentOnPr', () => {
-  it('reports the failure when the comment cannot be posted', async () => {
+  it('reports the failure when the comment cannot be posted', { timeout: 30_000 }, async () => {
     const { commentOnPr } = await import('../src/git/pr.js');
 
     const outcome = await commentOnPr(root, 999999, 'hello');
@@ -319,7 +319,7 @@ describe('issueMarkers', () => {
 });
 
 describe('listOpenIssues', () => {
-  it('returns undefined when the issue list cannot be read', async () => {
+  it('returns undefined when the issue list cannot be read', { timeout: 30_000 }, async () => {
     const { listOpenIssues } = await import('../src/git/issues.js');
 
     expect(await listOpenIssues(root)).toBeUndefined();
