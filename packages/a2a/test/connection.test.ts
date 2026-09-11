@@ -1,9 +1,10 @@
 /**
- * Tests for the SDK client factory's Agent Card handling.
+ * Tests for the SDK client factory's Agent Card handling and for the
+ * per-request fetch its transport issues.
  */
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { sdkClientFactory } from '../src/connection.js';
+import { requestFetch, sdkClientFactory } from '../src/connection.js';
 
 const CARD_URL = 'http://agent.example';
 
@@ -130,5 +131,73 @@ describe('sdkClientFactory', () => {
     await settled(create(CARD_URL, {}));
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('requestFetch', () => {
+  function okFetch() {
+    return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{}'));
+  }
+
+  function sentSignal(fetchMock: ReturnType<typeof okFetch>): AbortSignal {
+    return fetchMock.mock.calls[0]![1]!.signal!;
+  }
+
+  it('aborts the request when the delivery bound fires and the sdk carries its own signal', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const sdk = new AbortController();
+    const delivery = new AbortController();
+
+    await requestFetch({}, delivery.signal)(`${CARD_URL}/rpc`, { signal: sdk.signal });
+    delivery.abort();
+
+    expect(sentSignal(fetchMock).aborted).toBe(true);
+  });
+
+  it('aborts the request when the sdk aborts its own signal', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const sdk = new AbortController();
+    const delivery = new AbortController();
+
+    await requestFetch({}, delivery.signal)(`${CARD_URL}/rpc`, { signal: sdk.signal });
+    sdk.abort();
+
+    expect(sentSignal(fetchMock).aborted).toBe(true);
+  });
+
+  it('sends the delivery bound itself when the sdk sets no signal', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const delivery = new AbortController();
+
+    await requestFetch({}, delivery.signal)(`${CARD_URL}/rpc`, {});
+
+    expect(sentSignal(fetchMock)).toBe(delivery.signal);
+  });
+
+  it('leaves the sdk signal untouched when there is no delivery bound', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const sdk = new AbortController();
+
+    await requestFetch({})(`${CARD_URL}/rpc`, { signal: sdk.signal });
+
+    expect(sentSignal(fetchMock)).toBe(sdk.signal);
+  });
+
+  it('applies the per-server headers over the sdk headers', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await requestFetch({ authorization: 'Bearer sesame' })(`${CARD_URL}/rpc`, {
+      headers: { authorization: 'Bearer stale', 'content-type': 'application/json' },
+    });
+
+    expect(fetchMock.mock.calls[0]![1]!.headers).toEqual({
+      authorization: 'Bearer sesame',
+      'content-type': 'application/json',
+    });
   });
 });

@@ -93,6 +93,26 @@ function assertPublicEndpoints(card: unknown): void {
 }
 
 /**
+ * The fetch every request of one call goes through: `headers` are applied
+ * over whatever the SDK set, and `signal`, when given, bounds the request.
+ *
+ * A delivery bound is COMBINED with the SDK's own `init.signal` rather
+ * than replacing it, so neither the SDK's per-request cancellation nor
+ * the caller's deadline can be lost. Omitting `signal` leaves the SDK's
+ * own signal, if any, exactly as it came.
+ */
+export function requestFetch(headers: Record<string, string>, signal?: AbortSignal): typeof fetch {
+  return (input, init) =>
+    fetch(input, {
+      ...init,
+      headers: { ...(init?.headers as Record<string, string>), ...headers },
+      ...(signal !== undefined
+        ? { signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal }
+        : {}),
+    });
+}
+
+/**
  * Default {@link CreateSdkClient}, with an Agent Card cache scoped to this
  * factory and keyed by URL plus the headers the card was fetched with.
  */
@@ -100,15 +120,7 @@ export function sdkClientFactory(): CreateSdkClient {
   const cards = new Map<string, Promise<unknown>>();
 
   return async (agentCardUrl, headers, signal) => {
-    const fetchImpl: typeof fetch = (input, init) =>
-      fetch(input, {
-        ...init,
-        headers: { ...(init?.headers as Record<string, string>), ...headers },
-        // Combine rather than replace: the SDK may carry its own signal.
-        ...(signal !== undefined
-          ? { signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal }
-          : {}),
-      });
+    const fetchImpl = requestFetch(headers, signal);
 
     const key = cardKey(agentCardUrl, headers);
     let card = cards.get(key);
@@ -117,11 +129,7 @@ export function sdkClientFactory(): CreateSdkClient {
       // It carries the caller's headers but not its signal: a shared
       // promise must not be rejected for everyone by one caller's abort.
       // deliver() still bounds the caller itself via raceAbort.
-      const cardFetch: typeof fetch = (input, init) =>
-        fetch(input, {
-          ...init,
-          headers: { ...(init?.headers as Record<string, string>), ...headers },
-        });
+      const cardFetch = requestFetch(headers);
       const resolving = new DefaultAgentCardResolver({ fetchImpl: cardFetch })
         .resolve(agentCardUrl, '');
       cards.set(key, resolving);
