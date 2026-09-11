@@ -7,13 +7,13 @@ import { sdkClientFactory } from '../src/connection.js';
 
 const CARD_URL = 'http://agent.example';
 
-function cardResponse(): Response {
+function cardResponse(endpointUrl = `${CARD_URL}/rpc`): Response {
   return new Response(JSON.stringify({
     name: 'scenario',
     description: '',
     version: '1',
     protocolVersion: '1.0',
-    url: `${CARD_URL}/rpc`,
+    url: endpointUrl,
     preferredTransport: 'JSONRPC',
     capabilities: {},
     defaultInputModes: ['text/plain'],
@@ -28,6 +28,7 @@ async function settled(promise: Promise<unknown>): Promise<void> {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('sdkClientFactory', () => {
@@ -87,6 +88,35 @@ describe('sdkClientFactory', () => {
     await settled(create(CARD_URL, { authorization: 'Bearer sesame', traceparent: '00-b-2-01' }));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a card whose endpoint points at a private host', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('http://169.254.169.254/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow('SSRF guard');
+  });
+
+  it('honors the development opt-out for private endpoints', async () => {
+    vi.stubEnv('CYCGRAPH_ALLOW_PRIVATE_A2A_URLS', 'true');
+    const fetchMock = vi.fn(async () => cardResponse('http://127.0.0.1:9999/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    const outcome = await create(CARD_URL, {}).then(() => 'created', (error: Error) => error.message);
+
+    expect(outcome).toBe('No compatible transport found, available transports: JSONRPC');
+  });
+
+  it('refuses a card whose endpoint is not http(s)', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('file:///etc/passwd'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow('must use http(s)');
   });
 
   it('retries card resolution after a failure instead of caching the rejection', async () => {

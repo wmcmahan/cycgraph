@@ -13,6 +13,7 @@
 
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
 import type { Client as SdkClient } from '@a2a-js/sdk/client';
+import { isPrivateOrLoopbackHost } from '@cycgraph/orchestrator';
 
 /**
  * Builds the SDK client one call runs against. Injectable for tests.
@@ -49,6 +50,46 @@ function cardKey(agentCardUrl: string, headers: Record<string, string>): string 
     .filter(([name]) => !TRACE_HEADERS.has(name))
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return JSON.stringify([agentCardUrl, identifying]);
+}
+
+/** Every endpoint URL a resolved card offers, across proto and legacy shapes. */
+function endpointUrls(card: unknown): string[] {
+  const record = card as { url?: unknown; supportedInterfaces?: unknown; additionalInterfaces?: unknown };
+  const urls: unknown[] = [record.url];
+  for (const list of [record.supportedInterfaces, record.additionalInterfaces]) {
+    if (Array.isArray(list)) for (const entry of list) urls.push((entry as { url?: unknown } | null)?.url);
+  }
+  return urls.filter((value): value is string => typeof value === 'string' && value !== '');
+}
+
+/**
+ * SSRF guard over the endpoints a resolved Agent Card offers. The
+ * registry validates the CARD url before any request leaves, but the
+ * card's returned RPC endpoints come from the remote — a compromised
+ * agent could point the transport at loopback or cloud-metadata hosts.
+ * Honors the card-url guard's opt-out: one protocol, one decision.
+ */
+function assertPublicEndpoints(card: unknown): void {
+  if (process.env['CYCGRAPH_ALLOW_PRIVATE_A2A_URLS'] === 'true') return;
+  for (const value of endpointUrls(card)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new Error(`agent card offers an unparseable endpoint URL "${value}" (SSRF guard)`);
+    }
+    // Scheme first, as the card-url and MCP guards do: a non-http(s)
+    // URL (file:, gopher:) can carry an empty hostname the host test
+    // would wave through.
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`agent card endpoint "${value}" must use http(s), got "${parsed.protocol}" (SSRF guard)`);
+    }
+    if (isPrivateOrLoopbackHost(parsed.hostname)) {
+      throw new Error(
+        `agent card endpoint "${value}" points at a private/loopback host and is blocked (SSRF guard). `
+        + 'Set CYCGRAPH_ALLOW_PRIVATE_A2A_URLS=true to allow it in development.');
+    }
+  }
 }
 
 /**
@@ -93,7 +134,11 @@ export function sdkClientFactory(): CreateSdkClient {
     const factory = new ClientFactory({
       transports: [new JsonRpcTransportFactory({ fetchImpl })],
     });
+    const resolved = await card;
+    // Checked per call, not per resolution: the card is cached, and the
+    // guard must hold for cached reuse too.
+    assertPublicEndpoints(resolved);
     // Cast: the resolver returns parsed JSON; the factory validates it.
-    return factory.createFromAgentCard((await card) as never);
+    return factory.createFromAgentCard(resolved as never);
   };
 }

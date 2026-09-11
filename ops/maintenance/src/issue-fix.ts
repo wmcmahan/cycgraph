@@ -298,7 +298,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
           'The find text must be the file’s exact bytes as read_file shows them: never include line-number prefixes from search results, and never change indentation.',
           'If edit_file refuses because the find text matches more than one place, read the file and retry with a longer find that includes enough neighbouring text to match exactly once.',
           'Resolve the work, never erase its marker: the follow-up instruction states what counts as erasure for this finding, and erasure is refused.',
-          'If a reviewer\'s findings are in your context, address exactly what they name and nothing more.',
+          'If a reviewer\'s findings are in your context, address exactly what they name and nothing more — unless a finding makes a factual claim about the wider tree (a dependency direction, an existing helper) that your tools show to be wrong: then verify, keep your fix, and state the disputing evidence in your reply (the file and line that disproves it).',
           STANDARDS_BRIEF,
           CHANGESET_INSTRUCTION,
           'Change nothing unrelated. When the fix is made, reply with one line: FIXED <file>.',
@@ -320,6 +320,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         maxSteps: 2,
         instructions: [
           'You review one upkeep-fix diff against the finding it resolves. You have no tools; judge only what is in front of you.',
+          'The fixer\'s report is beside the diff. It CAN read the tree and you cannot: when it disputes one of your prior findings with cited evidence (a path, a package.json line), weigh the evidence rather than repeating the finding.',
           STANDARDS_BRIEF,
           'Refuse anything a careful human reviewer would: work erased instead of done (a TODO removed without its work, a test deleted or hollowed instead of revived, an eslint-disable instead of a fix); tests that write, delete, or mutate source files or anything outside a temp directory; edits unrelated to the finding; style foreign to the surrounding codebase (comments narrating history, missing .js import extensions).',
           'Do not nitpick working code that a reasonable reviewer would pass; the goal is one round.',
@@ -369,7 +370,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         id: 'review',
         agent: reviewer,
         failurePolicy: { timeoutMs: 300_000 },
-        reads: [baseline.result, diff.result],
+        reads: [baseline.result, diff.result, 'fix_report'],
         writes: 'review',
       });
       const reviewCheck = node({
