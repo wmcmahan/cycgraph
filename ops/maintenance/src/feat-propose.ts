@@ -82,11 +82,16 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
       const shapeTool = tool({
         name: 'check_shape',
         description: 'Validate the proposal\'s structure and that its evidence names real files.',
-        parameters: z.object({ proposal: z.unknown().optional() }),
-        execute: async ({ proposal }) => {
+        parameters: z.object({ proposal: z.unknown().optional(), shape_result: z.unknown().optional() }),
+        execute: async ({ proposal, shape_result }) => {
+          // Attempts are counted here so a drafter that never shapes a
+          // valid proposal exits the graph cleanly instead of dying on
+          // the iteration ceiling.
+          const round = ((shape_result as { round?: number } | undefined)?.round ?? 0) + 1;
           if (String(proposal ?? '').trim() === '') {
             return {
               valid: false,
+              round,
               title: '',
               acceptance_count: 0,
               evidence_paths: [],
@@ -101,6 +106,7 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
           const valid = parsed.missing.length === 0 && evidenceOk;
           return {
             valid,
+            round,
             title: parsed.title,
             acceptance_count: parsed.acceptance.length,
             evidence_paths: evidencePaths,
@@ -222,7 +228,7 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
         type: 'tool',
         toolId: 'check_shape',
         tools: [shapeTool],
-        reads: ['proposal'],
+        reads: ['proposal', 'shape_result'],
       });
       const gate = verifier.expression(
         `memory.${shape.result}.valid`,
@@ -252,15 +258,25 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
             { from: propose, to: shape },
             { from: shape, to: gate },
             { from: gate, to: ticket, when: 'memory.gate_verification_passed' },
-            { from: gate, to: propose, when: 'not memory.gate_verification_passed' },
+            {
+              from: gate,
+              to: propose,
+              when: `not memory.gate_verification_passed and memory.${shape.result}.round < ${p.attempts}`,
+            },
+            // A drafter that never shapes a valid proposal is a clean
+            // no-proposal outcome, not a failed run.
+            {
+              from: gate,
+              to: report,
+              when: `not memory.gate_verification_passed and memory.${shape.result}.round >= ${p.attempts}`,
+            },
             { from: ticket, to: report },
           ],
           startNode: clone,
           endNodes: [report],
         }),
-        // clone + attempts × (propose, shape, gate) + ticket + report:
-        // exactly enough for the last allowed attempt to finish filing.
-        // clone + survey + attempts × (propose, shape, gate) + ticket + report.
+        // clone + survey + attempts × (propose, shape, gate) + ticket +
+        // report: enough for the last allowed attempt to finish filing.
         input: { goal: 'Propose one well-formed feature.',
           ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}), maxIterations: 4 + p.attempts * 3 },
         runner: {},

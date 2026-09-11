@@ -1,0 +1,65 @@
+# Tune: the fleet proposing measured changes to its own source.
+#
+# Dispatch-only while the loop earns trust. Sense reads the scorecard
+# and recent failures from the corpus, an analyst proposes one edit to
+# the target workflow's instructions, trials run control vs variant as
+# dry subprocess runs (no DB, no filing — the corpus stays clean), and
+# a variant that measurably wins becomes a marker-keyed ticket carrying
+# the hypothesis, the trial table, and the exact diff. Nothing lands
+# without the maintenance-approved label and a human merge.
+#
+# Secrets: ANTHROPIC_API_KEY, DATABASE_URL (the sensor), and
+# MAINTENANCE_PAT (the ticket).
+
+name: Tune
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Workflow to tune
+        required: true
+        type: choice
+        options: [docs-maintenance, repo-docs, website-docs, repo-audit, feat-propose]
+        default: docs-maintenance
+      trials:
+        description: Dry runs per arm
+        required: false
+        default: '3'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: tune
+  cancel-in-progress: false
+
+jobs:
+  tune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools --workspace=packages/orchestrator-postgres
+
+      - name: Run tune
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
+        run: >
+          npm run maintain --workspace=ops/maintenance --
+          tune
+          --target ${{ inputs.target }}
+          --trials ${{ inputs.trials || '3' }}

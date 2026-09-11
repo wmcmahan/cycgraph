@@ -42,6 +42,7 @@ import {
 } from '@cycgraph/tools/workspace';
 import { safeAcceptanceCommand } from './proposal.js';
 import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, TRUSTED_ASSOCIATIONS, checksEnv, resolveRepo, stripMentions } from './repo.js';
+import { LESSON_TAG } from './memory.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -238,6 +239,9 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
         failurePolicy: { timeoutMs: 1_200_000 },
         reads: [gather.result, 'checks_result'],
         writes: 'revise_report',
+        // The whole lesson pool, not a per-workflow tag: defect-class
+        // lessons distilled from reviews apply to every editing agent.
+        ...(env.memory ? { memoryQuery: { tags: [LESSON_TAG], maxFacts: 6 } } : {}),
       });
       const checks = node({ id: 'checks', type: 'tool', toolId: 'repo_checks', tools: [checksTool], reads: [] });
       const gate = verifier.expression(

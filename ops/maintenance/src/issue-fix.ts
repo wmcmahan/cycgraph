@@ -38,6 +38,7 @@ import {
 import { scanCore, type CoreFinding } from './core-scan.js';
 import { judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
 import { checksEnv, CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
+import { LESSON_TAG } from './memory.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const params = z.object({
@@ -347,6 +348,9 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         failurePolicy: { timeoutMs: 1_200_000 },
         reads: [baseline.result, 'judge_result', 'review'],
         writes: 'fix_report',
+        // The whole lesson pool, not a per-workflow tag: defect-class
+        // lessons distilled from reviews apply to every editing agent.
+        ...(env.memory ? { memoryQuery: { tags: [LESSON_TAG], maxFacts: 6 } } : {}),
       });
       const judge = node({
         id: 'judge',
