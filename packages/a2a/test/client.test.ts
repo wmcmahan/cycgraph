@@ -402,4 +402,39 @@ describe('createA2AClient', () => {
 
     expect(result.state).toBe('rejected');
   });
+
+  it('passes a message/send transport failure through unchanged', async () => {
+    const transportError = new Error('ECONNRESET');
+    const client = createA2AClient({
+      createClient: async () => ({
+        sendMessage: async () => { throw transportError; },
+      }) as never,
+    });
+
+    await expect(client.runTask({
+      agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 5_000,
+    })).rejects.toBe(transportError);
+  });
+
+  it('passes a transport failure mid-poll through unchanged', async () => {
+    vi.useFakeTimers();
+    try {
+      const transportError = new Error('ECONNRESET');
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: async () => ({ id: 't5', status: { state: 'TASK_STATE_WORKING' } }),
+          getTask: async () => { throw transportError; },
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 60_000,
+      });
+      const outcome = expect(pending).rejects.toBe(transportError);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await outcome;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
