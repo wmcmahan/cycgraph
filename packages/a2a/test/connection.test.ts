@@ -131,6 +131,27 @@ describe('sdkClientFactory', () => {
     await expect(create(CARD_URL, {})).rejects.toThrow('must use http(s)');
   });
 
+  it('rejects card resolution that outruns the card timeout', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)));
+
+    const create = sdkClientFactory({ cardTimeoutMs: 5 });
+
+    await expect(create(CARD_URL, {})).rejects.toThrow('agent card resolution did not complete within the 5ms budget');
+  });
+
+  it('retries card resolution after a fetch that never settles', async () => {
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>(() => undefined))
+      .mockImplementation(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory({ cardTimeoutMs: 5 });
+    await expect(create(CARD_URL, {})).rejects.toThrow('budget');
+    await settled(create(CARD_URL, {}));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('retries card resolution after a failure instead of caching the rejection', async () => {
     const fetchMock = vi.fn()
       .mockRejectedValueOnce(new Error('connection refused'))

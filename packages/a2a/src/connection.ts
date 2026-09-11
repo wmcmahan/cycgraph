@@ -5,8 +5,9 @@
  * per call; caching one would freeze the first caller's headers into every
  * later request. The Agent Card is cached per URL AND header set, fetched
  * with the same per-server headers as every other request (a registry
- * entry's auth gate covers its card endpoint too), and a failed resolution
- * is evicted so a transient fault never outlives the request that hit it.
+ * entry's auth gate covers its card endpoint too), and a resolution that
+ * fails or outruns its own timeout is evicted so a transient fault never
+ * outlives the request that hit it.
  *
  * @module connection
  */
@@ -113,10 +114,42 @@ export function requestFetch(headers: Record<string, string>, signal?: AbortSign
 }
 
 /**
+ * Ceiling on one shared Agent Card resolution, independent of any single
+ * caller's deadline.
+ */
+const CARD_TIMEOUT_MS = 30_000;
+
+/**
+ * Settle with `promise`, or reject once `signal` aborts — whichever comes
+ * first. The shared card promise MUST settle even when the underlying
+ * fetch ignores its abort, because settling is what evicts the cache
+ * entry; a forever-pending entry would fail every later call to that key.
+ */
+function raceCardTimeout<T>(promise: Promise<T>, signal: AbortSignal, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(
+      new Error(`agent card resolution did not complete within the ${timeoutMs}ms budget`,
+        { cause: signal.reason }));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
+      (error: unknown) => { signal.removeEventListener('abort', onAbort); reject(error as Error); },
+    );
+  });
+}
+
+/** Options for {@link sdkClientFactory}. */
+export interface SdkClientFactoryOptions {
+  /** Ceiling on one shared card resolution. Defaults to 30s. */
+  cardTimeoutMs?: number;
+}
+
+/**
  * Default {@link CreateSdkClient}, with an Agent Card cache scoped to this
  * factory and keyed by URL plus the headers the card was fetched with.
  */
-export function sdkClientFactory(): CreateSdkClient {
+export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateSdkClient {
+  const cardTimeoutMs = options.cardTimeoutMs ?? CARD_TIMEOUT_MS;
   const cards = new Map<string, Promise<unknown>>();
 
   return async (agentCardUrl, headers, signal) => {
@@ -129,9 +162,17 @@ export function sdkClientFactory(): CreateSdkClient {
       // It carries the caller's headers but not its signal: a shared
       // promise must not be rejected for everyone by one caller's abort.
       // deliver() still bounds the caller itself via raceAbort.
-      const cardFetch = requestFetch(headers);
-      const resolving = new DefaultAgentCardResolver({ fetchImpl: cardFetch })
-        .resolve(agentCardUrl, '');
+      //
+      // Its own timeout replaces that missing signal: a remote that
+      // accepts the connection and never answers would otherwise leave a
+      // pending promise cached at this key for the life of the process.
+      const cardTimeout = AbortSignal.timeout(cardTimeoutMs);
+      const cardFetch = requestFetch(headers, cardTimeout);
+      const resolving = raceCardTimeout(
+        new DefaultAgentCardResolver({ fetchImpl: cardFetch }).resolve(agentCardUrl, ''),
+        cardTimeout,
+        cardTimeoutMs,
+      );
       cards.set(key, resolving);
       resolving.catch(() => {
         if (cards.get(key) === resolving) cards.delete(key);
