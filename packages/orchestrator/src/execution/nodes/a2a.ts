@@ -84,13 +84,17 @@ export async function executeA2ANode(
     throw new NodeConfigError(node.id, 'a2a', `a2a server "${config.server_id}"`);
   }
 
-  // Server allowlist: only listed agents may use this server.
-  if (server.allowed_agents && node.agent_id && !server.allowed_agents.includes(node.agent_id)) {
-    throw new NodeConfigError(
-      node.id,
-      'a2a',
-      `agent "${node.agent_id}" permitted to use a2a server "${config.server_id}"`,
-    );
+  // Server allowlist: only listed agents may use this server. `agent_id` is
+  // optional on a node, so a missing identity fails closed — otherwise omitting
+  // it would bypass the restriction entirely.
+  if (server.allowed_agents && server.allowed_agents.length > 0) {
+    if (!node.agent_id || !server.allowed_agents.includes(node.agent_id)) {
+      throw new NodeConfigError(
+        node.id,
+        'a2a',
+        `agent "${node.agent_id ?? 'unknown'}" permitted to use a2a server "${config.server_id}"`,
+      );
+    }
   }
 
   logger.info('a2a_executing', {
