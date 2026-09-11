@@ -8,7 +8,7 @@ import { requestFetch, sdkClientFactory } from '../src/connection.js';
 
 const CARD_URL = 'http://agent.example';
 
-function cardResponse(endpointUrl = `${CARD_URL}/rpc`): Response {
+function cardResponse(endpointUrl = `${CARD_URL}/rpc`, extra: Record<string, unknown> = {}): Response {
   return new Response(JSON.stringify({
     name: 'scenario',
     description: '',
@@ -20,6 +20,7 @@ function cardResponse(endpointUrl = `${CARD_URL}/rpc`): Response {
     defaultInputModes: ['text/plain'],
     defaultOutputModes: ['text/plain'],
     skills: [],
+    ...extra,
   }), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
@@ -129,6 +130,58 @@ describe('sdkClientFactory', () => {
     const create = sdkClientFactory();
 
     await expect(create(CARD_URL, {})).rejects.toThrow('must use http(s)');
+  });
+
+  it('refuses a card whose supported interface points at a private host', async () => {
+    const fetchMock = vi.fn(async () => cardResponse(`${CARD_URL}/rpc`, {
+      supportedInterfaces: [{ url: 'http://169.254.169.254/latest/meta-data', transport: 'JSONRPC' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {}))
+      .rejects.toThrow('agent card endpoint "http://169.254.169.254/latest/meta-data" points at a private/loopback host');
+  });
+
+  it('refuses a card whose additional interface points at a private host', async () => {
+    const fetchMock = vi.fn(async () => cardResponse(`${CARD_URL}/rpc`, {
+      additionalInterfaces: [{ url: 'http://10.0.0.5/rpc', transport: 'JSONRPC' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {}))
+      .rejects.toThrow('agent card endpoint "http://10.0.0.5/rpc" points at a private/loopback host');
+  });
+
+  it('refuses a card whose additional interface is not http(s)', async () => {
+    const fetchMock = vi.fn(async () => cardResponse(`${CARD_URL}/rpc`, {
+      additionalInterfaces: [{ url: 'file:///etc/passwd', transport: 'JSONRPC' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow('must use http(s)');
+  });
+
+  it('accepts a card whose secondary endpoints are all public', async () => {
+    const fetchMock = vi.fn(async () => cardResponse(`${CARD_URL}/rpc`, {
+      supportedInterfaces: [
+        { url: 'https://agent.example/jsonrpc', protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' },
+      ],
+      additionalInterfaces: [
+        { url: 'https://agent.example/extra', protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' },
+      ],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    const client = await create(CARD_URL, {});
+
+    expect(typeof client.sendMessage).toBe('function');
   });
 
   it('rejects card resolution that outruns the card timeout', async () => {
