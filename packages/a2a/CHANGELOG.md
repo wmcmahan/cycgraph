@@ -1,5 +1,12 @@
 # @cycgraph/a2a
 
+## 1.1.3
+
+### Patch Changes
+
+- 303944f: The Agent Card cache is now keyed by agent card URL plus the headers the card was fetched with, so two registry entries that share one `agent_card_url` but use different credentials each resolve the card with their own auth instead of silently reusing the first caller's cached card.
+- c31a48d: The endpoints a resolved Agent Card offers are now SSRF-guarded before any transport is built: the registry validates the card URL, but the card's returned RPC endpoints come from the remote, and a compromised agent could point the transport at loopback or cloud-metadata hosts. Honors the same `CYCGRAPH_ALLOW_PRIVATE_A2A_URLS=true` development opt-out as the card-url guard.
+
 ## 1.1.2
 
 ### Patch Changes
