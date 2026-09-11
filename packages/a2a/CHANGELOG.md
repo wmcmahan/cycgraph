@@ -1,5 +1,11 @@
 # @cycgraph/a2a
 
+## 1.1.4
+
+### Patch Changes
+
+- 85bd517: Bound each shared Agent Card resolution with its own 30s timeout and evict the cache entry when it fires. A remote that accepted the connection and never answered previously left a permanently pending card promise cached for that agent, failing every later call to it until the process restarted.
+
 ## 1.1.3
 
 ### Patch Changes
