@@ -80,6 +80,20 @@ describe('sdkClientFactory', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves the card again for header sets a delimiter-joined key would collide', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, { a: '1', b: '2' }));
+    await settled(create(CARD_URL, { a: '1,b:2' }));
+    await settled(create(CARD_URL, { a: '1","b"],["x', b: '2' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map((call) => (call[1]?.headers as Record<string, string>).a))
+      .toEqual(['1', '1,b:2', '1","b"],["x']);
+  });
+
   it('shares one card fetch across calls differing only in trace headers', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => cardResponse());
     vi.stubGlobal('fetch', fetchMock);
