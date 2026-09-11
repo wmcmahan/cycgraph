@@ -9,8 +9,10 @@
 # same cycle (needs MAINTENANCE_PAT — the Actions token's comments fire
 # no workflows). Unlabeled PRs get findings only. The human merge stays
 # the gate.
-# Runs once per PR on open — revisions do not re-trigger it; dispatch
-# it manually for a re-review.
+# A push to a LABELED PR re-runs the review as a verification pass: the
+# reviewer checks each prior finding (ADDRESSED/UNRESOLVED) before
+# judging what changed, bounded at three reviews per PR. Unlabeled PRs
+# are reviewed once on open; dispatch manually for a re-review.
 #
 # Secrets and variables: as the other maintenance workflows
 # (ANTHROPIC_API_KEY required; MAINTENANCE_PAT and DATABASE_URL
@@ -20,7 +22,7 @@ name: PR review
 
 on:
   pull_request:
-    types: [opened, ready_for_review]
+    types: [opened, ready_for_review, synchronize]
   workflow_dispatch:
     inputs:
       pr:
@@ -38,7 +40,15 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    # Every non-draft PR is reviewed on open. Pushes re-review only
+    # labeled PRs — that is the verification pass over a revision (the
+    # bot pushes via the PAT, so its push fires this) — bounded by the
+    # rounds cap inside the workflow.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.draft == false &&
+       (github.event.action != 'synchronize' ||
+        contains(github.event.pull_request.labels.*.name, 'maintenance-managed')))
     steps:
       - uses: actions/checkout@v4
         with:

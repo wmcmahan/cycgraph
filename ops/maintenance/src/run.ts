@@ -21,6 +21,7 @@ import { issueFix } from './issue-fix.js';
 import { optPropose } from './opt-workflow.js';
 import { featPropose } from './feat-propose.js';
 import { repoAudit } from './audit-workflow.js';
+import { reconcileOutcomes } from './reconcile.js';
 import { featImplement } from './feat-implement.js';
 import { optApply } from './opt-apply.js';
 import { prRevise } from './pr-revise.js';
@@ -48,8 +49,8 @@ const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
   'pr-review': prReview,
 };
 
-const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens', 'pr', 'maxAuditors', 'concurrency', 'steps', 'maxFindings']);
-const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale', 'push', 'comment', 'revise']);
+const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens', 'pr', 'maxAuditors', 'concurrency', 'steps', 'maxFindings', 'sinceDays']);
+const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale', 'push', 'comment', 'revise', 'apply']);
 const LIST_FLAGS = new Set(['checks', 'lenses', 'scopes']);
 
 function parseFlags(args: string[]): Record<string, unknown> {
@@ -140,6 +141,37 @@ async function stalenessOf(repoRoot: string): Promise<string | undefined> {
 }
 
 /**
+ * Feed human merge decisions back as outcome evidence: every recently
+ * recorded run that published a PR is scored by what became of it.
+ */
+async function runReconcileOutcomes(flags: Record<string, unknown>): Promise<void> {
+  const memory = await memoryFromEnv();
+  if (memory === undefined) {
+    say('reconcile-outcomes needs DATABASE_URL — there is no ledger without it.');
+    process.exitCode = 2;
+    return;
+  }
+  const { closeDb } = await import('@cycgraph/orchestrator-postgres');
+  try {
+    const sinceDays = typeof flags['sinceDays'] === 'number' ? flags['sinceDays'] : 14;
+    const apply = flags['apply'] !== false;
+    const reconciled = await reconcileOutcomes({
+      repoRoot: await resolveRepo(''),
+      sinceDays,
+      apply,
+      recordOutcome: (runId, score, factIds) => memory.recordOutcome(runId, score, factIds),
+    });
+    const decided = reconciled.filter((entry) => entry.score !== undefined);
+    say(`reconciled ${reconciled.length} published run(s), ${decided.length} decided${apply ? '' : ' (dry run — nothing recorded)'}`);
+    for (const entry of reconciled) {
+      say(`  #${entry.pr} ${entry.state}${entry.score !== undefined ? ` → score ${entry.score}` : ''} (run ${entry.runId.slice(0, 8)}, ${entry.factIds} lesson(s))`);
+    }
+  } finally {
+    await closeDb();
+  }
+}
+
+/**
  * Run the retention gate over the candidate lesson pool: promote lessons
  * whose runs pass their gates, evict ones that correlate with failures,
  * hold the rest for more evidence.
@@ -182,9 +214,16 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Also ledger-only: scores published runs by their PRs' fates. Meant
+  // for a daily cadence so merge decisions become training evidence.
+  if (id === 'reconcile-outcomes') {
+    await runReconcileOutcomes(parseFlags(rest));
+    return;
+  }
+
   const make = id !== undefined ? WORKFLOWS[id] : undefined;
   if (make === undefined) {
-    say(`usage: maintain <${Object.keys(WORKFLOWS).join('|')}|memory-gate> [--batch n] [--since ref] [--skip n] [--commit false] [--publish false] [--checks "a,b"]`);
+    say(`usage: maintain <${Object.keys(WORKFLOWS).join('|')}|memory-gate|reconcile-outcomes> [--batch n] [--since ref] [--skip n] [--commit false] [--publish false] [--checks "a,b"]`);
     process.exitCode = 2;
     return;
   }

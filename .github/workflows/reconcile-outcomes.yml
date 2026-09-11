@@ -1,0 +1,51 @@
+# Outcome reconciler: human merge decisions, fed back as evidence.
+#
+# Daily, after the previous day's PRs have had a chance to be merged or
+# closed: every recently recorded run that published a PR is scored by
+# what became of it (merged 1, closed-unmerged 0, open waits), recorded
+# on the outcome ledger against the lessons that run's prompts carried.
+# This is the ground-truth signal the lesson-retention gate and any
+# future tuning need; without it the loop only ever grades itself.
+#
+# Secrets: DATABASE_URL (required — there is no ledger without it),
+# MAINTENANCE_PAT or the default token to read PR states.
+
+name: Reconcile outcomes
+
+on:
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+    inputs:
+      sinceDays:
+        description: How many days of published runs to reconcile
+        required: false
+        default: '14'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools --workspace=packages/orchestrator-postgres
+
+      - name: Reconcile merge outcomes
+        env:
+          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: >
+          npm run maintain --workspace=ops/maintenance --
+          reconcile-outcomes
+          --sinceDays ${{ inputs.sinceDays || '14' }}

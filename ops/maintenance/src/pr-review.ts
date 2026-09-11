@@ -16,9 +16,11 @@
  * the @cycgraph trigger pr-revise listens for, so the finding is
  * addressed without a human relaying it. The label is the consent:
  * GitHub restricts labeling to triage+ users, bot PRs are labeled at
- * creation, and an unlabeled PR gets findings only. The cycle is
- * bounded — the revision's reply carries no mention and a branch push
- * does not re-run this review — and a human can always take over.
+ * creation, and an unlabeled PR gets findings only. A push to a
+ * labeled PR re-runs the review as a verification pass over the prior
+ * findings, and the cycle is bounded by a rounds cap — after the third
+ * review the findings post without a handoff and the PR waits for the
+ * human, who can always take over sooner.
  *
  * @module maintenance/pr-review
  */
@@ -110,14 +112,29 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           if (diff.trim() === '') {
             return { has_work: false, detail: `PR #${p.pr} holds no diff against ${p.base}` };
           }
+          // Prior advisory reviews turn this run into a verification
+          // pass: the reviewer checks each earlier finding before
+          // judging what changed. Their count is the cycle's bound.
+          const priorReviews = feedback.comments
+            .filter((comment) => comment.body.startsWith('Advisory review by the pr-review workflow'));
           return {
             has_work: true,
             head,
             title: feedback.title,
             labels: feedback.labels,
+            advisory_rounds: priorReviews.length,
+            prior_findings: priorReviews.length > 0
+              ? priorReviews[priorReviews.length - 1]!.body.slice(0, 6_000)
+              : '',
             diff_bytes: diff.length,
             instruction: [
               `Review pull request #${p.pr} ("${feedback.title}"), branch ${head}, against ${p.base}.`,
+              ...(priorReviews.length > 0
+                ? [
+                  'A previous advisory review requested changes and a revision has since been pushed. FIRST verify each of its numbered findings against the current tree, marking each ADDRESSED or UNRESOLVED with one line of evidence; then review anything the revision newly changed. The previous review:',
+                  priorReviews[priorReviews.length - 1]!.body.slice(0, 6_000),
+                ]
+                : []),
               'The full diff:',
               '```diff',
               diff.length > DIFF_CAP ? `${diff.slice(0, DIFF_CAP)}\n… (truncated at ${DIFF_CAP} bytes)` : diff,
@@ -165,7 +182,9 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         timeoutMs: 60_000,
         execute: async ({ review, verdict_result, gather_result }) => {
           const verdict = verdict_result as { detail?: string; approved?: boolean; malformed?: boolean } | undefined;
-          const labels = (gather_result as { labels?: string[] } | undefined)?.labels ?? [];
+          const gathered = gather_result as { labels?: string[]; advisory_rounds?: number } | undefined;
+          const labels = gathered?.labels ?? [];
+          const rounds = gathered?.advisory_rounds ?? 0;
           if (verdict?.malformed === true) {
             return { posted: false, detail: `nothing posted — ${verdict.detail ?? 'inconclusive review'}` };
           }
@@ -181,9 +200,15 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           // else gets the findings without the bot pushing to their
           // branch unasked. Bounded: the revision reply strips mentions
           // and a branch push does not re-run this review.
-          const handoff = p.revise && verdict?.approved === false && labels.includes(MANAGED_LABEL)
+          // Bounded at three reviews (two revisions) per PR: past the
+          // cap, findings still post but the cycle hands back to the
+          // human instead of dispatching another revision.
+          const handoff = p.revise && verdict?.approved === false
+            && labels.includes(MANAGED_LABEL) && rounds < 2
             ? `\n\n${WORKFLOW_MENTION} please address the numbered findings above.`
-            : '';
+            : p.revise && verdict?.approved === false && labels.includes(MANAGED_LABEL)
+              ? '\n\nRevision cycle cap reached — leaving the remaining findings to human review.'
+              : '';
           const reply = await commentOnPr(repoRoot, p.pr,
             `Advisory review by the pr-review workflow — the human merge decision stands either way.\n\n${body}${handoff}`,
             token !== undefined ? { token } : {});
