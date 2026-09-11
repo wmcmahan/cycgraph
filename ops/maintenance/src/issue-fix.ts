@@ -14,7 +14,9 @@
  *
  * With no readable ledger, `--key` runs the same cycle detached — the
  * finding named directly, nothing closed — which is what makes the
- * loop testable without GitHub.
+ * loop testable without GitHub. An `audit:` key carries no file and no
+ * specification, so detached mode pairs it with `--ticketFile`, whose
+ * contents are the finding's issue text.
  *
  * @module maintenance/issue-fix
  */
@@ -36,7 +38,8 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { scanCore, type CoreFinding } from './core-scan.js';
-import { judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
+import { auditTitle } from './audit-findings.js';
+import { findingFromKey, judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
 import { checksEnv, CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
 import { LESSON_TAG } from './memory.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
@@ -50,6 +53,8 @@ const params = z.object({
     .describe('Fix this specific issue. Zero picks the oldest approved one'),
   key: z.string().default('')
     .describe('Detached mode: fix this finding key directly, without reading or closing any issue'),
+  ticketFile: z.string().default('')
+    .describe('The issue body backing a detached --key, read from this file. Required for `audit:` keys'),
   checks: z.array(z.string()).default([])
     .describe('Commands that must pass before a fix may be committed, e.g. ["npm run lint"]'),
   lint: z.boolean().default(true)
@@ -150,9 +155,34 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             };
           }
           if (p.key !== '') {
-            const kind = p.key.slice(0, p.key.indexOf(':'));
-            const file = p.key.slice(p.key.indexOf(':') + 1, p.key.lastIndexOf(':'));
-            return { has_work: true, detached: true, key: p.key, kind, file };
+            const finding = findingFromKey(p.key);
+            if (finding === undefined) {
+              return {
+                has_work: false,
+                detail: `'${p.key}' is not a finding key ('<kind>:<file>:<detail>' or 'audit:<title-slug>')`,
+              };
+            }
+            // `audit:<title-slug>` carries no file component and no
+            // specification: an audit finding's evidence, detail and
+            // suggestion live only in its issue text, so detached mode
+            // needs that body handed in rather than guessed from the key.
+            if (finding.kind === 'audit') {
+              const body = p.ticketFile !== '' ? await readFile(p.ticketFile, 'utf8') : '';
+              if (body.trim() === '') {
+                return {
+                  has_work: false,
+                  detail: `'${p.key}' is an audit finding: its specification is the issue text, so detached mode needs --ticketFile carrying that body — the key alone is insufficient`,
+                };
+              }
+              return {
+                has_work: true,
+                detached: true,
+                ...finding,
+                issue_title: auditTitle(body, p.key),
+                issue_body: body.slice(0, 12_000),
+              };
+            }
+            return { has_work: true, detached: true, ...finding };
           }
           return { has_work: false, detail: 'cannot read the issue ledger and no --key was given' };
         },
@@ -168,6 +198,17 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             { key?: string; kind?: string; issue_number?: number; issue_title?: string; issue_body?: string } | undefined;
           const findings = await scanCore(workspaceAt, { lint: p.lint });
           if (pick?.kind === 'audit') {
+            const spec = pick.issue_body ?? '';
+            // The audit finding's issue text IS the specification; with
+            // none of it there is nothing to brief the fixer with, so
+            // the run exits visibly rather than fixing an empty spec.
+            if (spec.trim() === '') {
+              return {
+                has_target: false,
+                keys: findings.map((f) => f.key),
+                detail: `'${pick.key ?? ''}' is an audit finding whose issue text did not reach the scan — its specification cannot be reconstructed from the key`,
+              };
+            }
             return {
               has_target: true,
               audit: true,
@@ -175,7 +216,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
               instruction: [
                 `Resolve the audited finding this approved issue describes.`,
                 `# ${pick.issue_title ?? pick.key ?? ''}`,
-                pick.issue_body ?? '',
+                spec,
                 AUDIT_GUIDANCE,
                 'Change nothing unrelated.',
               ].join('\n'),

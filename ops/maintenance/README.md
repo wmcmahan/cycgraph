@@ -53,7 +53,10 @@ refuses to file rather than filing blind. For `issue-fix`:
 `--label <name>` (which label counts as approval), `--issueNumber n`
 (fix a specific issue), and `--key <finding-key>` (detached mode: fix a
 named finding without reading or closing any issue — how the cycle runs
-without GitHub). For `opt-propose`: `--target <bench filter>`,
+without GitHub). An `audit:` key names a finding whose whole
+specification is its issue text, so detached mode also needs
+`--ticketFile <path>` carrying that body; without it the run refuses
+rather than briefing the fixer with an empty spec. For `opt-propose`: `--target <bench filter>`,
 `--minImprovement n` (percent a proposal must measure, beyond the two
 runs' combined error margins), `--scope <dir>` (changes outside it are
 refused), `--attempts n`. For `feat-propose`: `--focus <area>` steers

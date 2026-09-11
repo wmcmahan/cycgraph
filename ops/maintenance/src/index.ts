@@ -23,7 +23,7 @@ export { issueFix } from './issue-fix.js';
 export { optPropose } from './opt-workflow.js';
 export { featPropose } from './feat-propose.js';
 export { charterOrder, repoAudit } from './audit-workflow.js';
-export { auditKey, parseAuditFindings, siftAuditFindings, AUDIT_SEVERITIES } from './audit-findings.js';
+export { auditKey, auditTitle, parseAuditFindings, siftAuditFindings, AUDIT_SEVERITIES } from './audit-findings.js';
 export type { AuditFinding, AuditSeverity, AuditSiftOptions, AuditSiftResult } from './audit-findings.js';
 export { optApply } from './opt-apply.js';
 export { prRevise } from './pr-revise.js';
@@ -35,7 +35,7 @@ export { extractTicketDiff, parseProposal, pathTokens, proposalKey, safeAcceptan
 export type { FeatureProposal } from './proposal.js';
 export { compareBench, parseBenchJson, runAliasedBench } from './bench.js';
 export type { BenchComparison, BenchDelta, BenchRow } from './bench.js';
-export { commentOnlyChange, eslintDisableCount, judgeIssueFix, parseIssueFinding, testCount } from './issue-judge.js';
+export { commentOnlyChange, eslintDisableCount, findingFromKey, judgeIssueFix, parseIssueFinding, testCount } from './issue-judge.js';
 export type { IssueFinding, IssueFixEvidence, IssueFixVerdict } from './issue-judge.js';
 export { resolveRepo } from './repo.js';
 export type { MaintenanceBuild, MaintenanceEnv, MaintenanceWorkflow } from './types.js';
