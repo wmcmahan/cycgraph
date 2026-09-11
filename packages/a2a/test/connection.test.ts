@@ -80,6 +80,17 @@ describe('sdkClientFactory', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves the card again for header sets that differ only in where the delimiter falls', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, { authorization: 'Bearer sesame', 'x-api-key': 'tenant-a' }));
+    await settled(create(CARD_URL, { authorization: 'Bearer sesame,x-api-key:tenant-a' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('shares one card fetch across calls differing only in trace headers', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => cardResponse());
     vi.stubGlobal('fetch', fetchMock);
