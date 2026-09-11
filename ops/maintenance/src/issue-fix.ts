@@ -38,7 +38,8 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { scanCore, type CoreFinding } from './core-scan.js';
-import { judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
+import { auditTitle } from './audit-findings.js';
+import { findingFromKey, judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
 import { checksEnv, CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
 import { LESSON_TAG } from './memory.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
@@ -75,14 +76,6 @@ const GUIDANCE: Record<CoreFinding['kind'], string> = {
   'skipped-test': 'Remove the .skip so the test runs, and make it pass by fixing whatever it exercises. Deleting the test will be refused.',
   'lint-warning': 'Fix the code the warning points at. Adding an eslint-disable comment or touching lint configuration will be refused.',
 };
-
-const AUDIT_PREFIX = 'audit:';
-
-/** The first markdown heading of an audit issue body, or the key when it has none. */
-function auditTitle(body: string, key: string): string {
-  const heading = body.split('\n').find((line) => /^#{1,6}\s+\S/.test(line));
-  return heading !== undefined ? heading.replace(/^#{1,6}\s+/, '').trim() : key;
-}
 
 const AUDIT_GUIDANCE = [
   'This finding came from a model-driven audit: the issue text above is the whole specification.',
@@ -162,14 +155,19 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             };
           }
           if (p.key !== '') {
+            const finding = findingFromKey(p.key);
+            if (finding === undefined) {
+              return {
+                has_work: false,
+                detail: `'${p.key}' is not a finding key ('<kind>:<file>:<detail>' or 'audit:<title-slug>')`,
+              };
+            }
             // `audit:<title-slug>` carries no file component and no
             // specification: an audit finding's evidence, detail and
             // suggestion live only in its issue text, so detached mode
             // needs that body handed in rather than guessed from the key.
-            if (p.key.startsWith(AUDIT_PREFIX)) {
-              const body = p.ticketFile !== ''
-                ? await readFile(p.ticketFile, 'utf8').catch(() => '')
-                : '';
+            if (finding.kind === 'audit') {
+              const body = p.ticketFile !== '' ? await readFile(p.ticketFile, 'utf8') : '';
               if (body.trim() === '') {
                 return {
                   has_work: false,
@@ -179,22 +177,12 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
               return {
                 has_work: true,
                 detached: true,
-                key: p.key,
-                kind: 'audit',
-                file: '',
+                ...finding,
                 issue_title: auditTitle(body, p.key),
                 issue_body: body.slice(0, 12_000),
               };
             }
-            const kind = p.key.slice(0, p.key.indexOf(':'));
-            const file = p.key.slice(p.key.indexOf(':') + 1, p.key.lastIndexOf(':'));
-            if (file === '') {
-              return {
-                has_work: false,
-                detail: `'${p.key}' is not a core-scan finding key ('<kind>:<file>:<detail>')`,
-              };
-            }
-            return { has_work: true, detached: true, key: p.key, kind, file };
+            return { has_work: true, detached: true, ...finding };
           }
           return { has_work: false, detail: 'cannot read the issue ledger and no --key was given' };
         },

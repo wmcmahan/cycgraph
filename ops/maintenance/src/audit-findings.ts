@@ -46,6 +46,17 @@ export function auditKey(title: string): string {
   return `audit:${normalized}`;
 }
 
+/**
+ * The title an audit issue body carries: its first markdown heading
+ * (`#` through `######`, with text after it), falling back to the
+ * finding key. Bodies filed by the audit workflow carry no heading, so
+ * the fallback is the ordinary path for a real ticket.
+ */
+export function auditTitle(body: string, key: string): string {
+  const heading = body.split('\n').find((line) => /^#{1,6}\s+\S/.test(line));
+  return heading !== undefined ? heading.replace(/^#{1,6}\s+/, '').trim() : key;
+}
+
 const SECTION_HEADS = /^(SEVERITY|EVIDENCE|DETAIL|SUGGESTION):/;
 
 /**

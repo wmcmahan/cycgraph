@@ -22,19 +22,32 @@ export interface IssueFinding {
 
 const KINDS: readonly CoreFinding['kind'][] = ['todo', 'skipped-test', 'lint-warning'];
 
+/**
+ * Recover the finding a marker key names, or `undefined` when the key is
+ * not one of ours.
+ *
+ * Audit keys are `audit:<title-slug>` — no file component, since the
+ * issue body itself carries the finding's evidence and location. Every
+ * other key is `<kind>:<file>:<detail>` over a known scan kind.
+ */
+export function findingFromKey(key: string): IssueFinding | undefined {
+  if (key.startsWith('audit:')) {
+    return key.length > 'audit:'.length ? { key, kind: 'audit', file: '' } : undefined;
+  }
+  const split = key.indexOf(':');
+  if (split === -1) return undefined;
+  const kind = key.slice(0, split);
+  const file = key.slice(split + 1, key.lastIndexOf(':'));
+  if (!(KINDS as readonly string[]).includes(kind) || file === '') return undefined;
+  return { key, kind: kind as CoreFinding['kind'], file };
+}
+
 /** Recover the finding a filed issue carries, or `undefined` when it carries none. */
 export function parseIssueFinding(body: string): IssueFinding | undefined {
   const keys = issueMarkers([{ number: 0, title: '', body } satisfies IssueRef]);
   const key = [...keys][0];
   if (key === undefined) return undefined;
-  // Audit keys are `audit:<title-slug>` — no file component; the issue
-  // body itself carries the finding's evidence and location.
-  if (key.startsWith('audit:') && key.length > 'audit:'.length) {
-    return { key, kind: 'audit', file: '' };
-  }
-  const [kind, file] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1, key.lastIndexOf(':'))];
-  if (!(KINDS as readonly string[]).includes(kind) || file === '') return undefined;
-  return { key, kind: kind as CoreFinding['kind'], file };
+  return findingFromKey(key);
 }
 
 const COMMENT_LINE = /^[+-]\s*(\/\/|\/\*|\*|\*\/)?\s*$|^[+-]\s*(\/\/|\/\*|\*)/;

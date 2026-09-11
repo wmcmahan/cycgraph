@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { auditKey, parseAuditFindings, siftAuditFindings } from '../src/audit-findings.js';
+import { auditKey, auditTitle, parseAuditFindings, siftAuditFindings } from '../src/audit-findings.js';
 import { charterOrder } from '../src/audit-workflow.js';
 
 const WELL_FORMED = [
@@ -82,6 +82,32 @@ describe('auditKey', () => {
 
   it('is namespaced apart from feature keys', () => {
     expect(auditKey('anything')).toMatch(/^audit:/);
+  });
+});
+
+describe('auditTitle', () => {
+  it('takes the first markdown heading of the body', () => {
+    const body = ['Preamble line.', '### Retriever drops fact ids', 'SEVERITY: high'].join('\n');
+
+    expect(auditTitle(body, 'audit:retriever-drops-fact-ids')).toBe('Retriever drops fact ids');
+  });
+
+  it('falls back to the key for a body with no heading', () => {
+    const body = ['SEVERITY: high', 'EVIDENCE:', 'a/b.ts shows it.', 'DETAIL:', 'It drops ids.'].join('\n');
+
+    expect(auditTitle(body, 'audit:retriever-drops-fact-ids')).toBe('audit:retriever-drops-fact-ids');
+  });
+
+  it('does not take a heading deeper than six hashes', () => {
+    const body = '####### Too deep to be a heading';
+
+    expect(auditTitle(body, 'audit:key')).toBe('audit:key');
+  });
+
+  it('does not take a heading with no text after it', () => {
+    const body = ['###', 'SEVERITY: low'].join('\n');
+
+    expect(auditTitle(body, 'audit:key')).toBe('audit:key');
   });
 });
 
