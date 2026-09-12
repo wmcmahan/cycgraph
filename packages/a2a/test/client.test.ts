@@ -111,14 +111,20 @@ describe('toResult', () => {
     expect(result.artifacts[0].name).toBe('artifact_0');
   });
 
-  it('returns no artifacts for a non-completed task', () => {
+  it.each([
+    ['TASK_STATE_FAILED', 'failed'],
+    ['TASK_STATE_CANCELED', 'canceled'],
+    ['TASK_STATE_INPUT_REQUIRED', 'input-required'],
+    ['TASK_STATE_REJECTED', 'rejected'],
+    ['TASK_STATE_AUTH_REQUIRED', 'auth-required'],
+  ])('returns no artifacts for a non-completed %s task', (wireState, state) => {
     const result = toResult({
       id: 'task-1',
-      status: { state: 'TASK_STATE_INPUT_REQUIRED' },
+      status: { state: wireState },
       artifacts: [{ name: 'partial', parts: [textPart('x')] }],
     });
 
-    expect(result.state).toBe('input-required');
+    expect(result.state).toBe(state);
     expect(result.artifacts).toEqual([]);
   });
 
