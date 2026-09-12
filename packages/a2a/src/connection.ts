@@ -14,7 +14,7 @@
 
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
 import type { Client as SdkClient } from '@a2a-js/sdk/client';
-import { isPrivateOrLoopbackHost } from '@cycgraph/orchestrator';
+import { assertResolvedHostPublic, isPrivateOrLoopbackHost } from '@cycgraph/orchestrator';
 import { raceAbort } from './race.js';
 
 /**
@@ -64,15 +64,30 @@ function endpointUrls(card: unknown): string[] {
   return urls.filter((value): value is string => typeof value === 'string' && value !== '');
 }
 
+/** Env var opting one deployment out of both A2A URL guards. */
+const ALLOW_PRIVATE_ENV = 'CYCGRAPH_ALLOW_PRIVATE_A2A_URLS';
+
 /**
  * SSRF guard over the endpoints a resolved Agent Card offers. The
  * registry validates the CARD url before any request leaves, but the
  * card's returned RPC endpoints come from the remote — a compromised
  * agent could point the transport at loopback or cloud-metadata hosts.
- * Honors the card-url guard's opt-out: one protocol, one decision.
+ * Each endpoint is checked as a literal host AND re-checked against its
+ * DNS-resolved addresses, so a public name pointing at a private address
+ * is refused too. Honors the card-url guard's opt-out: one protocol, one
+ * decision.
+ *
+ * The card is remote-controlled, so the DNS half runs as ONE bounded
+ * step: hosts are deduped and resolved concurrently, and `signal` — the
+ * caller's own deadline — rejects the whole guard rather than letting a
+ * card that advertises N slow-resolving interfaces stall the call for N
+ * lookup budgets.
  */
-function assertPublicEndpoints(card: unknown): void {
-  if (process.env['CYCGRAPH_ALLOW_PRIVATE_A2A_URLS'] === 'true') return;
+async function assertPublicEndpoints(card: unknown, signal?: AbortSignal): Promise<void> {
+  if (process.env[ALLOW_PRIVATE_ENV] === 'true') return;
+  // Host → the first endpoint that advertised it, so one lookup answers
+  // for every endpoint sharing a host and the message still names one.
+  const hosts = new Map<string, string>();
   for (const value of endpointUrls(card)) {
     let parsed: URL;
     try {
@@ -91,7 +106,19 @@ function assertPublicEndpoints(card: unknown): void {
         `agent card endpoint "${value}" points at a private/loopback host and is blocked (SSRF guard). `
         + 'Set CYCGRAPH_ALLOW_PRIVATE_A2A_URLS=true to allow it in development.');
     }
+    if (!hosts.has(parsed.hostname)) hosts.set(parsed.hostname, value);
   }
+
+  const resolving = Promise.all([...hosts].map(([hostname, value]) =>
+    assertResolvedHostPublic(hostname, {
+      allowEnvVar: ALLOW_PRIVATE_ENV,
+      subject: `agent card endpoint "${value}"`,
+    }))).then(() => undefined);
+  await (signal
+    ? raceAbort(resolving, signal, () => new Error(
+      'agent card endpoint SSRF validation did not complete before the caller aborted (SSRF guard)',
+      { cause: signal.reason }))
+    : resolving);
 }
 
 /**
@@ -172,7 +199,7 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
     const resolved = await card;
     // Checked per call, not per resolution: the card is cached, and the
     // guard must hold for cached reuse too.
-    assertPublicEndpoints(resolved);
+    await assertPublicEndpoints(resolved, signal);
     // Cast: the resolver returns parsed JSON; the factory validates it.
     return factory.createFromAgentCard(resolved as never);
   };
