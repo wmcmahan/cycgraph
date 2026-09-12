@@ -50,19 +50,41 @@ export async function listOpenIssues(
   }
 }
 
-/** Create one issue; the URL on success, the failure's message otherwise. */
+/**
+ * Create one issue; the URL on success, the failure's message otherwise.
+ * Labels are best-effort: each is created on the repository if missing,
+ * and a label the token cannot attach never costs the ticket itself.
+ */
 export async function createIssue(
   repoRoot: string,
-  issue: { title: string; body: string },
+  issue: { title: string; body: string; labels?: string[] },
   options: { token?: string } = {},
 ): Promise<{ url: string } | { error: string }> {
-  try {
-    const { stdout } = await exec(
-      'gh', ['issue', 'create', '--title', issue.title, '--body', issue.body],
-      { cwd: repoRoot, ...(ghEnv(options.token) !== undefined ? { env: ghEnv(options.token) } : {}) },
-    );
+  const env = ghEnv(options.token);
+  const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
+  const labels = issue.labels ?? [];
+  // `--label` only attaches labels that already exist; creating one that
+  // does exist fails, which is the ordinary case here.
+  for (const label of labels) {
+    await exec('gh', ['label', 'create', label], opts).catch(() => undefined);
+  }
+  const create = async (withLabels: boolean) => {
+    const { stdout } = await exec('gh', [
+      'issue', 'create', '--title', issue.title, '--body', issue.body,
+      ...(withLabels ? labels.flatMap((label) => ['--label', label]) : []),
+    ], opts);
     return { url: stdout.trim().split('\n').pop() ?? '' };
+  };
+  try {
+    return await create(labels.length > 0);
   } catch (error) {
+    if (labels.length > 0) {
+      try {
+        return await create(false);
+      } catch {
+        // The labeled attempt's error names the truer failure.
+      }
+    }
     return { error: (error as Error).message.trim() };
   }
 }

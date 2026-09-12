@@ -117,7 +117,7 @@ export function optApply(): MaintenanceWorkflow<typeof params> {
           }
           const diff = extractTicketDiff(picked.body);
           return diff !== undefined
-            ? { has_work: true, issue_number: picked.number, diff }
+            ? { has_work: true, issue_number: picked.number, issue_title: picked.title, diff }
             : { has_work: false, detail: `ticket #${picked.number} carries no complete diff — re-propose it` };
         },
       });
@@ -171,9 +171,14 @@ export function optApply(): MaintenanceWorkflow<typeof params> {
           const before = (bench_before_result as { rows?: BenchRow[] } | undefined)?.rows ?? [];
           const after = (bench_after_result as { rows?: BenchRow[] } | undefined)?.rows ?? [];
           const comparison = compareBench(before, after, p.minImprovement);
-          const issue = (pick_result as { issue_number?: number } | undefined)?.issue_number;
+          const pick = pick_result as { issue_number?: number; issue_title?: string } | undefined;
+          const issue = pick?.issue_number;
           const closes = issue !== undefined ? `Closes #${issue}. ` : '';
+          // The ticket title names the optimization; its `[optimization]`
+          // marker gives way to the conventional prefix.
+          const ticketTitle = (pick?.issue_title ?? '').replace(/^\[[^\]]*\]\s*/, '');
           return {
+            ...(ticketTitle !== '' ? { subject: `perf: ${ticketTitle}` } : {}),
             improved_count: comparison.improved.length,
             regressed_count: comparison.regressed.length,
             disappeared_count: comparison.disappeared.length,

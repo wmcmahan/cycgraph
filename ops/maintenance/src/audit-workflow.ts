@@ -35,7 +35,7 @@ import { agent, graph, mapReduce, node, reflection, tool, verifier } from '@cycg
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
-import { auditKey, siftAuditFindings, type AuditFinding } from './audit-findings.js';
+import { auditKey, renderAuditIssueBody, siftAuditFindings, type AuditFinding } from './audit-findings.js';
 import { scheduleCharters } from './audit-schedule.js';
 import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
 import { repoMap, resolveRepo } from './repo.js';
@@ -256,19 +256,9 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
           const failures: string[] = [];
           for (const finding of kept) {
             const outcome = await createIssue(repoRoot, {
-              title: `[audit:${finding.severity}] ${finding.title}`,
-              body: [
-                `SEVERITY: ${finding.severity}`,
-                '',
-                'EVIDENCE:', finding.evidence, '',
-                'DETAIL:', finding.detail,
-                ...(finding.suggestion !== '' ? ['', 'SUGGESTION:', finding.suggestion] : []),
-                '',
-                'Found by the repo-audit workflow from a read-only sweep; evidence paths were verified to exist before filing.',
-                'Approve with the `maintenance-approved` label; the fix and the PR follow the maintenance ladder, and the merge is the accept signal.',
-                '',
-                findingMarker(auditKey(finding.title)),
-              ].join('\n'),
+              title: finding.title,
+              body: renderAuditIssueBody(finding, findingMarker(auditKey(finding.title))),
+              labels: ['audit', `severity:${finding.severity}`],
             }, token !== undefined ? { token } : {});
             if ('url' in outcome) urls.push(outcome.url);
             else failures.push(outcome.error);
@@ -296,10 +286,10 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
           'Read with intent: every read_file result rides the rest of your context, so each one must earn its place. read_file windows large files and reports the total line count — after a search hit, pull the exact slice with offset and limit instead of paging through the whole file, and never re-read a file or slice you already have; cite from what you read the first time. Reserve whole-file reads for small files and for the rare case where the charter genuinely needs the full picture.',
           'Report at most your three strongest findings. One proven finding beats five plausible ones: the sift drops anything whose evidence names no real path, and a human reviews every ticket.',
           'Reply with zero or more blocks in exactly this format, each header on its own line:',
-          'FINDING: <one line naming the defect or gap>',
+          'FINDING: <a short, specific title for the defect — ten words or fewer, no trailing period; the detail belongs in DETAIL>',
           'SEVERITY: high | medium | low',
-          'EVIDENCE:', '<real repository paths, each with one line on what it shows>',
-          'DETAIL:', '<what is wrong, why it matters, and the input or state that exposes it>',
+          'EVIDENCE:', '<one line per real repository path: the path, a dash, and what it shows>',
+          'DETAIL:', '<one or two short paragraphs of plain prose a human can read at a glance: first what is wrong, then why it matters and the input or state that exposes it>',
           'SUGGESTION:', '<the shape of the fix, not the fix itself>',
           'Cite a path only after read_file has shown you its contents.',
           'When the charter turns up nothing you can prove, reply CLEAN: <one line on what you checked>. Never pad a clean result with weak findings.',

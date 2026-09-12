@@ -1,7 +1,10 @@
 # PR revise: review feedback, closed as a loop. On a PR carrying the
 # maintenance-managed label (applied to bot PRs at birth; by hand to any
 # PR the loop should manage — GitHub restricts labeling to triage+
-# users, which is the consent check), a change-requesting review or a
+# users, which is the consent check), a change-requesting review, a
+# review whose body mentions @cycgraph (pr-review's handoff — its
+# verdict submits as a comment-state review, since a token cannot
+# request changes on its own PR), or a
 # comment mentioning @cycgraph dispatches a run that reads the feedback,
 # revises the same branch (updating the PR in place), and replies. The
 # revision push then fires pr-review's verification pass over the prior
@@ -44,6 +47,10 @@ jobs:
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'pull_request_review' &&
        github.event.review.state == 'changes_requested' &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association) &&
+       contains(github.event.pull_request.labels.*.name, 'maintenance-managed')) ||
+      (github.event_name == 'pull_request_review' &&
+       contains(github.event.review.body, '@cycgraph') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association) &&
        contains(github.event.pull_request.labels.*.name, 'maintenance-managed')) ||
       (github.event_name == 'issue_comment' &&
