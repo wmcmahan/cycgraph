@@ -12,6 +12,7 @@
  * @module connection
  */
 
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client';
 import type { Client as SdkClient } from '@a2a-js/sdk/client';
 import { isPrivateOrLoopbackHost } from '@cycgraph/orchestrator';
@@ -64,14 +65,65 @@ function endpointUrls(card: unknown): string[] {
   return urls.filter((value): value is string => typeof value === 'string' && value !== '');
 }
 
+/** Max time spent resolving one endpoint host before the guard fails closed. */
+const DNS_LOOKUP_TIMEOUT_MS = 5000;
+
+/**
+ * Connect-time DNS re-check for one card endpoint host. The literal-hostname
+ * test above only sees the string the remote advertised: a public-looking
+ * name whose record points at `127.0.0.1`, `169.254.169.254`, or an RFC1918
+ * address passes it, and the SDK's own `fetch` then resolves that name and
+ * connects to the private address (DNS rebinding). Resolving here and
+ * rejecting if ANY returned address is private closes the static case.
+ *
+ * Fails closed: a lookup that errors or outruns its budget blocks the
+ * endpoint rather than letting the transport connect unvalidated. A TTL-0
+ * attacker who flips the record between this lookup and the SDK's connect
+ * is a documented residual — pair with network egress policy for that.
+ */
+async function assertEndpointResolvesPublic(parsed: URL, value: string): Promise<void> {
+  // URL.hostname keeps IPv6 in brackets; dns.lookup wants the bare address.
+  const host = parsed.hostname.replace(/^\[|\]$/g, '');
+  // Literal IPs were fully decided by isPrivateOrLoopbackHost — nothing to resolve.
+  if (/^[0-9.]+$/.test(host) || host.includes(':')) return;
+
+  let addresses: Array<{ address: string }>;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`lookup timed out after ${DNS_LOOKUP_TIMEOUT_MS}ms`)),
+        DNS_LOOKUP_TIMEOUT_MS);
+      // A pending guard must not hold the process open.
+      (timer as { unref?: () => void }).unref?.();
+    });
+    addresses = await Promise.race([dnsLookup(host, { all: true, verbatim: true }), timeout]);
+  } catch (error) {
+    throw new Error(
+      `agent card endpoint "${value}" host "${host}" could not be resolved for SSRF validation: `
+      + `${(error as Error).message}`,
+      { cause: error });
+  }
+
+  const blocked = addresses.filter((entry) => isPrivateOrLoopbackHost(entry.address));
+  if (blocked.length > 0) {
+    throw new Error(
+      `agent card endpoint "${value}" resolves to a private/loopback address `
+      + `(${blocked.map((entry) => entry.address).join(', ')}) and is blocked (SSRF guard). `
+      + 'Set CYCGRAPH_ALLOW_PRIVATE_A2A_URLS=true to allow it in development.');
+  }
+}
+
 /**
  * SSRF guard over the endpoints a resolved Agent Card offers. The
  * registry validates the CARD url before any request leaves, but the
  * card's returned RPC endpoints come from the remote — a compromised
  * agent could point the transport at loopback or cloud-metadata hosts.
- * Honors the card-url guard's opt-out: one protocol, one decision.
+ * Each endpoint is checked as a literal host AND re-checked against its
+ * DNS-resolved addresses, so a public name pointing at a private address
+ * is refused too. Honors the card-url guard's opt-out: one protocol, one
+ * decision.
  */
-function assertPublicEndpoints(card: unknown): void {
+async function assertPublicEndpoints(card: unknown): Promise<void> {
   if (process.env['CYCGRAPH_ALLOW_PRIVATE_A2A_URLS'] === 'true') return;
   for (const value of endpointUrls(card)) {
     let parsed: URL;
@@ -91,6 +143,7 @@ function assertPublicEndpoints(card: unknown): void {
         `agent card endpoint "${value}" points at a private/loopback host and is blocked (SSRF guard). `
         + 'Set CYCGRAPH_ALLOW_PRIVATE_A2A_URLS=true to allow it in development.');
     }
+    await assertEndpointResolvesPublic(parsed, value);
   }
 }
 
@@ -172,7 +225,7 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
     const resolved = await card;
     // Checked per call, not per resolution: the card is cached, and the
     // guard must hold for cached reuse too.
-    assertPublicEndpoints(resolved);
+    await assertPublicEndpoints(resolved);
     // Cast: the resolver returns parsed JSON; the factory validates it.
     return factory.createFromAgentCard(resolved as never);
   };
