@@ -205,6 +205,14 @@ describe('toResult', () => {
     expect(result).toEqual({ taskId: 'task-8', state: 'failed', artifacts: [] });
   });
 
+  it('reports a message-shaped reply without a role as a failed task', () => {
+    const result = toResult({
+      parts: [textPart('the answer')],
+    });
+
+    expect(result).toEqual({ taskId: '', state: 'failed', artifacts: [] });
+  });
+
 });
 
 describe('createA2AClient', () => {
