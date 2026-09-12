@@ -49,6 +49,8 @@ export type {
   SecurityPolicyEffect,
 } from './security/security-policy.js';
 export { SecurityPolicyViolationError, readableTaintedKeys } from './security/security-policy.js';
+export { assertResolvedHostPublic } from './security/dns-rebinding.js';
+export type { ResolvedHostGuardOptions } from './security/dns-rebinding.js';
 export { createObserverMiddleware } from './execution/middleware/observer-middleware.js';
 export type { ObserverMiddlewareOptions, ObserverFinding, ObserverSeverity, DiagnosticAgentOptions } from './execution/middleware/observer-middleware.js';
 export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './execution/errors.js';

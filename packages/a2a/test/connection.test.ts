@@ -186,7 +186,8 @@ describe('sdkClientFactory', () => {
     const create = sdkClientFactory();
 
     await expect(create(CARD_URL, {})).rejects.toThrow(
-      'agent card endpoint "https://rebind.example/rpc" resolves to a private/loopback address (169.254.169.254)');
+      'agent card endpoint "https://rebind.example/rpc" host "rebind.example" '
+      + 'resolves to a private/loopback address (169.254.169.254)');
   });
 
   it('refuses a card whose secondary endpoint host resolves to a private address', async () => {
@@ -200,7 +201,8 @@ describe('sdkClientFactory', () => {
     const create = sdkClientFactory();
 
     await expect(create(CARD_URL, {})).rejects.toThrow(
-      'agent card endpoint "https://rebind.example/rpc" resolves to a private/loopback address (169.254.169.254)');
+      'agent card endpoint "https://rebind.example/rpc" host "rebind.example" '
+      + 'resolves to a private/loopback address (169.254.169.254)');
   });
 
   it('refuses a card endpoint whose host cannot be resolved', async () => {
@@ -224,6 +226,52 @@ describe('sdkClientFactory', () => {
     await settled(create(CARD_URL, {}));
 
     expect(dnsLookupMock).toHaveBeenCalledTimes(0);
+  });
+
+  it('resolves a host shared by several endpoints once', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('https://agent.example/rpc', {
+      supportedInterfaces: [{ url: 'https://agent.example/jsonrpc', transport: 'JSONRPC' }],
+      additionalInterfaces: [{ url: 'https://agent.example/extra', transport: 'JSONRPC' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+
+    expect(dnsLookupMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves distinct endpoint hosts concurrently', async () => {
+    let secondStarted!: () => void;
+    const secondHasStarted = new Promise<void>((resolve) => { secondStarted = resolve; });
+    dnsLookupMock.mockImplementation(async (host: string) => {
+      if (host === 'two.example') secondStarted();
+      else await secondHasStarted;
+      return [{ address: PUBLIC_IP, family: 4 }];
+    });
+    const fetchMock = vi.fn(async () => cardResponse('https://one.example/rpc', {
+      additionalInterfaces: [{ url: 'https://two.example/rpc', transport: 'JSONRPC' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+
+    expect(dnsLookupMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails the guard when the caller aborts before the dns re-check settles', async () => {
+    dnsLookupMock.mockImplementation(() => new Promise(() => undefined));
+    const fetchMock = vi.fn(async () => cardResponse('https://slow.example/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+    const caller = new AbortController();
+
+    const create = sdkClientFactory();
+    const creating = create(CARD_URL, {}, caller.signal);
+    caller.abort();
+
+    await expect(creating).rejects.toThrow(
+      'agent card endpoint SSRF validation did not complete before the caller aborted (SSRF guard)');
   });
 
   it('accepts a card whose secondary endpoints are all public', async () => {
