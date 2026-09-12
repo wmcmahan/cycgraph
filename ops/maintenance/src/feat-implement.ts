@@ -185,7 +185,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         timeoutMs: 1_800_000,
         execute: async ({ pick_result }) => {
           const pick = pick_result as
-            { issue_number?: number; runnable?: string[]; manual?: string[] } | undefined;
+            { issue_number?: number; title?: string; runnable?: string[]; manual?: string[] } | undefined;
           const changed = await changedIn(workspaceAt);
           // Snapshot before running: acceptance executes agent-authored
           // code, and a test that writes source files is using the judge
@@ -215,6 +215,8 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
             mutated_by_tests: mutated,
             failed,
             manual: pick?.manual ?? [],
+            // The proposal title names the feature, so the commit inherits it.
+            ...(pick?.title !== undefined && pick.title !== '' ? { subject: `feat: ${pick.title}` } : {}),
             detail: changed.length === 0
               ? `${closes}nothing was changed`
               : mutated

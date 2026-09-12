@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { auditKey, auditTitle, parseAuditFindings, siftAuditFindings } from '../src/audit-findings.js';
+import { auditKey, auditTitle, parseAuditFindings, renderAuditIssueBody, siftAuditFindings, type AuditFinding } from '../src/audit-findings.js';
 import { charterOrder } from '../src/audit-workflow.js';
 
 const WELL_FORMED = [
@@ -86,8 +86,8 @@ describe('auditKey', () => {
 });
 
 describe('auditTitle', () => {
-  it('takes the first markdown heading of the body', () => {
-    const body = ['Preamble line.', '### Retriever drops fact ids', 'SEVERITY: high'].join('\n');
+  it('takes the first H1 heading of the body', () => {
+    const body = ['Preamble line.', '# Retriever drops fact ids', '## Problem'].join('\n');
 
     expect(auditTitle(body, 'audit:retriever-drops-fact-ids')).toBe('Retriever drops fact ids');
   });
@@ -98,16 +98,71 @@ describe('auditTitle', () => {
     expect(auditTitle(body, 'audit:retriever-drops-fact-ids')).toBe('audit:retriever-drops-fact-ids');
   });
 
-  it('does not take a heading deeper than six hashes', () => {
-    const body = '####### Too deep to be a heading';
+  it('ignores section headings deeper than H1', () => {
+    const body = ['## Problem', 'It drops ids.', '## Evidence', '- a/b.ts — shows it.'].join('\n');
 
     expect(auditTitle(body, 'audit:key')).toBe('audit:key');
   });
 
   it('does not take a heading with no text after it', () => {
-    const body = ['###', 'SEVERITY: low'].join('\n');
+    const body = ['#', 'SEVERITY: low'].join('\n');
 
     expect(auditTitle(body, 'audit:key')).toBe('audit:key');
+  });
+});
+
+describe('renderAuditIssueBody', () => {
+  const FINDING: AuditFinding = {
+    title: 'Retriever drops fact ids',
+    severity: 'high',
+    evidence: 'a/b.ts maps facts without id.\nc/d.ts shows the ledger stays empty.',
+    detail: 'Lesson provenance records nothing, so eval-gating degrades to keep-everything.',
+    suggestion: 'Map id: f.id through in the adapter.',
+  };
+  const MARKER = '<!-- cycgraph:finding=audit:retriever-drops-fact-ids -->';
+
+  it('orders problem, suggested fix, evidence, footer, marker', () => {
+    const body = renderAuditIssueBody(FINDING, MARKER);
+
+    expect(body).toBe([
+      '## Problem',
+      '',
+      'Lesson provenance records nothing, so eval-gating degrades to keep-everything.',
+      '',
+      '## Suggested fix',
+      '',
+      'Map id: f.id through in the adapter.',
+      '',
+      '## Evidence',
+      '',
+      '- a/b.ts maps facts without id.',
+      '- c/d.ts shows the ledger stays empty.',
+      '',
+      '_Found in automated audit sweep. Severity: high._',
+      '',
+      MARKER,
+    ].join('\n'));
+  });
+
+  it('omits the suggested-fix section when the finding carries none', () => {
+    const body = renderAuditIssueBody({ ...FINDING, suggestion: '' }, MARKER);
+
+    expect(body).not.toContain('## Suggested fix');
+    expect(body).toContain('## Problem');
+    expect(body).toContain('## Evidence');
+  });
+
+  it('keeps evidence lines already written as bullets unchanged', () => {
+    const body = renderAuditIssueBody({ ...FINDING, evidence: '- a/b.ts — shows it.' }, MARKER);
+
+    expect(body).toContain('\n- a/b.ts — shows it.\n');
+    expect(body).not.toContain('- - a/b.ts');
+  });
+
+  it('renders no title heading, so a filed body falls back to its key', () => {
+    const body = renderAuditIssueBody(FINDING, MARKER);
+
+    expect(auditTitle(body, 'audit:retriever-drops-fact-ids')).toBe('audit:retriever-drops-fact-ids');
   });
 });
 

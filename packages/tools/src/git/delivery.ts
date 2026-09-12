@@ -29,12 +29,15 @@ export interface DeliveryOptions {
   workspaceAt: string;
   /** Branch the change is delivered on. */
   branch: string;
-  /** Commit and PR title. */
+  /** Commit and PR title, used when the change describes no subject of its own. */
   title: string;
   /**
    * Memory key whose value describes the delivered change; its `detail`
    * property (or the value itself, when a string) becomes the commit
-   * message body and the default PR evidence.
+   * message body and the default PR evidence. A `subject` property, when
+   * present, becomes that commit's subject line in place of `title`, and
+   * a delivery of exactly one subject-carrying commit titles its PR with
+   * it too — so git history names the actual change, not the workflow.
    */
   detailFrom: string;
   /**
@@ -56,6 +59,18 @@ function detailOf(value: unknown): string {
     return String((value as { detail: unknown }).detail ?? '');
   }
   return '';
+}
+
+const SUBJECT_MAX = 72;
+
+/** The change's own commit subject, when the detail value carries one. */
+function subjectOf(value: unknown): string | undefined {
+  if (value === null || typeof value !== 'object' || !('subject' in value)) return undefined;
+  const raw = (value as { subject: unknown }).subject;
+  if (typeof raw !== 'string') return undefined;
+  const line = raw.split('\n')[0]!.replace(/\s+/g, ' ').trim();
+  if (line === '') return undefined;
+  return line.length > SUBJECT_MAX ? `${line.slice(0, SUBJECT_MAX - 1).trimEnd()}…` : line;
 }
 
 /** A wired delivery node, with the memory key its result lands under. */
@@ -102,31 +117,36 @@ export function deliveryNodes(
     }),
     execute: async (args) => {
       const detail = detailOf(args[detailFrom]);
-      const prior = args['commit_result'] as { count?: number; details?: string[] } | undefined;
+      const subject = subjectOf(args[detailFrom]) ?? title;
+      const prior = args['commit_result'] as { count?: number; details?: string[]; subjects?: string[] } | undefined;
       const priorCount = prior?.count ?? 0;
       const priorDetails = prior?.details ?? [];
+      const priorSubjects = prior?.subjects ?? [];
       if (options.commit === false) {
         return {
           committed: false,
           count: priorCount,
           details: priorDetails,
+          subjects: priorSubjects,
           workspace: ws.root,
           diff: await pendingDiff(ws.root),
         };
       }
 
-      await commitBranch(ws.root, `${title}\n\n${detail}`.trim(), options.config?.identity);
+      await commitBranch(ws.root, `${subject}\n\n${detail}`.trim(), options.config?.identity);
       const count = priorCount + 1;
       const details = [...priorDetails, detail];
+      const subjects = [...priorSubjects, subject];
       const body = await prBodyFor(repoRoot, evidence(details));
       return {
         committed: true,
         count,
         details,
+        subjects,
         workspace: ws.root,
         branch: ws.branch,
         diff: await branchDiff(ws.root, count),
-        prCommand: publishScript(ws, repoRoot, title, body),
+        prCommand: publishScript(ws, repoRoot, count === 1 ? subject : title, body),
       };
     },
   });
@@ -140,7 +160,7 @@ export function deliveryNodes(
     }),
     execute: async (args) => {
       const prior = args['commit_result'] as
-        { committed?: boolean; details?: string[] } | undefined;
+        { committed?: boolean; details?: string[]; subjects?: string[] } | undefined;
       const committed = prior?.committed === true;
       if (options.publish === false || !committed) {
         return {
@@ -149,8 +169,10 @@ export function deliveryNodes(
         };
       }
       const details = prior?.details ?? [detailOf(args[detailFrom])];
+      const subjects = prior?.subjects ?? [];
+      const prTitle = subjects.length === 1 ? subjects[0]! : title;
       const body = await prBodyFor(repoRoot, evidence(details));
-      const outcome = await publishBranch(ws, repoRoot, title, body, options.config);
+      const outcome = await publishBranch(ws, repoRoot, prTitle, body, options.config);
       return { published: outcome.prUrl !== undefined, branch: ws.branch, ...outcome };
     },
   });

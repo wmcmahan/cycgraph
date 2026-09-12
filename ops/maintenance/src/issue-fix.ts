@@ -77,9 +77,16 @@ const GUIDANCE: Record<CoreFinding['kind'], string> = {
   'lint-warning': 'Fix the code the warning points at. Adding an eslint-disable comment or touching lint configuration will be refused.',
 };
 
+/** Commit subject for a resolved mechanical finding, by its class. */
+const MECHANICAL_SUBJECTS: Record<string, (file: string) => string> = {
+  todo: (file) => `chore: complete the TODO in ${file}`,
+  'skipped-test': (file) => `test: revive the skipped test in ${file}`,
+  'lint-warning': (file) => `fix: clear the lint warning in ${file}`,
+};
+
 const AUDIT_GUIDANCE = [
   'This finding came from a model-driven audit: the issue text above is the whole specification.',
-  'First confirm the finding against the EVIDENCE paths; then fix the root cause it describes, following the SUGGESTION where it is sound.',
+  'First confirm the finding against the paths its evidence section names; then fix the root cause it describes, following the suggested fix where it is sound.',
   'A reviewer will compare your diff against the finding — a change that skirts the described problem will be refused.',
 ].join(' ');
 
@@ -254,7 +261,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         }),
         timeoutMs: 300_000,
         execute: async ({ pick_result, baseline_result }) => {
-          const pick = pick_result as { issue_number?: number } | undefined;
+          const pick = pick_result as { issue_number?: number; issue_title?: string } | undefined;
           const baseline = baseline_result as
             { keys?: string[]; target?: CoreFinding; text?: string; audit?: boolean } | undefined;
           const closesPrefix = pick?.issue_number !== undefined ? `Closes #${pick.issue_number}. ` : '';
@@ -265,7 +272,14 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
               afterKeys: afterAudit.map((f) => f.key),
               diff: await pendingDiff(workspaceAt),
             });
-            return { ...verdict, detail: `${closesPrefix}${verdict.detail}` };
+            return {
+              ...verdict,
+              detail: `${closesPrefix}${verdict.detail}`,
+              // The issue title names the finding, so the commit inherits it.
+              ...(pick?.issue_title !== undefined && pick.issue_title !== ''
+                ? { subject: `fix: ${pick.issue_title}` }
+                : {}),
+            };
           }
           const target = baseline?.target;
           if (target === undefined) return { resolved: false, weakened: false, detail: 'nothing was targeted' };
@@ -283,7 +297,12 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
           // "Closes #N" in the verdict detail reaches the PR body through
           // the delivery evidence, which is what closes the issue on merge.
           const closes = pick?.issue_number !== undefined ? `Closes #${pick.issue_number}. ` : '';
-          return { ...verdict, detail: `${closes}${verdict.detail}` };
+          const subject = MECHANICAL_SUBJECTS[target.kind]?.(target.file);
+          return {
+            ...verdict,
+            detail: `${closes}${verdict.detail}`,
+            ...(subject !== undefined ? { subject } : {}),
+          };
         },
       });
 

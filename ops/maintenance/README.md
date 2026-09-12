@@ -140,8 +140,8 @@ daily, after the previous day's pull requests have had their chance to
 be merged or closed. It needs the `DATABASE_URL` secret — without a
 ledger there is nothing to record — and a token that can read PR states.
 `.github/workflows/pr-revise.yml` closes the human-in-the-loop review
-cycle: a changes-requested review on a maintenance branch, or a PR
-comment mentioning `@cycgraph`, dispatches a run that reads the
+cycle: a changes-requested review on a maintenance branch, or a review
+or PR comment mentioning `@cycgraph`, dispatches a run that reads the
 feedback, revises the same branch so the pull request updates in place,
 and replies with what changed. The human verdict still ends every
 thread; the run never merges.

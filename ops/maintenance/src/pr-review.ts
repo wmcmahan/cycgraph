@@ -7,12 +7,17 @@
  * read_file over a checkout of the PR branch — so it can verify what a
  * diff-only reviewer must take on faith: whether a helper already
  * exists, whether an edit matches the conventions around it, whether
- * the tests assert what they claim. Its verdict is posted as an
- * advisory PR comment; the human merge stays the gate, and nothing is
- * ever pushed.
+ * the tests assert what they claim. Its verdict is submitted as a real
+ * pull-request review: findings anchor inline on the diff where the
+ * diff can hold them, and an APPROVE verdict approves the PR — degraded
+ * to a comment-state review where GitHub forbids the token reviewing
+ * its own PR. A verification pass resolves the threads of prior
+ * findings it marks ADDRESSED — only threads this workflow itself
+ * opened, never a human's. The human merge stays the gate, and nothing
+ * is ever pushed.
  *
  * pr-revise is the counterpart: on a REVISE verdict against a PR that
- * carries the maintenance-managed label, the posted comment ends with
+ * carries the maintenance-managed label, the review body ends with
  * the @cycgraph trigger pr-revise listens for, so the finding is
  * addressed without a human relaying it. The label is the consent:
  * GitHub restricts labeling to triage+ users, bot PRs are labeled at
@@ -34,9 +39,10 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { agent, graph, node, reflection, tool } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { commentOnPr, prFeedback } from '@cycgraph/tools/git';
+import { commentableDiffLines, listReviewThreads, prFeedback, resolveReviewThread, submitPrReview } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
+import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseReviewFindings } from './review-findings.js';
 import { MANAGED_LABEL, STANDARDS_BRIEF, WORKFLOW_MENTION, resolveRepo, stripMentions } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -117,12 +123,46 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           // judging what changed. Their count is the cycle's bound.
           const priorReviews = feedback.comments
             .filter((comment) => comment.body.startsWith('Advisory review by the pr-review workflow'));
+          // Threads this workflow opened for the prior review's findings,
+          // still unresolved: the verification pass resolves the ones it
+          // marks addressed. viewerDidAuthor keeps human threads out, and
+          // grouping by the thread's own review association picks the
+          // latest advisory review's threads — finding ordinals restart
+          // every review, so an older round's "Finding 2" must not be
+          // confused with the one being verified now.
+          const threads = priorReviews.length > 0
+            ? await listReviewThreads(repoRoot, p.pr, token !== undefined ? { token } : {})
+            : undefined;
+          const marked = (threads ?? [])
+            .filter((thread) => !thread.isResolved && thread.viewerDidAuthor && thread.reviewId !== undefined)
+            .flatMap((thread) => {
+              const marker = parseFindingMarker(thread.body);
+              return marker !== undefined
+                ? [{
+                    thread_id: thread.id,
+                    ordinal: marker.ordinal,
+                    review_id: thread.reviewId!,
+                    created_at: thread.createdAt ?? '',
+                  }]
+                : [];
+            });
+          const newestByReview = new Map<string, string>();
+          for (const thread of marked) {
+            const seen = newestByReview.get(thread.review_id);
+            if (seen === undefined || thread.created_at > seen) newestByReview.set(thread.review_id, thread.created_at);
+          }
+          const latestReviewId = [...newestByReview.entries()]
+            .sort((a, b) => (a[1] < b[1] ? 1 : -1))[0]?.[0];
+          const resolvableThreads = marked
+            .filter((thread) => thread.review_id === latestReviewId)
+            .map(({ thread_id, ordinal }) => ({ thread_id, ordinal }));
           return {
             has_work: true,
             head,
             title: feedback.title,
             labels: feedback.labels,
             advisory_rounds: priorReviews.length,
+            resolvable_threads: resolvableThreads,
             prior_findings: priorReviews.length > 0
               ? priorReviews[priorReviews.length - 1]!.body.slice(0, 6_000)
               : '',
@@ -131,7 +171,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
               `Review pull request #${p.pr} ("${feedback.title}"), branch ${head}, against ${p.base}.`,
               ...(priorReviews.length > 0
                 ? [
-                  'A previous advisory review requested changes and a revision has since been pushed. FIRST verify each of its numbered findings against the current tree, marking each ADDRESSED or UNRESOLVED with one line of evidence; then review anything the revision newly changed. The previous review:',
+                  'A previous advisory review requested changes and a revision has since been pushed. FIRST verify each of its numbered findings against the current tree, one line per finding exactly as: FINDING <n>: ADDRESSED — <evidence> or FINDING <n>: UNRESOLVED — <evidence>; then review anything the revision newly changed. The previous review:',
                   priorReviews[priorReviews.length - 1]!.body.slice(0, 6_000),
                 ]
                 : []),
@@ -173,7 +213,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
 
       const deliverTool = tool({
         name: 'post_review',
-        description: 'Post the review as an advisory comment on the PR.',
+        description: 'Submit the review on the PR: verdict, body, and findings anchored inline on the diff.',
         parameters: z.object({
           review: z.unknown().optional(),
           verdict_result: z.unknown().optional(),
@@ -182,7 +222,11 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         timeoutMs: 60_000,
         execute: async ({ review, verdict_result, gather_result }) => {
           const verdict = verdict_result as { detail?: string; approved?: boolean; malformed?: boolean } | undefined;
-          const gathered = gather_result as { labels?: string[]; advisory_rounds?: number } | undefined;
+          const gathered = gather_result as {
+            labels?: string[];
+            advisory_rounds?: number;
+            resolvable_threads?: { thread_id: string; ordinal: number }[];
+          } | undefined;
           const labels = gathered?.labels ?? [];
           const rounds = gathered?.advisory_rounds ?? 0;
           if (verdict?.malformed === true) {
@@ -209,13 +253,48 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
             : p.revise && verdict?.approved === false && labels.includes(MANAGED_LABEL)
               ? '\n\nRevision cycle cap reached — leaving the remaining findings to human review.'
               : '';
-          const reply = await commentOnPr(repoRoot, p.pr,
-            `Advisory review by the pr-review workflow — the human merge decision stands either way.\n\n${body}${handoff}`,
-            token !== undefined ? { token } : {});
+          // Findings anchor inline where the diff can hold them; the
+          // rest stay numbered in the body, which always carries all of
+          // them — the verification pass re-reads the body, not threads.
+          const { stdout: diff } = await exec(
+            'git', ['diff', 'refs/pr-review/base...HEAD'],
+            { cwd: workspaceAt, maxBuffer: 64 * 1024 * 1024 },
+          ).catch(() => ({ stdout: '' }));
+          const anchorable = commentableDiffLines(diff);
+          const inline = parseReviewFindings(body)
+            .filter((f) => f.path !== undefined && f.line !== undefined && anchorable.get(f.path)?.has(f.line) === true)
+            .map((f) => ({ path: f.path!, line: f.line!, body: `${inlineFindingMarker(f.ordinal)} — ${f.text}` }));
+          // A REVISE verdict submits as a COMMENT review, never
+          // REQUEST_CHANGES: the Actions dispatcher fires pr-revise on
+          // any changes-requested review, which would bypass the rounds
+          // cap and label rules the handoff mention enforces.
+          const submission = await submitPrReview(repoRoot, p.pr, {
+            event: verdict?.approved === true ? 'APPROVE' : 'COMMENT',
+            body: `Advisory review by the pr-review workflow — the human merge decision stands either way.\n\n${body}${handoff}`,
+            ...(inline.length > 0 ? { comments: inline } : {}),
+          }, token !== undefined ? { token } : {});
+          // Threads the prior advisory review opened close once the
+          // verification pass marks their finding ADDRESSED; gather
+          // already narrowed the list to that review's own threads, and
+          // human threads are never touched.
+          let resolvedCount = 0;
+          if (submission.ok) {
+            const addressed = new Set(parseAddressedFindings(body));
+            for (const thread of gathered?.resolvable_threads ?? []) {
+              if (!addressed.has(thread.ordinal)) continue;
+              const outcome = await resolveReviewThread(
+                repoRoot, thread.thread_id, token !== undefined ? { token } : {});
+              if (outcome.ok) resolvedCount += 1;
+            }
+          }
           return {
-            posted: reply.ok,
+            posted: submission.ok,
+            review_event: submission.event ?? '',
+            inline_count: submission.inlineCount ?? 0,
+            resolved_count: resolvedCount,
             revision_requested: handoff !== '',
-            detail: `${verdict?.detail ?? ''}${handoff !== '' ? '; revision requested' : ''}; ${reply.detail}`,
+            detail: `${verdict?.detail ?? ''}${handoff !== '' ? '; revision requested' : ''}; ${submission.detail}`
+              + (resolvedCount > 0 ? `; resolved ${resolvedCount} addressed thread(s)` : ''),
           };
         },
       });
@@ -235,7 +314,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           'Budget your steps: the reply is the only thing that leaves this run, and a review that never reaches its VERDICT is worthless. Once roughly three quarters of your steps are spent, stop investigating and write the verdict from what you have confirmed.',
           'Structure your reply exactly as:',
           'VERDICT: APPROVE or VERDICT: REVISE',
-          'then a one-line summary, then numbered findings (if any), each as: <file> — <the problem> — <what to do instead>.',
+          'then a one-line summary, then numbered findings (if any), each on ONE line as: <file>:<line> — <the problem> — <what to do instead>. The line number is the new-file line the finding points at, as read_file shows it; when a finding has no single line, give the file alone.',
         ].join(' '),
         tools: [hands.search, hands.read],
       });

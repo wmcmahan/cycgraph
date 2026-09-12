@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
+  commentableDiffLines,
   commit,
   DEFAULT_IDENTITY,
   deliveryNodes,
@@ -280,6 +281,77 @@ describe('deliveryNodes', () => {
     await rm(at, { recursive: true, force: true });
   });
 
+  it('commits under the change\'s own subject when the detail value carries one', async () => {
+    await initRepo(root);
+    const at = join(tmpdir(), `delivery-subject-${Date.now()}`);
+    const delivery = build({ workspaceAt: at });
+    await delivery.clone.tools![0]!.execute({});
+    await writeFile(join(at, 'seed.txt'), 'changed\n');
+
+    const result = await delivery.commit.tools![0]!.execute({
+      judge_result: { detail: 'fixed the thing', subject: 'fix: retriever drops fact ids' },
+    }) as { subjects: string[]; prCommand: string };
+
+    const { stdout } = await exec('git', ['log', '-1', '--format=%s'], { cwd: at });
+    expect(stdout.trim()).toBe('fix: retriever drops fact ids');
+    expect(result.subjects).toEqual(['fix: retriever drops fact ids']);
+    expect(result.prCommand).toContain('"fix: retriever drops fact ids"');
+    await rm(at, { recursive: true, force: true });
+  });
+
+  it('keeps the stock title as the subject when the detail value carries none', async () => {
+    await initRepo(root);
+    const at = join(tmpdir(), `delivery-stock-${Date.now()}`);
+    const delivery = build({ workspaceAt: at });
+    await delivery.clone.tools![0]!.execute({});
+    await writeFile(join(at, 'seed.txt'), 'changed\n');
+
+    await delivery.commit.tools![0]!.execute({ judge_result: { detail: 'fixed the thing' } });
+
+    const { stdout } = await exec('git', ['log', '-1', '--format=%s'], { cwd: at });
+    expect(stdout.trim()).toBe('test: change');
+    await rm(at, { recursive: true, force: true });
+  });
+
+  it('collapses a subject to one bounded line', async () => {
+    await initRepo(root);
+    const at = join(tmpdir(), `delivery-longsubj-${Date.now()}`);
+    const delivery = build({ workspaceAt: at });
+    await delivery.clone.tools![0]!.execute({});
+    await writeFile(join(at, 'seed.txt'), 'changed\n');
+
+    await delivery.commit.tools![0]!.execute({
+      judge_result: { detail: 'd', subject: `fix: ${'a'.repeat(100)}\nsecond line` },
+    });
+
+    const { stdout } = await exec('git', ['log', '-1', '--format=%s'], { cwd: at });
+    expect(stdout.trim()).toHaveLength(72);
+    expect(stdout.trim().endsWith('…')).toBe(true);
+    await rm(at, { recursive: true, force: true });
+  });
+
+  it('titles a multi-commit batch with the stock title, not one commit\'s subject', async () => {
+    await initRepo(root);
+    const at = join(tmpdir(), `delivery-batchsubj-${Date.now()}`);
+    const delivery = build({ workspaceAt: at });
+    await delivery.clone.tools![0]!.execute({});
+    const commitTool = delivery.commit.tools![0]!;
+
+    await writeFile(join(at, 'seed.txt'), 'first\n');
+    const first = await commitTool.execute({
+      judge_result: { detail: 'first fix', subject: 'fix: first thing' },
+    }) as { subjects: string[] };
+    await writeFile(join(at, 'other.txt'), 'second\n');
+    const second = await commitTool.execute({
+      judge_result: { detail: 'second fix', subject: 'fix: second thing' },
+      commit_result: first,
+    }) as { subjects: string[]; prCommand: string };
+
+    expect(second.subjects).toEqual(['fix: first thing', 'fix: second thing']);
+    expect(second.prCommand).toContain('"test: change"');
+    await rm(at, { recursive: true, force: true });
+  });
+
   it('refuses to publish when nothing was committed', async () => {
     const delivery = build();
 
@@ -300,6 +372,80 @@ describe('deliveryNodes', () => {
 
     expect(result.published).toBe(false);
     expect(result.detail).toBe('publishing is off; the commit result carries the script');
+  });
+});
+
+describe('commentableDiffLines', () => {
+  const DIFF = [
+    'diff --git a/src/a.ts b/src/a.ts',
+    'index 0000000..1111111 100644',
+    '--- a/src/a.ts',
+    '+++ b/src/a.ts',
+    '@@ -1,3 +1,4 @@',
+    ' context1',
+    '-removed',
+    '+added1',
+    '+added2',
+    ' context2',
+    'diff --git a/src/b.ts b/src/b.ts',
+    '--- a/src/b.ts',
+    '+++ b/src/b.ts',
+    '@@ -10,2 +10,3 @@',
+    ' ctx',
+    '+new',
+    ' ctx2',
+    '',
+  ].join('\n');
+
+  it('collects added and context new-file lines per path', () => {
+    const lines = commentableDiffLines(DIFF);
+
+    expect(lines.get('src/a.ts')).toEqual(new Set([1, 2, 3, 4]));
+    expect(lines.get('src/b.ts')).toEqual(new Set([10, 11, 12]));
+  });
+
+  it('does not count removed lines against the new file', () => {
+    const lines = commentableDiffLines(DIFF);
+
+    expect(lines.get('src/a.ts')!.has(5)).toBe(false);
+  });
+
+  it('treats an added line starting with ++ as content, not a file header', () => {
+    const diff = [
+      'diff --git a/x.ts b/x.ts',
+      '--- a/x.ts',
+      '+++ b/x.ts',
+      '@@ -1,1 +1,2 @@',
+      ' keep',
+      '+++counter += 1',
+      '',
+    ].join('\n');
+
+    const lines = commentableDiffLines(diff);
+
+    expect([...lines.keys()]).toEqual(['x.ts']);
+    expect(lines.get('x.ts')).toEqual(new Set([1, 2]));
+  });
+
+  it('counts a blank line with its leading space stripped as context', () => {
+    const diff = [
+      'diff --git a/y.ts b/y.ts',
+      '--- a/y.ts',
+      '+++ b/y.ts',
+      '@@ -1,3 +1,3 @@',
+      ' one',
+      '',
+      '+three',
+      '',
+    ].join('\n');
+
+    const lines = commentableDiffLines(diff);
+
+    expect(lines.get('y.ts')).toEqual(new Set([1, 2, 3]));
+  });
+
+  it('returns an empty map for an empty diff', () => {
+    expect(commentableDiffLines('').size).toBe(0);
   });
 });
 

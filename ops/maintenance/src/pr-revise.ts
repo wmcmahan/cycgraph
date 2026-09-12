@@ -4,7 +4,9 @@
  * The PR is the durable state: a reviewer requesting changes or
  * commenting on a maintenance pull request dispatches this run, which
  * reads the feedback, revises the same branch in a fresh clone, and
- * pushes — updating the PR in place — then replies with what it did.
+ * pushes — updating the PR in place — then replies with what it did:
+ * threaded into each diff-anchored comment's own conversation, plus a
+ * timeline summary for the rest.
  * This is the CI-shaped form of human-in-the-loop: no paused run waits
  * for the human; the human's event starts the next run.
  *
@@ -32,7 +34,9 @@ import {
   pendingDiff,
   prFeedback,
   pushBranch,
+  replyToReviewComment,
 } from '@cycgraph/tools/git';
+import { parseNumberedReplies } from './review-findings.js';
 import {
   createFileTool,
   createWorkspaceSession,
@@ -150,6 +154,11 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
             head,
             title: feedback.title,
             comment_count: comments.length,
+            // Feedback items that live in diff threads, by their number
+            // in the instruction below: the delivery replies inside
+            // those threads so the response sits beside the finding.
+            reply_targets: comments.flatMap((comment, index) =>
+              comment.id !== undefined ? [{ index: index + 1, id: comment.id }] : []),
             instruction: [
               `Address the review feedback on pull request #${p.pr} ("${feedback.title}").`,
               'The feedback, verbatim:',
@@ -190,26 +199,53 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
         parameters: z.object({ gather_result: z.unknown().optional(), revise_report: z.unknown().optional() }),
         timeoutMs: 120_000,
         execute: async ({ gather_result, revise_report }) => {
-          const head = (gather_result as { head?: string } | undefined)?.head ?? '';
+          const gathered = gather_result as
+            { head?: string; reply_targets?: { index: number; id: number }[] } | undefined;
+          const head = gathered?.head ?? '';
           const changed = await changedIn(workspaceAt);
           if (changed.length === 0) return { pushed: false, detail: 'nothing was changed' };
           const diff = await pendingDiff(workspaceAt);
           if (!p.push) return { pushed: false, detail: 'push is off; workspace left for inspection', diff };
 
-          await commitBranch(workspaceAt, `revise: address review feedback on #${p.pr}`, env.publish?.identity);
+          // Every reply posts through the same PAT that triggers the
+          // workflow, so an echoed mention would re-dispatch it on its
+          // own comment.
+          const report = stripMentions(String(revise_report ?? ''));
+          await commitBranch(
+            workspaceAt,
+            `revise: address review feedback on #${p.pr}\n\n${report.slice(0, 1_500)}`.trim(),
+            env.publish?.identity,
+          );
           try {
             await pushBranch({ root: workspaceAt, branch: head }, repoRoot);
           } catch (error) {
             return { pushed: false, detail: `push failed: ${(error as Error).message.split('\n')[0] ?? ''}`, diff };
           }
-          // The reply posts through the same PAT that triggers the
-          // workflow, so an echoed mention would re-dispatch it on its
-          // own comment.
-          const summary = stripMentions(String(revise_report ?? '')).slice(0, 1_500);
+          // Diff-anchored feedback is answered in its own thread, after
+          // the push so no thread claims work that never landed; the
+          // timeline comment keeps the overall summary without the
+          // REPLY lines the threads now carry.
+          const replies = parseNumberedReplies(report);
+          let threaded = 0;
+          for (const target of gathered?.reply_targets ?? []) {
+            const text = replies.get(target.index);
+            if (text === undefined) continue;
+            const posted = await replyToReviewComment(
+              repoRoot, p.pr, target.id, text.slice(0, 2_000), token !== undefined ? { token } : {});
+            if (posted.ok) threaded += 1;
+          }
+          const summary = report.replace(/^\s*REPLY\s+\d+\s*:.*$/gim, '').trim().slice(0, 1_500);
           const reply = await commentOnPr(repoRoot, p.pr,
             `Addressed the review feedback in the latest commit.\n\n${summary}`,
             token !== undefined ? { token } : {});
-          return { pushed: true, branch: head, replied: reply.ok, detail: `pushed revision to ${head}; ${reply.detail}`, diff };
+          return {
+            pushed: true,
+            branch: head,
+            replied: reply.ok,
+            threaded_replies: threaded,
+            detail: `pushed revision to ${head}; ${threaded} threaded repl${threaded === 1 ? 'y' : 'ies'}; ${reply.detail}`,
+            diff,
+          };
         },
       });
 
@@ -227,7 +263,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           'A multi-match edit refusal means retry with a longer find, never a different path.',
           STANDARDS_BRIEF,
           CHANGESET_INSTRUCTION,
-          'When done, reply with a short summary of what you changed per comment, so it can be posted back to the reviewer.',
+          'When done, reply with a short summary of what you changed, then one line per numbered feedback item exactly as: REPLY <n>: <one line on what you did for it>. The REPLY lines are posted as threaded replies to the reviewer\'s comments, so write each one to stand alone.',
         ].join(' '),
         tools: [hands.search, hands.read, hands.edit, hands.create, runCheckTool],
       });

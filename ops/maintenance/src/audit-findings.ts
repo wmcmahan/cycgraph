@@ -47,14 +47,43 @@ export function auditKey(title: string): string {
 }
 
 /**
- * The title an audit issue body carries: its first markdown heading
- * (`#` through `######`, with text after it), falling back to the
- * finding key. Bodies filed by the audit workflow carry no heading, so
- * the fallback is the ordinary path for a real ticket.
+ * The title an audit issue body carries: its first H1 heading, falling
+ * back to the finding key. Rendered bodies use `##` for their section
+ * headings, so only a deliberate `# <title>` line in a detached ticket
+ * file names the ticket.
  */
 export function auditTitle(body: string, key: string): string {
-  const heading = body.split('\n').find((line) => /^#{1,6}\s+\S/.test(line));
-  return heading !== undefined ? heading.replace(/^#{1,6}\s+/, '').trim() : key;
+  const heading = body.split('\n').find((line) => /^#\s+\S/.test(line));
+  return heading !== undefined ? heading.replace(/^#\s+/, '').trim() : key;
+}
+
+/**
+ * Render a finding as the markdown body its issue carries: the problem
+ * first, then the suggested fix, then the evidence as a path list, with
+ * severity and provenance in a footer and the dedupe marker last. The
+ * title stays on the issue itself; severity rides a label, and the body
+ * repeats it only so detached ticket files stay self-contained.
+ */
+export function renderAuditIssueBody(finding: AuditFinding, marker: string): string {
+  const evidence = finding.evidence
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .map((line) => (line.startsWith('- ') ? line : `- ${line}`));
+  return [
+    '## Problem',
+    '',
+    finding.detail,
+    ...(finding.suggestion !== '' ? ['', '## Suggested fix', '', finding.suggestion] : []),
+    '',
+    '## Evidence',
+    '',
+    ...evidence,
+    '',
+    `_Found in automated audit sweep. Severity: ${finding.severity}._`,
+    '',
+    marker,
+  ].join('\n');
 }
 
 const SECTION_HEADS = /^(SEVERITY|EVIDENCE|DETAIL|SUGGESTION):/;

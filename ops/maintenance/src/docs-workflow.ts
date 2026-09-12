@@ -242,6 +242,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
             ...verdict,
             key,
             attempts,
+            subject: `docs: correct a stale reference in ${targeted.file}`,
             gave_up: abandonedKeys.includes(key),
             abandoned_keys: abandonedKeys,
             ...(abandonedKeys.includes(key)

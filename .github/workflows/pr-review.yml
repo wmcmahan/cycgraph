@@ -2,13 +2,15 @@
 #
 # The reviewer reads the branch diff beside a checkout of the PR branch,
 # verifies findings against the tree (duplication, convention drift,
-# hollow tests), and posts one advisory comment. On a REVISE verdict
-# against a PR carrying the maintenance-managed label (bot PRs are
-# labeled at creation; label your own to opt in), the comment ends with
-# the @cycgraph trigger, so pr-revise addresses the findings in the
-# same cycle (needs MAINTENANCE_PAT — the Actions token's comments fire
-# no workflows). Unlabeled PRs get findings only. The human merge stays
-# the gate.
+# hollow tests), and submits one real review: findings anchored inline
+# on the diff, APPROVE when clean (degraded to a comment-state review on
+# the token's own PRs, which GitHub forbids it approving). On a REVISE
+# verdict against a PR carrying the maintenance-managed label (bot PRs
+# are labeled at creation; label your own to opt in), the review body
+# ends with the @cycgraph trigger, so pr-revise addresses the findings
+# in the same cycle (needs MAINTENANCE_PAT — the Actions token's
+# reviews fire no workflows). Unlabeled PRs get findings only. The
+# human merge stays the gate.
 # A push to a LABELED PR re-runs the review as a verification pass: the
 # reviewer checks each prior finding (ADDRESSED/UNRESOLVED) before
 # judging what changed, bounded at three reviews per PR. Unlabeled PRs
@@ -67,7 +69,12 @@ jobs:
       - name: Run PR review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+          # REVIEW_PAT (optional): a second account's token. GitHub
+          # forbids a token approving its own PR, so reviews of
+          # MAINTENANCE_PAT-authored PRs only get the green Approved
+          # state when they are submitted by a different account;
+          # without it they degrade to comment-state reviews.
+          GH_TOKEN: ${{ secrets.REVIEW_PAT || secrets.MAINTENANCE_PAT || github.token }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
         run: >
