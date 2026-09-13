@@ -39,10 +39,10 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { agent, graph, node, reflection, tool } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { commentableDiffLines, listReviewThreads, prFeedback, resolveReviewThread, submitPrReview } from '@cycgraph/tools/git';
+import { commentOnPr, commentableDiffLines, listReviewThreads, prFeedback, resolveReviewThread, submitPrReview } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
-import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseReviewFindings } from './review-findings.js';
+import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseReviewFindings, parseReviewVerdict } from './review-findings.js';
 import { MANAGED_LABEL, STANDARDS_BRIEF, WORKFLOW_MENTION, resolveRepo, stripMentions } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -194,8 +194,9 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           // No marker at all is a reviewer that ran out of steps
           // mid-investigation, not a request for changes: inconclusive,
           // retried once, and never handed to pr-revise.
-          const malformed = !/^\s*VERDICT:\s*(APPROVE|REVISE)/m.test(text);
-          const approved = /^\s*VERDICT:\s*APPROVE/m.test(text);
+          const parsed = parseReviewVerdict(text);
+          const malformed = parsed === undefined;
+          const approved = parsed === 'APPROVE';
           const findings = (text.match(/^\s*\d+\.\s/gm) ?? []).length;
           return {
             approved,
@@ -229,8 +230,17 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           } | undefined;
           const labels = gathered?.labels ?? [];
           const rounds = gathered?.advisory_rounds ?? 0;
+          // Silence must never look like a clean pass: when the review
+          // ends inconclusive, the PR gets a plain trace comment (not an
+          // advisory review — the prefix below is what counts rounds).
           if (verdict?.malformed === true) {
-            return { posted: false, detail: `nothing posted — ${verdict.detail ?? 'inconclusive review'}` };
+            const trace = p.comment
+              ? await commentOnPr(repoRoot, p.pr,
+                  'pr-review ran but produced no usable verdict after two attempts; no findings were posted. '
+                  + 'Dispatch the PR review workflow again, or review by hand.',
+                  token !== undefined ? { token } : {})
+              : { ok: false, detail: 'comment is off' };
+            return { posted: false, detail: `nothing posted — ${verdict.detail ?? 'inconclusive review'}; trace: ${trace.detail}` };
           }
           if (!p.comment) return { posted: false, detail: `comment is off — ${verdict?.detail ?? ''}` };
           // Mentions inside the review text are stripped (an echoed
@@ -273,6 +283,14 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
             body: `Advisory review by the pr-review workflow — the human merge decision stands either way.\n\n${body}${handoff}`,
             ...(inline.length > 0 ? { comments: inline } : {}),
           }, token !== undefined ? { token } : {});
+          // A failed submission leaves the same visible trace, best
+          // effort — the comment rides a different endpoint, so one
+          // failing does not imply the other will.
+          if (!submission.ok) {
+            await commentOnPr(repoRoot, p.pr,
+              `pr-review completed but its review could not be submitted (${submission.detail}); dispatch the workflow again.`,
+              token !== undefined ? { token } : {});
+          }
           // Threads the prior advisory review opened close once the
           // verification pass marks their finding ADDRESSED; gather
           // already narrowed the list to that review's own threads, and
@@ -313,8 +331,11 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           'Report only findings you have verified against the tree, each with the file and what to change. Do not nitpick working code a reasonable reviewer would pass, and say what is good in one line when it is.',
           'Budget your steps: the reply is the only thing that leaves this run, and a review that never reaches its VERDICT is worthless. Once roughly three quarters of your steps are spent, stop investigating and write the verdict from what you have confirmed.',
           'Structure your reply exactly as:',
-          'VERDICT: APPROVE or VERDICT: REVISE',
-          'then a one-line summary, then numbered findings (if any), each on ONE line as: <file>:<line> — <the problem> — <what to do instead>. The line number is the new-file line the finding points at, as read_file shows it; when a finding has no single line, give the file alone.',
+          'VERDICT: APPROVE or VERDICT: REVISE (plain text at the start of its own line, never bolded or decorated)',
+          'then a one-line summary, then numbered findings (if any).',
+          'Each finding opens with ONE line, exactly: <file>:<line> — <the problem> — <what to do instead>. That line is posted as a comment ON that code line, so write it the way you would speak in a review thread: at most forty words, plain sentences, never restating the code the reader is looking at — name the defect and the one concrete change.',
+          'Evidence that does not fit the line — call chains, duplicate sites, measurements — goes on indented continuation lines beneath it; those stay in the review body and are not posted inline.',
+          'The line number is the new-file line the finding points at, as read_file shows it; when a finding has no single line, give the file alone.',
         ].join(' '),
         tools: [hands.search, hands.read],
       });

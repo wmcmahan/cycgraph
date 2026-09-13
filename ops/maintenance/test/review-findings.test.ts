@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseNumberedReplies, parseReviewFindings } from '../src/review-findings.js';
+import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseNumberedReplies, parseReviewFindings, parseReviewVerdict } from '../src/review-findings.js';
 
 describe('parseReviewFindings', () => {
   it('lifts path and line from an anchored finding', () => {
@@ -109,5 +109,32 @@ describe('parseNumberedReplies', () => {
 
   it('returns an empty map for a report without reply lines', () => {
     expect(parseNumberedReplies('summary only').size).toBe(0);
+  });
+});
+
+describe('parseReviewVerdict', () => {
+  it('reads the plain marker', () => {
+    expect(parseReviewVerdict('VERDICT: REVISE\n1. a.ts:1 — x — y')).toBe('REVISE');
+  });
+
+  it('tolerates bold, heading, lowercase, and a dropped colon', () => {
+    expect(parseReviewVerdict('**VERDICT: APPROVE**')).toBe('APPROVE');
+    expect(parseReviewVerdict('## VERDICT: REVISE')).toBe('REVISE');
+    expect(parseReviewVerdict('verdict: approve')).toBe('APPROVE');
+    expect(parseReviewVerdict('VERDICT APPROVE')).toBe('APPROVE');
+  });
+
+  it('returns undefined when no marker line exists', () => {
+    expect(parseReviewVerdict('The change looks fine to me.')).toBeUndefined();
+  });
+
+  it('ignores a blockquoted verdict from a quoted prior review', () => {
+    const review = ['> VERDICT: REVISE', 'FINDING 1: ADDRESSED — fixed', 'VERDICT: APPROVE'].join('\n');
+
+    expect(parseReviewVerdict(review)).toBe('APPROVE');
+  });
+
+  it('does not read a mid-sentence mention as a verdict', () => {
+    expect(parseReviewVerdict('The previous verdict: approve was wrong.')).toBeUndefined();
   });
 });

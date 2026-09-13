@@ -234,7 +234,10 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
               repoRoot, p.pr, target.id, text.slice(0, 2_000), token !== undefined ? { token } : {});
             if (posted.ok) threaded += 1;
           }
-          const summary = report.replace(/^\s*REPLY\s+\d+\s*:.*$/gim, '').trim().slice(0, 1_500);
+          // An empty or absent summary still gets a concrete comment:
+          // the changed files are the floor the model cannot undercut.
+          const summary = report.replace(/^\s*REPLY\s+\d+\s*:.*$/gim, '').trim().slice(0, 1_500)
+            || `Revised ${changed.length} file(s): ${changed.slice(0, 15).join(', ')}.`;
           const reply = await commentOnPr(repoRoot, p.pr,
             `Addressed the review feedback in the latest commit.\n\n${summary}`,
             token !== undefined ? { token } : {});
@@ -263,7 +266,9 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           'A multi-match edit refusal means retry with a longer find, never a different path.',
           STANDARDS_BRIEF,
           CHANGESET_INSTRUCTION,
-          'When done, reply with a short summary of what you changed, then one line per numbered feedback item exactly as: REPLY <n>: <one line on what you did for it>. The REPLY lines are posted as threaded replies to the reviewer\'s comments, so write each one to stand alone.',
+          'Your final reply is posted to the pull request verbatim: write it for the reviewer, never as narration of steps you are about to take, and never end mid-thought.',
+          'Budget your steps: once roughly three quarters are spent, stop editing and write your reply from what you have completed.',
+          'The reply is a short summary of what you changed, then one line per numbered feedback item exactly as: REPLY <n>: <one line on what you did for it>. The REPLY lines are posted as threaded replies to the reviewer\'s comments, so write each one to stand alone.',
         ].join(' '),
         tools: [hands.search, hands.read, hands.edit, hands.create, runCheckTool],
       });
