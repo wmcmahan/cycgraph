@@ -93,3 +93,14 @@ export function parseNumberedReplies(report: string): Map<number, string> {
   }
   return replies;
 }
+
+/**
+ * The review's verdict, read tolerantly: the marker may arrive bolded,
+ * as a heading, lowercased, or with the colon dropped. A blockquoted
+ * line never counts, so a verification pass quoting the prior review
+ * cannot inherit its verdict.
+ */
+export function parseReviewVerdict(review: string): 'APPROVE' | 'REVISE' | undefined {
+  const match = review.match(/^[ \t*_#`]*VERDICT\b\s*:?\s*[*_`]*(APPROVE|REVISE)\b/im);
+  return match ? (match[1]!.toUpperCase() as 'APPROVE' | 'REVISE') : undefined;
+}
