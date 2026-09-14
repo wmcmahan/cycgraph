@@ -36,6 +36,13 @@ export interface Scenario {
   /** What this scenario proves. */
   description: string;
   /**
+   * Whether answering needs a reachable model.
+   *
+   * The server withholds these from its listings when none is, so a caller
+   * choosing what to exercise is not offered an agent that can only fail.
+   */
+  requiresModel?: boolean;
+  /**
    * Decide the response for an incoming message.
    *
    * `resumed` is true when the message carried a `taskId`, which is how A2A

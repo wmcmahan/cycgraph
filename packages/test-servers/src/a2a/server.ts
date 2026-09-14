@@ -5,6 +5,12 @@
  * Card at `/<id>/.well-known/agent-card.json` and a JSON-RPC endpoint at
  * `/<id>/a2a/v1`.
  *
+ * A scenario that needs a model is left out of the index and answers `503`
+ * on its card while none is reachable, so a caller listing agents to decide
+ * what to exercise is not offered one that can only fail. Its JSON-RPC
+ * endpoint stays mounted: a caller holding the address already gets a failed
+ * task, which is the outcome the protocol has for this.
+ *
  * @module a2a/server
  */
 
@@ -21,9 +27,30 @@ import {
 import { jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { TaskState } from '@a2a-js/sdk';
 import { SCENARIOS, type Scenario } from './scenarios.js';
+import { modelAvailable } from './agent.js';
 
 /** Counts card fetches, so a test can see how chatty the client is. */
 let cardFetches = 0;
+
+/** How long a model reachability answer is reused for. */
+const MODEL_CHECK_TTL_MS = 10_000;
+
+let modelCheck: { at: number; reachable: Promise<boolean> } | undefined;
+
+/**
+ * Whether a model is reachable, cached.
+ *
+ * The check is a network round trip, and the index plus every model-backed
+ * card route would otherwise pay it per request. An answer that is seconds
+ * stale is enough to decide what to advertise.
+ */
+function modelReachable(): Promise<boolean> {
+  const now = Date.now();
+  if (!modelCheck || now - modelCheck.at > MODEL_CHECK_TTL_MS) {
+    modelCheck = { at: now, reachable: modelAvailable() };
+  }
+  return modelCheck.reachable;
+}
 
 /** Agent Card for one scenario. The SDK serves and validates this. */
 function agentCard(scenario: Scenario, baseUrl: string) {
@@ -187,10 +214,11 @@ export function createA2AScenarioServer(
 
   app.get('/__card-fetches', (_req, res) => { res.json({ cardFetches }); });
 
-  app.get('/', (_req, res) => {
+  app.get('/', async (_req, res) => {
+    const withModel = await modelReachable();
     res.json({
       protocol: 'a2a',
-      agents: SCENARIOS.map((s) => ({
+      agents: SCENARIOS.filter((s) => withModel || !s.requiresModel).map((s) => ({
         id: s.id,
         description: s.description,
         agentCardUrl: `${baseUrl}/${s.id}/.well-known/agent-card.json`,
@@ -201,7 +229,13 @@ export function createA2AScenarioServer(
   for (const scenario of SCENARIOS) {
     const card = agentCard(scenario, baseUrl);
 
-    app.get(`/${scenario.id}/.well-known/agent-card.json`, (_req, res) => {
+    app.get(`/${scenario.id}/.well-known/agent-card.json`, async (_req, res) => {
+      if (scenario.requiresModel && !(await modelReachable())) {
+        res.status(503).json({
+          error: `scenario ${scenario.id} is unavailable: no model is reachable`,
+        });
+        return;
+      }
       cardFetches += 1;
       res.json(card);
     });
