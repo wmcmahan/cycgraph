@@ -285,3 +285,33 @@ jobs:
       # package's barrel export is caught here rather than at consumer install.
       - name: Run cross-package integration smoke
         run: npx tsx scripts/integration-smoke.ts
+
+  # The single required status check for branch protection: require "CI
+  # complete" instead of every job by name, so renaming or adding jobs
+  # never strands a merge behind a stale required-check name. `always()`
+  # is load-bearing — without it a failed dependency leaves this job
+  # "skipped", and GitHub counts skipped as satisfying a required check.
+  ci-complete:
+    name: CI complete
+    if: always()
+    needs:
+      - lint-and-build
+      - test-orchestrator
+      - test-orchestrator-postgres
+      - tenant-isolation-gate
+      - test-memory
+      - test-context-engine
+      - evals-unit-tests
+      - evals-deterministic-gate
+      - security
+      - integration-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every job succeeded
+        run: |
+          results='${{ toJSON(needs.*.result) }}'
+          echo "job results: $results"
+          case "$results" in
+            *failure*|*cancelled*) echo "::error::a required CI job did not succeed"; exit 1 ;;
+            *) echo "all jobs succeeded" ;;
+          esac

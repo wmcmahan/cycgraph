@@ -20,6 +20,7 @@ import {
   pendingDiff,
   prBodyFor,
   publishConfigFromEnv,
+  tickCheckbox,
 } from '../src/git/index.js';
 
 const exec = promisify(execFile);
@@ -110,6 +111,62 @@ describe('prBodyFor', () => {
     const body = await prBodyFor(root, { summary: 'just this', changes: ['one'] });
 
     expect(body).toBe('just this\n\n## Changes\n\n- one');
+  });
+
+  it('applies ticks, not-applicable blocks, and closed issues to the template', async () => {
+    await mkdir(join(root, '.github'), { recursive: true });
+    await writeFile(
+      join(root, '.github', 'PULL_REQUEST_TEMPLATE.md'),
+      [
+        '## Summary', '', 'Brief.', '',
+        '## Test plan', '', '- [ ] tests pass', '- [ ] tested manually', '',
+        '## Database', '', '- [ ] migration generated', '',
+        '## Related issues', '', 'Closes #', '',
+      ].join('\n'),
+    );
+
+    const body = await prBodyFor(root, {
+      summary: 'the fix',
+      closes: [220],
+      ticks: [
+        { match: 'tests pass', note: 'npm test ran clean' },
+        { match: 'tested manually', checked: false, note: 'not performed' },
+      ],
+      notApplicable: [{ heading: 'Database', reason: 'no schema changes' }],
+    });
+
+    expect(body).toContain('- [x] tests pass — npm test ran clean');
+    expect(body).toContain('- [ ] tested manually — not performed');
+    expect(body).toContain('## Database\n\n_Not applicable — no schema changes._');
+    expect(body).not.toContain('migration generated');
+    expect(body).toContain('## Related issues\n\nCloses #220\n');
+  });
+
+  it('includes closed issues in the plain body when there is no template', async () => {
+    const body = await prBodyFor(root, { summary: 'just this', closes: [7] });
+
+    expect(body).toBe('just this\n\nCloses #7');
+  });
+});
+
+describe('tickCheckbox', () => {
+  const BODY = '## List\n\n- [ ] alpha check\n- [ ] beta check\n';
+
+  it('ticks the matching line and appends the note', () => {
+    const ticked = tickCheckbox(BODY, { match: 'beta', note: 'verified' });
+
+    expect(ticked).toContain('- [x] beta check — verified');
+    expect(ticked).toContain('- [ ] alpha check');
+  });
+
+  it('annotates without ticking when checked is false', () => {
+    const ticked = tickCheckbox(BODY, { match: 'alpha', checked: false, note: 'not verified' });
+
+    expect(ticked).toContain('- [ ] alpha check — not verified');
+  });
+
+  it('returns the body unchanged when no checkbox matches', () => {
+    expect(tickCheckbox(BODY, { match: 'gamma' })).toBe(BODY);
   });
 });
 

@@ -13,8 +13,10 @@
  * to a comment-state review where GitHub forbids the token reviewing
  * its own PR. A verification pass resolves the threads of prior
  * findings it marks ADDRESSED — only threads this workflow itself
- * opened, never a human's. The human merge stays the gate, and nothing
- * is ever pushed.
+ * opened, never a human's. Nothing is ever pushed. By default the
+ * human merge stays the gate; with `merge` on, an APPROVE verdict
+ * against a managed PR arms auto-merge instead, and the human gate
+ * becomes the ability to stop it.
  *
  * pr-revise is the counterpart: on a REVISE verdict against a PR that
  * carries the maintenance-managed label, the review body ends with
@@ -39,7 +41,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { agent, graph, node, reflection, tool } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { commentOnPr, commentableDiffLines, listReviewThreads, prFeedback, resolveReviewThread, submitPrReview } from '@cycgraph/tools/git';
+import { commentOnPr, commentableDiffLines, enableAutoMerge, listReviewThreads, prFeedback, resolveReviewThread, submitPrReview } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
 import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseReviewFindings, parseReviewVerdict } from './review-findings.js';
@@ -59,6 +61,8 @@ const params = z.object({
     .describe('Post the review as a PR comment. Off prints it to the run state only'),
   revise: z.boolean().default(true)
     .describe('On a REVISE verdict against a PR carrying the maintenance-managed label, end the comment with an @cycgraph trigger so pr-revise addresses the findings. Unlabeled PRs get findings only. Needs the comment posted via a PAT — the Actions token\'s comments fire no workflows'),
+  merge: z.boolean().default(false)
+    .describe('On an APPROVE verdict against a PR carrying the maintenance-managed label, enable auto-merge (squash, branch deleted) so the PR merges once its checks pass. The human gate becomes stopping it: disable auto-merge, unlabel, or close the PR'),
   prompt: z.string().default('')
     .describe('Override the reviewer agent\'s instructions'),
   budgetTokens: z.number().int().min(0).default(400000)
@@ -305,14 +309,23 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
               if (outcome.ok) resolvedCount += 1;
             }
           }
+          // An APPROVE verdict on a managed PR arms the merge; the
+          // verdict is the signal, not the review event, so this fires
+          // even where GitHub degraded the approval to a comment-state
+          // review on the token's own PR.
+          const merge = p.merge && submission.ok && verdict?.approved === true && labels.includes(MANAGED_LABEL)
+            ? await enableAutoMerge(repoRoot, p.pr, token !== undefined ? { token } : {})
+            : undefined;
           return {
             posted: submission.ok,
             review_event: submission.event ?? '',
             inline_count: submission.inlineCount ?? 0,
             resolved_count: resolvedCount,
             revision_requested: handoff !== '',
+            ...(merge !== undefined ? { merge_armed: merge.ok, merge_detail: merge.detail } : {}),
             detail: `${verdict?.detail ?? ''}${handoff !== '' ? '; revision requested' : ''}; ${submission.detail}`
-              + (resolvedCount > 0 ? `; resolved ${resolvedCount} addressed thread(s)` : ''),
+              + (resolvedCount > 0 ? `; resolved ${resolvedCount} addressed thread(s)` : '')
+              + (merge !== undefined ? `; ${merge.detail}` : ''),
           };
         },
       });

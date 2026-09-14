@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { auditKey, auditTitle, parseAuditFindings, renderAuditIssueBody, siftAuditFindings, type AuditFinding } from '../src/audit-findings.js';
+import { auditKey, auditTitle, parseAuditFindings, renderAuditIssueBody, severityRank, siftAuditFindings, type AuditFinding } from '../src/audit-findings.js';
 import { charterOrder } from '../src/audit-workflow.js';
 
 const WELL_FORMED = [
@@ -228,5 +228,22 @@ describe('charterOrder', () => {
 
     expect(ordered).toHaveLength(4);
     expect(new Set(ordered.map((c) => `${c.lens}:${c.scope}`)).size).toBe(4);
+  });
+});
+
+describe('severityRank', () => {
+  it('orders high before medium before low before unlabeled', () => {
+    const ranks = [
+      ['audit', 'severity:high'],
+      ['severity:medium'],
+      ['audit', 'severity:low'],
+      ['audit'],
+    ].map(severityRank);
+
+    expect(ranks).toEqual([0, 1, 2, 3]);
+  });
+
+  it('ignores unrelated labels', () => {
+    expect(severityRank(['maintenance-approved', 'severity:high'])).toBe(0);
   });
 });

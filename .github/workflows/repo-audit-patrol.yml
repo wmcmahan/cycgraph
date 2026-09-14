@@ -66,6 +66,7 @@ jobs:
         run: >
           npm run maintain --workspace=ops/maintenance --
           repo-audit
+          --approve true
           --maxAuditors 4
           --budgetTokens 2000000
           ${{ github.event.inputs.focus != '' && format('--focus "{0}"', github.event.inputs.focus) || '' }}

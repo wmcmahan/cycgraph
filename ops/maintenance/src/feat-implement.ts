@@ -37,6 +37,7 @@ import {
 import { parseProposal, safeAcceptanceCommand } from './proposal.js';
 import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, checksEnv, resolveRepo } from './repo.js';
 import { LESSON_TAG } from './memory.js';
+import { stripCloses, templateEvidence } from './pr-template.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -120,10 +121,11 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         branch: `feat/impl-${randomUUID().slice(0, 8)}`,
         title: 'feat: implement an approved proposal',
         detailFrom: 'accept_result',
-        evidence: (details: string[]) => ({
-          summary: `An approved feature ticket, implemented by the feat-implement workflow. ${details.join(' ')}`.trim(),
-          ...(details.length > 0 ? { changes: details } : {}),
+        evidence: (details: string[], context: { diff: string }) => ({
+          summary: `An approved feature ticket, implemented by the feat-implement workflow. ${stripCloses(details).join(' ')}`.trim(),
+          ...(details.length > 0 ? { changes: stripCloses(details) } : {}),
           provenance: 'feat-implement: the ticket is the spec; every runnable acceptance criterion passed in the clone, and the criteria needing judgement are listed for this review.',
+          ...templateEvidence(context.diff, { checks: p.checks, reviewed: true, details }),
         }),
         commit: p.commit,
         publish: p.publish,

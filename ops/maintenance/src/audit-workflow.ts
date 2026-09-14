@@ -79,6 +79,8 @@ const params = z.object({
     .describe('Findings filed per run after ranking'),
   file: z.boolean().default(true)
     .describe('File the shortlist as issues. Off reports the sift verdict only'),
+  approve: z.boolean().default(false)
+    .describe('File tickets carrying the maintenance-approved label, feeding the automated fix queue without a human labeling step. The human gates that remain are the PR and the ability to unlabel'),
   focus: z.string().default('')
     .describe('Steer every charter toward an area or concern. Empty leaves charters as lens × scope'),
   prompt: z.string().default('')
@@ -258,7 +260,7 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
             const outcome = await createIssue(repoRoot, {
               title: finding.title,
               body: renderAuditIssueBody(finding, findingMarker(auditKey(finding.title))),
-              labels: ['audit', `severity:${finding.severity}`],
+              labels: ['audit', `severity:${finding.severity}`, ...(p.approve ? ['maintenance-approved'] : [])],
             }, token !== undefined ? { token } : {});
             if ('url' in outcome) urls.push(outcome.url);
             else failures.push(outcome.error);

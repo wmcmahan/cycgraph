@@ -40,6 +40,16 @@ export interface AuditSiftResult {
   clean_reports: number;
 }
 
+/**
+ * Queue rank for an issue by its severity label: `severity:high` before
+ * `severity:medium` before `severity:low` before unlabeled. Ties break
+ * upstream, oldest issue first.
+ */
+export function severityRank(labels: readonly string[]): number {
+  const index = AUDIT_SEVERITIES.findIndex((severity) => labels.includes(`severity:${severity}`));
+  return index === -1 ? AUDIT_SEVERITIES.length : index;
+}
+
 /** Dedupe key for a finding, stable under case and punctuation noise. */
 export function auditKey(title: string): string {
   const normalized = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);

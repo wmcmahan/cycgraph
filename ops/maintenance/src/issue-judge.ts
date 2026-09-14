@@ -44,7 +44,7 @@ export function findingFromKey(key: string): IssueFinding | undefined {
 
 /** Recover the finding a filed issue carries, or `undefined` when it carries none. */
 export function parseIssueFinding(body: string): IssueFinding | undefined {
-  const keys = issueMarkers([{ number: 0, title: '', body } satisfies IssueRef]);
+  const keys = issueMarkers([{ number: 0, title: '', body, labels: [] } satisfies IssueRef]);
   const key = [...keys][0];
   if (key === undefined) return undefined;
   return findingFromKey(key);
