@@ -30,6 +30,7 @@ import { deliveryNodes, issueMarkers, listOpenIssues } from '@cycgraph/tools/git
 import { compareBench, runAliasedBench, type BenchRow } from './bench.js';
 import { extractTicketDiff } from './proposal.js';
 import { checksEnv, resolveRepo } from './repo.js';
+import { stripCloses, templateEvidence } from './pr-template.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -77,10 +78,11 @@ export function optApply(): MaintenanceWorkflow<typeof params> {
         branch: `opt/apply-${randomUUID().slice(0, 8)}`,
         title: 'perf: apply a measured optimization',
         detailFrom: 'verdict_result',
-        evidence: (details: string[]) => ({
-          summary: `An approved optimization ticket, re-verified by the opt-apply workflow. ${details.join(' ')}`.trim(),
-          ...(details.length > 0 ? { changes: details } : {}),
+        evidence: (details: string[], context: { diff: string }) => ({
+          summary: `An approved optimization ticket, re-verified by the opt-apply workflow. ${stripCloses(details).join(' ')}`.trim(),
+          ...(details.length > 0 ? { changes: stripCloses(details) } : {}),
           provenance: 'opt-apply: the ticket\'s verified diff was re-applied to a fresh clone and re-benchmarked; the improvement held beyond the floor and the noise, nothing regressed, and the checks passed.',
+          ...templateEvidence(context.diff, { checks: p.checks, details }),
         }),
         commit: p.commit,
         publish: p.publish,

@@ -17,11 +17,13 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 
-/** An open issue, as much of it as dedupe needs. */
+/** An open issue, as much of it as dedupe and queue ordering need. */
 export interface IssueRef {
   number: number;
   title: string;
   body: string;
+  /** Label names, for priority ordering and approval checks. */
+  labels: string[];
 }
 
 function ghEnv(token?: string): NodeJS.ProcessEnv | undefined {
@@ -39,12 +41,19 @@ export async function listOpenIssues(
   try {
     const { stdout } = await exec(
       'gh', [
-        'issue', 'list', '--state', 'open', '--limit', '200', '--json', 'number,title,body',
+        'issue', 'list', '--state', 'open', '--limit', '200', '--json', 'number,title,body,labels',
         ...(options.label !== undefined ? ['--label', options.label] : []),
       ],
       { cwd: repoRoot, ...(ghEnv(options.token) !== undefined ? { env: ghEnv(options.token) } : {}) },
     );
-    return JSON.parse(stdout) as IssueRef[];
+    const rows = JSON.parse(stdout) as
+      { number: number; title: string; body: string; labels?: { name?: string }[] }[];
+    return rows.map((row) => ({
+      number: row.number,
+      title: row.title,
+      body: row.body,
+      labels: (row.labels ?? []).map((label) => label.name ?? '').filter((name) => name !== ''),
+    }));
   } catch {
     return undefined;
   }

@@ -53,7 +53,7 @@ const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
 };
 
 const NUMBER_FLAGS = new Set(['batch', 'skip', 'maxIssues', 'issueNumber', 'minImprovement', 'attempts', 'budgetTokens', 'pr', 'maxAuditors', 'concurrency', 'steps', 'maxFindings', 'sinceDays', 'trials']);
-const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale', 'push', 'comment', 'revise', 'apply']);
+const BOOLEAN_FLAGS = new Set(['commit', 'publish', 'lint', 'file', 'allowStale', 'push', 'comment', 'revise', 'apply', 'approve', 'merge']);
 const LIST_FLAGS = new Set(['checks', 'lenses', 'scopes']);
 
 function parseFlags(args: string[]): Record<string, unknown> {

@@ -42,9 +42,11 @@ export interface DeliveryOptions {
   detailFrom: string;
   /**
    * Turn the accumulated details — one per commit the delivery has made
-   * — into PR evidence. Defaults to a summary joining them.
+   * — into PR evidence. The context carries the whole-branch diff so
+   * callers can derive template ticks and not-applicable blocks from
+   * what actually changed. Defaults to a summary joining the details.
    */
-  evidence?: (details: string[]) => PrEvidence;
+  evidence?: (details: string[], context: { diff: string }) => PrEvidence;
   /** Commit the change. Off leaves the workspace for inspection. Default true. */
   commit?: boolean;
   /** Push and open the PR. Off leaves the prepared script in the commit result. Default true. */
@@ -137,7 +139,8 @@ export function deliveryNodes(
       const count = priorCount + 1;
       const details = [...priorDetails, detail];
       const subjects = [...priorSubjects, subject];
-      const body = await prBodyFor(repoRoot, evidence(details));
+      const diff = await branchDiff(ws.root, count);
+      const body = await prBodyFor(repoRoot, evidence(details, { diff }));
       return {
         committed: true,
         count,
@@ -145,7 +148,7 @@ export function deliveryNodes(
         subjects,
         workspace: ws.root,
         branch: ws.branch,
-        diff: await branchDiff(ws.root, count),
+        diff,
         prCommand: publishScript(ws, repoRoot, count === 1 ? subject : title, body),
       };
     },
@@ -160,7 +163,7 @@ export function deliveryNodes(
     }),
     execute: async (args) => {
       const prior = args['commit_result'] as
-        { committed?: boolean; details?: string[]; subjects?: string[] } | undefined;
+        { committed?: boolean; details?: string[]; subjects?: string[]; diff?: string } | undefined;
       const committed = prior?.committed === true;
       if (options.publish === false || !committed) {
         return {
@@ -171,7 +174,7 @@ export function deliveryNodes(
       const details = prior?.details ?? [detailOf(args[detailFrom])];
       const subjects = prior?.subjects ?? [];
       const prTitle = subjects.length === 1 ? subjects[0]! : title;
-      const body = await prBodyFor(repoRoot, evidence(details));
+      const body = await prBodyFor(repoRoot, evidence(details, { diff: prior?.diff ?? '' }));
       const outcome = await publishBranch(ws, repoRoot, prTitle, body, options.config);
       return { published: outcome.prUrl !== undefined, branch: ws.branch, ...outcome };
     },

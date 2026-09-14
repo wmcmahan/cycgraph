@@ -1,10 +1,19 @@
-# Issue fix: the cycle over approved upkeep issues. core-upkeep files
-# what the codebase owes; a human approves an issue by labelling it
-# `maintenance-approved`; this workflow fixes one per run and opens a PR
-# that closes it. The judge refuses erasure — a TODO deleted without the
-# work, a test deleted instead of un-skipped, a warning silenced with
-# eslint-disable — so a run only delivers work that was actually done.
-# With nothing approved, the run exits clean in minutes.
+# Issue fix: the serialized dispatcher over approved upkeep issues.
+#
+# GitHub is the queue: open issues carrying `maintenance-approved`
+# (applied by a human, or filed pre-approved by the audit and upkeep
+# workflows running with --approve). The picker takes the worst
+# `severity:*` label first, oldest within, and the pipeline holds ONE
+# fix in flight end-to-end — no run starts while any maintenance-managed
+# PR is open, so every fix branches from a main that already contains
+# the previous one and merge conflicts have nothing to feed on.
+#
+# The chain: approval label -> fix PR -> pr-review (approve arms
+# auto-merge; revise dispatches pr-revise) -> merge closes the issue ->
+# the merge event fires this workflow again for the next pick. The cron
+# is only the backstop for dropped events. The judge still refuses
+# erasure, so a run only delivers work that was actually done; with
+# nothing approved, the run exits clean in minutes.
 #
 # Secrets: ANTHROPIC_API_KEY (fixer model), MAINTENANCE_PAT (push + PR;
 # see docs-maintenance.yml for why the built-in token is a weak fallback).
@@ -13,9 +22,11 @@ name: Issue fix
 
 on:
   schedule:
-    - cron: '0 10 * * 2'
+    - cron: '15 */2 * * *'
   issues:
     types: [labeled]
+  pull_request:
+    types: [closed]
   workflow_dispatch:
 
 permissions:
@@ -23,16 +34,25 @@ permissions:
   pull-requests: write
   issues: read
 
+# One constant group: runs queue behind each other instead of
+# interleaving, which is the one-fix-at-a-time guarantee.
 concurrency:
-  group: issue-fix-${{ github.event.issue.number || 'sweep' }}
+  group: issue-fix-pipeline
   cancel-in-progress: false
 
 jobs:
   fix:
-    # A label event only counts when the label is the approval itself —
-    # approving an issue starts its fix immediately instead of waiting
-    # for the weekly sweep.
-    if: github.event_name != 'issues' || github.event.label.name == 'maintenance-approved'
+    # Fire on: a manual dispatch, the cron sweep, the approval label
+    # itself (an approved issue starts immediately), or a merged
+    # maintenance PR (the previous fix landing is what frees the
+    # pipeline for the next pick).
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'issues' && github.event.label.name == 'maintenance-approved') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       contains(github.event.pull_request.labels.*.name, 'maintenance-managed'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,16 +60,35 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.MAINTENANCE_PAT || github.token }}
 
+      # One fix in flight: while any maintenance PR is open, this tick
+      # yields — the PR's own merge event runs the next pick.
+      - name: Check the pipeline is idle
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+        run: |
+          open=$(gh pr list --label maintenance-managed --state open --json number --jq 'length')
+          if [ "$open" -eq 0 ]; then
+            echo "idle=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "idle=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$open maintenance PR(s) open — one fix in flight at a time; this tick yields."
+          fi
+
       - uses: actions/setup-node@v4
+        if: steps.gate.outputs.idle == 'true'
         with:
           node-version: 22
           cache: npm
 
       - run: npm ci
+        if: steps.gate.outputs.idle == 'true'
 
       - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools --workspace=packages/orchestrator-postgres
+        if: steps.gate.outputs.idle == 'true'
 
-      - name: Fix one approved upkeep issue
+      - name: Fix the highest-priority approved issue
+        if: steps.gate.outputs.idle == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

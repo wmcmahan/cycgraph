@@ -38,10 +38,11 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { scanCore, type CoreFinding } from './core-scan.js';
-import { auditTitle } from './audit-findings.js';
+import { auditTitle, severityRank } from './audit-findings.js';
 import { findingFromKey, judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
 import { checksEnv, CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
 import { LESSON_TAG } from './memory.js';
+import { stripCloses, templateEvidence } from './pr-template.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const params = z.object({
@@ -118,10 +119,11 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         branch: branchName,
         title: 'chore: resolve owed upkeep',
         detailFrom: 'judge_result',
-        evidence: (details: string[]) => ({
-          summary: `Filed by maintenance discovery (core-upkeep or repo-audit), approved by label, fixed by the issue-fix workflow. ${details.join(' ')}`.trim(),
-          ...(details.length > 0 ? { changes: details } : {}),
+        evidence: (details: string[], context: { diff: string }) => ({
+          summary: `Filed by maintenance discovery (core-upkeep or repo-audit), approved by label, fixed by the issue-fix workflow. ${stripCloses(details).join(' ')}`.trim(),
+          ...(details.length > 0 ? { changes: stripCloses(details) } : {}),
           provenance: 'issue-fix: the finding was re-located mechanically, fixed by an agent in a jailed clone, and verified by re-scan, a class-specific anti-gaming guard, and repository checks before commit.',
+          ...templateEvidence(context.diff, { checks: p.checks, reviewed: true, details }),
         }),
         commit: p.commit,
         publish: p.publish,
@@ -145,7 +147,10 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
                 const finding = parseIssueFinding(issue.body);
                 return finding !== undefined ? [{ issue, finding }] : [];
               })
-              .sort((a, b) => a.issue.number - b.issue.number);
+              // Queue order: worst severity label first, oldest within.
+              .sort((a, b) =>
+                severityRank(a.issue.labels) - severityRank(b.issue.labels)
+                || a.issue.number - b.issue.number);
             const picked = candidates[0];
             if (picked === undefined) {
               return { has_work: false, detail: `no open '${p.label}' issue carries a finding marker` };

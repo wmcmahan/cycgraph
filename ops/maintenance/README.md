@@ -122,11 +122,12 @@ npm run play -- run repo-docs --batch 2 --publish false
 
 `.github/workflows/core-upkeep.yml` runs the upkeep sense weekly with
 the built-in token (issues write is all it needs).
-`.github/workflows/issue-fix.yml` runs the fix cycle weekly, and also
-the moment a human applies the `maintenance-approved` label — the label
-event carries the issue number, so approval starts that issue's fix
-immediately instead of waiting for the sweep. One issue per run, eslint
-as the pre-commit check, exiting clean when nothing carries the label.
+`.github/workflows/issue-fix.yml` is the queue dispatcher described
+under "The automated pipeline" below: it fires on the approval label,
+on every merged maintenance PR, and on a two-hourly backstop cron, one
+issue per run, worst severity first, never while another maintenance PR
+is open. Eslint is the pre-commit check, and the run exits clean when
+nothing carries the label.
 `.github/workflows/docs-maintenance.yml` runs both docs scopes nightly
 (batched full scan) and on every push to main (diff mode over the
 pushed change). It needs the `ANTHROPIC_API_KEY` secret, and a
@@ -145,3 +146,28 @@ or PR comment mentioning `@cycgraph`, dispatches a run that reads the
 feedback, revises the same branch so the pull request updates in place,
 and replies with what changed. The human verdict still ends every
 thread; the run never merges.
+
+## The automated pipeline
+
+With the flags the workflow files now set, the whole ladder runs without
+a human touch on the happy path. The audit and upkeep workflows file
+issues pre-approved (`--approve true`), so the queue is simply the open
+`maintenance-approved` issues. `.github/workflows/issue-fix.yml` is the
+dispatcher over that queue: it fires on the approval label, on every
+merged maintenance PR, and on a two-hourly backstop cron, and it holds
+one fix in flight end-to-end — a constant concurrency group serializes
+runs, and a gate step yields while any `maintenance-managed` PR is
+open. Because the next fix only starts after the previous one merged,
+every branch cuts from a main that already contains the last change,
+which is what keeps merge conflicts out of the pipeline. The picker
+takes the worst `severity:*` label first and the oldest issue within a
+severity. On the way out, pr-review runs with `--merge true`: an
+APPROVE verdict on a managed PR arms squash auto-merge (deleting the
+branch), the merge closes the issue, and the merge event dispatches the
+next pick. A REVISE verdict still routes through pr-revise, bounded by
+the rounds cap, and a PR that exhausts the cap parks the pipeline until
+a human decides — that, plus unlabeling an issue, disabling auto-merge,
+or closing a PR, is where the human hand remains. Enable "Allow
+auto-merge" in the repository settings; without it the merge step falls
+back to a direct merge, which only succeeds when the checks are already
+green.

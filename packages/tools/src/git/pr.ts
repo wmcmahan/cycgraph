@@ -399,3 +399,36 @@ export async function resolveReviewThread(
     return { ok: false, detail: (error as Error).message.split('\n')[0] ?? 'resolve failed' };
   }
 }
+
+/**
+ * Enable auto-merge on a pull request so it merges the moment its
+ * required checks pass; a PR GitHub reports as already mergeable is
+ * merged directly instead. Squash keeps the PR title — for a
+ * single-commit delivery, the change's own subject — as the merge
+ * subject, and the head branch is deleted on merge.
+ */
+export async function enableAutoMerge(
+  repoRoot: string,
+  prNumber: number,
+  options: { token?: string } = {},
+): Promise<{ ok: boolean; merged?: 'auto' | 'now'; detail: string }> {
+  const env = ghEnv(options.token);
+  const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
+  try {
+    await exec('gh', ['pr', 'merge', String(prNumber), '--auto', '--squash', '--delete-branch'], opts);
+    return { ok: true, merged: 'auto', detail: 'auto-merge enabled; merges when checks pass' };
+  } catch (error) {
+    const reason = (error as Error).message.split('\n')[0] ?? 'gh pr merge --auto failed';
+    // "Clean status" means the checks are already green, so there is
+    // nothing to arm — merge now. Every other failure also gets one
+    // direct attempt: auto-merge disabled in repository settings is
+    // survivable when the checks happen to be done.
+    try {
+      await exec('gh', ['pr', 'merge', String(prNumber), '--squash', '--delete-branch'], opts);
+      return { ok: true, merged: 'now', detail: 'merged directly (checks already green)' };
+    } catch (directError) {
+      const directReason = (directError as Error).message.split('\n')[0] ?? 'direct merge failed';
+      return { ok: false, detail: `auto-merge failed (${reason}); direct merge failed (${directReason})` };
+    }
+  }
+}

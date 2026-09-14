@@ -80,4 +80,5 @@ jobs:
         run: >
           npm run maintain --workspace=ops/maintenance --
           pr-review
+          --merge true
           --pr ${{ github.event.pull_request.number || inputs.pr }}

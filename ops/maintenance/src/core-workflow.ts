@@ -42,13 +42,16 @@ const params = z.object({
     .describe('Include the eslint sense class. Off keeps a run to the cheap grep classes'),
   file: z.boolean().default(true)
     .describe('File the issues. Off reports what would be filed and touches nothing'),
+  approve: z.boolean().default(false)
+    .describe('File issues carrying the maintenance-approved label, feeding the automated fix queue without a human labeling step'),
 });
 
 type Params = z.infer<typeof params>;
 
-function issueFor(finding: CoreFinding): { title: string; body: string } {
+function issueFor(finding: CoreFinding, labels: string[]): { title: string; body: string; labels: string[] } {
   return {
     title: `[maintenance] ${finding.kind} in ${finding.file}`,
+    labels,
     body: [
       finding.detail,
       '',
@@ -137,7 +140,10 @@ export function coreUpkeep(): MaintenanceWorkflow<typeof params> {
           const filed: { key: string; url: string }[] = [];
           const errors: string[] = [];
           for (const finding of toFile) {
-            const outcome = await createIssue(repoRoot, issueFor(finding), token !== undefined ? { token } : {});
+            const outcome = await createIssue(
+              repoRoot,
+              issueFor(finding, p.approve ? ['maintenance-approved'] : []),
+              token !== undefined ? { token } : {});
             if ('url' in outcome) filed.push({ key: finding.key, url: outcome.url });
             else errors.push(`${finding.key}: ${outcome.error}`);
           }

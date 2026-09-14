@@ -22,6 +22,7 @@ export {
 export {
   commentOnPr,
   commentableDiffLines,
+  enableAutoMerge,
   listReviewThreads,
   openPrFiles,
   prFeedback,
@@ -35,8 +36,8 @@ export type { IssueRef } from './issues.js';
 export type { Branch, Published } from './branch.js';
 export { DEFAULT_IDENTITY, publishConfigFromEnv } from './config.js';
 export type { CommitIdentity, PublishConfig } from './config.js';
-export { fillSection, prBodyFor } from './template.js';
-export type { PrEvidence } from './template.js';
+export { fillSection, prBodyFor, tickCheckbox } from './template.js';
+export type { PrCheckTick, PrEvidence } from './template.js';
 export { deliveryNodes } from './delivery.js';
 export type { DeliveryNode } from './delivery.js';
 export type { DeliveryOptions } from './delivery.js';

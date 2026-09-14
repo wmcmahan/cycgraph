@@ -45,6 +45,7 @@ import { findingKey, judgeFix, scanDocs, scopeFindings, type DocsFinding } from 
 import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
 import { checksEnv, resolveRepo } from './repo.js';
 import { deliveryNodes, openPrFiles } from '@cycgraph/tools/git';
+import { templateEvidence } from './pr-template.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 
@@ -122,12 +123,13 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
         branch: branchName,
         title: p.batch > 1 ? 'docs: correct stale references' : 'docs: correct a stale reference',
         detailFrom: 'judge_result',
-        evidence: (details: string[]) => ({
+        evidence: (details: string[], context: { diff: string }) => ({
           summary: details.length === 1
             ? `Found and verified by the ${id} workflow. ${details[0]}`
             : `Found and verified by the ${id} workflow: ${details.length} documentation fixes, one commit each.`,
           ...(details.length > 0 ? { changes: details } : {}),
           provenance: `${id}: each finding was detected mechanically, fixed by an agent in a jailed clone, and verified by re-scan and repository checks before its commit.`,
+          ...templateEvidence(context.diff, { checks: p.checks, details }),
         }),
         commit: p.commit,
         publish: p.publish,
