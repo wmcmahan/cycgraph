@@ -17,7 +17,7 @@
  * @module mcp/transport-security
  */
 
-import { assertResolvedHostPublic } from '../tools/host-guard.js';
+import { assertResolvedHostPublic, ResolvedHostBlockedError } from '../tools/host-guard.js';
 import { createLogger } from '../observability/logger.js';
 
 const logger = createLogger('mcp.transport-security');
@@ -53,7 +53,10 @@ const DANGEROUS_STDIO_ENV_PREFIXES = ['DYLD_'];
  * to a private IP (DNS rebinding → cloud metadata / internal services) slips
  * through. The resolution policy itself lives in `assertResolvedHostPublic`,
  * shared with the A2A card guard and the web tools; this wrapper supplies the
- * MCP subject, escape hatch, and blocked-host logging.
+ * MCP subject, escape hatch, and logging. The two outcomes stay distinct
+ * events: `mcp_ssrf_blocked_resolved_ip` carries the `blocked` addresses that
+ * caused a refusal, `mcp_ssrf_lookup_failed` carries the `reason` a lookup
+ * never answered.
  *
  * Honors the same `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS` operator escape hatch as
  * the schema guard. Note (documented limitation): the SDK re-resolves the
@@ -77,11 +80,19 @@ export async function assertHostResolvesPublic(rawUrl: string, serverId: string)
       hint: 'Set CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true to allow it in development.',
     });
   } catch (err) {
-    logger.warn('mcp_ssrf_blocked_resolved_ip', {
-      server_id: serverId,
-      host,
-      reason: (err as Error).message,
-    });
+    if (err instanceof ResolvedHostBlockedError) {
+      logger.warn('mcp_ssrf_blocked_resolved_ip', {
+        server_id: serverId,
+        host,
+        blocked: err.blocked,
+      });
+    } else {
+      logger.warn('mcp_ssrf_lookup_failed', {
+        server_id: serverId,
+        host,
+        reason: (err as Error).message,
+      });
+    }
     throw err;
   }
 }

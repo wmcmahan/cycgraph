@@ -17,6 +17,22 @@ import { isPrivateOrLoopbackHost } from './schema.js';
 /** Default ceiling on one lookup before the guard fails closed. */
 export const DNS_LOOKUP_TIMEOUT_MS = 5_000;
 
+/**
+ * Thrown when a host's DNS record points at a private target. Carries the
+ * offending addresses so a call site can log the block decision with the
+ * addresses that caused it, distinct from a lookup that never answered.
+ */
+export class ResolvedHostBlockedError extends Error {
+  /** Every resolved address that failed the private-range test. */
+  readonly blocked: string[];
+
+  constructor(message: string, blocked: string[]) {
+    super(message);
+    this.name = 'ResolvedHostBlockedError';
+    this.blocked = blocked;
+  }
+}
+
 /** Options for {@link assertResolvedHostPublic}. */
 export interface ResolvedHostGuardOptions {
   /**
@@ -58,7 +74,8 @@ function isIpLiteral(host: string): boolean {
  *
  * @param hostname - Host to resolve; IPv6 brackets are tolerated and stripped.
  * @param options - Message subject, opt-out, and budget for this call site.
- * @throws {Error} When the host resolves privately, or cannot be resolved.
+ * @throws {ResolvedHostBlockedError} When any resolved address is private.
+ * @throws {Error} When the host cannot be resolved within the budget.
  */
 export async function assertResolvedHostPublic(
   hostname: string,
@@ -94,9 +111,10 @@ export async function assertResolvedHostPublic(
 
   const blocked = addresses.filter((address) => isPrivateOrLoopbackHost(address));
   if (blocked.length > 0) {
-    throw new Error(
+    throw new ResolvedHostBlockedError(
       `${options.subject} "${host}" resolves to a private/loopback address (${blocked.join(', ')}) `
       + `and is blocked (SSRF guard).${options.hint === undefined ? '' : ` ${options.hint}`}`,
+      blocked,
     );
   }
 }

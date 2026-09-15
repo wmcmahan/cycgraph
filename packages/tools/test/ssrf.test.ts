@@ -56,7 +56,7 @@ describe('assertUrlPublic', () => {
     lookup.mockResolvedValue([{ address: '10.0.0.5' }]);
 
     await expect(assertUrlPublic(new URL('https://rebind.example.com/'))).rejects.toThrow(
-      /resolves to a private address/,
+      /resolves to a private\/loopback address \(10\.0\.0\.5\)/,
     );
   });
 

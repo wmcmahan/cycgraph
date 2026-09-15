@@ -167,7 +167,11 @@ export {
   MCPTransportConfigSchema,
   MCPServerEntrySchema,
 } from './tools/schema.js';
-export { assertResolvedHostPublic, DNS_LOOKUP_TIMEOUT_MS } from './tools/host-guard.js';
+export {
+  assertResolvedHostPublic,
+  ResolvedHostBlockedError,
+  DNS_LOOKUP_TIMEOUT_MS,
+} from './tools/host-guard.js';
 export type { ResolvedHostGuardOptions } from './tools/host-guard.js';
 export type {
   ToolSource,

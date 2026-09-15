@@ -228,18 +228,17 @@ describe('sdkClientFactory', () => {
 
     await expect(create(CARD_URL, {})).rejects.toThrow(
       'agent card endpoint host "agent.example" could not be resolved for SSRF validation: '
-      + 'getaddrinfo ENOTFOUND agent.example (SSRF guard)');
+      + 'getaddrinfo ENOTFOUND agent.example');
   });
 
-  it('strips ipv6 brackets before resolving an endpoint host', async () => {
+  it('accepts a bracketed public ipv6 literal endpoint without a lookup', async () => {
     const fetchMock = vi.fn(async () => cardResponse('http://[2606:2800:220:1:248:1893:25c8:1946]/rpc'));
     vi.stubGlobal('fetch', fetchMock);
-    dnsLookupMock.mockResolvedValue([{ address: '2606:2800:220:1:248:1893:25c8:1946', family: 6 }]);
 
     const create = sdkClientFactory();
     await settled(create(CARD_URL, {}));
 
-    expect(dnsLookupMock).toHaveBeenCalledWith('2606:2800:220:1:248:1893:25c8:1946', { all: true });
+    expect(dnsLookupMock).not.toHaveBeenCalled();
   });
 
   it('resolves each distinct endpoint host once per card check', async () => {
