@@ -120,16 +120,16 @@ npm run play -- run repo-docs --batch 2 --publish false
 
 ## CI
 
-`.github/workflows/core-upkeep.yml` runs the upkeep sense weekly with
+`.github/workflows/core-upkeep.yml` runs the upkeep sense on manual dispatch with
 the built-in token (issues write is all it needs).
 `.github/workflows/issue-fix.yml` is the queue dispatcher described
-under "The automated pipeline" below: it fires on the approval label,
-on every merged maintenance PR, and on a two-hourly backstop cron, one
-issue per run, worst severity first, never while another maintenance PR
-is open. Eslint is the pre-commit check, and the run exits clean when
+under "The automated pipeline" below: it fires on the approval label
+and on every merged maintenance PR (no cron — a dropped event is
+recovered by a manual dispatch), one issue per run, worst severity
+first, never while another maintenance PR is open. Eslint is the pre-commit check, and the run exits clean when
 nothing carries the label.
-`.github/workflows/docs-maintenance.yml` runs both docs scopes nightly
-(batched full scan) and on every push to main (diff mode over the
+`.github/workflows/docs-maintenance.yml` runs both docs scopes on
+manual dispatch (batched full scan) and on every push to main (diff mode over the
 pushed change). It needs the `ANTHROPIC_API_KEY` secret, and a
 fine-grained `MAINTENANCE_PAT` secret with contents and pull-requests
 write — pull requests created with the built-in `GITHUB_TOKEN` do not
@@ -137,8 +137,8 @@ trigger CI, so without the PAT the maintenance PRs arrive without
 checks. Runs never merge anything, and the scan defers findings any
 open `docs/*` pull request already touches.
 `.github/workflows/reconcile-outcomes.yml` runs the outcome reconciler
-daily, after the previous day's pull requests have had their chance to
-be merged or closed. It needs the `DATABASE_URL` secret — without a
+on manual dispatch; run it after recent pull requests have had their
+chance to be merged or closed, or the lesson ledger accrues no outcomes. It needs the `DATABASE_URL` secret — without a
 ledger there is nothing to record — and a token that can read PR states.
 `.github/workflows/pr-revise.yml` closes the human-in-the-loop review
 cycle: a changes-requested review on a maintenance branch, or a review
@@ -153,8 +153,9 @@ With the flags the workflow files now set, the whole ladder runs without
 a human touch on the happy path. The audit and upkeep workflows file
 issues pre-approved (`--approve true`), so the queue is simply the open
 `maintenance-approved` issues. `.github/workflows/issue-fix.yml` is the
-dispatcher over that queue: it fires on the approval label, on every
-merged maintenance PR, and on a two-hourly backstop cron, and it holds
+dispatcher over that queue: it fires on the approval label and on every
+merged maintenance PR (no cron — a dropped event is recovered by a
+manual dispatch), and it holds
 one fix in flight end-to-end — a constant concurrency group serializes
 runs, and a gate step yields while any `maintenance-managed` PR is
 open. Because the next fix only starts after the previous one merged,

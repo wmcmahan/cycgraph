@@ -10,8 +10,8 @@
 #
 # The chain: approval label -> fix PR -> pr-review (approve arms
 # auto-merge; revise dispatches pr-revise) -> merge closes the issue ->
-# the merge event fires this workflow again for the next pick. The cron
-# is only the backstop for dropped events. The judge still refuses
+# the merge event fires this workflow again for the next pick. There
+# is no cron: a dropped event is recovered by a manual dispatch. The judge still refuses
 # erasure, so a run only delivers work that was actually done; with
 # nothing approved, the run exits clean in minutes.
 #
@@ -21,8 +21,6 @@
 name: Issue fix
 
 on:
-  schedule:
-    - cron: '15 */2 * * *'
   issues:
     types: [labeled]
   pull_request:
