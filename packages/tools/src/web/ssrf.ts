@@ -3,8 +3,9 @@
  *
  * Reuses the orchestrator's `isPrivateOrLoopbackHost` (the same range logic
  * that guards MCP transport URLs, including non-dotted-quad IPv4 encodings
- * and IPv4-mapped IPv6) and adds the DNS re-check: a public-looking name
- * must not resolve to a private address at request time (DNS rebinding).
+ * and IPv4-mapped IPv6) and its `assertResolvedHostPublic` for the DNS
+ * re-check: a public-looking name must not resolve to a private address at
+ * request time (DNS rebinding).
  *
  * Every redirect hop is re-validated by the caller, so a public host
  * cannot bounce a request into internal infrastructure via a 302.
@@ -12,8 +13,7 @@
  * @module web/ssrf
  */
 
-import { lookup } from 'node:dns/promises';
-import { isPrivateOrLoopbackHost } from '@cycgraph/orchestrator';
+import { assertResolvedHostPublic, isPrivateOrLoopbackHost } from '@cycgraph/orchestrator';
 
 /** Thrown when a URL fails the SSRF policy. Surfaces to the LLM as a tool failure. */
 export class SsrfBlockedError extends Error {
@@ -44,24 +44,11 @@ export async function assertUrlPublic(url: URL, allowPrivateHosts = false): Prom
     );
   }
 
-  // Literal IPs were fully validated above; only hostnames need the DNS check.
-  const bareHost = url.hostname.replace(/^\[|\]$/g, '');
-  if (/^[0-9.]+$/.test(bareHost) || bareHost.includes(':')) return;
-
-  let addresses: Array<{ address: string }>;
+  // Literal IPs were fully judged above; the shared guard skips their lookup.
   try {
-    addresses = await lookup(bareHost, { all: true, verbatim: true });
+    await assertResolvedHostPublic(url.hostname, { subject: 'Host' });
   } catch (err) {
-    throw new SsrfBlockedError(
-      `Host "${url.hostname}" could not be resolved for SSRF validation: ${(err as Error).message}`,
-    );
-  }
-
-  const blocked = addresses.filter((a) => isPrivateOrLoopbackHost(a.address));
-  if (blocked.length > 0) {
-    throw new SsrfBlockedError(
-      `Host "${url.hostname}" resolves to a private address (${blocked[0].address}) and is blocked (SSRF guard)`,
-    );
+    throw new SsrfBlockedError((err as Error).message);
   }
 }
 
