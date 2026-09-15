@@ -13,8 +13,6 @@
 name: Reconcile outcomes
 
 on:
-  schedule:
-    - cron: '30 5 * * *'
   workflow_dispatch:
     inputs:
       sinceDays:

@@ -1,6 +1,7 @@
 # Audit patrol: the frequent, budget-capped mode of repo-audit.
+# Dispatch-only: no cron is scheduled.
 #
-# Four auditor slots per run, three runs a day: scopes changed since the
+# Four auditor slots per run: scopes changed since the
 # last audited commit take slots first, and the rest of the lens × scope
 # cross-product fills oldest-audited-first — a scheduler, not a filter,
 # so nothing is ever memoized away and stable code keeps getting fresh
@@ -20,8 +21,6 @@
 name: Repo audit patrol
 
 on:
-  schedule:
-    - cron: '0 13,17,21 * * *'
   workflow_dispatch:
     inputs:
       focus:
