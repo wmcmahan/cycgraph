@@ -3,10 +3,15 @@
  * per-request fetch its transport issues.
  */
 
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+
+const dnsLookupMock = vi.hoisted(() => vi.fn());
+vi.mock('node:dns/promises', () => ({ lookup: dnsLookupMock }));
+
 import { requestFetch, sdkClientFactory } from '../src/connection.js';
 
 const CARD_URL = 'http://agent.example';
+const PUBLIC_IP = '93.184.216.34';
 
 function cardResponse(endpointUrl = `${CARD_URL}/rpc`, extra: Record<string, unknown> = {}): Response {
   return new Response(JSON.stringify({
@@ -27,6 +32,11 @@ function cardResponse(endpointUrl = `${CARD_URL}/rpc`, extra: Record<string, unk
 async function settled(promise: Promise<unknown>): Promise<void> {
   await promise.catch(() => undefined);
 }
+
+beforeEach(() => {
+  dnsLookupMock.mockReset();
+  dnsLookupMock.mockResolvedValue([{ address: PUBLIC_IP, family: 4 }]);
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -112,6 +122,57 @@ describe('sdkClientFactory', () => {
     await expect(create(CARD_URL, {})).rejects.toThrow('SSRF guard');
   });
 
+  it('refuses a card whose endpoint host resolves to a private address', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockResolvedValue([{ address: '169.254.169.254', family: 4 }]);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow(
+      'agent card endpoint "http://agent.example/rpc" resolves to a private/loopback address (169.254.169.254)');
+  });
+
+  it('refuses an endpoint whose record flips to a private address after the card is cached', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock
+      .mockResolvedValueOnce([{ address: PUBLIC_IP, family: 4 }])
+      .mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+
+    await expect(create(CARD_URL, {}))
+      .rejects.toThrow('resolves to a private/loopback address (127.0.0.1)');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when the endpoint host cannot be resolved', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockRejectedValue(new Error('ENOTFOUND'));
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow(
+      'agent card endpoint "http://agent.example/rpc" host "agent.example" '
+      + 'could not be resolved for SSRF validation: ENOTFOUND (SSRF guard)');
+  });
+
+  it('resolves each distinct endpoint host once per call', async () => {
+    const fetchMock = vi.fn(async () => cardResponse(`${CARD_URL}/rpc`, {
+      additionalInterfaces: [{ url: `${CARD_URL}/extra`, transport: 'JSONRPC' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+
+    expect(dnsLookupMock).toHaveBeenCalledTimes(1);
+    expect(dnsLookupMock).toHaveBeenCalledWith('agent.example', { all: true, verbatim: true });
+  });
+
   it('honors the development opt-out for private endpoints', async () => {
     vi.stubEnv('CYCGRAPH_ALLOW_PRIVATE_A2A_URLS', 'true');
     const fetchMock = vi.fn(async () => cardResponse('http://127.0.0.1:9999/rpc'));
@@ -121,6 +182,7 @@ describe('sdkClientFactory', () => {
     const outcome = await create(CARD_URL, {}).then(() => 'created', (error: Error) => error.message);
 
     expect(outcome).toBe('No compatible transport found, available transports: JSONRPC');
+    expect(dnsLookupMock).not.toHaveBeenCalled();
   });
 
   it('refuses a card whose endpoint is not http(s)', async () => {
