@@ -295,6 +295,7 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
           'SUGGESTION:', '<the shape of the fix, not the fix itself>',
           'Cite a path only after read_file has shown you its contents.',
           'When the charter turns up nothing you can prove, reply CLEAN: <one line on what you checked>. Never pad a clean result with weak findings.',
+          'Never end your turn on a statement of what you are about to do: a reply without FINDING or CLEAN blocks is discarded, and the whole investigation with it.',
         ].join('\n'),
         tools: [hands.search, hands.read],
       });

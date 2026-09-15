@@ -44,6 +44,9 @@ import { AgentTimeoutError, AgentExecutionError, type PartialUsage } from './err
 const logger = createLogger('agent.executor');
 const tracer = getTracer('orchestrator.agent');
 
+/** Ceiling on the steps an empty-final continuation may spend. */
+const MAX_CONTINUATION_STEPS = 3;
+
 /**
  * Mark Anthropic cache breakpoints on the ends of the last three
  * messages. Hits are looked up at the CURRENT request's breakpoints, so
@@ -101,6 +104,22 @@ export function countCacheMarks(messages: unknown[]): number {
 /** The per-step form of {@link withCacheBreakpoint}, for `prepareStep`. */
 export function cachePrepareStep({ messages }: { messages: unknown[] }): { messages: never } {
   return { messages: withCacheBreakpoint(messages) as never };
+}
+
+/**
+ * The fields of the SDK's tool-execution-start event this module reads.
+ * Declared structurally so the handler can be shared by calls whose
+ * inferred event type differs; providers send either `args` or `input`.
+ */
+interface ToolExecutionStartEvent {
+  toolCall: { toolName: string; toolCallId: string; args?: unknown; input?: unknown };
+}
+
+/** The fields of the SDK's tool-execution-end event this module reads. */
+interface ToolExecutionEndEvent {
+  toolCall: { toolName: string; toolCallId: string };
+  toolOutput: { type: string; error?: unknown };
+  toolExecutionMs: number;
 }
 
 /** Usage as the AI SDK reports it, cache detail included when the provider has one. */
@@ -386,6 +405,51 @@ export async function executeAgent(
       ? AbortSignal.any([controller.signal, options.abortSignal])
       : controller.signal;
 
+    // Every field both the primary call and the empty-final continuation
+    // must agree on. Held in one object so an option added later cannot
+    // reach only one of them — the continuation runs the same model with
+    // the same tools and limits, and its tool calls must be as visible to
+    // stream consumers as the primary call's.
+    const sharedStreamOptions = {
+      model,
+      instructions: systemPrompt,
+      tools,
+      abortSignal: combinedSignal,
+      // Omitted entirely when unset, so the provider's own default still
+      // applies and nothing changes for graphs that never configured it.
+      ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
+      ...(effectiveTemperature !== undefined
+        ? { temperature: clampTemperature(effectiveTemperature, effectiveConfig.provider, agentId) }
+        : {}),
+      ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
+      ...(options?.onToolCall ? {
+        onToolExecutionStart: (event: ToolExecutionStartEvent) => {
+          try {
+            const tc = event.toolCall;
+            options.onToolCall!({
+              toolName: tc.toolName,
+              toolCallId: tc.toolCallId,
+              args: 'args' in tc ? tc.args : ('input' in tc ? tc.input : undefined),
+            });
+          } catch { /* best-effort */ }
+        },
+      } : {}),
+      ...(options?.onToolCallComplete ? {
+        onToolExecutionEnd: (event: ToolExecutionEndEvent) => {
+          try {
+            const output = event.toolOutput;
+            options.onToolCallComplete!({
+              toolName: event.toolCall.toolName,
+              toolCallId: event.toolCall.toolCallId,
+              durationMs: event.toolExecutionMs,
+              success: output.type !== 'tool-error',
+              ...(output.type === 'tool-error' ? { error: String(output.error) } : {}),
+            });
+          } catch { /* best-effort */ }
+        },
+      } : {}),
+    };
+
     let text: string;
     let usage: ReportedUsage | undefined;
     let steps: AgentStep[];
@@ -402,10 +466,8 @@ export async function executeAgent(
 
     try {
       result = await streamText({
-        model,
-        instructions: systemPrompt,
+        ...sharedStreamOptions,
         prompt: taskPrompt,
-        tools,
         stopWhen: isStepCount(config.maxSteps),
         // Multi-step Anthropic agents re-send the whole growing transcript
         // on every step at full price without cache markers; advancing a
@@ -421,41 +483,7 @@ export async function executeAgent(
               },
             }
           : {}),
-        abortSignal: combinedSignal,
-        // Omitted entirely when unset, so the provider's own default still
-        // applies and nothing changes for graphs that never configured it.
-        ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
         onError: ({ error }) => { streamError = error; },
-        ...(effectiveTemperature !== undefined
-          ? { temperature: clampTemperature(effectiveTemperature, effectiveConfig.provider, agentId) }
-          : {}),
-        ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
-        ...(options?.onToolCall ? {
-          onToolExecutionStart: (event) => {
-            try {
-              const tc = event.toolCall;
-              options.onToolCall!({
-                toolName: tc.toolName,
-                toolCallId: tc.toolCallId,
-                args: 'args' in tc ? tc.args : ('input' in tc ? tc.input : undefined),
-              });
-            } catch { /* best-effort */ }
-          },
-        } : {}),
-        ...(options?.onToolCallComplete ? {
-          onToolExecutionEnd: (event) => {
-            try {
-              const output = event.toolOutput;
-              options.onToolCallComplete!({
-                toolName: event.toolCall.toolName,
-                toolCallId: event.toolCall.toolCallId,
-                durationMs: event.toolExecutionMs,
-                success: output.type !== 'tool-error',
-                ...(output.type === 'tool-error' ? { error: String(output.error) } : {}),
-              });
-            } catch { /* best-effort */ }
-          },
-        } : {}),
       });
 
       // When onToken is provided, consume the textStream for token-by-token
@@ -476,12 +504,93 @@ export async function executeAgent(
       // Extract tool calls and results from ALL steps.
       steps = ((await result.steps) ?? []) as AgentStep[];
 
-      // `result.text` is the FINAL step's text only. A multi-step agent
-      // that writes its answer mid-loop and then ends on an empty step
-      // (models do this after a last verification tool call) would have
-      // that answer silently discarded — and downstream, an empty
-      // response writes no memory at all. Fall back to the last step
-      // that said anything.
+      // `result.text` is the FINAL step's text only. A turn that ends on
+      // an empty step is a degenerate finish: the model received its
+      // tool results and went silent instead of answering. One bounded
+      // continuation hands the transcript back and asks it to finish —
+      // without this, the fallback below promotes the turn's opening
+      // narration ("I'll start by reading…") to the final answer, which
+      // downstream consumers then treat as the agent's whole output.
+      if (text.trim() === '' && steps.length > 0) {
+        // The continuation spends what is left of the agent's declared
+        // `maxSteps`, never a budget of its own, capped so a nearly unused
+        // budget cannot turn recovery into a second full agent loop. One
+        // step is always granted: an exhausted budget must still be able
+        // to speak, which is the whole point of this path.
+        const continuationSteps = Math.max(
+          1,
+          Math.min(MAX_CONTINUATION_STEPS, config.maxSteps - steps.length),
+        );
+        let continuation: Awaited<ReturnType<typeof streamText>> | undefined;
+        let continuationError: unknown;
+        try {
+          continuation = await streamText({
+            ...sharedStreamOptions,
+            messages: [
+              { role: 'user' as const, content: taskPrompt },
+              ...(await result.response).messages,
+              {
+                role: 'user' as const,
+                content: 'Your previous message was empty. Write your final reply now, complete per your instructions; use another tool first only if you must.',
+              },
+            ],
+            stopWhen: isStepCount(continuationSteps),
+            // Unconditional for Anthropic, unlike the primary call: this
+            // request re-sends the whole finished transcript, so the prefix
+            // the primary call already wrote is there to hit even when the
+            // continuation itself takes a single step.
+            ...(effectiveConfig.provider === 'anthropic'
+              ? {
+                  prepareStep: (step: { messages: unknown[] }) => {
+                    const prepared = cachePrepareStep(step);
+                    cacheMarksPerRequest.push(countCacheMarks(prepared.messages));
+                    return prepared;
+                  },
+                }
+              : {}),
+            onError: ({ error }) => { continuationError = error; },
+          });
+
+          let continuationText: string;
+          if (options?.onToken) {
+            continuationText = '';
+            for await (const delta of continuation.textStream) {
+              continuationText += delta;
+              try { options.onToken(delta); } catch { /* best-effort streaming */ }
+            }
+          } else {
+            continuationText = await continuation.text;
+          }
+
+          const recoveredSteps = ((await continuation.steps) ?? []) as AgentStep[];
+          steps = [...steps, ...recoveredSteps];
+          usage = sumStepUsage([{ usage }, { usage: await continuation.totalUsage }]);
+          if (continuationText.trim() !== '') text = continuationText;
+          logger.info('empty_final_continuation', {
+            agent_id: agentId,
+            recovered: continuationText.trim() !== '',
+            continuation_steps: recoveredSteps.length,
+            step_budget: continuationSteps,
+          });
+        } catch (error) {
+          // The continuation is best-effort; the fallback below still
+          // applies. `streamText` rejects with a generic wrapper, so the
+          // error the stream reported is the attributable one.
+          const cause = continuationError ?? error;
+          const partialUsage = await capturePartialUsage(continuation, config.model);
+          if (partialUsage) usage = sumStepUsage([{ usage }, { usage: partialUsage }]);
+          logger.warn('empty_final_continuation_failed', {
+            agent_id: agentId,
+            error: cause instanceof Error ? cause.message : String(cause),
+            partial_usage: partialUsage !== undefined,
+          });
+        }
+      }
+
+      // A multi-step agent that writes its answer mid-loop and then ends
+      // on an empty step would otherwise have that answer silently
+      // discarded — and downstream, an empty response writes no memory
+      // at all. Fall back to the last step that said anything.
       if (text.trim() === '') {
         const lastSpoken = [...steps].reverse()
           .find((step) => typeof step.text === 'string' && step.text.trim() !== '');

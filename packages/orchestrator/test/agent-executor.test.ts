@@ -94,6 +94,9 @@ function mockStreamTextResult(overrides: Record<string, unknown> = {}) {
   });
   return {
     text: overrides.text ?? Promise.resolve('Agent response text'),
+    // The empty-final continuation awaits `response.messages`; without it a
+    // result with empty text reaches its assertions through the catch.
+    response: Promise.resolve({ messages: [] }),
     usage: overrides.usage ?? defaultUsage,
     totalUsage: (overrides as any).totalUsage ?? overrides.usage ?? defaultUsage,
     steps: Promise.all([toolCalls, toolResults]).then(([calls, results]) => [
@@ -128,18 +131,215 @@ describe('executeAgent', () => {
   });
 
   it('falls back to the last step that produced text when the final step is empty', async () => {
-    const result = mockStreamTextResult({ text: Promise.resolve('') });
-    (result as any).steps = Promise.resolve([
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
       { text: 'Reading the module under audit.', toolCalls: [], toolResults: [] },
       { text: 'FINDING: the report written mid-loop', toolCalls: [], toolResults: [] },
       { text: '', toolCalls: [], toolResults: [] },
     ]);
-    (streamText as any).mockReturnValue(result);
+    const second = mockStreamTextResult({ text: Promise.resolve('') });
+    (second as any).steps = Promise.resolve([{ text: '', toolCalls: [], toolResults: [] }]);
+    let calls = 0;
+    (streamText as any).mockImplementation(() => {
+      calls += 1;
+      return calls === 1 ? first : second;
+    });
 
     const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
 
     const updates = action.payload.updates as Record<string, unknown>;
     expect(updates['worker_output']).toContain('FINDING: the report written mid-loop');
+    expect(calls).toBe(2);
+  });
+
+  it('asks the model to finish when a turn ends silent and takes the continuation text', async () => {
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
+      { text: "I'll start by reading the relevant files.", toolCalls: [], toolResults: [] },
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({
+      messages: [{ role: 'assistant', content: "I'll start by reading the relevant files." }],
+    });
+    const second = mockStreamTextResult({ text: Promise.resolve('VERDICT: APPROVE — verified against the tree.') });
+    const calls: any[] = [];
+    (streamText as any).mockImplementation((opts: any) => {
+      calls.push(opts);
+      return calls.length === 1 ? first : second;
+    });
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates['worker_output']).toContain('VERDICT: APPROVE — verified against the tree.');
+    expect(calls).toHaveLength(2);
+    const nudge = calls[1].messages[calls[1].messages.length - 1];
+    expect(nudge.role).toBe('user');
+    expect(nudge.content).toContain('Your previous message was empty');
+  });
+
+  it('caps the continuation with the agent output limit and the remaining step budget', async () => {
+    (agentFactory.loadAgent as any).mockResolvedValue(
+      makeAgentConfig({ maxSteps: 2, maxOutputTokens: 1_024 }),
+    );
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
+      { text: 'Reading.', toolCalls: [], toolResults: [] },
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({ messages: [] });
+    const second = mockStreamTextResult({ text: Promise.resolve('Final answer.') });
+    const calls: any[] = [];
+    (streamText as any).mockImplementation((opts: any) => {
+      calls.push(opts);
+      return calls.length === 1 ? first : second;
+    });
+
+    await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    expect(calls[1].maxOutputTokens).toBe(1_024);
+    expect(calls[1].stopWhen).toEqual({ type: 'stepCount', count: 1 });
+    expect(calls[0].prepareStep).toBeUndefined();
+    expect(typeof calls[1].prepareStep).toBe('function');
+  });
+
+  it('streams the continuation text to onToken', async () => {
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).textStream = (async function* () { /* silent turn */ })();
+    (first as any).steps = Promise.resolve([
+      { text: 'Reading.', toolCalls: [], toolResults: [] },
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({ messages: [] });
+    const second = mockStreamTextResult({ text: Promise.resolve('Final answer.') });
+    (second as any).textStream = (async function* () { yield 'Final '; yield 'answer.'; })();
+    const calls: any[] = [];
+    (streamText as any).mockImplementation((opts: any) => {
+      calls.push(opts);
+      return calls.length === 1 ? first : second;
+    });
+    const received: string[] = [];
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, {
+      nodeId: 'worker',
+      onToken: (token: string) => received.push(token),
+    });
+
+    expect(received).toEqual(['Final ', 'answer.']);
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates['worker_output']).toContain('Final answer.');
+  });
+
+  it('keeps the last-spoken fallback when the continuation fails', async () => {
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
+      { text: 'FINDING: the report written mid-loop', toolCalls: [], toolResults: [] },
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({ messages: [] });
+    let calls = 0;
+    (streamText as any).mockImplementation(() => {
+      calls += 1;
+      if (calls === 1) return first;
+      throw new Error('No output generated.');
+    });
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates['worker_output']).toContain('FINDING: the report written mid-loop');
+    expect(calls).toBe(2);
+  });
+
+  it('falls back to the last spoken step when the continuation also returns nothing', async () => {
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
+      { text: 'Planning narration only.', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({ messages: [] });
+    const second = mockStreamTextResult({ text: Promise.resolve('  ') });
+    (second as any).steps = Promise.resolve(undefined);
+    let callCount = 0;
+    (streamText as any).mockImplementation(() => {
+      callCount += 1;
+      return callCount === 1 ? first : second;
+    });
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates['worker_output']).toContain('Planning narration only.');
+    expect(callCount).toBe(2);
+  });
+
+  it('does not attempt a continuation when the empty turn produced no steps', async () => {
+    const result = mockStreamTextResult({ text: Promise.resolve('') });
+    (result as any).steps = Promise.resolve([]);
+    let callCount = 0;
+    (streamText as any).mockImplementation(() => {
+      callCount += 1;
+      return result;
+    });
+
+    await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    expect(callCount).toBe(1);
+  });
+
+  it('attributes a continuation failure to the stream-reported error and keeps its partial usage', async () => {
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
+      { text: 'Reading the tree.', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({ messages: [] });
+    const failing = mockStreamTextResult({ text: Promise.reject(new Error('No output generated.')) });
+    (failing as any).usage = Promise.resolve({ inputTokens: 7, outputTokens: 0, totalTokens: 7 });
+    let callCount = 0;
+    (streamText as any).mockImplementation((opts: any) => {
+      callCount += 1;
+      if (callCount === 2) opts.onError({ error: 'overloaded_error' });
+      return callCount === 1 ? first : failing;
+    });
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates['worker_output']).toContain('Reading the tree.');
+    expect(callCount).toBe(2);
+  });
+
+  it('marks cache breakpoints and captures stream errors on the continuation call', async () => {
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
+      { text: 'Reading.', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({ messages: [] });
+    const second = mockStreamTextResult({ text: Promise.resolve('Final answer.') });
+    const calls: any[] = [];
+    let prepared: any;
+    (streamText as any).mockImplementation((opts: any) => {
+      calls.push(opts);
+      if (calls.length === 2) {
+        prepared = opts.prepareStep({ messages: [{ role: 'user', content: 'transcript' }] });
+        opts.onError({ error: new Error('captured stream error') });
+      }
+      return calls.length === 1 ? first : second;
+    });
+
+    await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    expect(Array.isArray(prepared.messages)).toBe(true);
+    expect(prepared.messages[0].content[0].providerOptions.anthropic.cacheControl).toEqual({ type: 'ephemeral' });
+  });
+
+  it('skips cache marking on a primary call whose step budget is two or less', async () => {
+    (agentFactory.loadAgent as any).mockResolvedValue(makeAgentConfig({ maxSteps: 2 }));
+    const calls: any[] = [];
+    mockStreamWithCallbacks((opts) => calls.push(opts));
+
+    await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    expect(calls[0].prepareStep).toBeUndefined();
   });
 
   it('bills cached tokens as cached when usage falls back to the per-step sum', async () => {

@@ -406,6 +406,13 @@ async function main(): Promise<void> {
   if (gather !== undefined && gather['has_work'] !== true) say(`gather: ${String(gather['detail'] ?? '')}`);
   const deliver = memory['deliver_result'];
   if (deliver !== undefined) say(`deliver: ${String(deliver['detail'] ?? '')}`);
+  // A review that was not posted (comment off, or submission failed)
+  // prints here instead, so a local run is a complete dry run.
+  const reviewText = (recorded.memory as Record<string, unknown>)['review'];
+  if (typeof reviewText === 'string' && deliver !== undefined && deliver['posted'] !== true) {
+    say('review text (not posted):');
+    say(reviewText.slice(0, 4_000));
+  }
   const reviewCheck = memory['review_check_result'];
   if (reviewCheck !== undefined) say(`review: ${String(reviewCheck['detail'] ?? '')}`);
   const shape = memory['shape_result'];

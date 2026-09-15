@@ -69,6 +69,22 @@ export interface PrFeedback {
   comments: PrComment[];
 }
 
+/**
+ * The most useful line of a failed `gh` invocation: the API's own
+ * error from stderr when there is one, the generic exec message
+ * otherwise. Node's exec error message is "Command failed: <cmd>" plus
+ * stderr on later lines, so taking its first line alone reports the
+ * command and discards the reason. Exported for tests.
+ */
+export function ghErrorDetail(error: unknown): string {
+  const stderr = (error as { stderr?: string }).stderr;
+  const fromStderr = typeof stderr === 'string'
+    ? stderr.split('\n').map((line) => line.trim()).find((line) => line !== '')
+    : undefined;
+  const message = error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error);
+  return (fromStderr ?? message).slice(0, 400);
+}
+
 function ghEnv(token?: string): NodeJS.ProcessEnv | undefined {
   return token !== undefined ? { ...process.env, GH_TOKEN: token } : undefined;
 }
@@ -184,6 +200,33 @@ export function commentableDiffLines(diff: string): Map<string, Set<number>> {
 }
 
 /**
+ * Delete the token's leftover PENDING review on the pull request, if
+ * one exists. A review POST that fails on its event — approving your
+ * own PR, for instance — can leave the review behind as pending, and
+ * GitHub allows one pending review per author, so every later POST
+ * 422s until it is discarded; the leftover survives across runs.
+ * Pending reviews are visible only to their author, so any PENDING
+ * entry in the authed listing is the token's own.
+ */
+async function discardPendingReview(
+  prNumber: number,
+  opts: { cwd: string; env?: NodeJS.ProcessEnv },
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await exec('gh', ['api', `repos/{owner}/{repo}/pulls/${prNumber}/reviews`], opts);
+    const pending = (JSON.parse(stdout) as { id?: number; state?: string }[])
+      .find((entry) => entry.state === 'PENDING');
+    if (pending?.id === undefined) return undefined;
+    await exec('gh', [
+      'api', `repos/{owner}/{repo}/pulls/${prNumber}/reviews/${pending.id}`, '--method', 'DELETE',
+    ], opts);
+    return `discarded leftover pending review ${pending.id}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Submit one pull-request review: verdict, body, and any inline
  * comments, in a single API call. Degrades rather than fails: an
  * APPROVE or REQUEST_CHANGES the API refuses (a token cannot review its
@@ -224,6 +267,10 @@ export async function submitPrReview(
   let comments = review.comments ?? [];
   const degradations: string[] = [];
   for (let tries = 0; tries < 3; tries += 1) {
+    // Idempotent per attempt: clears both a leftover from a previous
+    // run and one this loop's own failed attempt just created.
+    const discarded = await discardPendingReview(prNumber, opts);
+    if (discarded !== undefined) degradations.push(discarded);
     try {
       await attempt(event, comments);
       return {
@@ -243,14 +290,18 @@ export async function submitPrReview(
         continue;
       }
       if (comments.length > 0) {
-        degradations.push('inline comments rejected, kept in the body');
+        degradations.push(`inline comments rejected (${ghErrorDetail(error)}), kept in the body`);
         comments = [];
         continue;
       }
-      return { ok: false, detail: `review not submitted: ${message.split('\n')[0] ?? 'gh api failed'}` };
+      return {
+        ok: false,
+        detail: `review not submitted: ${ghErrorDetail(error)}`
+          + (degradations.length > 0 ? ` (after: ${degradations.join('; ')})` : ''),
+      };
     }
   }
-  return { ok: false, detail: 'review not submitted after degrading every optional part' };
+  return { ok: false, detail: `review not submitted after degrading every optional part (${degradations.join('; ')})` };
 }
 
 /** Comment on a pull request; the failure's message when it cannot. */
@@ -266,7 +317,7 @@ export async function commentOnPr(
       { cwd: repoRoot, ...(env !== undefined ? { env } : {}) });
     return { ok: true, detail: 'commented' };
   } catch (error) {
-    return { ok: false, detail: (error as Error).message.split('\n')[0] ?? 'comment failed' };
+    return { ok: false, detail: ghErrorDetail(error) };
   }
 }
 
@@ -289,7 +340,7 @@ export async function replyToReviewComment(
     ], { cwd: repoRoot, ...(env !== undefined ? { env } : {}) });
     return { ok: true, detail: `replied in thread of comment ${commentId}` };
   } catch (error) {
-    return { ok: false, detail: (error as Error).message.split('\n')[0] ?? 'reply failed' };
+    return { ok: false, detail: ghErrorDetail(error) };
   }
 }
 
@@ -396,7 +447,7 @@ export async function resolveReviewThread(
     ], { cwd: repoRoot, ...(env !== undefined ? { env } : {}) });
     return { ok: true, detail: `resolved thread ${threadId}` };
   } catch (error) {
-    return { ok: false, detail: (error as Error).message.split('\n')[0] ?? 'resolve failed' };
+    return { ok: false, detail: ghErrorDetail(error) };
   }
 }
 
@@ -418,7 +469,7 @@ export async function enableAutoMerge(
     await exec('gh', ['pr', 'merge', String(prNumber), '--auto', '--squash', '--delete-branch'], opts);
     return { ok: true, merged: 'auto', detail: 'auto-merge enabled; merges when checks pass' };
   } catch (error) {
-    const reason = (error as Error).message.split('\n')[0] ?? 'gh pr merge --auto failed';
+    const reason = ghErrorDetail(error);
     // "Clean status" means the checks are already green, so there is
     // nothing to arm — merge now. Every other failure also gets one
     // direct attempt: auto-merge disabled in repository settings is
@@ -427,7 +478,7 @@ export async function enableAutoMerge(
       await exec('gh', ['pr', 'merge', String(prNumber), '--squash', '--delete-branch'], opts);
       return { ok: true, merged: 'now', detail: 'merged directly (checks already green)' };
     } catch (directError) {
-      const directReason = (directError as Error).message.split('\n')[0] ?? 'direct merge failed';
+      const directReason = ghErrorDetail(directError);
       return { ok: false, detail: `auto-merge failed (${reason}); direct merge failed (${directReason})` };
     }
   }
