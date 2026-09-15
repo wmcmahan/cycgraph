@@ -119,9 +119,13 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         branch: branchName,
         title: 'chore: resolve owed upkeep',
         detailFrom: 'judge_result',
-        evidence: (details: string[], context: { diff: string }) => ({
+        evidence: (details: string[], context: { diff: string; subjects: string[] }) => ({
           summary: `Filed by maintenance discovery (core-upkeep or repo-audit), approved by label, fixed by the issue-fix workflow. ${stripCloses(details).join(' ')}`.trim(),
-          ...(details.length > 0 ? { changes: stripCloses(details) } : {}),
+          // The commit subjects name the changes; the judge's verdict
+          // prose stays in the summary where it reads as provenance.
+          ...(context.subjects.length > 0
+            ? { changes: context.subjects }
+            : details.length > 0 ? { changes: stripCloses(details) } : {}),
           provenance: 'issue-fix: the finding was re-located mechanically, fixed by an agent in a jailed clone, and verified by re-scan, a class-specific anti-gaming guard, and repository checks before commit.',
           ...templateEvidence(context.diff, { checks: p.checks, reviewed: true, details }),
         }),

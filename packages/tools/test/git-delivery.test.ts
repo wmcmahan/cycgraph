@@ -528,3 +528,24 @@ describe('listOpenIssues', () => {
     expect(await listOpenIssues(root)).toBeUndefined();
   });
 });
+
+describe('subject truncation', () => {
+  it('truncates an overlong subject at a word boundary', async () => {
+    await initRepo(root);
+    const at = join(tmpdir(), `delivery-wordcut-${Date.now()}`);
+    const delivery = deliveryNodes({
+      repoRoot: root, workspaceAt: at, branch: 'delivery/test',
+      title: 'test: change', detailFrom: 'judge_result',
+    });
+    await delivery.clone.tools![0]!.execute({});
+    await writeFile(join(at, 'seed.txt'), 'changed\n');
+
+    await delivery.commit.tools![0]!.execute({
+      judge_result: { detail: 'd', subject: 'fix: the SSRF guard on agent card endpoints has no rebinding recheck at resolve time' },
+    });
+
+    const { stdout } = await exec('git', ['log', '-1', '--format=%s'], { cwd: at });
+    expect(stdout.trim()).toBe('fix: the SSRF guard on agent card endpoints has no rebinding recheck…');
+    await rm(at, { recursive: true, force: true });
+  });
+});

@@ -366,6 +366,9 @@ async function main(): Promise<void> {
   const judgeResult = memory['judge_result'];
   say('');
   say(`status: ${recorded.state.status}`);
+  if (recorded.state.status !== 'completed' && recorded.state.last_error !== undefined) {
+    say(`last error: ${recorded.state.last_error}`);
+  }
   say(`tokens: ${recorded.state.total_tokens_used.toLocaleString('en-US')} · $${recorded.state.total_cost_usd.toFixed(4)}`);
   // Machine-readable result for harnesses that run maintain as a
   // subprocess (the tune trials): status, gate, and spend, one file.
