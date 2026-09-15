@@ -46,7 +46,7 @@ import {
 } from '@cycgraph/tools/workspace';
 import { safeAcceptanceCommand } from './proposal.js';
 import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, TRUSTED_ASSOCIATIONS, checksEnv, resolveRepo, stripMentions } from './repo.js';
-import { LESSON_TAG } from './memory.js';
+import { LESSON_TAG, MAINT_TAG } from './memory.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -188,8 +188,17 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
             return { clean: false, has_changes: true, output: 'running the checks modified the tree — tests must not write source files' };
           }
           // A revision that changed nothing is a failed pass, not a
-          // success — the gate loops it back to the reviser.
-          return { clean: true, has_changes: treeBefore !== '', output: 'checks passed' };
+          // success — the gate loops it back to the reviser, and the
+          // output must say so in words: this result rides the retry
+          // prompt, where a bare "checks passed" reads as affirmation
+          // that the work is already done.
+          return {
+            clean: true,
+            has_changes: treeBefore !== '',
+            output: treeBefore !== ''
+              ? 'checks passed'
+              : 'the tree is unchanged — the feedback has NOT been addressed; edit the files the findings name before replying',
+          };
         },
       });
 
@@ -266,6 +275,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           'A multi-match edit refusal means retry with a longer find, never a different path.',
           STANDARDS_BRIEF,
           CHANGESET_INSTRUCTION,
+          'Act, do not announce: start editing with edit_file as soon as you have read what a finding names. Never end your turn before you have either changed the tree or stated, per numbered item, why no change is right — a reply that only describes a plan is a failed attempt.',
           'Your final reply is posted to the pull request verbatim: write it for the reviewer, never as narration of steps you are about to take, and never end mid-thought.',
           'Budget your steps: once roughly three quarters are spent, stop editing and write your reply from what you have completed.',
           'The reply is a short summary of what you changed, then one line per numbered feedback item exactly as: REPLY <n>: <one line on what you did for it>. The REPLY lines are posted as threaded replies to the reviewer\'s comments, so write each one to stand alone.',
@@ -282,7 +292,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
         writes: 'revise_report',
         // The whole lesson pool, not a per-workflow tag: defect-class
         // lessons distilled from reviews apply to every editing agent.
-        ...(env.memory ? { memoryQuery: { tags: [LESSON_TAG], maxFacts: 6 } } : {}),
+        ...(env.memory ? { memoryQuery: { tags: [MAINT_TAG], maxFacts: 6 } } : {}),
       });
       const checks = node({ id: 'checks', type: 'tool', toolId: 'repo_checks', tools: [checksTool], reads: [] });
       const gate = verifier.expression(

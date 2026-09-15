@@ -37,7 +37,7 @@ import { cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { auditKey, renderAuditIssueBody, siftAuditFindings, type AuditFinding } from './audit-findings.js';
 import { scheduleCharters } from './audit-schedule.js';
-import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
+import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
 import { repoMap, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -295,6 +295,7 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
           'SUGGESTION:', '<the shape of the fix, not the fix itself>',
           'Cite a path only after read_file has shown you its contents.',
           'When the charter turns up nothing you can prove, reply CLEAN: <one line on what you checked>. Never pad a clean result with weak findings.',
+          'Never end your turn on a statement of what you are about to do: a reply without FINDING or CLEAN blocks is discarded, and the whole investigation with it.',
         ].join('\n'),
         tools: [hands.search, hands.read],
       });
@@ -349,7 +350,7 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
             reads: [sift.result],
             failurePolicy: { maxRetries: 2 },
             extractor: { type: 'llm', agentId: distiller, maxFacts: 3 },
-            tags: [LESSON_TAG, 'wf:repo-audit', CANDIDATE_TAG],
+            tags: [LESSON_TAG, MAINT_TAG, 'wf:repo-audit', CANDIDATE_TAG],
           })
         : undefined;
 

@@ -43,7 +43,7 @@ import { agent, graph, node, reflection, tool } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { commentOnPr, commentableDiffLines, enableAutoMerge, listReviewThreads, prFeedback, resolveReviewThread, submitPrReview } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
-import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
+import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
 import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseReviewFindings, parseReviewVerdict } from './review-findings.js';
 import { MANAGED_LABEL, STANDARDS_BRIEF, WORKFLOW_MENTION, resolveRepo, stripMentions } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
@@ -340,6 +340,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         instructions: p.prompt !== '' ? p.prompt : [
           'You review one pull request the way a careful colleague would: the diff is in your instructions, and the whole repository at that PR\'s branch is under your read-only hands.',
           'Verify before you claim. Use search and read_file to check what the diff alone cannot show: whether a new helper duplicates something that already exists, whether the edit matches the conventions of the code around it, whether tests assert real behavior, whether names and structures fit where they were placed.',
+          'Act, do not announce: never end your turn on a statement of what you are about to do. Your reply is only complete when it carries the VERDICT line — if a verdict_result in your context says a previous attempt carried no VERDICT marker, that is what happened last time; write the verdict FIRST this time, from whatever you have verified.',
           STANDARDS_BRIEF,
           'Report only findings you have verified against the tree, each with the file and what to change. Do not nitpick working code a reasonable reviewer would pass, and say what is good in one line when it is.',
           'Budget your steps: the reply is the only thing that leaves this run, and a review that never reaches its VERDICT is worthless. Once roughly three quarters of your steps are spent, stop investigating and write the verdict from what you have confirmed.',
@@ -373,7 +374,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
             reads: ['review'],
             failurePolicy: { maxRetries: 2 },
             extractor: { type: 'llm', agentId: distiller, maxFacts: 2 },
-            tags: [LESSON_TAG, 'wf:pr-review', CANDIDATE_TAG],
+            tags: [LESSON_TAG, MAINT_TAG, 'wf:pr-review', CANDIDATE_TAG],
           })
         : undefined;
 
@@ -382,7 +383,10 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         id: 'review',
         agent: reviewer,
         failurePolicy: { timeoutMs: 1_200_000 },
-        reads: [gather.result],
+        // verdict_result rides the retry: an inconclusive first pass
+        // re-runs this node, and without seeing "carries no VERDICT
+        // marker" the reviewer repeats the same unusable output.
+        reads: [gather.result, 'verdict_result'],
         writes: 'review',
         ...(env.memory ? { memoryQuery: { tags: ['wf:pr-review'], maxFacts: 6 } } : {}),
       });

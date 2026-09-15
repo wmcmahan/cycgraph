@@ -36,7 +36,7 @@ import {
 } from '@cycgraph/tools/workspace';
 import { parseProposal, safeAcceptanceCommand } from './proposal.js';
 import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, checksEnv, resolveRepo } from './repo.js';
-import { LESSON_TAG } from './memory.js';
+import { LESSON_TAG, MAINT_TAG } from './memory.js';
 import { stripCloses, templateEvidence } from './pr-template.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -337,7 +337,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         writes: 'implement_report',
         // The whole lesson pool, not a per-workflow tag: defect-class
         // lessons distilled from reviews apply to every editing agent.
-        ...(env.memory ? { memoryQuery: { tags: [LESSON_TAG], maxFacts: 6 } } : {}),
+        ...(env.memory ? { memoryQuery: { tags: [MAINT_TAG], maxFacts: 6 } } : {}),
       });
       const accept = node({
         id: 'accept',

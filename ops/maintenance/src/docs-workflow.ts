@@ -42,7 +42,7 @@ import {
 } from '@cycgraph/tools/workspace';
 import { readFile } from 'node:fs/promises';
 import { findingKey, judgeFix, scanDocs, scopeFindings, type DocsFinding } from './docs-scan.js';
-import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
+import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
 import { checksEnv, resolveRepo } from './repo.js';
 import { deliveryNodes, openPrFiles } from '@cycgraph/tools/git';
 import { templateEvidence } from './pr-template.js';
@@ -326,7 +326,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
             reads: ['fix_report', 'judge_result'],
             failurePolicy: { maxRetries: 2 },
             extractor: { type: 'llm', agentId: distiller, maxFacts: 4 },
-            tags: [LESSON_TAG, `wf:${id}`, CANDIDATE_TAG],
+            tags: [LESSON_TAG, MAINT_TAG, `wf:${id}`, CANDIDATE_TAG],
           })
         : undefined;
       const judge = node({ id: 'judge', type: 'tool', toolId: 'judge_fix', tools: [judgeTool], reads: [scan.result, 'judge_result'] });

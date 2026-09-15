@@ -142,6 +142,32 @@ describe('executeAgent', () => {
     expect(updates['worker_output']).toContain('FINDING: the report written mid-loop');
   });
 
+  it('asks the model to finish when a turn ends silent and takes the continuation text', async () => {
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
+      { text: "I'll start by reading the relevant files.", toolCalls: [], toolResults: [] },
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({
+      messages: [{ role: 'assistant', content: "I'll start by reading the relevant files." }],
+    });
+    const second = mockStreamTextResult({ text: Promise.resolve('VERDICT: APPROVE — verified against the tree.') });
+    const calls: any[] = [];
+    (streamText as any).mockImplementation((opts: any) => {
+      calls.push(opts);
+      return calls.length === 1 ? first : second;
+    });
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates['worker_output']).toContain('VERDICT: APPROVE — verified against the tree.');
+    expect(calls).toHaveLength(2);
+    const nudge = calls[1].messages[calls[1].messages.length - 1];
+    expect(nudge.role).toBe('user');
+    expect(nudge.content).toContain('Your previous message was empty');
+  });
+
   it('bills cached tokens as cached when usage falls back to the per-step sum', async () => {
     const result = mockStreamTextResult({
       totalUsage: Promise.resolve({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }),

@@ -476,12 +476,53 @@ export async function executeAgent(
       // Extract tool calls and results from ALL steps.
       steps = ((await result.steps) ?? []) as AgentStep[];
 
-      // `result.text` is the FINAL step's text only. A multi-step agent
-      // that writes its answer mid-loop and then ends on an empty step
-      // (models do this after a last verification tool call) would have
-      // that answer silently discarded — and downstream, an empty
-      // response writes no memory at all. Fall back to the last step
-      // that said anything.
+      // `result.text` is the FINAL step's text only. A turn that ends on
+      // an empty step is a degenerate finish: the model received its
+      // tool results and went silent instead of answering. One bounded
+      // continuation hands the transcript back and asks it to finish —
+      // without this, the fallback below promotes the turn's opening
+      // narration ("I'll start by reading…") to the final answer, which
+      // downstream consumers then treat as the agent's whole output.
+      if (text.trim() === '' && steps.length > 0) {
+        try {
+          const continuation = await streamText({
+            model,
+            instructions: systemPrompt,
+            messages: [
+              { role: 'user' as const, content: taskPrompt },
+              ...(await result.response).messages,
+              {
+                role: 'user' as const,
+                content: 'Your previous message was empty. Write your final reply now, complete per your instructions; use another tool first only if you must.',
+              },
+            ],
+            tools,
+            stopWhen: isStepCount(3),
+            abortSignal: combinedSignal,
+            ...(effectiveTemperature !== undefined
+              ? { temperature: clampTemperature(effectiveTemperature, effectiveConfig.provider, agentId) }
+              : {}),
+            ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
+          });
+          const continuationText = await continuation.text;
+          const continuationSteps = ((await continuation.steps) ?? []) as AgentStep[];
+          steps = [...steps, ...continuationSteps];
+          usage = sumStepUsage([{ usage }, { usage: await continuation.totalUsage }]);
+          if (continuationText.trim() !== '') text = continuationText;
+          logger.info('empty_final_continuation', {
+            agent_id: agentId,
+            recovered: continuationText.trim() !== '',
+            continuation_steps: continuationSteps.length,
+          });
+        } catch {
+          // The continuation is best-effort; the fallback below still applies.
+        }
+      }
+
+      // A multi-step agent that writes its answer mid-loop and then ends
+      // on an empty step would otherwise have that answer silently
+      // discarded — and downstream, an empty response writes no memory
+      // at all. Fall back to the last step that said anything.
       if (text.trim() === '') {
         const lastSpoken = [...steps].reverse()
           .find((step) => typeof step.text === 'string' && step.text.trim() !== '');
