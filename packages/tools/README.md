@@ -139,7 +139,7 @@ import { jsonTransformTool } from '@cycgraph/tools/data';
 const transform = jsonTransformTool();
 ```
 
-The model calls it with `{ data, path?, keys? }` — e.g. `{ data: { orders: [{ id: 1, total: 100 }] }, path: 'orders[0].total' }`. `data` accepts a JSON value or a JSON-encoded string.
+The model calls it with `{ data, path?, pick? }` — e.g. `{ data: { orders: [{ id: 1, total: 100 }] }, path: 'orders[0].total' }`. `data` accepts a JSON value or a JSON-encoded string.
 
 Extract and reshape JSON. Resolve a dot/bracket path and optionally pick a key subset. Accepts a JSON value or a JSON string.
 
