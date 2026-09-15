@@ -117,12 +117,14 @@ async function answerWith(prompt: string): Promise<ScenarioResponse> {
 export const agentScenario: Scenario = {
   id: 'agent',
   description: 'Runs a real model and returns what it said. Delegation to an agent rather than a script.',
+  requiresModel: true,
   respond: (input) => answerWith(asPrompt(input)),
 };
 
 export const clarifyingAgentScenario: Scenario = {
   id: 'agent-clarifies',
   description: 'Asks one clarifying question, then answers with a real model using the reply.',
+  requiresModel: true,
 
   /**
    * The pause is scripted and the answer is not.

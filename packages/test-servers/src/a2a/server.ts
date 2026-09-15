@@ -5,6 +5,10 @@
  * Card at `/<id>/.well-known/agent-card.json` and a JSON-RPC endpoint at
  * `/<id>/a2a/v1`.
  *
+ * The index at `/` leaves out the model-backed scenarios when no model is
+ * reachable, so a caller that lists agents to decide what to exercise is not
+ * pointed at a scenario that can only report a failed task here.
+ *
  * @module a2a/server
  */
 
@@ -21,6 +25,7 @@ import {
 import { jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { TaskState } from '@a2a-js/sdk';
 import { SCENARIOS, type Scenario } from './scenarios.js';
+import { modelAvailable } from './agent.js';
 
 /** Counts card fetches, so a test can see how chatty the client is. */
 let cardFetches = 0;
@@ -187,14 +192,20 @@ export function createA2AScenarioServer(
 
   app.get('/__card-fetches', (_req, res) => { res.json({ cardFetches }); });
 
-  app.get('/', (_req, res) => {
+  app.get('/', async (_req, res) => {
+    // Checked per request, not at startup: Ollama is commonly started after
+    // the scenario server, and a listing cached from boot would be wrong for
+    // the rest of the process's life.
+    const modelReachable = await modelAvailable();
     res.json({
       protocol: 'a2a',
-      agents: SCENARIOS.map((s) => ({
-        id: s.id,
-        description: s.description,
-        agentCardUrl: `${baseUrl}/${s.id}/.well-known/agent-card.json`,
-      })),
+      agents: SCENARIOS
+        .filter((scenario) => modelReachable || !scenario.requiresModel)
+        .map((s) => ({
+          id: s.id,
+          description: s.description,
+          agentCardUrl: `${baseUrl}/${s.id}/.well-known/agent-card.json`,
+        })),
     });
   });
 
