@@ -88,6 +88,8 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
-        run: >
-          gh pr comment ${{ github.event.pull_request.number || inputs.pr }}
-          --body "pr-review ran but failed before posting a review — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for the log."
+        run: |
+          pr=${{ github.event.pull_request.number || inputs.pr }}
+          gh label create needs-human 2>/dev/null || true
+          gh pr edit "$pr" --add-label needs-human || true
+          gh pr comment "$pr" --body "pr-review ran but failed before posting a review — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for the log. This PR now carries the needs-human label; a later successful review clears it."

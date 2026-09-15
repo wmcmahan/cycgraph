@@ -200,7 +200,7 @@ describe('executeAgent', () => {
     expect(calls[1].maxOutputTokens).toBe(1_024);
     expect(calls[1].stopWhen).toEqual({ type: 'stepCount', count: 1 });
     expect(calls[0].prepareStep).toBeUndefined();
-    expect(typeof calls[1].prepareStep).toBe('function');
+    expect(calls[1].prepareStep).toBeUndefined();
   });
 
   it('streams the continuation text to onToken', async () => {
@@ -308,7 +308,7 @@ describe('executeAgent', () => {
     expect(callCount).toBe(2);
   });
 
-  it('marks cache breakpoints and captures stream errors on the continuation call', async () => {
+  it('marks cache breakpoints on the primary transcript and none on the continuation', async () => {
     const first = mockStreamTextResult({ text: Promise.resolve('') });
     (first as any).steps = Promise.resolve([
       { text: 'Reading.', toolCalls: [], toolResults: [] },
@@ -319,9 +319,8 @@ describe('executeAgent', () => {
     let prepared: any;
     (streamText as any).mockImplementation((opts: any) => {
       calls.push(opts);
-      if (calls.length === 2) {
+      if (calls.length === 1) {
         prepared = opts.prepareStep({ messages: [{ role: 'user', content: 'transcript' }] });
-        opts.onError({ error: new Error('captured stream error') });
       }
       return calls.length === 1 ? first : second;
     });
@@ -330,6 +329,7 @@ describe('executeAgent', () => {
 
     expect(Array.isArray(prepared.messages)).toBe(true);
     expect(prepared.messages[0].content[0].providerOptions.anthropic.cacheControl).toEqual({ type: 'ephemeral' });
+    expect(calls[1].prepareStep).toBeUndefined();
   });
 
   it('skips cache marking on a primary call whose step budget is two or less', async () => {

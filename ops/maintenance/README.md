@@ -165,9 +165,14 @@ severity. On the way out, pr-review runs with `--merge true`: an
 APPROVE verdict on a managed PR arms squash auto-merge (deleting the
 branch), the merge closes the issue, and the merge event dispatches the
 next pick. A REVISE verdict still routes through pr-revise, bounded by
-the rounds cap, and a PR that exhausts the cap parks the pipeline until
-a human decides — that, plus unlabeling an issue, disabling auto-merge,
-or closing a PR, is where the human hand remains. Enable "Allow
+the rounds cap. When the loop gives up on a PR — a review inconclusive
+after its diff-only fallback, a review that could not be submitted, a
+failed revision run, or an exhausted rounds cap — the PR is labeled
+`needs-human` with a comment saying why, so limbo is never silent: the
+PR list shows exactly which PRs wait on a decision, the dispatcher's
+idle-gate notice names them, and a later successful review or revision
+clears the label on its own. That label, unlabeling an issue, disabling
+auto-merge, and closing a PR are where the human hand remains. Enable "Allow
 auto-merge" in the repository settings; without it the merge step falls
 back to a direct merge, which only succeeds when the checks are already
 green.
