@@ -549,3 +549,33 @@ describe('subject truncation', () => {
     await rm(at, { recursive: true, force: true });
   });
 });
+
+describe('ghErrorDetail', () => {
+  it('prefers the first non-empty stderr line over the exec message', async () => {
+    const { ghErrorDetail } = await import('../src/git/pr.js');
+    const error = Object.assign(new Error('Command failed: gh api x\ngh: HTTP 403'), {
+      stderr: '\ngh: Resource not accessible by personal access token (HTTP 403)\n',
+    });
+
+    expect(ghErrorDetail(error)).toBe('gh: Resource not accessible by personal access token (HTTP 403)');
+  });
+
+  it('falls back to the first message line when stderr is absent', async () => {
+    const { ghErrorDetail } = await import('../src/git/pr.js');
+
+    expect(ghErrorDetail(new Error('Command failed: gh api x\ndetail'))).toBe('Command failed: gh api x');
+  });
+
+  it('stringifies a non-Error value', async () => {
+    const { ghErrorDetail } = await import('../src/git/pr.js');
+
+    expect(ghErrorDetail('plain failure')).toBe('plain failure');
+  });
+
+  it('caps the detail at 400 characters', async () => {
+    const { ghErrorDetail } = await import('../src/git/pr.js');
+    const error = Object.assign(new Error('x'), { stderr: 'e'.repeat(500) });
+
+    expect(ghErrorDetail(error)).toHaveLength(400);
+  });
+});

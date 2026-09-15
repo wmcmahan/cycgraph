@@ -171,3 +171,37 @@ or closing a PR, is where the human hand remains. Enable "Allow
 auto-merge" in the repository settings; without it the merge step falls
 back to a direct merge, which only succeeds when the checks are already
 green.
+
+## Running the PR loop locally
+
+Every workflow in the loop runs from your machine with two credentials:
+`gh auth login` (the same `gh` the tools shell out to) and a valid
+`ANTHROPIC_API_KEY` in the environment. Run from a fresh pull of main —
+the runner refuses a repository that is behind its origin. Leave
+`DATABASE_URL` unset locally unless you want the run recorded into the
+shared corpus.
+
+```bash
+# Review a PR without touching GitHub: full gather, review, verdict,
+# inline-anchor computation — the review text prints instead of posting.
+npm run maintain --workspace=ops/maintenance -- pr-review --pr 256 --comment false
+
+# Post for real from your machine (your gh token, not the CI secret):
+npm run maintain --workspace=ops/maintenance -- pr-review --pr 256
+
+# Revise a PR without pushing: edits land in a workspace under /tmp for
+# inspection, and the run prints its path and diff.
+npm run maintain --workspace=ops/maintenance -- pr-revise --pr 256 --push false --checks "npm run lint:eslint"
+
+# Fix an approved issue end-to-end without publishing:
+npm run maintain --workspace=ops/maintenance -- issue-fix --commit false
+```
+
+A failure that only appears in CI and not in a local run of the same
+command is a credential or environment difference, and the CI secrets
+(`MAINTENANCE_PAT`, `DATABASE_URL`) are the first place to look.
+Forensics for any recorded run live in Postgres: connect with the
+maintenance role, `set app.tenant_id =
+'00000000-0000-0000-0000-000000000001'`, and the run's full state —
+every node result, the exact prompts' task context, injected lessons —
+is in `workflow_states` by `run_id`.
