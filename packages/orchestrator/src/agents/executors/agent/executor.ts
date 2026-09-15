@@ -44,6 +44,9 @@ import { AgentTimeoutError, AgentExecutionError, type PartialUsage } from './err
 const logger = createLogger('agent.executor');
 const tracer = getTracer('orchestrator.agent');
 
+/** Ceiling on the steps an empty-final continuation may spend. */
+const MAX_CONTINUATION_STEPS = 3;
+
 /**
  * Mark Anthropic cache breakpoints on the ends of the last three
  * messages. Hits are looked up at the CURRENT request's breakpoints, so
@@ -484,8 +487,19 @@ export async function executeAgent(
       // narration ("I'll start by reading…") to the final answer, which
       // downstream consumers then treat as the agent's whole output.
       if (text.trim() === '' && steps.length > 0) {
+        // The continuation spends what is left of the agent's declared
+        // `maxSteps`, never a budget of its own, capped so a nearly unused
+        // budget cannot turn recovery into a second full agent loop. One
+        // step is always granted: an exhausted budget must still be able
+        // to speak, which is the whole point of this path.
+        const continuationSteps = Math.max(
+          1,
+          Math.min(MAX_CONTINUATION_STEPS, config.maxSteps - steps.length),
+        );
+        let continuation: Awaited<ReturnType<typeof streamText>> | undefined;
+        let continuationError: unknown;
         try {
-          const continuation = await streamText({
+          continuation = await streamText({
             model,
             instructions: systemPrompt,
             messages: [
@@ -497,25 +511,62 @@ export async function executeAgent(
               },
             ],
             tools,
-            stopWhen: isStepCount(3),
+            stopWhen: isStepCount(continuationSteps),
+            // Unconditional for Anthropic, unlike the primary call: this
+            // request re-sends the whole finished transcript, so the prefix
+            // the primary call already wrote is there to hit even when the
+            // continuation itself takes a single step.
+            ...(effectiveConfig.provider === 'anthropic'
+              ? {
+                  prepareStep: (step: { messages: unknown[] }) => {
+                    const prepared = cachePrepareStep(step);
+                    cacheMarksPerRequest.push(countCacheMarks(prepared.messages));
+                    return prepared;
+                  },
+                }
+              : {}),
             abortSignal: combinedSignal,
+            ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
+            onError: ({ error }) => { continuationError = error; },
             ...(effectiveTemperature !== undefined
               ? { temperature: clampTemperature(effectiveTemperature, effectiveConfig.provider, agentId) }
               : {}),
             ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
           });
-          const continuationText = await continuation.text;
-          const continuationSteps = ((await continuation.steps) ?? []) as AgentStep[];
-          steps = [...steps, ...continuationSteps];
+
+          let continuationText: string;
+          if (options?.onToken) {
+            continuationText = '';
+            for await (const delta of continuation.textStream) {
+              continuationText += delta;
+              try { options.onToken(delta); } catch { /* best-effort streaming */ }
+            }
+          } else {
+            continuationText = await continuation.text;
+          }
+
+          const recoveredSteps = ((await continuation.steps) ?? []) as AgentStep[];
+          steps = [...steps, ...recoveredSteps];
           usage = sumStepUsage([{ usage }, { usage: await continuation.totalUsage }]);
           if (continuationText.trim() !== '') text = continuationText;
           logger.info('empty_final_continuation', {
             agent_id: agentId,
             recovered: continuationText.trim() !== '',
-            continuation_steps: continuationSteps.length,
+            continuation_steps: recoveredSteps.length,
+            step_budget: continuationSteps,
           });
-        } catch {
-          // The continuation is best-effort; the fallback below still applies.
+        } catch (error) {
+          // The continuation is best-effort; the fallback below still
+          // applies. `streamText` rejects with a generic wrapper, so the
+          // error the stream reported is the attributable one.
+          const cause = continuationError ?? error;
+          const partialUsage = await capturePartialUsage(continuation, config.model);
+          if (partialUsage) usage = sumStepUsage([{ usage }, { usage: partialUsage }]);
+          logger.warn('empty_final_continuation_failed', {
+            agent_id: agentId,
+            error: cause instanceof Error ? cause.message : String(cause),
+            partial_usage: partialUsage !== undefined,
+          });
         }
       }
 

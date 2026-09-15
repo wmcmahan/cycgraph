@@ -168,6 +168,78 @@ describe('executeAgent', () => {
     expect(nudge.content).toContain('Your previous message was empty');
   });
 
+  it('caps the continuation with the agent output limit and the remaining step budget', async () => {
+    (agentFactory.loadAgent as any).mockResolvedValue(
+      makeAgentConfig({ maxSteps: 4, maxOutputTokens: 1_024 }),
+    );
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
+      { text: 'Reading.', toolCalls: [], toolResults: [] },
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({ messages: [] });
+    const second = mockStreamTextResult({ text: Promise.resolve('Final answer.') });
+    const calls: any[] = [];
+    (streamText as any).mockImplementation((opts: any) => {
+      calls.push(opts);
+      return calls.length === 1 ? first : second;
+    });
+
+    await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    expect(calls[1].maxOutputTokens).toBe(1_024);
+    expect(calls[1].stopWhen).toEqual({ type: 'stepCount', count: 2 });
+    expect(typeof calls[1].prepareStep).toBe('function');
+  });
+
+  it('streams the continuation text to onToken', async () => {
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).textStream = (async function* () { /* silent turn */ })();
+    (first as any).steps = Promise.resolve([
+      { text: 'Reading.', toolCalls: [], toolResults: [] },
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({ messages: [] });
+    const second = mockStreamTextResult({ text: Promise.resolve('Final answer.') });
+    (second as any).textStream = (async function* () { yield 'Final '; yield 'answer.'; })();
+    const calls: any[] = [];
+    (streamText as any).mockImplementation((opts: any) => {
+      calls.push(opts);
+      return calls.length === 1 ? first : second;
+    });
+    const received: string[] = [];
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, {
+      nodeId: 'worker',
+      onToken: (token: string) => received.push(token),
+    });
+
+    expect(received).toEqual(['Final ', 'answer.']);
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates['worker_output']).toContain('Final answer.');
+  });
+
+  it('keeps the last-spoken fallback when the continuation fails', async () => {
+    const first = mockStreamTextResult({ text: Promise.resolve('') });
+    (first as any).steps = Promise.resolve([
+      { text: 'FINDING: the report written mid-loop', toolCalls: [], toolResults: [] },
+      { text: '', toolCalls: [], toolResults: [] },
+    ]);
+    (first as any).response = Promise.resolve({ messages: [] });
+    let calls = 0;
+    (streamText as any).mockImplementation(() => {
+      calls += 1;
+      if (calls === 1) return first;
+      throw new Error('No output generated.');
+    });
+
+    const action = await executeAgent('test-agent', makeStateView(), {}, 1, { nodeId: 'worker' });
+
+    const updates = action.payload.updates as Record<string, unknown>;
+    expect(updates['worker_output']).toContain('FINDING: the report written mid-loop');
+    expect(calls).toBe(2);
+  });
+
   it('bills cached tokens as cached when usage falls back to the per-step sum', async () => {
     const result = mockStreamTextResult({
       totalUsage: Promise.resolve({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }),
