@@ -67,12 +67,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
         run: |
-          open=$(gh pr list --label maintenance-managed --state open --json number --jq 'length')
-          if [ "$open" -eq 0 ]; then
+          blockers=$(gh pr list --label maintenance-managed --state open --json number,labels \
+            --jq '[.[] | "#\(.number)\(if any(.labels[]; .name == "needs-human") then " (needs-human)" else "" end)"] | join(", ")')
+          if [ -z "$blockers" ]; then
             echo "idle=true" >> "$GITHUB_OUTPUT"
           else
             echo "idle=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::$open maintenance PR(s) open — one fix in flight at a time; this tick yields."
+            echo "::notice::pipeline waiting on open maintenance PR(s): $blockers — a needs-human PR only moves when you review, merge, or close it."
           fi
 
       - uses: actions/setup-node@v4

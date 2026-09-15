@@ -28,6 +28,7 @@ export {
   prFeedback,
   replyToReviewComment,
   resolveReviewThread,
+  setPrLabels,
   submitPrReview,
 } from './pr.js';
 export type { PrComment, PrFeedback, ReviewInlineComment, ReviewSubmission, ReviewThread } from './pr.js';

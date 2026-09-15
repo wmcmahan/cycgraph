@@ -117,6 +117,17 @@ export const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 export const MANAGED_LABEL = 'maintenance-managed';
 
 /**
+ * The label a managed PR carries when the automated loop has given up
+ * on it: review inconclusive after every retry, a review that could
+ * not be submitted, or a failed revision run. Applied automatically at
+ * the moment of giving up and removed by the next successful pass, so
+ * a PR is always in exactly one visible state — merge armed, revision
+ * in flight, or waiting on a human — and the PR list can filter for
+ * the ones that need a decision.
+ */
+export const NEEDS_HUMAN_LABEL = 'needs-human';
+
+/**
  * The mention that dispatches maintenance workflows from PR comments.
  * Emitted deliberately by pr-review's handoff; relayed text must pass
  * through {@link stripMentions} so arbitrary prose never carries it.

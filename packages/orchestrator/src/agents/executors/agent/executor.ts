@@ -535,19 +535,14 @@ export async function executeAgent(
               },
             ],
             stopWhen: isStepCount(continuationSteps),
-            // Unconditional for Anthropic, unlike the primary call: this
-            // request re-sends the whole finished transcript, so the prefix
-            // the primary call already wrote is there to hit even when the
-            // continuation itself takes a single step.
-            ...(effectiveConfig.provider === 'anthropic'
-              ? {
-                  prepareStep: (step: { messages: unknown[] }) => {
-                    const prepared = cachePrepareStep(step);
-                    cacheMarksPerRequest.push(countCacheMarks(prepared.messages));
-                    return prepared;
-                  },
-                }
-              : {}),
+            // Deliberately NO cache-mark rewriting here: this is the
+            // recovery path for a turn that already went silent, and it
+            // must hand the model the transcript exactly as the SDK
+            // holds it. Reliability outranks the cache discount on a
+            // rare path — and while silent finishes are correlated with
+            // multi-step Anthropic turns, the recovery staying clean of
+            // the per-step rewrite is what makes the two comparable in
+            // the logs.
             onError: ({ error }) => { continuationError = error; },
           });
 

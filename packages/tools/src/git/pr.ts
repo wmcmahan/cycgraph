@@ -483,3 +483,40 @@ export async function enableAutoMerge(
     }
   }
 }
+
+/**
+ * Add and remove labels on a pull request, best effort: labels being
+ * added are created on the repository first when missing, a removal of
+ * an absent label is not an error, and the result names anything that
+ * did not stick. Workflows use this to keep a PR's visible state
+ * honest — a label is state the PR list can filter on, unlike a
+ * comment buried in the timeline.
+ */
+export async function setPrLabels(
+  repoRoot: string,
+  prNumber: number,
+  labels: { add?: string[]; remove?: string[] },
+  options: { token?: string } = {},
+): Promise<{ ok: boolean; detail: string }> {
+  const env = ghEnv(options.token);
+  const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
+  const failures: string[] = [];
+  for (const label of labels.add ?? []) {
+    await exec('gh', ['label', 'create', label], opts).catch(() => undefined);
+    try {
+      await exec('gh', ['pr', 'edit', String(prNumber), '--add-label', label], opts);
+    } catch (error) {
+      failures.push(`add ${label}: ${ghErrorDetail(error)}`);
+    }
+  }
+  for (const label of labels.remove ?? []) {
+    try {
+      await exec('gh', ['pr', 'edit', String(prNumber), '--remove-label', label], opts);
+    } catch {
+      // Removing an absent label is the ordinary no-op.
+    }
+  }
+  return failures.length === 0
+    ? { ok: true, detail: 'labels updated' }
+    : { ok: false, detail: failures.join('; ') };
+}

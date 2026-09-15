@@ -41,11 +41,11 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { agent, graph, node, reflection, tool } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { commentOnPr, commentableDiffLines, enableAutoMerge, listReviewThreads, prFeedback, resolveReviewThread, submitPrReview } from '@cycgraph/tools/git';
+import { commentOnPr, commentableDiffLines, enableAutoMerge, listReviewThreads, prFeedback, resolveReviewThread, setPrLabels, submitPrReview } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
 import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseReviewFindings, parseReviewVerdict } from './review-findings.js';
-import { MANAGED_LABEL, STANDARDS_BRIEF, WORKFLOW_MENTION, resolveRepo, stripMentions } from './repo.js';
+import { MANAGED_LABEL, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, WORKFLOW_MENTION, resolveRepo, stripMentions } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -238,13 +238,14 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           // ends inconclusive, the PR gets a plain trace comment (not an
           // advisory review — the prefix below is what counts rounds).
           if (verdict?.malformed === true) {
+            await setPrLabels(repoRoot, p.pr, { add: [NEEDS_HUMAN_LABEL] }, token !== undefined ? { token } : {});
             const trace = p.comment
               ? await commentOnPr(repoRoot, p.pr,
-                  'pr-review ran but produced no usable verdict after two attempts; no findings were posted. '
-                  + 'Dispatch the PR review workflow again, or review by hand.',
+                  'The automated review could not produce a verdict after two attempts (a diff-only fallback included), so this PR now carries the `needs-human` label and waits on you. '
+                  + 'CI checks still reflect build and test health on their own; review the diff yourself and merge or close, or re-run the PR review workflow to try again — a later successful review clears the label.',
                   token !== undefined ? { token } : {})
               : { ok: false, detail: 'comment is off' };
-            return { posted: false, detail: `nothing posted — ${verdict.detail ?? 'inconclusive review'}; trace: ${trace.detail}` };
+            return { posted: false, needs_human: true, detail: `nothing posted — ${verdict.detail ?? 'inconclusive review'}; trace: ${trace.detail}` };
           }
           if (!p.comment) return { posted: false, detail: `comment is off — ${verdict?.detail ?? ''}` };
           // Mentions inside the review text are stripped (an echoed
@@ -291,9 +292,13 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           // effort — the comment rides a different endpoint, so one
           // failing does not imply the other will.
           if (!submission.ok) {
+            await setPrLabels(repoRoot, p.pr, { add: [NEEDS_HUMAN_LABEL] }, token !== undefined ? { token } : {});
             await commentOnPr(repoRoot, p.pr,
-              `pr-review completed but its review could not be submitted (${submission.detail}); dispatch the workflow again.`,
+              `The review was written but could not be submitted (${submission.detail}); this PR now carries the \`needs-human\` label. Re-run the PR review workflow, or review by hand — a later successful review clears the label.`,
               token !== undefined ? { token } : {});
+          } else if (labels.includes(NEEDS_HUMAN_LABEL)) {
+            // A successful review resolves the waiting-on-human state.
+            await setPrLabels(repoRoot, p.pr, { remove: [NEEDS_HUMAN_LABEL] }, token !== undefined ? { token } : {});
           }
           // Threads the prior advisory review opened close once the
           // verification pass marks their finding ADDRESSED; gather
@@ -354,6 +359,31 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         tools: [hands.search, hands.read],
       });
 
+      // The retry after an inconclusive review. Toolless by design:
+      // every observed no-verdict collapse happened on a turn that
+      // reached for tools before answering, and a prompt-only turn has
+      // never collapsed — so the retry judges from the diff already in
+      // its context, trading tree verification for a verdict that
+      // structurally cannot go silent the same way.
+      const reviewerFallback = agent({
+        id: 'pr-reviewer-fallback',
+        name: 'PR reviewer (diff-only fallback)',
+        model: env.model,
+        provider: env.provider,
+        temperature: 0.4,
+        maxSteps: 2,
+        instructions: [
+          'You review one pull request from its diff alone; a previous review attempt produced no verdict, and yours must. You have no tools — the diff in your instructions is your only evidence.',
+          'Write the VERDICT line FIRST, then the rest.',
+          STANDARDS_BRIEF,
+          'Report only what the diff itself shows; when something would need the wider tree to confirm, say so in the finding instead of guessing.',
+          'Structure your reply exactly as:',
+          'VERDICT: APPROVE or VERDICT: REVISE (plain text at the start of its own line, never bolded or decorated)',
+          'then a one-line summary, then numbered findings (if any), each opening with ONE line: <file>:<line> — <the problem> — <what to do instead>.',
+        ].join(' '),
+        tools: [],
+      });
+
       // Cross-run learning tail — see docs-workflow for the pattern.
       const distiller = agent({
         id: 'pr-review-lesson-distiller',
@@ -390,6 +420,13 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         writes: 'review',
         ...(env.memory ? { memoryQuery: { tags: ['wf:pr-review'], maxFacts: 6 } } : {}),
       });
+      const reviewFallback = node({
+        id: 'review_fallback',
+        agent: reviewerFallback,
+        failurePolicy: { timeoutMs: 300_000 },
+        reads: [gather.result, 'verdict_result'],
+        writes: 'review',
+      });
       const verdict = node({ id: 'verdict', type: 'tool', toolId: 'review_verdict', tools: [verdictTool], reads: ['review', 'verdict_result'] });
       const deliver = node({
         id: 'deliver',
@@ -404,14 +441,16 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
         graph: graph({
           name: 'pr-review',
           description: 'Read a PR beside its codebase and post an advisory review.',
-          nodes: [gather, review, verdict, deliver, ...(reflect ? [reflect] : []), report],
+          nodes: [gather, review, reviewFallback, verdict, deliver, ...(reflect ? [reflect] : []), report],
           edges: [
             { from: gather, to: review, when: `memory.${gather.result}.has_work` },
             { from: gather, to: report, when: `not memory.${gather.result}.has_work` },
             { from: review, to: verdict },
-            // An inconclusive review gets one fresh attempt; a second
-            // failure flows to deliver, which posts nothing for it.
-            { from: verdict, to: review, when: `memory.${verdict.result}.malformed and memory.${verdict.result}.round < 2` },
+            // An inconclusive review retries through the toolless
+            // diff-only reviewer; a second failure flows to deliver,
+            // which posts the trace comment for it.
+            { from: verdict, to: reviewFallback, when: `memory.${verdict.result}.malformed and memory.${verdict.result}.round < 2` },
+            { from: reviewFallback, to: verdict },
             { from: verdict, to: deliver, when: `not memory.${verdict.result}.malformed or memory.${verdict.result}.round >= 2` },
             ...(reflect
               ? [{ from: deliver, to: reflect }, { from: reflect, to: report }]

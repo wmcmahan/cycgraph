@@ -35,6 +35,7 @@ import {
   prFeedback,
   pushBranch,
   replyToReviewComment,
+  setPrLabels,
 } from '@cycgraph/tools/git';
 import { parseNumberedReplies } from './review-findings.js';
 import {
@@ -45,7 +46,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { safeAcceptanceCommand } from './proposal.js';
-import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, TRUSTED_ASSOCIATIONS, checksEnv, resolveRepo, stripMentions } from './repo.js';
+import { CHANGESET_INSTRUCTION, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, TRUSTED_ASSOCIATIONS, checksEnv, resolveRepo, stripMentions } from './repo.js';
 import { LESSON_TAG, MAINT_TAG } from './memory.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -247,6 +248,10 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           // the changed files are the floor the model cannot undercut.
           const summary = report.replace(/^\s*REPLY\s+\d+\s*:.*$/gim, '').trim().slice(0, 1_500)
             || `Revised ${changed.length} file(s): ${changed.slice(0, 15).join(', ')}.`;
+          // A delivered revision resolves any waiting-on-human state a
+          // prior failed run left behind; removal of an absent label is
+          // a no-op.
+          await setPrLabels(repoRoot, p.pr, { remove: [NEEDS_HUMAN_LABEL] }, token !== undefined ? { token } : {});
           const reply = await commentOnPr(repoRoot, p.pr,
             `Addressed the review feedback in the latest commit.\n\n${summary}`,
             token !== undefined ? { token } : {});
