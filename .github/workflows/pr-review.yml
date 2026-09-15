@@ -82,3 +82,12 @@ jobs:
           pr-review
           --merge true
           --pr ${{ github.event.pull_request.number || inputs.pr }}
+
+      # A failed run must not be silent on the PR it was reviewing.
+      - name: Leave a failure trace on the PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+        run: >
+          gh pr comment ${{ github.event.pull_request.number || inputs.pr }}
+          --body "pr-review ran but failed before posting a review — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for the log."

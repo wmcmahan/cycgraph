@@ -42,11 +42,13 @@ export interface DeliveryOptions {
   detailFrom: string;
   /**
    * Turn the accumulated details — one per commit the delivery has made
-   * — into PR evidence. The context carries the whole-branch diff so
+   * — into PR evidence. The context carries the whole-branch diff, so
    * callers can derive template ticks and not-applicable blocks from
-   * what actually changed. Defaults to a summary joining the details.
+   * what actually changed, and the commit subjects, which name the
+   * changes better than verdict details do. Defaults to a summary
+   * joining the details.
    */
-  evidence?: (details: string[], context: { diff: string }) => PrEvidence;
+  evidence?: (details: string[], context: { diff: string; subjects: string[] }) => PrEvidence;
   /** Commit the change. Off leaves the workspace for inspection. Default true. */
   commit?: boolean;
   /** Push and open the PR. Off leaves the prepared script in the commit result. Default true. */
@@ -72,7 +74,12 @@ function subjectOf(value: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
   const line = raw.split('\n')[0]!.replace(/\s+/g, ' ').trim();
   if (line === '') return undefined;
-  return line.length > SUBJECT_MAX ? `${line.slice(0, SUBJECT_MAX - 1).trimEnd()}…` : line;
+  if (line.length <= SUBJECT_MAX) return line;
+  // Truncate at a word boundary unless that would cost most of the
+  // subject; a mid-word cut reads like an error in the git log.
+  const cut = line.slice(0, SUBJECT_MAX - 1);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > SUBJECT_MAX / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
 /** A wired delivery node, with the memory key its result lands under. */
@@ -140,7 +147,7 @@ export function deliveryNodes(
       const details = [...priorDetails, detail];
       const subjects = [...priorSubjects, subject];
       const diff = await branchDiff(ws.root, count);
-      const body = await prBodyFor(repoRoot, evidence(details, { diff }));
+      const body = await prBodyFor(repoRoot, evidence(details, { diff, subjects }));
       return {
         committed: true,
         count,
@@ -174,7 +181,7 @@ export function deliveryNodes(
       const details = prior?.details ?? [detailOf(args[detailFrom])];
       const subjects = prior?.subjects ?? [];
       const prTitle = subjects.length === 1 ? subjects[0]! : title;
-      const body = await prBodyFor(repoRoot, evidence(details, { diff: prior?.diff ?? '' }));
+      const body = await prBodyFor(repoRoot, evidence(details, { diff: prior?.diff ?? '', subjects }));
       const outcome = await publishBranch(ws, repoRoot, prTitle, body, options.config);
       return { published: outcome.prUrl !== undefined, branch: ws.branch, ...outcome };
     },

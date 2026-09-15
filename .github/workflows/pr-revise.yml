@@ -90,3 +90,13 @@ jobs:
           npm run maintain --workspace=ops/maintenance -- pr-revise
           --pr ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
           --checks "npm run lint:eslint"
+
+      # A failed run must not be silent on the PR it was working: the
+      # comment names the run so the log is one click away.
+      - name: Leave a failure trace on the PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+        run: >
+          gh pr comment ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+          --body "pr-revise ran but failed before delivering a revision — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for the log. The findings above still stand."
