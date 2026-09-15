@@ -106,6 +106,22 @@ export function cachePrepareStep({ messages }: { messages: unknown[] }): { messa
   return { messages: withCacheBreakpoint(messages) as never };
 }
 
+/**
+ * The fields of the SDK's tool-execution-start event this module reads.
+ * Declared structurally so the handler can be shared by calls whose
+ * inferred event type differs; providers send either `args` or `input`.
+ */
+interface ToolExecutionStartEvent {
+  toolCall: { toolName: string; toolCallId: string; args?: unknown; input?: unknown };
+}
+
+/** The fields of the SDK's tool-execution-end event this module reads. */
+interface ToolExecutionEndEvent {
+  toolCall: { toolName: string; toolCallId: string };
+  toolOutput: { type: string; error?: unknown };
+  toolExecutionMs: number;
+}
+
 /** Usage as the AI SDK reports it, cache detail included when the provider has one. */
 export interface ReportedUsage {
   inputTokens?: number;
@@ -389,6 +405,51 @@ export async function executeAgent(
       ? AbortSignal.any([controller.signal, options.abortSignal])
       : controller.signal;
 
+    // Every field both the primary call and the empty-final continuation
+    // must agree on. Held in one object so an option added later cannot
+    // reach only one of them — the continuation runs the same model with
+    // the same tools and limits, and its tool calls must be as visible to
+    // stream consumers as the primary call's.
+    const sharedStreamOptions = {
+      model,
+      instructions: systemPrompt,
+      tools,
+      abortSignal: combinedSignal,
+      // Omitted entirely when unset, so the provider's own default still
+      // applies and nothing changes for graphs that never configured it.
+      ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
+      ...(effectiveTemperature !== undefined
+        ? { temperature: clampTemperature(effectiveTemperature, effectiveConfig.provider, agentId) }
+        : {}),
+      ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
+      ...(options?.onToolCall ? {
+        onToolExecutionStart: (event: ToolExecutionStartEvent) => {
+          try {
+            const tc = event.toolCall;
+            options.onToolCall!({
+              toolName: tc.toolName,
+              toolCallId: tc.toolCallId,
+              args: 'args' in tc ? tc.args : ('input' in tc ? tc.input : undefined),
+            });
+          } catch { /* best-effort */ }
+        },
+      } : {}),
+      ...(options?.onToolCallComplete ? {
+        onToolExecutionEnd: (event: ToolExecutionEndEvent) => {
+          try {
+            const output = event.toolOutput;
+            options.onToolCallComplete!({
+              toolName: event.toolCall.toolName,
+              toolCallId: event.toolCall.toolCallId,
+              durationMs: event.toolExecutionMs,
+              success: output.type !== 'tool-error',
+              ...(output.type === 'tool-error' ? { error: String(output.error) } : {}),
+            });
+          } catch { /* best-effort */ }
+        },
+      } : {}),
+    };
+
     let text: string;
     let usage: ReportedUsage | undefined;
     let steps: AgentStep[];
@@ -405,10 +466,8 @@ export async function executeAgent(
 
     try {
       result = await streamText({
-        model,
-        instructions: systemPrompt,
+        ...sharedStreamOptions,
         prompt: taskPrompt,
-        tools,
         stopWhen: isStepCount(config.maxSteps),
         // Multi-step Anthropic agents re-send the whole growing transcript
         // on every step at full price without cache markers; advancing a
@@ -424,41 +483,7 @@ export async function executeAgent(
               },
             }
           : {}),
-        abortSignal: combinedSignal,
-        // Omitted entirely when unset, so the provider's own default still
-        // applies and nothing changes for graphs that never configured it.
-        ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
         onError: ({ error }) => { streamError = error; },
-        ...(effectiveTemperature !== undefined
-          ? { temperature: clampTemperature(effectiveTemperature, effectiveConfig.provider, agentId) }
-          : {}),
-        ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
-        ...(options?.onToolCall ? {
-          onToolExecutionStart: (event) => {
-            try {
-              const tc = event.toolCall;
-              options.onToolCall!({
-                toolName: tc.toolName,
-                toolCallId: tc.toolCallId,
-                args: 'args' in tc ? tc.args : ('input' in tc ? tc.input : undefined),
-              });
-            } catch { /* best-effort */ }
-          },
-        } : {}),
-        ...(options?.onToolCallComplete ? {
-          onToolExecutionEnd: (event) => {
-            try {
-              const output = event.toolOutput;
-              options.onToolCallComplete!({
-                toolName: event.toolCall.toolName,
-                toolCallId: event.toolCall.toolCallId,
-                durationMs: event.toolExecutionMs,
-                success: output.type !== 'tool-error',
-                ...(output.type === 'tool-error' ? { error: String(output.error) } : {}),
-              });
-            } catch { /* best-effort */ }
-          },
-        } : {}),
       });
 
       // When onToken is provided, consume the textStream for token-by-token
@@ -500,8 +525,7 @@ export async function executeAgent(
         let continuationError: unknown;
         try {
           continuation = await streamText({
-            model,
-            instructions: systemPrompt,
+            ...sharedStreamOptions,
             messages: [
               { role: 'user' as const, content: taskPrompt },
               ...(await result.response).messages,
@@ -510,7 +534,6 @@ export async function executeAgent(
                 content: 'Your previous message was empty. Write your final reply now, complete per your instructions; use another tool first only if you must.',
               },
             ],
-            tools,
             stopWhen: isStepCount(continuationSteps),
             // Unconditional for Anthropic, unlike the primary call: this
             // request re-sends the whole finished transcript, so the prefix
@@ -525,13 +548,7 @@ export async function executeAgent(
                   },
                 }
               : {}),
-            abortSignal: combinedSignal,
-            ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
             onError: ({ error }) => { continuationError = error; },
-            ...(effectiveTemperature !== undefined
-              ? { temperature: clampTemperature(effectiveTemperature, effectiveConfig.provider, agentId) }
-              : {}),
-            ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
           });
 
           let continuationText: string;
