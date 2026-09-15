@@ -17,8 +17,7 @@
  * @module mcp/transport-security
  */
 
-import { lookup as dnsLookup } from 'node:dns/promises';
-import { isPrivateOrLoopbackHost } from '../tools/schema.js';
+import { assertResolvedHostPublic, ResolvedHostBlockedError } from '../tools/host-guard.js';
 import { createLogger } from '../observability/logger.js';
 
 const logger = createLogger('mcp.transport-security');
@@ -48,15 +47,16 @@ const DANGEROUS_STDIO_ENV = new Set<string>([
 /** Env var name prefixes that are blanket-stripped (macOS dynamic loader). */
 const DANGEROUS_STDIO_ENV_PREFIXES = ['DYLD_'];
 
-/** Max time to spend resolving an MCP host before failing the connection. */
-const DNS_LOOKUP_TIMEOUT_MS = 5000;
-
 /**
  * Connect-time SSRF re-check for http/sse transports. The parse-time schema
  * guard only inspects the literal hostname, so a public name that *resolves*
  * to a private IP (DNS rebinding → cloud metadata / internal services) slips
- * through. Here we resolve the host and reject if ANY returned address is
- * private/loopback/link-local.
+ * through. The resolution policy itself lives in `assertResolvedHostPublic`,
+ * shared with the A2A card guard and the web tools; this wrapper supplies the
+ * MCP subject, escape hatch, and logging. The two outcomes stay distinct
+ * events: `mcp_ssrf_blocked_resolved_ip` carries the `blocked` addresses that
+ * caused a refusal, `mcp_ssrf_lookup_failed` carries the `reason` a lookup
+ * never answered.
  *
  * Honors the same `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS` operator escape hatch as
  * the schema guard. Note (documented limitation): the SDK re-resolves the
@@ -66,45 +66,34 @@ const DNS_LOOKUP_TIMEOUT_MS = 5000;
  * case (a static public→private A record) at the app layer.
  */
 export async function assertHostResolvesPublic(rawUrl: string, serverId: string): Promise<void> {
-  if (process.env.CYCGRAPH_ALLOW_PRIVATE_MCP_URLS === 'true') return;
-
   let host: string;
   try {
     host = new URL(rawUrl).hostname;
   } catch {
     return; // Malformed URL — the transport client will surface the error.
   }
-  // Strip IPv6 brackets for dns.lookup (URL.hostname keeps them).
-  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
 
-  let addresses: string[];
   try {
-    const lookup = dnsLookup(host, { all: true });
-    const timeout = new Promise<never>((_, reject) => {
-      const t = setTimeout(
-        () => reject(new Error(`DNS lookup for MCP host "${host}" timed out after ${DNS_LOOKUP_TIMEOUT_MS}ms`)),
-        DNS_LOOKUP_TIMEOUT_MS,
-      );
-      // Don't keep the event loop alive on the timer.
-      (t as { unref?: () => void }).unref?.();
+    await assertResolvedHostPublic(host, {
+      subject: `MCP server "${serverId}" host`,
+      allowPrivate: process.env.CYCGRAPH_ALLOW_PRIVATE_MCP_URLS === 'true',
+      hint: 'Set CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true to allow it in development.',
     });
-    const resolved = await Promise.race([lookup, timeout]);
-    addresses = resolved.map((r) => r.address);
   } catch (err) {
-    // Resolution failed/timed out — fail closed rather than connect blind.
-    throw new Error(
-      `MCP server "${serverId}" host "${host}" could not be resolved for SSRF validation: ${(err as Error).message}`,
-      { cause: err },
-    );
-  }
-
-  const blocked = addresses.filter((addr) => isPrivateOrLoopbackHost(addr));
-  if (blocked.length > 0) {
-    logger.warn('mcp_ssrf_blocked_resolved_ip', { server_id: serverId, host, blocked });
-    throw new Error(
-      `MCP server "${serverId}" host "${host}" resolves to a private/loopback address (${blocked.join(', ')}) ` +
-        `and is blocked (SSRF guard). Set CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true to allow it in development.`,
-    );
+    if (err instanceof ResolvedHostBlockedError) {
+      logger.warn('mcp_ssrf_blocked_resolved_ip', {
+        server_id: serverId,
+        host,
+        blocked: err.blocked,
+      });
+    } else {
+      logger.warn('mcp_ssrf_lookup_failed', {
+        server_id: serverId,
+        host,
+        reason: (err as Error).message,
+      });
+    }
+    throw err;
   }
 }
 

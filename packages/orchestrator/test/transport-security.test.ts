@@ -68,10 +68,10 @@ describe('assertHostResolvesPublic', () => {
     expect(dnsLookupMock).not.toHaveBeenCalled();
   });
 
-  it('strips IPv6 brackets before resolving', async () => {
+  it('accepts a bracketed public IPv6 literal without resolving', async () => {
     await assertHostResolvesPublic('https://[2606:2800:220:1:248:1893:25c8:1946]/mcp', 'srv');
 
-    expect(dnsLookupMock).toHaveBeenCalledWith('2606:2800:220:1:248:1893:25c8:1946', { all: true });
+    expect(dnsLookupMock).not.toHaveBeenCalled();
   });
 
   it('resolves for a host that maps to a public address', async () => {

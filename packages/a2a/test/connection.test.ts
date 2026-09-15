@@ -3,10 +3,16 @@
  * per-request fetch its transport issues.
  */
 
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+
+const dnsLookupMock = vi.hoisted(() => vi.fn());
+vi.mock('node:dns/promises', () => ({ lookup: dnsLookupMock }));
+
 import { requestFetch, sdkClientFactory } from '../src/connection.js';
 
 const CARD_URL = 'http://agent.example';
+const PUBLIC_IP = '93.184.216.34';
+const METADATA_IP = '169.254.169.254';
 
 function cardResponse(endpointUrl = `${CARD_URL}/rpc`, extra: Record<string, unknown> = {}): Response {
   return new Response(JSON.stringify({
@@ -27,6 +33,11 @@ function cardResponse(endpointUrl = `${CARD_URL}/rpc`, extra: Record<string, unk
 async function settled(promise: Promise<unknown>): Promise<void> {
   await promise.catch(() => undefined);
 }
+
+beforeEach(() => {
+  dnsLookupMock.mockReset();
+  dnsLookupMock.mockResolvedValue([{ address: PUBLIC_IP, family: 4 }]);
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -182,6 +193,90 @@ describe('sdkClientFactory', () => {
     const client = await create(CARD_URL, {});
 
     expect(typeof client.sendMessage).toBe('function');
+  });
+
+  it('refuses a card whose public-looking endpoint host resolves to a private address', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('http://attacker.example/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockResolvedValue([{ address: METADATA_IP, family: 4 }]);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow(
+      `agent card endpoint host "attacker.example" resolves to a private/loopback address (${METADATA_IP})`);
+  });
+
+  it('refuses a card whose endpoint host resolves to a mix of public and private addresses', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('http://attacker.example/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockResolvedValue([
+      { address: PUBLIC_IP, family: 4 },
+      { address: '10.0.0.5', family: 4 },
+    ]);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow('resolves to a private/loopback address (10.0.0.5)');
+  });
+
+  it('fails closed when the endpoint host cannot be resolved', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND agent.example'));
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow(
+      'agent card endpoint host "agent.example" could not be resolved for SSRF validation: '
+      + 'getaddrinfo ENOTFOUND agent.example');
+  });
+
+  it('accepts a bracketed public ipv6 literal endpoint without a lookup', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('http://[2606:2800:220:1:248:1893:25c8:1946]/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+
+    expect(dnsLookupMock).not.toHaveBeenCalled();
+  });
+
+  it('resolves each distinct endpoint host once per card check', async () => {
+    const fetchMock = vi.fn(async () => cardResponse(`${CARD_URL}/rpc`, {
+      additionalInterfaces: [
+        { url: 'http://agent.example/extra', transport: 'JSONRPC' },
+        { url: 'http://other.example/rpc', transport: 'JSONRPC' },
+      ],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+
+    expect(dnsLookupMock.mock.calls.map((call) => call[0])).toEqual(['agent.example', 'other.example']);
+  });
+
+  it('skips the dns re-check under the development opt-out', async () => {
+    vi.stubEnv('CYCGRAPH_ALLOW_PRIVATE_A2A_URLS', 'true');
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+
+    expect(dnsLookupMock).not.toHaveBeenCalled();
+  });
+
+  it('does not resolve any host for a card already refused on its literal endpoint', async () => {
+    const fetchMock = vi.fn(async () => cardResponse(`${CARD_URL}/rpc`, {
+      additionalInterfaces: [{ url: 'http://127.0.0.1/rpc', transport: 'JSONRPC' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+
+    expect(dnsLookupMock).not.toHaveBeenCalled();
   });
 
   it('rejects card resolution that outruns the card timeout', async () => {
