@@ -24,6 +24,15 @@ import { loadAuditSchedule, saveAuditSchedule, type AuditSchedule } from './audi
 /** Tag every maintenance lesson carries; workflows add `wf:<id>` beside it. */
 export const LESSON_TAG = 'lesson';
 
+/**
+ * Namespace tag for this repository's maintenance lessons. Retrieval
+ * tags use OR semantics, so a query on the generic `lesson` tag pulls
+ * every consumer of the shared store — demo and example runs included,
+ * which is how battery-chemistry facts reached a PR reviser's prompt.
+ * Cross-workflow queries therefore ask for this tag alone.
+ */
+export const MAINT_TAG = 'maint';
+
 /** Status tag a freshly written lesson carries until the gate promotes it. */
 export const CANDIDATE_TAG = 'candidate';
 

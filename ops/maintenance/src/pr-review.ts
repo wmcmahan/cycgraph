@@ -43,7 +43,7 @@ import { agent, graph, node, reflection, tool } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { commentOnPr, commentableDiffLines, enableAutoMerge, listReviewThreads, prFeedback, resolveReviewThread, submitPrReview } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
-import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
+import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
 import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseReviewFindings, parseReviewVerdict } from './review-findings.js';
 import { MANAGED_LABEL, STANDARDS_BRIEF, WORKFLOW_MENTION, resolveRepo, stripMentions } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
@@ -373,7 +373,7 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
             reads: ['review'],
             failurePolicy: { maxRetries: 2 },
             extractor: { type: 'llm', agentId: distiller, maxFacts: 2 },
-            tags: [LESSON_TAG, 'wf:pr-review', CANDIDATE_TAG],
+            tags: [LESSON_TAG, MAINT_TAG, 'wf:pr-review', CANDIDATE_TAG],
           })
         : undefined;
 

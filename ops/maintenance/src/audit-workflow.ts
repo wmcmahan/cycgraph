@@ -37,7 +37,7 @@ import { cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { auditKey, renderAuditIssueBody, siftAuditFindings, type AuditFinding } from './audit-findings.js';
 import { scheduleCharters } from './audit-schedule.js';
-import { CANDIDATE_TAG, LESSON_TAG } from './memory.js';
+import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
 import { repoMap, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -349,7 +349,7 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
             reads: [sift.result],
             failurePolicy: { maxRetries: 2 },
             extractor: { type: 'llm', agentId: distiller, maxFacts: 3 },
-            tags: [LESSON_TAG, 'wf:repo-audit', CANDIDATE_TAG],
+            tags: [LESSON_TAG, MAINT_TAG, 'wf:repo-audit', CANDIDATE_TAG],
           })
         : undefined;
 
