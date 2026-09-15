@@ -77,12 +77,43 @@ export interface PrFeedback {
  * command and discards the reason. Exported for tests.
  */
 export function ghErrorDetail(error: unknown): string {
+  // `gh api` prints the API's response body to STDOUT even on failure;
+  // stderr carries only the bare status line ("gh: Unprocessable Entity
+  // (HTTP 422)"), so the reason lives in the stdout JSON.
+  const stdout = (error as { stdout?: string }).stdout;
+  if (typeof stdout === 'string' && stdout.trim() !== '') {
+    try {
+      const body = JSON.parse(stdout) as { message?: string; errors?: unknown[] };
+      if (typeof body.message === 'string' && body.message !== '') {
+        const errors = Array.isArray(body.errors) && body.errors.length > 0
+          ? ` — ${JSON.stringify(body.errors)}`
+          : '';
+        return `${body.message}${errors}`.slice(0, 400);
+      }
+    } catch {
+      // Not JSON; fall through to stderr.
+    }
+  }
   const stderr = (error as { stderr?: string }).stderr;
   const fromStderr = typeof stderr === 'string'
     ? stderr.split('\n').map((line) => line.trim()).find((line) => line !== '')
     : undefined;
   const message = error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error);
   return (fromStderr ?? message).slice(0, 400);
+}
+
+/**
+ * Everything a failed `gh` invocation said, across message, stdout,
+ * and stderr, for callers that pattern-match the failure kind: the
+ * API's reason arrives on stdout, so a regex over the message alone
+ * never sees it.
+ */
+function ghErrorText(error: unknown): string {
+  return [
+    error instanceof Error ? error.message : String(error),
+    (error as { stdout?: string }).stdout ?? '',
+    (error as { stderr?: string }).stderr ?? '',
+  ].join('\n');
 }
 
 function ghEnv(token?: string): NodeJS.ProcessEnv | undefined {
@@ -281,10 +312,9 @@ export async function submitPrReview(
           + (degradations.length > 0 ? ` (${degradations.join('; ')})` : ''),
       };
     } catch (error) {
-      const message = (error as Error).message;
       // A token reviewing its own PR may neither approve nor request
       // changes; the verdict then rides the body of a COMMENT review.
-      if (event !== 'COMMENT' && /your own pull request/i.test(message)) {
+      if (event !== 'COMMENT' && /your own pull request/i.test(ghErrorText(error))) {
         degradations.push(`${event} refused on own PR, submitted as COMMENT`);
         event = 'COMMENT';
         continue;

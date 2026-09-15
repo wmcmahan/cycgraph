@@ -579,3 +579,34 @@ describe('ghErrorDetail', () => {
     expect(ghErrorDetail(error)).toHaveLength(400);
   });
 });
+
+describe('ghErrorDetail stdout body', () => {
+  it('prefers the API message from the stdout JSON body', async () => {
+    const { ghErrorDetail } = await import('../src/git/pr.js');
+    const error = Object.assign(new Error('Command failed: gh api x'), {
+      stdout: '{"message":"Can not approve your own pull request","documentation_url":"x"}',
+      stderr: 'gh: Unprocessable Entity (HTTP 422)',
+    });
+
+    expect(ghErrorDetail(error)).toBe('Can not approve your own pull request');
+  });
+
+  it('appends the errors array when the body carries one', async () => {
+    const { ghErrorDetail } = await import('../src/git/pr.js');
+    const error = Object.assign(new Error('x'), {
+      stdout: '{"message":"Unprocessable Entity","errors":[{"resource":"PullRequestReviewThread","field":"line"}]}',
+    });
+
+    expect(ghErrorDetail(error)).toBe('Unprocessable Entity — [{"resource":"PullRequestReviewThread","field":"line"}]');
+  });
+
+  it('falls back to stderr when stdout is not JSON', async () => {
+    const { ghErrorDetail } = await import('../src/git/pr.js');
+    const error = Object.assign(new Error('x'), {
+      stdout: 'not json',
+      stderr: 'gh: HTTP 403',
+    });
+
+    expect(ghErrorDetail(error)).toBe('gh: HTTP 403');
+  });
+});
