@@ -1,0 +1,73 @@
+# CI outcomes on a maintenance PR, closed as a loop. Branch protection
+# already keeps a red PR from merging; without this, it just sits —
+# approved, failing, and silent. The first failure hands the PR to
+# pr-revise via the @cycgraph mention with the failing run linked; a
+# repeat failure stops the cycle and labels the PR needs-human, and a
+# PR already parked on needs-human gets no further comments. A green
+# run on a labeled PR clears the label — the heal path that makes the
+# comments' promise true. Only PRs carrying maintenance-managed and
+# heading from this repository are touched: your own PRs and fork
+# branches with colliding names stay untouched.
+#
+# Secrets: MAINTENANCE_PAT — the mention only dispatches pr-revise when
+# the comment is posted by a PAT (the Actions token's comments fire no
+# workflows).
+
+name: PR CI failure
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+# Two CI runs finishing on one branch must not both read "no prior
+# failure" and dispatch pr-revise twice.
+concurrency:
+  group: pr-ci-failure-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  react:
+    if: github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: React to the CI outcome
+        env:
+          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          pr=$(gh pr list -R "$REPO" --state open --head "$BRANCH" --label maintenance-managed \
+            --json number,headRepositoryOwner \
+            --jq "[.[] | select(.headRepositoryOwner.login == \"$OWNER\")][0].number // empty")
+          if [ -z "$pr" ]; then
+            echo "no open maintenance-managed PR heading from $OWNER/$BRANCH — nothing to do"
+            exit 0
+          fi
+          parked=$(gh pr view -R "$REPO" "$pr" --json labels --jq '[.labels[].name] | contains(["needs-human"])')
+          if [ "$CONCLUSION" = "success" ]; then
+            if [ "$parked" = "true" ]; then
+              gh pr edit -R "$REPO" "$pr" --remove-label needs-human || true
+              gh pr comment -R "$REPO" "$pr" --body "CI is green again on this PR: $RUN_URL — clearing the needs-human label."
+            fi
+            exit 0
+          fi
+          if [ "$parked" = "true" ]; then
+            echo "PR #$pr already waits on a human — no further comments"
+            exit 0
+          fi
+          prior=$(gh pr view -R "$REPO" "$pr" --json comments --jq '[.comments[].body | select(startswith("CI failed on this PR"))] | length')
+          if [ "$prior" -eq 0 ]; then
+            gh pr comment -R "$REPO" "$pr" --body "CI failed on this PR: $RUN_URL — @cycgraph please fix the failing checks. Reproduce the failure with run_check before pushing, and change nothing unrelated."
+          else
+            gh label create needs-human -R "$REPO" 2>/dev/null || true
+            gh pr edit -R "$REPO" "$pr" --add-label needs-human || true
+            gh pr comment -R "$REPO" "$pr" --body "CI failed on this PR again: $RUN_URL. The loop already tried once, so this PR now carries the needs-human label and waits on you — a later green run, successful revision, or successful review clears it."
+          fi

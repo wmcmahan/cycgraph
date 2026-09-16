@@ -44,7 +44,8 @@ Flags mirror the workflow's params: `--batch n` (fixes per run, one
 commit each, one PR), `--since <ref>` (diff mode: only findings a change
 since that ref plausibly staled), `--skip n`, `--commit false` (inspect
 without committing), `--publish false` (commit but leave the prepared
-publish script), `--checks "npm run lint"`. For `core-upkeep`:
+publish script), `--checks "npm run lint:eslint,npm test"` (comma-separated; a command
+containing a comma cannot be passed). For `core-upkeep`:
 `--maxIssues n`, `--lint false` (grep classes only), `--file false`
 (report what would be filed, touch nothing). Each filed issue carries a
 stable finding marker, dedupe runs against every open issue's markers,
@@ -166,7 +167,17 @@ severity. On the way out, pr-review runs with `--merge true`: an
 APPROVE verdict on a managed PR arms squash auto-merge (deleting the
 branch), the merge closes the issue, and the merge event dispatches the
 next pick. A REVISE verdict still routes through pr-revise, bounded by
-the rounds cap. When the loop gives up on a PR — a review inconclusive
+the rounds cap.
+
+Both fix and revise workspaces run the repository's own tests before
+any commit or push: the `--checks` the workflow files pass now include
+`npm test`. When a PR's CI still fails after publish,
+`.github/workflows/pr-ci-failure.yml` reacts — the first failure
+dispatches pr-revise with the failing run linked, a repeat failure
+labels the PR `needs-human` instead of cycling, and a green run on a
+labeled PR clears the label.
+
+When the loop gives up on a PR — a review inconclusive
 after its diff-only fallback, a review that could not be submitted, a
 failed revision run, or an exhausted rounds cap — the PR is labeled
 `needs-human` with a comment saying why, so limbo is never silent: the

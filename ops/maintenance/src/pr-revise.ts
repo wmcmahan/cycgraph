@@ -33,6 +33,7 @@ import {
   commit as commitBranch,
   pendingDiff,
   prFeedback,
+  linkNestedModules,
   pushBranch,
   replyToReviewComment,
   setPrLabels,
@@ -150,6 +151,10 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
             await symlink(join(repoRoot, 'node_modules'), join(workspaceAt, 'node_modules'));
             await exec('sh', ['-c', `echo node_modules >> ${join(workspaceAt, '.git', 'info', 'exclude')}`]);
           }
+          // Outside the guard: a workspace whose root node_modules already
+          // exists still needs the package-local links for the tests the
+          // checks run, and the call is idempotent link by link.
+          await linkNestedModules(repoRoot, workspaceAt);
           return {
             has_work: true,
             head,
@@ -174,7 +179,7 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
         name: 'repo_checks',
         description: 'Run the repository\'s own checks in the workspace, refusing tree mutation.',
         parameters: z.object({}),
-        timeoutMs: 1_200_000,
+        timeoutMs: 1_800_000,
         execute: async () => {
           const treeBefore = (await changedIn(workspaceAt)).join('\n');
           if (p.checks.length > 0) {
