@@ -52,7 +52,7 @@ export const diagnosticsParameters = z.object({});
 export interface DiagnosticsResult {
   /** True when the command exited zero. */
   clean: boolean;
-  /** What it printed, truncated to the line cap. */
+  /** What it printed, the earliest lines truncated first past the cap. */
   output: string;
 }
 
@@ -74,8 +74,11 @@ export function diagnosticsTool(options: DiagnosticsToolOptions): DefinedTool {
           ? `${String((err as { stdout?: unknown }).stdout ?? '')}\n${String((err as { stderr?: unknown }).stderr ?? '')}`
           : String(err);
         const lines = raw.split('\n').filter(Boolean);
-        const output = lines.slice(0, maxLines).join('\n')
-          + (lines.length > maxLines ? `\n[${lines.length - maxLines} more line(s) truncated]` : '');
+        // Keep the TAIL: test runners and linters print their failure
+        // detail and summary last, so head-keeping hands the consumer
+        // pages of passing output and truncates the reason away.
+        const output = (lines.length > maxLines ? `[${lines.length - maxLines} earlier line(s) truncated]\n` : '')
+          + lines.slice(-maxLines).join('\n');
         return { clean: false, output: output || 'the check failed with no output' };
       }
     },

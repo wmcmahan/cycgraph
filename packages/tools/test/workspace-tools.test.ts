@@ -261,13 +261,13 @@ describe('diagnosticsTool', () => {
     vi.unstubAllEnvs();
   });
 
-  it('truncates a flood of findings to the line cap', async () => {
+  it('keeps the last lines when a flood of findings passes the cap', async () => {
     const result = await diagnosticsTool({
       cwd: root, command: 'node', maxLines: 3,
       args: ['-e', 'for (let i = 0; i < 10; i++) console.error("finding " + i); process.exit(1)'],
     }).execute({}) as { output: string };
 
-    expect(result.output).toContain('[7 more line(s) truncated]');
+    expect(result.output).toBe('[7 earlier line(s) truncated]\nfinding 7\nfinding 8\nfinding 9');
   });
 });
 

@@ -149,3 +149,16 @@ export function judgeIssueFix(evidence: IssueFixEvidence): IssueFixVerdict {
           : `resolved ${finding.kind} in ${finding.file}`,
   };
 }
+
+/**
+ * The gate-retry attempt number for a judge run: consecutive gate
+ * failures only. A judge run entered after the previous gate passed —
+ * the review loop's re-judging of a revision — restarts at one, so the
+ * gate's retry budget is never consumed by passes that were not gate
+ * retries. Anything but a recorded pass counts as a failure: an absent
+ * gate result must never leave the retry loop unbounded. The first run
+ * of all still starts at one because there are no previous attempts.
+ */
+export function nextGateAttempt(options: { previousAttempts: number; gatePassed: boolean | undefined }): number {
+  return options.gatePassed !== true ? options.previousAttempts + 1 : 1;
+}

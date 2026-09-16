@@ -96,6 +96,14 @@ export function checksEnv(): NodeJS.ProcessEnv {
   delete env['APP_DATABASE_URL'];
   delete env['PLATFORM_DATABASE_URL'];
   delete env['SUPABASE_DB_URL'];
+  // Ambient git identity: GIT_AUTHOR_/GIT_COMMITTER_ vars override the
+  // explicit `-c user.*` a test's own commits pass, so the identity CI
+  // sets for the workflow's commits makes identity-asserting tests fail
+  // in the workspace while passing everywhere else.
+  delete env['GIT_AUTHOR_NAME'];
+  delete env['GIT_AUTHOR_EMAIL'];
+  delete env['GIT_COMMITTER_NAME'];
+  delete env['GIT_COMMITTER_EMAIL'];
   return env;
 }
 
