@@ -80,13 +80,32 @@ async function ask(prompt: string, signal: AbortSignal): Promise<string> {
   return text;
 }
 
-/** Whether a model is reachable, so the scenario can be listed honestly. */
+/**
+ * Whether {@link MODEL} is reachable, so the scenario can be listed honestly.
+ *
+ * The daemon answering `/api/tags` is not enough: a bare Ollama with nothing
+ * pulled answers it with an empty list and then 404s on
+ * `/v1/chat/completions`, which is the "can only fail" listing the gate
+ * exists to remove. So the configured model has to be among the pulled tags.
+ *
+ * Ollama reports an untagged name as `<name>:latest`, which is why an
+ * unqualified `MODEL` is compared against that form too.
+ */
 export async function modelAvailable(timeoutMs = 1500): Promise<boolean> {
   try {
     const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
-    return response.ok;
+    if (!response.ok) return false;
+
+    const body = (await response.json()) as { models?: Array<{ name?: string; model?: string }> };
+    const pulled = new Set(
+      (body.models ?? [])
+        .flatMap((entry) => [entry.name, entry.model])
+        .filter((name): name is string => typeof name === 'string'),
+    );
+    const qualified = MODEL.includes(':') ? MODEL : `${MODEL}:latest`;
+    return pulled.has(MODEL) || pulled.has(qualified);
   } catch {
     return false;
   }
@@ -117,12 +136,14 @@ async function answerWith(prompt: string): Promise<ScenarioResponse> {
 export const agentScenario: Scenario = {
   id: 'agent',
   description: 'Runs a real model and returns what it said. Delegation to an agent rather than a script.',
+  requiresModel: true,
   respond: (input) => answerWith(asPrompt(input)),
 };
 
 export const clarifyingAgentScenario: Scenario = {
   id: 'agent-clarifies',
   description: 'Asks one clarifying question, then answers with a real model using the reply.',
+  requiresModel: true,
 
   /**
    * The pause is scripted and the answer is not.

@@ -5,6 +5,11 @@
  * Card at `/<id>/.well-known/agent-card.json` and a JSON-RPC endpoint at
  * `/<id>/a2a/v1`.
  *
+ * A model-backed scenario is only advertised while a model is reachable: the
+ * index lists it as unavailable and its Agent Card is withheld otherwise, so
+ * a caller that lists agents to decide what to exercise is not handed one
+ * that can only come back as a failed task.
+ *
  * @module a2a/server
  */
 
@@ -21,9 +26,31 @@ import {
 import { jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { TaskState } from '@a2a-js/sdk';
 import { SCENARIOS, type Scenario } from './scenarios.js';
+import { modelAvailable } from './agent.js';
 
 /** Counts card fetches, so a test can see how chatty the client is. */
 let cardFetches = 0;
+
+/** How long one reachability probe stands in for the next. */
+const MODEL_PROBE_TTL_MS = 10_000;
+
+let modelProbe: { at: number; result: Promise<boolean> } | undefined;
+
+/**
+ * Whether a model is reachable, probed at most once per
+ * {@link MODEL_PROBE_TTL_MS}.
+ *
+ * Every listing and model-backed card fetch asks, and the probe is a network
+ * round trip. The TTL is what keeps a server that outlives an Ollama restart
+ * from answering from a probe taken before it.
+ */
+function modelReachable(): Promise<boolean> {
+  const now = Date.now();
+  if (!modelProbe || now - modelProbe.at >= MODEL_PROBE_TTL_MS) {
+    modelProbe = { at: now, result: modelAvailable() };
+  }
+  return modelProbe.result;
+}
 
 /** Agent Card for one scenario. The SDK serves and validates this. */
 function agentCard(scenario: Scenario, baseUrl: string) {
@@ -187,21 +214,32 @@ export function createA2AScenarioServer(
 
   app.get('/__card-fetches', (_req, res) => { res.json({ cardFetches }); });
 
-  app.get('/', (_req, res) => {
+  app.get('/', async (_req, res) => {
+    const modelUp = SCENARIOS.some((s) => s.requiresModel) ? await modelReachable() : true;
+    const withheld = (s: Scenario) => Boolean(s.requiresModel) && !modelUp;
     res.json({
       protocol: 'a2a',
-      agents: SCENARIOS.map((s) => ({
-        id: s.id,
-        description: s.description,
-        agentCardUrl: `${baseUrl}/${s.id}/.well-known/agent-card.json`,
-      })),
+      agents: SCENARIOS
+        .filter((s) => !withheld(s))
+        .map((s) => ({
+          id: s.id,
+          description: s.description,
+          agentCardUrl: `${baseUrl}/${s.id}/.well-known/agent-card.json`,
+        })),
+      unavailable: SCENARIOS
+        .filter(withheld)
+        .map((s) => ({ id: s.id, reason: 'no model reachable' })),
     });
   });
 
   for (const scenario of SCENARIOS) {
     const card = agentCard(scenario, baseUrl);
 
-    app.get(`/${scenario.id}/.well-known/agent-card.json`, (_req, res) => {
+    app.get(`/${scenario.id}/.well-known/agent-card.json`, async (_req, res) => {
+      if (scenario.requiresModel && !(await modelReachable())) {
+        res.status(503).json({ error: `scenario ${scenario.id} needs a model and none is reachable` });
+        return;
+      }
       cardFetches += 1;
       res.json(card);
     });

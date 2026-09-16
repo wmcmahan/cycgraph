@@ -12,7 +12,8 @@
  *
  * The one exception is `agent`, in ./agent.ts, which really does run a model.
  * It exists for the opposite question — whether delegation works when the
- * other side is an agent rather than a script — and is skipped when no model
+ * other side is an agent rather than a script — and is marked
+ * `requiresModel`, which keeps the server from advertising it when no model
  * is reachable.
  *
  * @module a2a/scenarios
@@ -35,6 +36,13 @@ export interface Scenario {
   id: string;
   /** What this scenario proves. */
   description: string;
+  /**
+   * True when the scenario answers with a model rather than a script.
+   *
+   * The server only advertises these when a model is actually reachable, so
+   * a caller listing agents does not pick one that can only fail.
+   */
+  requiresModel?: boolean;
   /**
    * Decide the response for an incoming message.
    *
