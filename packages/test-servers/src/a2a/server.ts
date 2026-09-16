@@ -216,16 +216,18 @@ export function createA2AScenarioServer(
 
   app.get('/', async (_req, res) => {
     const modelUp = SCENARIOS.some((s) => s.requiresModel) ? await modelReachable() : true;
-    const listed = SCENARIOS.filter((s) => modelUp || !s.requiresModel);
+    const withheld = (s: Scenario) => Boolean(s.requiresModel) && !modelUp;
     res.json({
       protocol: 'a2a',
-      agents: listed.map((s) => ({
-        id: s.id,
-        description: s.description,
-        agentCardUrl: `${baseUrl}/${s.id}/.well-known/agent-card.json`,
-      })),
+      agents: SCENARIOS
+        .filter((s) => !withheld(s))
+        .map((s) => ({
+          id: s.id,
+          description: s.description,
+          agentCardUrl: `${baseUrl}/${s.id}/.well-known/agent-card.json`,
+        })),
       unavailable: SCENARIOS
-        .filter((s) => !listed.includes(s))
+        .filter(withheld)
         .map((s) => ({ id: s.id, reason: 'no model reachable' })),
     });
   });

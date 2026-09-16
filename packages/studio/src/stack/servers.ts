@@ -8,6 +8,7 @@
  * @module stack/servers
  */
 
+import { z } from 'zod';
 import {
   InMemoryA2AServerRegistry,
   InMemoryMCPServerRegistry,
@@ -39,8 +40,36 @@ export const A2A_SCENARIOS = [
 /** Id under which the scenario MCP server is registered. */
 export const MCP_SERVER_ID = 'scenario-mcp';
 
+/** The scenario server's index, as far as registration needs it. */
+const scenarioIndexSchema = z.object({
+  agents: z.array(z.object({ id: z.string() })),
+});
+
 /**
- * Register every A2A scenario agent.
+ * Which scenarios the running server currently advertises.
+ *
+ * A model-backed scenario's Agent Card is withheld with a 503 while no model
+ * is reachable, so registering the full list would hand the engine an
+ * endpoint whose card resolution fails before a task is ever created.
+ *
+ * Falls back to every known scenario when the index cannot be read: that is
+ * the server being broken rather than a scenario being unavailable, and the
+ * card fetch reports it better than a silently empty registry would.
+ */
+async function advertisedScenarios(baseUrl: string): Promise<readonly string[]> {
+  try {
+    const response = await fetch(baseUrl, { signal: AbortSignal.timeout(1500) });
+    if (!response.ok) return A2A_SCENARIOS;
+    const index = scenarioIndexSchema.parse(await response.json());
+    const served = new Set(index.agents.map((agent) => agent.id));
+    return A2A_SCENARIOS.filter((id) => served.has(id));
+  } catch {
+    return A2A_SCENARIOS;
+  }
+}
+
+/**
+ * Register the A2A scenario agents the server is serving.
  *
  * The servers bind loopback, which the engine's SSRF guard blocks by design,
  * so the development opt-out is set here. That is the guard working, not a
@@ -50,7 +79,7 @@ export async function registerA2AScenarios(baseUrl: string): Promise<A2AServerRe
   process.env['CYCGRAPH_ALLOW_PRIVATE_A2A_URLS'] = 'true';
 
   const registry = new InMemoryA2AServerRegistry();
-  for (const id of A2A_SCENARIOS) {
+  for (const id of await advertisedScenarios(baseUrl)) {
     await registry.saveServer({
       id,
       name: id,

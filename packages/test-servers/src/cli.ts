@@ -32,7 +32,10 @@ const a2aBase = process.env.A2A_PUBLIC_URL ?? `http://${HOST}:${A2A_PORT}`;
 createA2AScenarioServer(a2aBase).listen(A2A_PORT, HOST, () => {
   console.log(`\nA2A scenario agents  →  ${a2aBase}`);
   for (const scenario of SCENARIOS) {
-    console.log(`  ${scenario.id.padEnd(18)} ${a2aBase}/${scenario.id}/.well-known/agent-card.json`);
+    // A model-backed card is withheld with a 503 while no model is reachable,
+    // so the printed URL is only good on a machine that has one pulled.
+    const note = scenario.requiresModel ? '  (needs a model; 503 until one is pulled)' : '';
+    console.log(`  ${scenario.id.padEnd(18)} ${a2aBase}/${scenario.id}/.well-known/agent-card.json${note}`);
   }
 });
 
