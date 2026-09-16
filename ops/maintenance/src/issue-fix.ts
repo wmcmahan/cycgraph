@@ -39,7 +39,7 @@ import {
 } from '@cycgraph/tools/workspace';
 import { scanCore, type CoreFinding } from './core-scan.js';
 import { auditTitle, severityRank } from './audit-findings.js';
-import { findingFromKey, judgeAuditFix, judgeIssueFix, parseIssueFinding, type IssueFinding } from './issue-judge.js';
+import { findingFromKey, judgeAuditFix, judgeIssueFix, nextGateAttempt, parseIssueFinding, type IssueFinding } from './issue-judge.js';
 import { checksEnv, CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
 import { LESSON_TAG, MAINT_TAG } from './memory.js';
 import { stripCloses, templateEvidence } from './pr-template.js';
@@ -267,10 +267,16 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         parameters: z.object({
           pick_result: z.unknown().optional(),
           baseline_result: z.unknown().optional(),
+          judge_result: z.object({ attempts: z.number() }).partial().optional(),
+          gate_verification_passed: z.boolean().optional(),
         }),
         timeoutMs: 300_000,
-        execute: async ({ pick_result, baseline_result }) => {
+        execute: async ({ pick_result, baseline_result, judge_result, gate_verification_passed }) => {
           const pick = pick_result as { issue_number?: number; issue_title?: string } | undefined;
+          const attempts = nextGateAttempt({
+            previousAttempts: judge_result?.attempts ?? 0,
+            gatePassed: gate_verification_passed,
+          });
           const baseline = baseline_result as
             { keys?: string[]; target?: CoreFinding; text?: string; audit?: boolean } | undefined;
           const closesPrefix = pick?.issue_number !== undefined ? `Closes #${pick.issue_number}. ` : '';
@@ -283,6 +289,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             });
             return {
               ...verdict,
+              attempts,
               detail: `${closesPrefix}${verdict.detail}`,
               // The issue title names the finding, so the commit inherits it.
               ...(pick?.issue_title !== undefined && pick.issue_title !== ''
@@ -291,7 +298,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             };
           }
           const target = baseline?.target;
-          if (target === undefined) return { resolved: false, weakened: false, detail: 'nothing was targeted' };
+          if (target === undefined) return { resolved: false, weakened: false, attempts, detail: 'nothing was targeted' };
 
           const finding: IssueFinding = { key: target.key, kind: target.kind, file: target.file };
           const after = await scanCore(workspaceAt, { lint: p.lint });
@@ -309,6 +316,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
           const subject = MECHANICAL_SUBJECTS[target.kind]?.(target.file);
           return {
             ...verdict,
+            attempts,
             detail: `${closes}${verdict.detail}`,
             ...(subject !== undefined ? { subject } : {}),
           };
@@ -322,6 +330,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         ...(p.checks.length > 0 ? { args: ['-c', p.checks.join(' && ')] } : { args: [] }),
         // Sized for the full test suite, not just lint.
         timeoutMs: 1_800_000,
+        maxLines: 120,
         env: checksEnv(),
       });
 
@@ -416,7 +425,9 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         id: 'fix',
         agent: fixer,
         failurePolicy: { timeoutMs: 1_200_000 },
-        reads: [baseline.result, 'judge_result', 'review'],
+        // checks_result rides the gate-retry: without it the fixer never
+        // learns which tests its last attempt broke.
+        reads: [baseline.result, 'judge_result', 'checks_result', 'review'],
         writes: 'fix_report',
         // The whole lesson pool, not a per-workflow tag: defect-class
         // lessons distilled from reviews apply to every editing agent.
@@ -427,7 +438,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         type: 'tool',
         toolId: 'judge_fix',
         tools: [judgeTool],
-        reads: [pick.result, baseline.result],
+        reads: [pick.result, baseline.result, 'judge_result', 'gate_verification_passed'],
       });
       const checks = node({ id: 'checks', type: 'tool', toolId: 'repo_checks', tools: [checksTool], reads: [] });
       const gate = verifier.expression(
@@ -488,7 +499,20 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
               to: report,
               when: `not memory.${reviewCheck.result}.approved and memory.${reviewCheck.result}.round >= 3`,
             },
-            { from: gate, to: fix, when: 'not memory.gate_verification_passed' },
+            // Bounded at three CONSECUTIVE gate failures: each retry
+            // re-runs the full checks, and `nextGateAttempt` restarts
+            // the count whenever the previous gate passed, so the
+            // review loop's re-judging never spends this budget.
+            {
+              from: gate,
+              to: fix,
+              when: 'not memory.gate_verification_passed and memory.judge_result.attempts < 3',
+            },
+            {
+              from: gate,
+              to: report,
+              when: 'not memory.gate_verification_passed and memory.judge_result.attempts >= 3',
+            },
             { from: commit, to: publish },
             { from: publish, to: report },
           ],

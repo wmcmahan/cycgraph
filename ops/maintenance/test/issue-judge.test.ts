@@ -10,6 +10,7 @@ import {
   eslintDisableCount,
   judgeIssueFix,
   judgeAuditFix,
+  nextGateAttempt,
   parseIssueFinding,
   testCount,
   type IssueFixEvidence,
@@ -166,5 +167,24 @@ describe('judgeIssueFix', () => {
     const verdict = judgeIssueFix(evidence({ afterKeys: [FINDING.key] }));
 
     expect(verdict.resolved).toBe(false);
+  });
+});
+
+describe('nextGateAttempt', () => {
+  it('starts at one on the first judge run', () => {
+    expect(nextGateAttempt({ previousAttempts: 0, gatePassed: undefined })).toBe(1);
+  });
+
+  it('increments across consecutive gate failures', () => {
+    expect(nextGateAttempt({ previousAttempts: 1, gatePassed: false })).toBe(2);
+    expect(nextGateAttempt({ previousAttempts: 2, gatePassed: false })).toBe(3);
+  });
+
+  it('restarts at one after a passing gate', () => {
+    expect(nextGateAttempt({ previousAttempts: 3, gatePassed: true })).toBe(1);
+  });
+
+  it('increments when the gate result is absent', () => {
+    expect(nextGateAttempt({ previousAttempts: 1, gatePassed: undefined })).toBe(2);
   });
 });

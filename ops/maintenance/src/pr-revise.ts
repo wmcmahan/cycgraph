@@ -186,7 +186,20 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
             try {
               await exec('sh', ['-c', p.checks.join(' && ')], { cwd: workspaceAt, env: checksEnv(), maxBuffer: 64 * 1024 * 1024 });
             } catch (error) {
-              return { clean: false, output: String((error as { stdout?: string }).stdout ?? (error as Error).message).slice(-2_000) };
+              // Both streams, stderr first: a multi-workspace `npm test`
+              // names the failing workspace on stderr at the very end,
+              // while the stdout tail is often the LAST workspace's
+              // passing summary — capturing that alone reads as green.
+              const streams = [
+                String((error as { stderr?: string }).stderr ?? '').trim().slice(-3_000),
+                String((error as { stdout?: string }).stdout ?? '').trim().slice(-3_000),
+              ].filter((tail) => tail !== '');
+              return {
+                clean: false,
+                output: streams.length > 0
+                  ? streams.join('\n---\n')
+                  : (error as Error).message.slice(0, 3_000),
+              };
             }
           }
           const mutated = (await changedIn(workspaceAt)).join('\n') !== treeBefore;
