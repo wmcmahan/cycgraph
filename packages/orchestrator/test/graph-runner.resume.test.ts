@@ -78,6 +78,7 @@ vi.mock('../src/execution/engine/helpers', async (importOriginal) => {
 });
 
 import { GraphRunner } from '../src/execution/engine/graph-runner.js';
+import { executeAgent } from '../src/agents/executors/agent/executor.js';
 import { InMemoryEventLogWriter } from '../src/persistence/event-log.js';
 import type { Graph, GraphNode } from '../src/graph/graph.js';
 import type { WorkflowState } from '../src/state/state.js';
@@ -167,8 +168,10 @@ describe('GraphRunner — Resume from Checkpoint', () => {
   });
 
   /**
-   * Idempotency keys should be reconstructed from visited_nodes on resume,
-   * preventing already-executed nodes from running again.
+   * The crash window: node-b's action was reduced and snapshotted (the
+   * high-water mark covers its action_dispatched, no _advance follows),
+   * then the run died. Resuming must route past node-b without spending
+   * another executor call on it.
    */
   it('should reconstruct idempotency keys and skip already-executed iterations', async () => {
     const graph: Graph = {
@@ -194,6 +197,7 @@ describe('GraphRunner — Resume from Checkpoint', () => {
       status: 'running',
       started_at: new Date(),
       memory: { 'good-agent_result': 'already done' },
+      _last_event_sequence_id: 2,
     });
 
     const eventLog = new InMemoryEventLogWriter();
@@ -204,12 +208,18 @@ describe('GraphRunner — Resume from Checkpoint', () => {
       run_id: runId, sequence_id: 1, event_type: 'action_dispatched',
       node_id: 'node-a', action: { metadata: { node_id: 'node-a' } },
     });
+    await eventLog.append({
+      run_id: runId, sequence_id: 2, event_type: 'action_dispatched',
+      node_id: 'node-b', action: { metadata: { node_id: 'node-b' } },
+    });
 
+    vi.mocked(executeAgent).mockClear();
     const runner = new GraphRunner(graph, resumeState, { eventLog });
     const final = await runner.run();
 
     expect(final.status).toBe('completed');
     expect(final.visited_nodes).toContain('node-b');
+    expect(vi.mocked(executeAgent)).not.toHaveBeenCalled();
   });
 
   /**
