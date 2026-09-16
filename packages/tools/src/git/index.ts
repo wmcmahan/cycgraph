@@ -14,6 +14,7 @@ export {
   pushBranch,
   changedIn,
   cloneToBranch,
+  linkNestedModules,
   commit,
   pendingDiff,
   publishBranch,

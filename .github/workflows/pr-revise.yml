@@ -89,7 +89,7 @@ jobs:
         run: >
           npm run maintain --workspace=ops/maintenance -- pr-revise
           --pr ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
-          --checks "npm run lint:eslint"
+          --checks "npm run lint:eslint,npm test"
 
       # A failed run must not be silent on the PR it was working: the
       # comment names the run so the log is one click away.

@@ -58,7 +58,7 @@ export async function cloneToBranch(
 }
 
 /** Symlink every nested `node_modules` (two levels deep) into the clone. */
-async function linkNestedModules(repoRoot: string, root: string): Promise<void> {
+export async function linkNestedModules(repoRoot: string, root: string): Promise<void> {
   const isPlainDir = (entry: { isDirectory(): boolean; name: string }) =>
     entry.isDirectory() && entry.name !== 'node_modules' && !entry.name.startsWith('.');
   const top = (await readdir(repoRoot, { withFileTypes: true }).catch(() => [])).filter(isPlainDir);

@@ -320,7 +320,8 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         cwd: workspaceAt,
         command: p.checks.length > 0 ? 'sh' : 'true',
         ...(p.checks.length > 0 ? { args: ['-c', p.checks.join(' && ')] } : { args: [] }),
-        timeoutMs: 600_000,
+        // Sized for the full test suite, not just lint.
+        timeoutMs: 1_800_000,
         env: checksEnv(),
       });
 
