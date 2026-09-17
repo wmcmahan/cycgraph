@@ -453,19 +453,33 @@ export function serializeMemory(sanitizedMemory: Record<string, unknown>): strin
 
 /**
  * Byte-cap a serialized-memory string to {@link MAX_MEMORY_PROMPT_BYTES},
- * appending a visible truncation marker when it overflows. Shared by the
+ * cutting the middle and marking the cut when it overflows. Shared by the
  * default serializer and the compressor path so both honor the same budget.
+ *
+ * The tail is kept alongside the head because reducers append: the newest
+ * keys serialize last, and a feedback loop's freshest evidence lives there.
+ * A head-only cut hands a retrying agent a prompt with its failure evidence
+ * removed.
  */
 export function capToMemoryBudget(memoryJson: string): string {
   const memoryBytes = Buffer.byteLength(memoryJson, 'utf-8');
   if (memoryBytes <= MAX_MEMORY_PROMPT_BYTES) return memoryJson;
 
-  const truncated = Buffer.from(memoryJson, 'utf-8').subarray(0, MAX_MEMORY_PROMPT_BYTES);
   logger.warn('memory_truncated', {
     original_bytes: memoryBytes,
     limit_bytes: MAX_MEMORY_PROMPT_BYTES,
   });
-  return truncated.toString('utf-8') + '\n... [truncated — memory exceeds size limit]';
+  const buffer = Buffer.from(memoryJson, 'utf-8');
+  // Both cut points respect UTF-8 sequence boundaries: a cut inside a
+  // multi-byte character decodes as U+FFFD at the seam, and at three
+  // bytes each those replacements would also overrun the cap.
+  let headEnd = Math.floor(MAX_MEMORY_PROMPT_BYTES / 2);
+  while (headEnd > 0 && (buffer[headEnd] & 0xc0) === 0x80) headEnd--;
+  let tailStart = buffer.length - (MAX_MEMORY_PROMPT_BYTES - Math.floor(MAX_MEMORY_PROMPT_BYTES / 2));
+  while (tailStart < buffer.length && (buffer[tailStart] & 0xc0) === 0x80) tailStart++;
+  const head = buffer.subarray(0, headEnd).toString('utf-8');
+  const tail = buffer.subarray(tailStart).toString('utf-8');
+  return `${head}\n... [truncated — memory exceeds size limit; the newest keys resume below] ...\n${tail}`;
 }
 
 /**

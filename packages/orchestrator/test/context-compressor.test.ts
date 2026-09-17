@@ -445,19 +445,44 @@ describe('buildSystemPrompt save_to_memory instructions', () => {
 // ─── Byte-cap helpers ───────────────────────────────────────────────
 
 describe('capToMemoryBudget', () => {
+  const BUDGET_BYTES = 51_200;
+  const MARKER = '\n... [truncated — memory exceeds size limit; the newest keys resume below] ...\n';
+
   it('returns the input unchanged when it is within the byte budget', () => {
     const small = '{"a":1}';
 
     expect(capToMemoryBudget(small)).toBe(small);
   });
 
-  it('truncates and appends a marker when the input exceeds the byte budget', () => {
+  it('caps an oversized input at exactly the byte budget plus the marker', () => {
     const oversized = JSON.stringify({ blob: 'x'.repeat(60_000) });
 
     const result = capToMemoryBudget(oversized);
 
-    expect(result).toContain('[truncated — memory exceeds size limit]');
-    expect(Buffer.byteLength(result, 'utf-8')).toBeLessThan(Buffer.byteLength(oversized, 'utf-8'));
+    expect(result).toContain(MARKER);
+    expect(Buffer.byteLength(result, 'utf-8')).toBe(BUDGET_BYTES + Buffer.byteLength(MARKER, 'utf-8'));
+  });
+
+  it('keeps the tail of an oversized input so late-serialized keys survive', () => {
+    const oversized = JSON.stringify({
+      early_key: 'x'.repeat(60_000),
+      newest_evidence: 'the gate failed on reducers.test.ts',
+    });
+
+    const result = capToMemoryBudget(oversized);
+
+    expect(result).toContain('the gate failed on reducers.test.ts');
+    expect(result.startsWith('{"early_key"')).toBe(true);
+  });
+
+  it('never splits a multi-byte character at either cut point', () => {
+    const oversized = '—'.repeat(30_000);
+
+    const result = capToMemoryBudget(oversized);
+
+    expect(result).not.toContain('�');
+    expect(Buffer.byteLength(result, 'utf-8'))
+      .toBeLessThanOrEqual(BUDGET_BYTES + Buffer.byteLength(MARKER, 'utf-8'));
   });
 });
 
