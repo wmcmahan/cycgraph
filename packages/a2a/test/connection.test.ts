@@ -209,7 +209,10 @@ describe('sdkClientFactory', () => {
   it('refuses a card whose public-looking endpoint host resolves to a private address', async () => {
     const fetchMock = vi.fn(async () => cardResponse('http://attacker.example/rpc'));
     vi.stubGlobal('fetch', fetchMock);
-    dnsLookupMock.mockResolvedValue([{ address: METADATA_IP, family: 4 }]);
+    dnsLookupMock.mockImplementation(async (host: string) =>
+      host === 'attacker.example'
+        ? [{ address: METADATA_IP, family: 4 }]
+        : [{ address: PUBLIC_IP, family: 4 }]);
 
     const create = sdkClientFactory();
 
@@ -220,26 +223,30 @@ describe('sdkClientFactory', () => {
   it('refuses a card whose endpoint host resolves to a mix of public and private addresses', async () => {
     const fetchMock = vi.fn(async () => cardResponse('http://attacker.example/rpc'));
     vi.stubGlobal('fetch', fetchMock);
-    dnsLookupMock.mockResolvedValue([
-      { address: PUBLIC_IP, family: 4 },
-      { address: '10.0.0.5', family: 4 },
-    ]);
-
-    const create = sdkClientFactory();
-
-    await expect(create(CARD_URL, {})).rejects.toThrow('resolves to a private/loopback address (10.0.0.5)');
-  });
-
-  it('fails closed when the endpoint host cannot be resolved', async () => {
-    const fetchMock = vi.fn(async () => cardResponse());
-    vi.stubGlobal('fetch', fetchMock);
-    dnsLookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND agent.example'));
+    dnsLookupMock.mockImplementation(async (host: string) =>
+      host === 'attacker.example'
+        ? [{ address: PUBLIC_IP, family: 4 }, { address: '10.0.0.5', family: 4 }]
+        : [{ address: PUBLIC_IP, family: 4 }]);
 
     const create = sdkClientFactory();
 
     await expect(create(CARD_URL, {})).rejects.toThrow(
-      'agent card endpoint host "agent.example" could not be resolved for SSRF validation: '
-      + 'getaddrinfo ENOTFOUND agent.example');
+      'agent card endpoint host "attacker.example" resolves to a private/loopback address (10.0.0.5)');
+  });
+
+  it('fails closed when the endpoint host cannot be resolved', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('http://other.example/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockImplementation(async (host: string) => {
+      if (host === 'other.example') throw new Error('getaddrinfo ENOTFOUND other.example');
+      return [{ address: PUBLIC_IP, family: 4 }];
+    });
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow(
+      'agent card endpoint host "other.example" could not be resolved for SSRF validation: '
+      + 'getaddrinfo ENOTFOUND other.example');
   });
 
   it('accepts a bracketed public ipv6 literal endpoint without a lookup', async () => {
@@ -249,7 +256,7 @@ describe('sdkClientFactory', () => {
     const create = sdkClientFactory();
     await settled(create(CARD_URL, {}));
 
-    expect(dnsLookupMock).not.toHaveBeenCalled();
+    expect(dnsLookupMock.mock.calls.map((call) => call[0])).toEqual(['agent.example']);
   });
 
   it('resolves each distinct endpoint host once per card check', async () => {
@@ -278,7 +285,7 @@ describe('sdkClientFactory', () => {
     expect(dnsLookupMock).not.toHaveBeenCalled();
   });
 
-  it('does not resolve any host for a card already refused on its literal endpoint', async () => {
+  it('does not resolve endpoint hosts for a card already refused on its literal endpoint', async () => {
     const fetchMock = vi.fn(async () => cardResponse(`${CARD_URL}/rpc`, {
       additionalInterfaces: [{ url: 'http://127.0.0.1/rpc', transport: 'JSONRPC' }],
     }));
@@ -287,7 +294,84 @@ describe('sdkClientFactory', () => {
     const create = sdkClientFactory();
     await settled(create(CARD_URL, {}));
 
-    expect(dnsLookupMock).not.toHaveBeenCalled();
+    expect(dnsLookupMock.mock.calls.map((call) => call[0])).toEqual(['agent.example']);
+  });
+
+  it('refuses a card url whose public-looking host resolves to a private address', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockResolvedValue([{ address: METADATA_IP, family: 4 }]);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow(
+      `agent card url host "agent.example" resolves to a private/loopback address (${METADATA_IP})`);
+  });
+
+  it('does not request the card when the card url host resolves to a private address', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockResolvedValue([{ address: METADATA_IP, family: 4 }]);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a cached-url card whose host resolves privately on a later call', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(CARD_URL, {}));
+    dnsLookupMock.mockResolvedValue([{ address: METADATA_IP, family: 4 }]);
+
+    await expect(create(CARD_URL, {})).rejects.toThrow(
+      `agent card url host "agent.example" resolves to a private/loopback address (${METADATA_IP})`);
+  });
+
+  it('fails closed when the card url host cannot be resolved', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND agent.example'));
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow(
+      'agent card url host "agent.example" could not be resolved for SSRF validation: '
+      + 'getaddrinfo ENOTFOUND agent.example');
+  });
+
+  it('refuses a card url pointing at a private literal host', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(`http://${METADATA_IP}/card.json`, {})).rejects.toThrow(
+      `agent card url "http://${METADATA_IP}/card.json" points at a private/loopback host`);
+  });
+
+  it('refuses a card url that is not http(s)', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create('file:///etc/passwd', {})).rejects.toThrow(
+      'agent card url "file:///etc/passwd" must use http(s), got "file:"');
+  });
+
+  it('honors the development opt-out for a private card url', async () => {
+    vi.stubEnv('CYCGRAPH_ALLOW_PRIVATE_A2A_URLS', 'true');
+    const fetchMock = vi.fn(async () => cardResponse('http://127.0.0.1:9999/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create('http://127.0.0.1:9999/card.json', {}));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects card resolution that outruns the card timeout', async () => {

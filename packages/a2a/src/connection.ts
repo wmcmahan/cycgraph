@@ -64,6 +64,53 @@ function endpointUrls(card: unknown): string[] {
   return urls.filter((value): value is string => typeof value === 'string' && value !== '');
 }
 
+/** Operator opt-out shared by both A2A guards: one protocol, one decision. */
+function allowsPrivateUrls(): boolean {
+  return process.env['CYCGRAPH_ALLOW_PRIVATE_A2A_URLS'] === 'true';
+}
+
+/** Sentence naming the opt-out, appended to every refusal both guards raise. */
+const OPT_OUT_HINT = 'Set CYCGRAPH_ALLOW_PRIVATE_A2A_URLS=true to allow it in development.';
+
+/**
+ * SSRF guard over the Agent Card URL itself, run before the card request
+ * leaves. Returns the hostname it cleared, so the endpoint guard does not
+ * resolve the same host a second time in one call.
+ *
+ * The registry judges this URL's literal hostname when an entry is
+ * written and when it is read, but the card fetch resolves the name again
+ * when it connects: a host that resolved publicly at registry-write time
+ * and privately at call time (DNS rebinding, or an A record simply
+ * changed since) would otherwise reach internal infrastructure or the
+ * cloud metadata endpoint. The literal test is repeated here because this
+ * factory is also reachable without the registry, and because the
+ * resolved-host guard short-circuits IP literals on the premise that its
+ * caller already judged them.
+ */
+async function assertPublicCardUrl(agentCardUrl: string): Promise<Set<string>> {
+  if (allowsPrivateUrls()) return new Set();
+  let parsed: URL;
+  try {
+    parsed = new URL(agentCardUrl);
+  } catch {
+    // Unparseable: the card resolver's own failure is the clearer error.
+    return new Set();
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`agent card url "${agentCardUrl}" must use http(s), got "${parsed.protocol}" (SSRF guard)`);
+  }
+  if (isPrivateOrLoopbackHost(parsed.hostname)) {
+    throw new Error(
+      `agent card url "${agentCardUrl}" points at a private/loopback host and is blocked (SSRF guard). `
+      + OPT_OUT_HINT);
+  }
+  await assertResolvedHostPublic(parsed.hostname, {
+    subject: 'agent card url host',
+    hint: OPT_OUT_HINT,
+  });
+  return new Set([parsed.hostname]);
+}
+
 /**
  * SSRF guard over the endpoints a resolved Agent Card offers. The
  * registry validates the CARD url before any request leaves, but the
@@ -76,10 +123,11 @@ function endpointUrls(card: unknown): string[] {
  * cannot see a public name whose DNS record points at a private IP, and
  * the transport's own fetch resolves the name again when it connects —
  * so a card advertising `attacker.example` would otherwise reach
- * 169.254.169.254 unchallenged.
+ * 169.254.169.254 unchallenged. `cleared` names hosts already resolved
+ * by {@link assertPublicCardUrl} in this same call.
  */
-async function assertPublicEndpoints(card: unknown): Promise<void> {
-  if (process.env['CYCGRAPH_ALLOW_PRIVATE_A2A_URLS'] === 'true') return;
+async function assertPublicEndpoints(card: unknown, cleared: ReadonlySet<string>): Promise<void> {
+  if (allowsPrivateUrls()) return;
   const hosts = new Set<string>();
   for (const value of endpointUrls(card)) {
     let parsed: URL;
@@ -97,16 +145,17 @@ async function assertPublicEndpoints(card: unknown): Promise<void> {
     if (isPrivateOrLoopbackHost(parsed.hostname)) {
       throw new Error(
         `agent card endpoint "${value}" points at a private/loopback host and is blocked (SSRF guard). `
-        + 'Set CYCGRAPH_ALLOW_PRIVATE_A2A_URLS=true to allow it in development.');
+        + OPT_OUT_HINT);
     }
     hosts.add(parsed.hostname);
   }
   // Every literal host cleared before any lookup runs, so a card that is
   // already refusable costs no DNS traffic.
   for (const host of hosts) {
+    if (cleared.has(host)) continue;
     await assertResolvedHostPublic(host, {
       subject: 'agent card endpoint host',
-      hint: 'Set CYCGRAPH_ALLOW_PRIVATE_A2A_URLS=true to allow it in development.',
+      hint: OPT_OUT_HINT,
     });
   }
 }
@@ -152,6 +201,11 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
   const cards = new Map<string, Promise<unknown>>();
 
   return async (agentCardUrl, headers, signal) => {
+    // Before the cache lookup, so a cache miss never fetches a card from
+    // a host this call has not cleared, and a cache hit is still judged
+    // against what the name resolves to now.
+    const cleared = await assertPublicCardUrl(agentCardUrl);
+
     const fetchImpl = requestFetch(headers, signal);
 
     const key = cardKey(agentCardUrl, headers);
@@ -189,7 +243,7 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
     const resolved = await card;
     // Checked per call, not per resolution: the card is cached, and the
     // guard must hold for cached reuse too.
-    await assertPublicEndpoints(resolved);
+    await assertPublicEndpoints(resolved, cleared);
     // Cast: the resolver returns parsed JSON; the factory validates it.
     return factory.createFromAgentCard(resolved as never);
   };
