@@ -64,6 +64,8 @@ export interface PrComment {
 export interface PrFeedback {
   headRefName: string;
   title: string;
+  /** The PR description: stated intent, provenance, and `Closes #N` linkage. */
+  body: string;
   /** Label names on the PR; consent gates read these. */
   labels: string[];
   comments: PrComment[];
@@ -134,9 +136,9 @@ export async function prFeedback(
   const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
   try {
     const { stdout } = await exec(
-      'gh', ['pr', 'view', String(prNumber), '--json', 'headRefName,title,labels,reviews,comments'], opts);
+      'gh', ['pr', 'view', String(prNumber), '--json', 'headRefName,title,body,labels,reviews,comments'], opts);
     const view = JSON.parse(stdout) as {
-      headRefName: string; title: string;
+      headRefName: string; title: string; body?: string;
       labels?: { name?: string }[];
       reviews?: { author?: { login?: string }; authorAssociation?: string; body?: string }[];
       comments?: { author?: { login?: string }; authorAssociation?: string; body?: string }[];
@@ -162,7 +164,7 @@ export async function prFeedback(
       })),
     ];
     const labels = (view.labels ?? []).map((label) => label.name ?? '').filter((name) => name !== '');
-    return { headRefName: view.headRefName, title: view.title, labels, comments };
+    return { headRefName: view.headRefName, title: view.title, body: view.body ?? '', labels, comments };
   } catch {
     return undefined;
   }
