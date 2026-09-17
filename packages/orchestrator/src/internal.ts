@@ -26,6 +26,8 @@ export {
 
 export { calculateBackoff, sleep } from './execution/engine/helpers.js';
 
+export { RUNTIME_CONFIG_ENV_VARS } from './runtime-config.js';
+
 // Counterfactual replay. Public `fork()` / `forkPoints()` land on the root
 // barrel once the fork driver exists; these are the substrate underneath.
 export {
