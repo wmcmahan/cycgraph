@@ -22,7 +22,7 @@
  * @module persistence/delta-tracker
  */
 
-import type { WorkflowState } from '../state/state.js';
+import { WorkflowStateSchema, type WorkflowState } from '../state/state.js';
 
 /**
  * A JSON-serializable patch representing changes to workflow state.
@@ -64,14 +64,21 @@ export interface StateDeltaTrackerOptions {
   maxPatchBytes?: number;
 }
 
-/** Scalar fields on WorkflowState that we track for diffs. */
-const TRACKED_FIELDS = [
-  'status', 'current_node', 'iteration_count', 'retry_count',
-  'last_error', 'total_tokens_used', 'total_cost_usd', 'model_breakdown',
-  'node_breakdown',
-  'waiting_for', 'waiting_since', 'waiting_timeout_at',
-  'started_at', 'updated_at',
-] as const;
+/**
+ * Top-level WorkflowState keys the patch diffs: every schema key except
+ * `memory`, which gets keyed updates/removals of its own. Derived from
+ * the schema so a field added to WorkflowState is tracked the moment it
+ * exists — a hand-maintained list silently dropped every field the
+ * v1→v2 migration lifted out of `memory` (taint registry, lesson
+ * provenance, HITL approvals, subgraph checkpoints, the event-log
+ * high-water mark), and a patch-resumed run then lost security and
+ * crash-recovery state. An unchanged field never enters a patch, so
+ * tracking everything costs bytes only when something actually moved.
+ * Exported for the drift test that pins this derivation.
+ */
+export const TRACKED_FIELDS = Object.freeze(
+  Object.keys(WorkflowStateSchema.shape).filter((key) => key !== 'memory'),
+) as readonly (keyof WorkflowState)[];
 
 /**
  * Tracks state changes and computes deltas for differential persistence.
@@ -171,7 +178,10 @@ export class StateDeltaTracker {
     const currKeys = new Set(Object.keys(currMemory));
 
     for (const key of currKeys) {
-      if (!prevKeys.has(key) || prevMemory[key] !== currMemory[key]) {
+      // Deep-compare like the tracked fields: the baseline is a JSON
+      // clone, so reference equality never holds and a `!==` check
+      // re-serializes every object-valued key into every patch.
+      if (!prevKeys.has(key) || !this.valuesEqual(prevMemory[key], currMemory[key])) {
         memoryUpdates[key] = currMemory[key];
       }
     }

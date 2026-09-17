@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { StateDeltaTracker } from '../src/persistence/delta-tracker.js';
-import { createWorkflowState, type WorkflowState } from '../src/state/state.js';
+import { StateDeltaTracker, TRACKED_FIELDS } from '../src/persistence/delta-tracker.js';
+import { createWorkflowState, WorkflowStateSchema, type WorkflowState } from '../src/state/state.js';
 import { v4 as uuidv4 } from 'uuid';
 
 function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
@@ -274,5 +274,101 @@ describe('StateDeltaTracker', () => {
         expect(result.patch.fields).toHaveProperty('model_breakdown');
       }
     });
+  });
+});
+
+describe('tracked field derivation', () => {
+  it('diffs every WorkflowState schema key except memory', () => {
+    const schemaKeys = Object.keys(WorkflowStateSchema.shape);
+    const tracked = new Set(TRACKED_FIELDS as readonly string[]);
+    const untracked = schemaKeys.filter((key) => !tracked.has(key));
+
+    expect(untracked).toEqual(['memory']);
+  });
+});
+
+describe('first-class v2 fields', () => {
+  let tracker: StateDeltaTracker;
+
+  beforeEach(() => {
+    tracker = new StateDeltaTracker({ fullSnapshotInterval: 5 });
+  });
+
+  it('carries a new taint_registry entry in the patch', () => {
+    const state = makeState();
+    tracker.computeDelta(state);
+    const tainted: WorkflowState = {
+      ...state,
+      taint_registry: {
+        tool_output: { source: 'custom_tool' as const, tool_name: 'search' },
+      },
+    };
+
+    const result = tracker.computeDelta(tainted);
+
+    expect(result.type).toBe('patch');
+    if (result.type === 'patch') {
+      expect(result.patch.fields['taint_registry']).toEqual({
+        tool_output: { source: 'custom_tool', tool_name: 'search' },
+      });
+    }
+  });
+
+  it('carries the event-log high-water mark in the patch', () => {
+    const state = makeState();
+    tracker.computeDelta(state);
+
+    const result = tracker.computeDelta({ ...state, _last_event_sequence_id: 42 });
+
+    expect(result.type).toBe('patch');
+    if (result.type === 'patch') {
+      expect(result.patch.fields['_last_event_sequence_id']).toBe(42);
+    }
+  });
+
+  it('carries policy approvals and the split token counters in the patch', () => {
+    const state = makeState();
+    tracker.computeDelta(state);
+    const updated: WorkflowState = {
+      ...state,
+      policy_approvals: { 'gate-1': true },
+      total_input_tokens: 1_000,
+      total_output_tokens: 250,
+    };
+
+    const result = tracker.computeDelta(updated);
+
+    expect(result.type).toBe('patch');
+    if (result.type === 'patch') {
+      expect(result.patch.fields['policy_approvals']).toEqual({ 'gate-1': true });
+      expect(result.patch.fields['total_input_tokens']).toBe(1_000);
+      expect(result.patch.fields['total_output_tokens']).toBe(250);
+    }
+  });
+});
+
+describe('memory deep comparison', () => {
+  let tracker: StateDeltaTracker;
+
+  beforeEach(() => {
+    tracker = new StateDeltaTracker({ fullSnapshotInterval: 5 });
+  });
+
+  it('omits an object-valued memory key whose content is unchanged', () => {
+    const state = makeState({ memory: { blob: { nested: [1, 2, 3] } } });
+    tracker.computeDelta(state);
+    const updated: WorkflowState = {
+      ...state,
+      memory: { blob: { nested: [1, 2, 3] } },
+      iteration_count: state.iteration_count + 1,
+    };
+
+    const result = tracker.computeDelta(updated);
+
+    expect(result.type).toBe('patch');
+    if (result.type === 'patch') {
+      expect(result.patch.memory_updates).toEqual({});
+      expect(result.patch.fields['iteration_count']).toBe(updated.iteration_count);
+    }
   });
 });
