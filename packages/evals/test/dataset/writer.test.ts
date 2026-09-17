@@ -108,6 +108,18 @@ describe('writeGoldenDataset', () => {
     );
   });
 
+  it('leaves the existing dataset file untouched when the manifest is corrupt', () => {
+    writeGoldenDataset('orchestrator', [makeTrajectory()], '1.0.0', TEST_DIR);
+    const dataPath = resolve(TEST_DIR, 'data/orchestrator-v1.sqlite.gz');
+    const originalData = readFileSync(dataPath);
+    writeFileSync(resolve(TEST_DIR, 'manifest.json'), '{"version":"1","datasets":[{"name":"x"}]}');
+
+    expect(() =>
+      writeGoldenDataset('orchestrator', [makeTrajectory(), makeTrajectory()], '1.0.0', TEST_DIR),
+    ).toThrow();
+    expect(readFileSync(dataPath).equals(originalData)).toBe(true);
+  });
+
   it('replaces the existing entry when rewriting the same suite and major version', () => {
     writeGoldenDataset('orchestrator', [makeTrajectory()], '1.0.0', TEST_DIR);
     writeGoldenDataset('orchestrator', [makeTrajectory(), makeTrajectory()], '1.1.0', TEST_DIR);

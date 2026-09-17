@@ -7,13 +7,14 @@
  * @module dataset/writer
  */
 
-import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { GoldenTrajectorySchema, ManifestSchema } from './schema.js';
+import { GoldenTrajectorySchema } from './schema.js';
+import { loadManifest } from './loader.js';
 import type { GoldenTrajectory, Manifest, SuiteName } from './types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -60,8 +61,9 @@ export function createSqliteBuffer(trajectories: GoldenTrajectory[]): Buffer {
  * @param schemaVersion - Schema version string for the manifest entry.
  * @param goldenDir - Path to the golden directory.
  * @throws If a trajectory fails validation, or if an existing manifest cannot be
- *   parsed and validated — a corrupt manifest fails the write rather than being
- *   replaced, since replacing it would deregister every other suite's dataset.
+ *   parsed and validated — a corrupt manifest fails the write before any file is
+ *   touched, since replacing it would deregister every other suite's dataset and
+ *   overwriting the dataset would desynchronize it from the recorded checksum.
  */
 export function writeGoldenDataset(
   suite: SuiteName,
@@ -79,6 +81,14 @@ export function writeGoldenDataset(
   const compressed = gzipSync(sqliteBuffer);
   const sha256 = createHash('sha256').update(compressed).digest('hex');
 
+  // Read the manifest before anything touches the disk: rewriting a suite at the
+  // same major version replaces its `.sqlite.gz` in place, so a manifest that
+  // throws after that write would leave the old sha256 pointing at new bytes.
+  const manifestPath = resolve(goldenDir, 'manifest.json');
+  const manifest: Manifest = existsSync(manifestPath)
+    ? loadManifest(goldenDir)
+    : { version: '1', datasets: [] };
+
   // Write compressed file. The filename encodes the schema MAJOR version so
   // datasets of different major versions coexist on disk instead of
   // overwriting each other in place, which would make a migration
@@ -90,21 +100,6 @@ export function writeGoldenDataset(
   const filename = `${suite}-v${major}.sqlite.gz`;
   const filePath = resolve(dataDir, filename);
   writeFileSync(filePath, compressed);
-
-  // Update manifest
-  const manifestPath = resolve(goldenDir, 'manifest.json');
-  let manifest: Manifest;
-
-  // Only an absent manifest starts from empty. A manifest that exists but fails
-  // JSON or schema validation must abort the write: the merged manifest is
-  // written back unconditionally below, so treating corruption as "empty" would
-  // permanently deregister every other suite's dataset file.
-  if (existsSync(manifestPath)) {
-    const raw = readFileSync(manifestPath, 'utf-8');
-    manifest = ManifestSchema.parse(JSON.parse(raw));
-  } else {
-    manifest = { version: '1', datasets: [] };
-  }
 
   const existingIndex = manifest.datasets.findIndex(d => d.name === suite);
   const entry = {
