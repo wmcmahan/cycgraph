@@ -44,8 +44,8 @@ Flags mirror the workflow's params: `--batch n` (fixes per run, one
 commit each, one PR), `--since <ref>` (diff mode: only findings a change
 since that ref plausibly staled), `--skip n`, `--commit false` (inspect
 without committing), `--publish false` (commit but leave the prepared
-publish script), `--checks "npm run lint:eslint,npm test"` (comma-separated; a command
-containing a comma cannot be passed). For `core-upkeep`:
+publish script), `--checks "npm run build:libs,npm run lint:eslint,npm test"`
+(comma-separated; a command containing a comma cannot be passed). For `core-upkeep`:
 `--maxIssues n`, `--lint false` (grep classes only), `--file false`
 (report what would be filed, touch nothing). Each filed issue carries a
 stable finding marker, dedupe runs against every open issue's markers,
@@ -170,8 +170,16 @@ next pick. A REVISE verdict still routes through pr-revise, bounded by
 the rounds cap.
 
 Both fix and revise workspaces run the repository's own tests before
-any commit or push: the `--checks` the workflow files pass now include
-`npm test`. When a PR's CI still fails after publish,
+any commit or push: the `--checks` the workflow files pass are
+`npm run build:libs,npm run lint:eslint,npm test`. The build comes
+first for two distinct reasons. A file that imports its own package's
+name resolves through that package's exports against the clone (Node
+self-reference, no node_modules involved), so without a clone build
+those tests cannot resolve at all. And the build is the type check on
+the fixer's edits before anything publishes. Cross-package imports are
+different: they resolve through the symlinked node_modules to the
+checkout's build, so a cross-package edit is exercised here only by
+its own package's tests and type check, and fully in the PR's CI. When a PR's CI still fails after publish,
 `.github/workflows/pr-ci-failure.yml` reacts — the first failure
 dispatches pr-revise with the failing run linked, a repeat failure
 labels the PR `needs-human` instead of cycling, and a green run on a
