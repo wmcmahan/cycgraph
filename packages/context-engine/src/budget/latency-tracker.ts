@@ -31,7 +31,14 @@ export interface LatencyTracker {
   record(stageName: string, durationMs: number, tokensSaved: number): void;
   /** Get rolling average stats for a stage. */
   getAverage(stageName: string): LatencyStats;
-  /** Get efficiency ratio: tokens saved per millisecond. */
+  /**
+   * Get efficiency ratio: tokens saved per millisecond.
+   *
+   * A stage whose average duration rounds to 0ms is reported as
+   * `Infinity` when it saves tokens and `-Infinity` when it adds them,
+   * so an immeasurably fast stage is never mistaken for a useless one.
+   * Returns 0 only when there is no measurable benefit either way.
+   */
   getEfficiency(stageName: string): number;
   /** Reset all tracked data. */
   reset(): void;
@@ -75,7 +82,13 @@ export function createLatencyTracker(windowSize: number = 100): LatencyTracker {
 
     getEfficiency(stageName: string): number {
       const stats = this.getAverage(stageName);
-      if (stats.avgDurationMs === 0) return 0;
+      if (stats.avgDurationMs === 0) {
+        // performance.now() has finite resolution, so a cheap stage can measure
+        // 0ms while still saving tokens; scoring that as 0 would make the
+        // circuit breaker bypass the fastest stages.
+        if (stats.avgTokensSaved === 0) return 0;
+        return stats.avgTokensSaved > 0 ? Infinity : -Infinity;
+      }
       return stats.avgTokensSaved / stats.avgDurationMs;
     },
 
