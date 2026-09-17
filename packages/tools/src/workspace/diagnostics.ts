@@ -35,6 +35,12 @@ export interface DiagnosticsToolOptions {
   args?: string[];
   /** Line cap for the reported output, header and separator included. @default 40 */
   maxLines?: number;
+  /**
+   * Character cap per reported line. Structured-log emitters put
+   * kilobytes on a single line, so a line cap alone bounds nothing;
+   * over-long lines are cut with a marker. @default 400
+   */
+  maxLineLength?: number;
   /** Per-call timeout forwarded to defineTool. @default 120000 */
   timeoutMs?: number;
   /**
@@ -52,13 +58,16 @@ export const diagnosticsParameters = z.object({});
 export interface DiagnosticsResult {
   /** True when the command exited zero. */
   clean: boolean;
-  /** What it printed. Past the line cap: failure-marker lines first, then the tail, under a count header; header and separator count against the cap. */
+  /** What it printed, each line capped at the length limit. Past the line cap: failure-marker lines first, then the tail, under a count header; header and separator count against the cap. */
   output: string;
 }
 
 /** Run the configured check and report what it said. */
 export function diagnosticsTool(options: DiagnosticsToolOptions): DefinedTool {
   const maxLines = options.maxLines ?? 40;
+  const maxLineLength = options.maxLineLength ?? 400;
+  const capLine = (line: string): string =>
+    line.length <= maxLineLength ? line : `${line.slice(0, maxLineLength)} …[line truncated]`;
 
   return defineTool({
     name: options.name ?? 'diagnostics',
@@ -73,9 +82,13 @@ export function diagnosticsTool(options: DiagnosticsToolOptions): DefinedTool {
         const raw = err instanceof Error
           ? `${String((err as { stdout?: unknown }).stdout ?? '')}\n${String((err as { stderr?: unknown }).stderr ?? '')}`
           : String(err);
+        // Marker selection runs on uncapped lines: a structured-log line
+        // carries its AssertionError: payload well past the length cap,
+        // and capping first would stop exactly that failure from being
+        // recognized. The cap applies to what is reported, not searched.
         const lines = raw.split('\n').filter(Boolean);
         if (lines.length <= maxLines) {
-          return { clean: false, output: lines.join('\n') || 'the check failed with no output' };
+          return { clean: false, output: lines.map(capLine).join('\n') || 'the check failed with no output' };
         }
         // Past the cap, failure markers come first and the tail fills
         // the rest: a multi-workspace test run buries its FAIL and
@@ -88,16 +101,16 @@ export function diagnosticsTool(options: DiagnosticsToolOptions): DefinedTool {
           .filter((line) => /npm error|\bFAIL\b|✗|✘|Failed (Suites|Tests)|Error:/.test(line))
           .slice(0, Math.floor((maxLines - 2) / 2));
         if (markers.length === 0) {
-          const tail = lines.slice(-(maxLines - 1));
+          const tail = lines.slice(-(maxLines - 1)).map(capLine);
           return {
             clean: false,
             output: [`[${lines.length - tail.length} earlier line(s) truncated]`, ...tail].join('\n'),
           };
         }
-        const tail = lines.slice(-(maxLines - 2 - markers.length));
+        const tail = lines.slice(-(maxLines - 2 - markers.length)).map(capLine);
         const output = [
           `[${lines.length} line(s) total; ${markers.length} failure line(s) first, then the tail]`,
-          ...markers,
+          ...markers.map(capLine),
           '---',
           ...tail,
         ].join('\n');

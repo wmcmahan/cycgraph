@@ -405,6 +405,8 @@ async function main(): Promise<void> {
       : String(pick['detail'] ?? 'nothing')}`);
   }
   if (judgeResult !== undefined) say(`judge: ${String(judgeResult['detail'] ?? '')}`);
+  const gaveUp = memory['giveup_result'];
+  if (gaveUp !== undefined) say(`gave up: ${String(gaveUp['detail'] ?? '')}`);
   const accept = memory['accept_result'];
   if (accept !== undefined) {
     say(`acceptance: ${String(accept['detail'] ?? '')}`);

@@ -213,6 +213,14 @@ describe('checksEnv', () => {
     expect(env['PATH']).toBe('/usr/bin');
   });
 
+  it('drops the log level so spawned suites keep the logger default', () => {
+    vi.stubEnv('LOG_LEVEL', 'info');
+
+    const env = checksEnv();
+
+    expect(env['LOG_LEVEL']).toBeUndefined();
+  });
+
   it('leaves process.env untouched', () => {
     vi.stubEnv('DATABASE_URL', 'postgres://localhost:5432/app');
 
