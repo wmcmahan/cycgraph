@@ -177,6 +177,10 @@ dispatches pr-revise with the failing run linked, a repeat failure
 labels the PR `needs-human` instead of cycling, and a green run on a
 labeled PR clears the label.
 
+An issue whose fix spends its whole retry budget without green checks
+is labeled `needs-human` too, with the failing output in a comment; the
+picker skips labeled issues, and removing the label re-queues one.
+
 When the loop gives up on a PR — a review inconclusive
 after its diff-only fallback, a review that could not be submitted, a
 failed revision run, or an exhausted rounds cap — the PR is labeled

@@ -83,7 +83,10 @@ jobs:
       - run: npm ci
         if: steps.gate.outputs.idle == 'true'
 
-      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools --workspace=packages/orchestrator-postgres
+      # The full build, not a subset: the workspace checks run every
+      # package's tests, and any unbuilt @cycgraph/* dist fails suite
+      # resolution — a gate that can never pass.
+      - run: npm run build
         if: steps.gate.outputs.idle == 'true'
 
       - name: Fix the highest-priority approved issue

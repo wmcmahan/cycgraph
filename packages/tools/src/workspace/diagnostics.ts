@@ -33,7 +33,7 @@ export interface DiagnosticsToolOptions {
   command: string;
   /** Its arguments, fixed by the caller. */
   args?: string[];
-  /** Lines of output returned before truncation. @default 40 */
+  /** Line cap for the reported output, header and separator included. @default 40 */
   maxLines?: number;
   /** Per-call timeout forwarded to defineTool. @default 120000 */
   timeoutMs?: number;
@@ -52,7 +52,7 @@ export const diagnosticsParameters = z.object({});
 export interface DiagnosticsResult {
   /** True when the command exited zero. */
   clean: boolean;
-  /** What it printed, the earliest lines truncated first past the cap. */
+  /** What it printed. Past the line cap: failure-marker lines first, then the tail, under a count header; header and separator count against the cap. */
   output: string;
 }
 
@@ -74,12 +74,34 @@ export function diagnosticsTool(options: DiagnosticsToolOptions): DefinedTool {
           ? `${String((err as { stdout?: unknown }).stdout ?? '')}\n${String((err as { stderr?: unknown }).stderr ?? '')}`
           : String(err);
         const lines = raw.split('\n').filter(Boolean);
-        // Keep the TAIL: test runners and linters print their failure
-        // detail and summary last, so head-keeping hands the consumer
-        // pages of passing output and truncates the reason away.
-        const output = (lines.length > maxLines ? `[${lines.length - maxLines} earlier line(s) truncated]\n` : '')
-          + lines.slice(-maxLines).join('\n');
-        return { clean: false, output: output || 'the check failed with no output' };
+        if (lines.length <= maxLines) {
+          return { clean: false, output: lines.join('\n') || 'the check failed with no output' };
+        }
+        // Past the cap, failure markers come first and the tail fills
+        // the rest: a multi-workspace test run buries its FAIL and
+        // `npm error` lines under later workspaces' passing output, so
+        // a plain tail can read as green while the run failed. `Error:`
+        // is deliberately unanchored — TypeError:, AssertionError:, and
+        // the other subclasses must match too. Header and separator
+        // count against the cap, so the output never exceeds it.
+        const markers = lines
+          .filter((line) => /npm error|\bFAIL\b|✗|✘|Failed (Suites|Tests)|Error:/.test(line))
+          .slice(0, Math.floor((maxLines - 2) / 2));
+        if (markers.length === 0) {
+          const tail = lines.slice(-(maxLines - 1));
+          return {
+            clean: false,
+            output: [`[${lines.length - tail.length} earlier line(s) truncated]`, ...tail].join('\n'),
+          };
+        }
+        const tail = lines.slice(-(maxLines - 2 - markers.length));
+        const output = [
+          `[${lines.length} line(s) total; ${markers.length} failure line(s) first, then the tail]`,
+          ...markers,
+          '---',
+          ...tail,
+        ].join('\n');
+        return { clean: false, output };
       }
     },
   });

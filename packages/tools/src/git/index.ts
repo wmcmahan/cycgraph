@@ -33,7 +33,7 @@ export {
   submitPrReview,
 } from './pr.js';
 export type { PrComment, PrFeedback, ReviewInlineComment, ReviewSubmission, ReviewThread } from './pr.js';
-export { createIssue, findingMarker, issueMarkers, listOpenIssues } from './issues.js';
+export { addIssueLabel, commentOnIssue, createIssue, findingMarker, issueMarkers, listOpenIssues } from './issues.js';
 export type { IssueRef } from './issues.js';
 export type { Branch, Published } from './branch.js';
 export { DEFAULT_IDENTITY, publishConfigFromEnv } from './config.js';

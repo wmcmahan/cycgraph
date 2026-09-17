@@ -28,7 +28,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { deliveryNodes, listOpenIssues, pendingDiff } from '@cycgraph/tools/git';
+import { addIssueLabel, commentOnIssue, deliveryNodes, listOpenIssues, pendingDiff } from '@cycgraph/tools/git';
 import {
   createFileTool,
   createWorkspaceSession,
@@ -40,7 +40,7 @@ import {
 import { scanCore, type CoreFinding } from './core-scan.js';
 import { auditTitle, severityRank } from './audit-findings.js';
 import { findingFromKey, judgeAuditFix, judgeIssueFix, nextGateAttempt, parseIssueFinding, type IssueFinding } from './issue-judge.js';
-import { checksEnv, CHANGESET_INSTRUCTION, STANDARDS_BRIEF, resolveRepo } from './repo.js';
+import { checksEnv, CHANGESET_INSTRUCTION, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, resolveRepo } from './repo.js';
 import { LESSON_TAG, MAINT_TAG } from './memory.js';
 import { stripCloses, templateEvidence } from './pr-template.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
@@ -147,6 +147,11 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
           if (issues !== undefined) {
             const candidates = issues
               .filter((issue) => p.issueNumber === 0 || issue.number === p.issueNumber)
+              // An issue the loop already gave up on waits for a human;
+              // removing the label re-queues it, and naming the issue
+              // explicitly overrides the skip — a targeted dispatch is
+              // the human deciding.
+              .filter((issue) => p.issueNumber !== 0 || !issue.labels.includes(NEEDS_HUMAN_LABEL))
               .flatMap((issue) => {
                 const finding = parseIssueFinding(issue.body);
                 return finding !== undefined ? [{ issue, finding }] : [];
@@ -344,6 +349,37 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         },
       });
 
+      const giveUpTool = tool({
+        name: 'give_up',
+        description: 'Flag the picked issue as waiting on a human after the retry budget is spent.',
+        parameters: z.object({
+          pick_result: z.unknown().optional(),
+          checks_result: z.unknown().optional(),
+        }),
+        timeoutMs: 60_000,
+        execute: async ({ pick_result, checks_result }) => {
+          const issue = (pick_result as { issue_number?: number } | undefined)?.issue_number;
+          if (issue === undefined) return { flagged: false, detail: 'detached run — nothing to flag' };
+          const tail = String((checks_result as { output?: unknown } | undefined)?.output ?? '').slice(-1_500);
+          // The label is what stops the picker from re-burning this
+          // issue; commenting without it would repeat once per re-pick,
+          // so a failed label returns unflagged instead of commenting.
+          const label = await addIssueLabel(repoRoot, issue, NEEDS_HUMAN_LABEL, token !== undefined ? { token } : {});
+          if (!label.ok) {
+            return { flagged: false, issue_number: issue, detail: `label failed: ${label.detail}` };
+          }
+          const comment = await commentOnIssue(repoRoot, issue, [
+            'issue-fix spent its retry budget (three consecutive gate failures) without green checks, so this issue now carries the `needs-human` label and the picker skips it.',
+            'Remove the label to re-queue it, or investigate the failure below.',
+            '',
+            '```',
+            tail,
+            '```',
+          ].join('\n'), token !== undefined ? { token } : {});
+          return { flagged: true, issue_number: issue, detail: `flagged #${issue}; ${comment.detail}` };
+        },
+      });
+
       const reviewCheckTool = tool({
         name: 'review_check',
         description: 'Parse the reviewer\'s verdict and count review rounds.',
@@ -465,13 +501,20 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         tools: [reviewCheckTool],
         reads: ['review', 'review_check_result'],
       });
+      const giveUp = node({
+        id: 'giveup',
+        type: 'tool',
+        toolId: 'give_up',
+        tools: [giveUpTool],
+        reads: [pick.result, 'checks_result'],
+      });
       const report = node({ id: 'report', type: 'router' });
 
       return {
         graph: graph({
           name: 'issue-fix',
           description: 'Fix one approved upkeep issue and prove the work was done.',
-          nodes: [clone, pick, baseline, fix, judge, checks, gate, diff, review, reviewCheck, commit, publish, report],
+          nodes: [clone, pick, baseline, fix, judge, checks, gate, diff, review, reviewCheck, giveUp, commit, publish, report],
           edges: [
             { from: clone, to: pick },
             { from: pick, to: baseline, when: `memory.${pick.result}.has_work` },
@@ -510,9 +553,10 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             },
             {
               from: gate,
-              to: report,
+              to: giveUp,
               when: 'not memory.gate_verification_passed and memory.judge_result.attempts >= 3',
             },
+            { from: giveUp, to: report },
             { from: commit, to: publish },
             { from: publish, to: report },
           ],
