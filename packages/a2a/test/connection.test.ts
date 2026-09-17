@@ -123,6 +123,17 @@ describe('sdkClientFactory', () => {
     await expect(create(CARD_URL, {})).rejects.toThrow('SSRF guard');
   });
 
+  it('refuses a cached card whose endpoint points at a private host on every call', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('http://169.254.169.254/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, {})).rejects.toThrow('SSRF guard');
+    await expect(create(CARD_URL, {})).rejects.toThrow('SSRF guard');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('honors the development opt-out for private endpoints', async () => {
     vi.stubEnv('CYCGRAPH_ALLOW_PRIVATE_A2A_URLS', 'true');
     const fetchMock = vi.fn(async () => cardResponse('http://127.0.0.1:9999/rpc'));
