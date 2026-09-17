@@ -1,5 +1,16 @@
 # @cycgraph/orchestrator
 
+## 1.3.8
+
+### Patch Changes
+
+- ee094fc: The `a2a` node now denies access when a server's `allowed_agents` list is non-empty and the node declares no `agent_id`, matching the MCP allowlist behavior. Previously omitting `agent_id` bypassed the allowlist entirely; graphs that relied on that must now set `agent_id` on restricted `a2a` nodes.
+- e70416c: Agent Card endpoint URLs are now re-checked at connect time: each endpoint host is resolved and refused when any address is private/loopback/link-local, so a public-looking name backed by a private DNS record no longer reaches internal services, and a lookup that fails or times out fails closed. The resolve-and-reject policy is shared with the MCP transport and web-tool guards, which changes two user-visible details: blocked web fetches now report `resolves to a private/loopback address (<addresses>)` and list every offending address, and the MCP guard logs lookup failures as `mcp_ssrf_lookup_failed` while `mcp_ssrf_blocked_resolved_ip` keeps its `blocked` addresses field.
+- An agent turn that ends on an empty final step — the model received its tool results and went silent — now gets one bounded continuation asking it to finish, instead of having the turn's opening narration promoted to its final answer by the last-spoken fallback. The continuation runs with the agent's own model settings, spends only what is left of its `maxSteps` budget, and reports through the same `onToken` and tool-call callbacks as the primary call, so live consumers see exactly the text and tool activity that reach state; recovery is logged as `empty_final_continuation` and a failed recovery as `empty_final_continuation_failed` with the stream's root cause and any partial usage.
+- 3b21c32: The empty-final continuation no longer applies cache-mark rewriting to the transcript it re-sends: the recovery path hands the model the messages exactly as the SDK holds them, trading the cache discount on a rare path for maximum recovery reliability.
+- 05b3718: Tool calls made during the empty-final continuation now emit `onToolCall`/`onToolCallComplete` events, so live consumers no longer see a silent gap while an agent recovers by calling a tool. The continuation also shares the primary call's model, tool and limit options, so any option added later reaches both requests.
+- 59d7061: `StateDeltaTracker` now diffs every top-level `WorkflowState` field (derived from the schema) instead of a hand-maintained list that predated the v1→v2 state migration: patches emitted between full snapshots previously dropped changes to the taint registry, lesson provenance, HITL/policy approvals, subgraph checkpoints, split token counters, and the event-log high-water mark — a patch-resumed run lost taint tracking and crash-window idempotency. Memory values are also deep-compared now, so unchanged object-valued keys no longer re-serialize into every patch.
+
 ## 1.3.7
 
 ### Patch Changes
