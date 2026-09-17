@@ -125,6 +125,16 @@ describe('searchTool', () => {
     expect(String(result).split('\n\n')).toHaveLength(1);
   });
 
+  it('caps a matching line at the length cap with a marker', async () => {
+    await writeFile(join(root, 'src', 'blob.json'), `{"data":"${'x'.repeat(5_000)}needle"}`);
+
+    const result = await searchTool({ root, maxLineLength: 30 }).execute({ query: 'needle' });
+
+    expect(result).toContain('src/blob.json');
+    expect(result).toContain('…[line truncated]');
+    expect(String(result).length).toBeLessThan(200);
+  });
+
   it('says plainly when nothing matches', async () => {
     expect(await searchTool({ root }).execute({ query: 'nowhere-at-all' }))
       .toBe("no file contains 'nowhere-at-all'");

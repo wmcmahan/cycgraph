@@ -900,6 +900,22 @@ describe('executeAgent — error and timeout handling', () => {
     });
   });
 
+  it('treats a stream error on a resolved turn as a failure, not a silent finish', async () => {
+    const poisoned = mockStreamTextResult({ text: Promise.resolve('') });
+    (poisoned as any).steps = Promise.resolve([
+      { text: 'Searching for the failing tests.', toolCalls: [], toolResults: [] },
+    ]);
+    (streamText as any).mockImplementation((opts: any) => {
+      opts.onError?.({ error: new Error('Payload Too Large') });
+      return poisoned;
+    });
+
+    await expect(executeAgent('test-agent', makeStateView(), {}, 1)).rejects.toMatchObject({
+      name: 'AgentExecutionError',
+    });
+    expect((streamText as any).mock.calls).toHaveLength(1);
+  });
+
   it('wraps a non-Error rejection in AgentExecutionError', async () => {
     (streamText as any).mockReturnValue({
       text: Promise.reject('plain string failure'),

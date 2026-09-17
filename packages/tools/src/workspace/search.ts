@@ -23,6 +23,12 @@ export interface SearchToolOptions {
   root: string;
   /** Cap on files reported per query. @default 40 */
   maxHits?: number;
+  /**
+   * Character cap per reported matching line. A match inside a
+   * single-line data blob would otherwise put megabytes into one tool
+   * result and sink the whole transcript. @default 400
+   */
+  maxLineLength?: number;
   /** Directory names never descended into. @default node_modules, .git, dist, coverage, .playground */
   skipDirs?: string[];
   /** Per-call timeout forwarded to defineTool. @default 15000 */
@@ -37,7 +43,13 @@ export const searchParameters = z.object({
 /** Find files whose contents contain a substring. */
 export function searchTool(options: SearchToolOptions): DefinedTool {
   const maxHits = options.maxHits ?? 40;
+  const maxLineLength = options.maxLineLength ?? 400;
   const skipped = new Set(options.skipDirs ?? DEFAULT_SKIPPED);
+  // The cap applies to what is reported, never what is searched: the
+  // substring match runs on the full line, so a hit past the cap still
+  // counts — it just reports truncated.
+  const capLine = (line: string): string =>
+    line.length <= maxLineLength ? line : `${line.slice(0, maxLineLength)} …[line truncated]`;
 
   async function* walk(dir: string): AsyncGenerator<string> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -70,7 +82,7 @@ export function searchTool(options: SearchToolOptions): DefinedTool {
           .map((line, index) => ({ line, index }))
           .filter(({ line }) => line.includes(query))
           .slice(0, 3)
-          .map(({ line, index }) => `${index + 1}: ${line.trim()}`);
+          .map(({ line, index }) => `${index + 1}: ${capLine(line.trim())}`);
         hits.push(`${relative(options.root, file)}\n  ${lines.join('\n  ')}`);
       }
       return hits.length === 0 ? `no file contains '${query}'` : hits.join('\n');

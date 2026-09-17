@@ -504,6 +504,14 @@ export async function executeAgent(
       // Extract tool calls and results from ALL steps.
       steps = ((await result.steps) ?? []) as AgentStep[];
 
+      // A mid-stream error surfaces through onError while the awaited
+      // promises above still resolve: text comes back empty and the turn
+      // is indistinguishable from a silent finish. It is a failed
+      // request, not a silent model — throw so the catch below owns it
+      // (classification, partial usage, retry), instead of the
+      // continuation re-sending a transcript whose last request died.
+      if (streamError !== undefined) throw streamError;
+
       // `result.text` is the FINAL step's text only. A turn that ends on
       // an empty step is a degenerate finish: the model received its
       // tool results and went silent instead of answering. One bounded
