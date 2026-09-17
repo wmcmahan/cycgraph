@@ -77,12 +77,15 @@ describe('StreamChannel — token channel', () => {
 
   bench('push token + drain interleaved (1000 cycles)', () => {
     const channel = new StreamChannel();
+    let count = 0;
     for (let i = 0; i < 1000; i++) {
       channel.tokenBuffer.push(makeTokenEvent(`t${i}`));
       channel.currentNotify?.();
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      for (const _e of channel.drainTokens()) { /* drain */ }
+      for (const _event of channel.drainTokens()) {
+        count++;
+      }
     }
+    if (count !== 1000) throw new Error('drain count mismatch');
   });
 });
 

@@ -55,8 +55,8 @@ Baselines captured on a 2024 Mac (M-series, Node 22, no thermal throttling):
 | `100-node linear run()` | ~725 runs/sec | ~1.4ms per run (~14µs per node) |
 | `1000-node linear run()` | ~9.6 runs/sec | ~104ms per run (~104µs per node) |
 | `100-node stream() vs run()` | 8% overhead | Streaming mode is essentially free |
-| `StreamChannel push 1000 tokens + drain` | ~16K cycles/sec | Token channel never bottlenecks |
-| `StreamChannel waitForNotify + notify (1000 cycles)` | ~34K cycles/sec | Async notify ~30µs per cycle |
+| `StreamChannel push 1000 tokens + drain (no notify waiter)` | ~11K ops/sec | ~91µs per 1000 tokens — buffering plus drain is cheap per token |
+| `StreamChannel waitForNotify + notify (1000 cycles)` | ~27K ops/sec | ~37µs per 1000 wake-ups — the notify primitive is not the bottleneck |
 
 If your machine is faster or slower, take a baseline before changing anything and compare deltas — not absolutes.
 
