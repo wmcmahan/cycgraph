@@ -11,6 +11,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { RUNTIME_CONFIG_ENV_VARS } from '@cycgraph/orchestrator/internal';
 import { NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, flagNeedsHuman, repoMap, stripMentions } from '../src/repo.js';
 
 const exec = promisify(execFile);
@@ -219,6 +220,14 @@ describe('checksEnv', () => {
     const env = checksEnv();
 
     expect(env['LOG_LEVEL']).toBeUndefined();
+  });
+
+  it('drops every engine tuning knob so spawned suites test a default engine', () => {
+    for (const name of RUNTIME_CONFIG_ENV_VARS) vi.stubEnv(name, '204800');
+
+    const env = checksEnv();
+
+    for (const name of RUNTIME_CONFIG_ENV_VARS) expect(env[name]).toBeUndefined();
   });
 
   it('leaves process.env untouched', () => {

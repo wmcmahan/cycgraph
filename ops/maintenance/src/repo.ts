@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { RUNTIME_CONFIG_ENV_VARS } from '@cycgraph/orchestrator/internal';
 import { addIssueLabel, commentOnIssue } from '@cycgraph/tools/git';
 
 /**
@@ -81,11 +82,16 @@ export async function repoMap(root: string): Promise<string> {
 
 /**
  * Environment for anything a workflow spawns inside a checked-out tree
- * (checks, acceptance commands, benches): the process env minus the
- * maintenance run's own database credentials. The orchestrator-postgres
- * test suite activates itself when DATABASE_URL is set and cleans every
- * table it touches — inherited into a workspace's `npm test`, that is a
- * production wipe, not a hypothetical.
+ * (checks, acceptance commands, benches): the process env minus four
+ * categories the maintenance run holds for itself — database
+ * credentials, ambient git identity, the raised log level, and the
+ * engine's runtime-config tuning knobs. Each category, inherited, makes
+ * the workspace behave differently from every other environment: the
+ * orchestrator-postgres suite activates on DATABASE_URL and cleans every
+ * table it touches (a production wipe, not a hypothetical), GIT_* vars
+ * override the identities tests commit with, LOG_LEVEL floods the suite
+ * output with engine JSON logs, and a tuning knob retunes the engine the
+ * suite is asserting defaults against.
  */
 export function checksEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
@@ -110,6 +116,13 @@ export function checksEnv(): NodeJS.ProcessEnv {
   // tests spawn logs at info too, burying the suite's real failures
   // under multi-KB JSON log lines. Deleting restores the logger default.
   delete env['LOG_LEVEL'];
+  // Engine tuning knobs: set for the maintenance run's own engine, they
+  // retune the engine the workspace suite tests — MAX_MEMORY_PROMPT_BYTES
+  // =204800 made the truncation tests' oversized inputs read as under-cap,
+  // failing the suite in the clone while it passed everywhere else. The
+  // list is imported from runtime-config itself, so a new knob is
+  // scrubbed the day it exists.
+  for (const name of RUNTIME_CONFIG_ENV_VARS) delete env[name];
   return env;
 }
 

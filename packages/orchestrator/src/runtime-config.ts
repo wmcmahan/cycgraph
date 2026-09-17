@@ -78,24 +78,43 @@ const RuntimeConfigSchema = z.object({
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 
 /**
+ * Environment variable name → the config key it overrides. The one table
+ * both the loader and {@link RUNTIME_CONFIG_ENV_VARS} derive from, so a
+ * new knob cannot join one without the other. Names and keys differ only
+ * where the env name predates the key (`AGENT_TIMEOUT_MS`).
+ */
+const ENV_OVERRIDES: Record<string, keyof RuntimeConfig> = {
+  AGENT_CONFIG_CACHE_TTL_MS: 'AGENT_CONFIG_CACHE_TTL_MS',
+  MAX_AGENT_CONFIG_CACHE_SIZE: 'MAX_AGENT_CONFIG_CACHE_SIZE',
+  FALLBACK_CONFIG_CACHE_TTL_MS: 'FALLBACK_CONFIG_CACHE_TTL_MS',
+  AGENT_TIMEOUT_MS: 'DEFAULT_AGENT_TIMEOUT_MS',
+  MAX_MEMORY_PROMPT_BYTES: 'MAX_MEMORY_PROMPT_BYTES',
+  MAX_MEMORY_VALUE_BYTES: 'MAX_MEMORY_VALUE_BYTES',
+  MAX_VISITED_NODES: 'MAX_VISITED_NODES',
+  MAX_SUPERVISOR_HISTORY: 'MAX_SUPERVISOR_HISTORY',
+  MAX_MEMORY_DROPS: 'MAX_MEMORY_DROPS',
+  FILTREX_CACHE_SIZE: 'FILTREX_CACHE_SIZE',
+};
+
+/**
+ * Every environment variable the runtime configuration reads. A harness
+ * that spawns an engine-hosting child with a scrubbed environment strips
+ * these so the child runs a default engine instead of inheriting the
+ * parent's tuning.
+ */
+export const RUNTIME_CONFIG_ENV_VARS: readonly string[] = Object.keys(ENV_OVERRIDES);
+
+/**
  * Read env overrides and validate them against {@link RuntimeConfigSchema}.
  *
  * Invoked once at module load. Errors throw with a descriptive message so a
  * misconfigured deploy crashes early instead of running with broken caps.
  */
 function loadRuntimeConfig(): RuntimeConfig {
-  const overrides: Record<string, number | undefined> = {
-    AGENT_CONFIG_CACHE_TTL_MS: envInt('AGENT_CONFIG_CACHE_TTL_MS'),
-    MAX_AGENT_CONFIG_CACHE_SIZE: envInt('MAX_AGENT_CONFIG_CACHE_SIZE'),
-    FALLBACK_CONFIG_CACHE_TTL_MS: envInt('FALLBACK_CONFIG_CACHE_TTL_MS'),
-    DEFAULT_AGENT_TIMEOUT_MS: envInt('AGENT_TIMEOUT_MS'),
-    MAX_MEMORY_PROMPT_BYTES: envInt('MAX_MEMORY_PROMPT_BYTES'),
-    MAX_MEMORY_VALUE_BYTES: envInt('MAX_MEMORY_VALUE_BYTES'),
-    MAX_VISITED_NODES: envInt('MAX_VISITED_NODES'),
-    MAX_SUPERVISOR_HISTORY: envInt('MAX_SUPERVISOR_HISTORY'),
-    MAX_MEMORY_DROPS: envInt('MAX_MEMORY_DROPS'),
-    FILTREX_CACHE_SIZE: envInt('FILTREX_CACHE_SIZE'),
-  };
+  const overrides: Record<string, number | undefined> = {};
+  for (const [envName, key] of Object.entries(ENV_OVERRIDES)) {
+    overrides[key] = envInt(envName);
+  }
   const filtered = Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined));
 
   const parsed = RuntimeConfigSchema.safeParse(filtered);
