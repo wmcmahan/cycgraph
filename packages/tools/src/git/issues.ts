@@ -3,7 +3,8 @@
  *
  * A maintenance workflow files what it senses as issues and must never
  * file the same finding twice, so the operations here are listing open
- * issues (to read the dedupe markers out of their bodies), creating
+ * issues (to read the dedupe markers out of their bodies), reading one
+ * (to brief a reviewer on the intent a PR claims to serve), creating
  * one, commenting on one, and labeling one. All go through `gh`; when
  * it cannot answer — missing, unauthenticated, no remote — the result
  * says so rather than pretending an empty ledger, because filing blind
@@ -113,6 +114,29 @@ export function issueMarkers(issues: readonly IssueRef[]): Set<string> {
     for (const match of issue.body.matchAll(MARKER)) keys.add(match[1]!);
   }
   return keys;
+}
+
+/**
+ * One issue by number, open or closed. `undefined` when it cannot be
+ * read — an absent issue and an unreadable ledger look the same to the
+ * caller, and both mean "review without it", never "fail the run".
+ */
+export async function viewIssue(
+  repoRoot: string,
+  issueNumber: number,
+  options: { token?: string } = {},
+): Promise<{ title: string; body: string } | undefined> {
+  const env = ghEnv(options.token);
+  try {
+    const { stdout } = await exec(
+      'gh', ['issue', 'view', String(issueNumber), '--json', 'title,body'],
+      { cwd: repoRoot, ...(env !== undefined ? { env } : {}) },
+    );
+    const view = JSON.parse(stdout) as { title?: string; body?: string };
+    return { title: view.title ?? '', body: view.body ?? '' };
+  } catch {
+    return undefined;
+  }
 }
 
 /** Comment on an issue; the failure's message when it cannot. */
