@@ -49,7 +49,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
         # The benchmark cannot tell faster from doing less; the test
-        # suite is the correctness guard, so it gates the ticket.
+        # suite is the correctness guard, so it gates the ticket. The
+        # gate is lighter than the PR-producing workflows' on purpose:
+        # this files a ticket, never a PR, and opt-apply re-verifies the
+        # diff under the full build/lint/test trio before anything
+        # publishes.
         run: >
           npm run maintain --workspace=ops/maintenance -- opt-propose
           --target "${{ inputs.target }}"

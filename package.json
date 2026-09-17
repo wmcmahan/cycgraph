@@ -13,7 +13,7 @@
     "ops/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=packages/orchestrator && npm run build --workspace=packages/memory && npm run build --workspace=packages/context-engine && npm run build --workspace=packages/tools && npm run build --workspace=packages/a2a && npm run build --workspace=packages/orchestrator-postgres && npm run build --workspace=packages/evals && npm run build --workspace=packages/studio",
+    "build": "npm run build:libs && npm run build --workspace=packages/studio",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "lint:eslint": "eslint packages",
@@ -24,7 +24,8 @@
     "changeset": "changeset",
     "version": "changeset version && npm install --package-lock-only",
     "release": "npm run build && changeset publish",
-    "studio": "npm run studio --workspace=packages/studio --"
+    "studio": "npm run studio --workspace=packages/studio --",
+    "build:libs": "npm run build --workspace=packages/orchestrator && npm run build --workspace=packages/memory && npm run build --workspace=packages/context-engine && npm run build --workspace=packages/tools && npm run build --workspace=packages/a2a && npm run build --workspace=packages/orchestrator-postgres && npm run build --workspace=packages/evals"
   },
   "engines": {
     "node": ">=22.0.0"
