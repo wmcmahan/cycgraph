@@ -271,4 +271,4 @@ Issues and PRs welcome on [GitHub](https://github.com/wmcmahan/cycgraph). See [C
 
 ## License
 
-[Apache 2.0](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE).lob/main/LICENSE).
+[Apache 2.0](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE).
