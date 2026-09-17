@@ -293,18 +293,29 @@ async function main(): Promise<void> {
   say(`recording: ${durability.kind === 'postgres' ? 'postgres (joins the shared corpus)' : 'in-memory (gone with the process)'}`);
   let recorded;
   try {
-    recorded = await runRecorded(build.graph, build.input, {
-      ...(durability.persistence !== undefined ? { persistence: durability.persistence } : {}),
-      providers: providersFor(env),
-      runner: {
-        ...build.runner,
-        middleware: [progress],
-        ...(durability.eventLog !== undefined ? { eventLog: durability.eventLog } : {}),
-        ...(lessonMemory !== undefined
-          ? { memoryRetriever: lessonMemory.memoryRetriever, memoryWriter: lessonMemory.memoryWriter }
-          : {}),
-      },
-    });
+    // The catch is scoped to the run itself: an engine-level throw
+    // (budget exhaustion) bypasses the graph's failure handling, so the
+    // workflow's onFatal hook is the only cleanup that can still run.
+    // Post-run bookkeeping failing must not trigger it — by then the
+    // run delivered.
+    try {
+      recorded = await runRecorded(build.graph, build.input, {
+        ...(durability.persistence !== undefined ? { persistence: durability.persistence } : {}),
+        providers: providersFor(env),
+        runner: {
+          ...build.runner,
+          middleware: [progress],
+          ...(durability.eventLog !== undefined ? { eventLog: durability.eventLog } : {}),
+          ...(lessonMemory !== undefined
+            ? { memoryRetriever: lessonMemory.memoryRetriever, memoryWriter: lessonMemory.memoryWriter }
+            : {}),
+        },
+      });
+    } catch (error) {
+      const cleanup = await build.onFatal?.(error);
+      if (cleanup !== undefined) say(cleanup);
+      throw error;
+    }
 
     // Outcome evidence: attribute the gate verdict to the lessons that were
     // injected into this run's prompts. Recorded only when a gate actually

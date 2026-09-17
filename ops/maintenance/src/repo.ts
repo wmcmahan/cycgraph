@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { addIssueLabel, commentOnIssue } from '@cycgraph/tools/git';
 
 /**
  * Resolve the target repository from a param value.
@@ -134,6 +135,33 @@ export const MANAGED_LABEL = 'maintenance-managed';
  * the ones that need a decision.
  */
 export const NEEDS_HUMAN_LABEL = 'needs-human';
+
+/** The two issue-ledger operations flagging runs on, injectable so tests fake them inline. */
+export interface FlagNeedsHumanOps {
+  addLabel: typeof addIssueLabel;
+  comment: typeof commentOnIssue;
+}
+
+/**
+ * Flag an issue as waiting on a human: apply {@link NEEDS_HUMAN_LABEL},
+ * then leave the explanatory comment. The label comes first and gates
+ * the comment — the label is what stops the picker from re-burning the
+ * issue, so commenting without it would repeat once per re-pick; a
+ * failed label returns unflagged with no comment posted.
+ */
+export async function flagNeedsHuman(
+  repoRoot: string,
+  issueNumber: number,
+  body: string,
+  options: { token?: string; ops?: FlagNeedsHumanOps } = {},
+): Promise<{ flagged: boolean; detail: string }> {
+  const ops = options.ops ?? { addLabel: addIssueLabel, comment: commentOnIssue };
+  const auth = options.token !== undefined ? { token: options.token } : {};
+  const label = await ops.addLabel(repoRoot, issueNumber, NEEDS_HUMAN_LABEL, auth);
+  if (!label.ok) return { flagged: false, detail: `label failed: ${label.detail}` };
+  const comment = await ops.comment(repoRoot, issueNumber, body, auth);
+  return { flagged: true, detail: comment.detail };
+}
 
 /**
  * The mention that dispatches maintenance workflows from PR comments.

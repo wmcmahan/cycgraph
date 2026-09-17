@@ -28,7 +28,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { addIssueLabel, commentOnIssue, deliveryNodes, listOpenIssues, pendingDiff } from '@cycgraph/tools/git';
+import { deliveryNodes, listOpenIssues, pendingDiff } from '@cycgraph/tools/git';
 import {
   createFileTool,
   createWorkspaceSession,
@@ -40,7 +40,7 @@ import {
 import { scanCore, type CoreFinding } from './core-scan.js';
 import { auditTitle, severityRank } from './audit-findings.js';
 import { findingFromKey, judgeAuditFix, judgeIssueFix, nextGateAttempt, parseIssueFinding, type IssueFinding } from './issue-judge.js';
-import { checksEnv, CHANGESET_INSTRUCTION, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, resolveRepo } from './repo.js';
+import { checksEnv, CHANGESET_INSTRUCTION, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, flagNeedsHuman, resolveRepo } from './repo.js';
 import { LESSON_TAG, MAINT_TAG } from './memory.js';
 import { stripCloses, templateEvidence } from './pr-template.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
@@ -66,7 +66,9 @@ const params = z.object({
     .describe('Push the committed branch to origin and open a pull request'),
   prompt: z.string().default('')
     .describe('Override the fixer agent\'s instructions. Empty uses the built-in prompt'),
-  budgetTokens: z.number().int().min(0).default(300000)
+  // Sized for the graph's own worst case: three gate-bounded fix passes
+  // plus the review loop, at roughly 150k billed tokens per pass.
+  budgetTokens: z.number().int().min(0).default(1_500_000)
     .describe('Hard token budget for the run; breach fails the run. Zero removes the cap'),
 });
 
@@ -134,6 +136,11 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         ...(env.publish !== undefined ? { config: env.publish } : {}),
       });
 
+      // Held outside the graph so onFatal can reach it: an engine-level
+      // death (budget exhaustion) never executes the give_up node, and
+      // the state it would have read dies with the run.
+      let pickedIssue: number | undefined;
+
       const pickTool = tool({
         name: 'pick_issue',
         description: 'Pick the oldest approved upkeep issue, or run detached on a named key.',
@@ -164,6 +171,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             if (picked === undefined) {
               return { has_work: false, detail: `no open '${p.label}' issue carries a finding marker` };
             }
+            pickedIssue = picked.issue.number;
             return {
               has_work: true,
               issue_number: picked.issue.number,
@@ -361,14 +369,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
           const issue = (pick_result as { issue_number?: number } | undefined)?.issue_number;
           if (issue === undefined) return { flagged: false, detail: 'detached run — nothing to flag' };
           const tail = String((checks_result as { output?: unknown } | undefined)?.output ?? '').slice(-1_500);
-          // The label is what stops the picker from re-burning this
-          // issue; commenting without it would repeat once per re-pick,
-          // so a failed label returns unflagged instead of commenting.
-          const label = await addIssueLabel(repoRoot, issue, NEEDS_HUMAN_LABEL, token !== undefined ? { token } : {});
-          if (!label.ok) {
-            return { flagged: false, issue_number: issue, detail: `label failed: ${label.detail}` };
-          }
-          const comment = await commentOnIssue(repoRoot, issue, [
+          const result = await flagNeedsHuman(repoRoot, issue, [
             'issue-fix spent its retry budget (three consecutive gate failures) without green checks, so this issue now carries the `needs-human` label and the picker skips it.',
             'Remove the label to re-queue it, or investigate the failure below.',
             '',
@@ -376,7 +377,11 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             tail,
             '```',
           ].join('\n'), token !== undefined ? { token } : {});
-          return { flagged: true, issue_number: issue, detail: `flagged #${issue}; ${comment.detail}` };
+          return {
+            flagged: result.flagged,
+            issue_number: issue,
+            detail: result.flagged ? `flagged #${issue}; ${result.detail}` : result.detail,
+          };
         },
       });
 
@@ -566,6 +571,25 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         input: { goal: 'Resolve one approved upkeep issue.',
           ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}), maxIterations: 40 },
         runner: {},
+        // An engine-level death (budget breach) bypasses the give_up
+        // node, which would leave the picked issue approved-but-orphaned:
+        // its label event already fired, so nothing re-queues it.
+        onFatal: async (error: unknown) => {
+          if (pickedIssue === undefined) return undefined;
+          const issue = pickedIssue;
+          try {
+            const reason = error instanceof Error ? error.message : String(error);
+            const result = await flagNeedsHuman(repoRoot, issue, [
+              `issue-fix died before finishing (${reason}), so this issue now carries the \`needs-human\` label and the picker skips it.`,
+              'Remove the label to re-queue it, or dispatch issue-fix naming this issue to override the skip.',
+            ].join('\n'), token !== undefined ? { token } : {});
+            return result.flagged
+              ? `fatal-run cleanup: #${issue} flagged ${NEEDS_HUMAN_LABEL}`
+              : `fatal-run cleanup on #${issue}: ${result.detail}`;
+          } catch (cleanupError) {
+            return `fatal-run cleanup failed on #${issue}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
+          }
+        },
       };
     },
 

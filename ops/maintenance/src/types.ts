@@ -41,6 +41,15 @@ export interface MaintenanceBuild {
   graph: Graph;
   input: { goal: string; maxIterations?: number; maxTokenBudget?: number };
   runner: Partial<GraphRunnerOptions>;
+  /**
+   * Cleanup for a run that died on an engine-level throw (token budget
+   * exhaustion, a fatal provider error) — a death the graph's own
+   * failure-handling nodes never see. The harness calls it before
+   * exiting nonzero; the returned line, if any, is printed for the
+   * operator. Implementations must swallow their own errors: cleanup
+   * failing must not mask the error that killed the run.
+   */
+  onFatal?: (error: unknown) => Promise<string | undefined>;
 }
 
 /** A maintenance workflow: knobs, build, and objective. */

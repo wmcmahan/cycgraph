@@ -89,6 +89,9 @@ jobs:
           CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
           GIT_AUTHOR_NAME: cycgraph-maintenance
           GIT_AUTHOR_EMAIL: maintenance@cycgraph.local
+          # The reviser carries review threads plus checks evidence; the
+          # engine's 50KB memory default truncates that mid-loop.
+          MAX_MEMORY_PROMPT_BYTES: 204800
         run: >
           npm run maintain --workspace=ops/maintenance -- pr-revise
           --pr ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}

@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { WORKFLOW_MENTION, checksEnv, repoMap, stripMentions } from '../src/repo.js';
+import { NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, flagNeedsHuman, repoMap, stripMentions } from '../src/repo.js';
 
 const exec = promisify(execFile);
 
@@ -219,5 +219,41 @@ describe('checksEnv', () => {
     checksEnv();
 
     expect(process.env['DATABASE_URL']).toBe('postgres://localhost:5432/app');
+  });
+});
+
+describe('flagNeedsHuman', () => {
+  function fakeOps(labelOk: boolean) {
+    const calls: { label: string[]; comment: string[] } = { label: [], comment: [] };
+    const ops = {
+      addLabel: async (_root: string, _issue: number, label: string) => {
+        calls.label.push(label);
+        return labelOk ? { ok: true, detail: `labeled ${label}` } : { ok: false, detail: 'label denied' };
+      },
+      comment: async (_root: string, _issue: number, body: string) => {
+        calls.comment.push(body);
+        return { ok: true, detail: 'commented' };
+      },
+    };
+    return { ops, calls };
+  }
+
+  it('labels first and comments with the given body when the label sticks', async () => {
+    const { ops, calls } = fakeOps(true);
+
+    const result = await flagNeedsHuman('/repo', 7, 'the retry budget is spent', { ops });
+
+    expect(result).toEqual({ flagged: true, detail: 'commented' });
+    expect(calls.label).toEqual([NEEDS_HUMAN_LABEL]);
+    expect(calls.comment).toEqual(['the retry budget is spent']);
+  });
+
+  it('does not comment when the label fails', async () => {
+    const { ops, calls } = fakeOps(false);
+
+    const result = await flagNeedsHuman('/repo', 7, 'the retry budget is spent', { ops });
+
+    expect(result).toEqual({ flagged: false, detail: 'label failed: label denied' });
+    expect(calls.comment).toEqual([]);
   });
 });
