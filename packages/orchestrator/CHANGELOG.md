@@ -1,5 +1,13 @@
 # @cycgraph/orchestrator
 
+## 1.3.9
+
+### Patch Changes
+
+- 004bede: Prompt-memory truncation now cuts the middle instead of the tail. Reducers append, so the newest keys serialize last; the old head-only cut removed exactly the evidence a feedback loop had just written for its retrying agent. An oversized memory block now keeps both ends with a visible marker at the cut, and both cut points respect UTF-8 sequence boundaries so the seam never decodes as replacement characters.
+- ad1a8fe: `RUNTIME_CONFIG_ENV_VARS` on the internal subpath: the list of environment variables the runtime configuration reads, derived from the same table the loader uses. Harnesses that spawn an engine-hosting child with a scrubbed environment strip these so the child runs a default engine instead of inheriting the parent's tuning.
+- 7301997: A mid-stream provider error (an HTTP 413, a rate limit, a network drop) surfaced through `onError` no longer masquerades as a silent finish. The AI SDK resolves the awaited result promises after such an error, so the executor previously fell into the empty-final recovery path, re-sent the dead transcript, and returned an empty turn the graph treated as success. The error now throws into the executor's failure path, where it is classified for retry and its partial usage is accounted.
+
 ## 1.3.8
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @cycgraph/context-engine
 
+## 0.7.3
+
+### Patch Changes
+
+- 1ea53ff: Fix the latency tracker scoring a stage whose average duration measures 0ms as zero efficiency, the worst possible score. Such a stage now reports `Infinity` when it saves tokens (and `-Infinity` when it adds them), so the circuit breaker no longer silently bypasses fast, effective compression stages for a full cooldown period.
+
 ## 0.7.2
 
 ### Patch Changes
