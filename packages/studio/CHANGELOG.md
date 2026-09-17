@@ -1,5 +1,22 @@
 # @cycgraph/studio
 
+## 0.2.1
+
+### Patch Changes
+
+- edee786: The playground now registers only the A2A scenario agents the scenario server currently advertises, so a machine with no model no longer gets an Agent Card resolution error when a model-backed scenario is invoked.
+- Updated dependencies [ee094fc]
+- Updated dependencies [e70416c]
+- Updated dependencies
+- Updated dependencies [68853cb]
+- Updated dependencies [3b21c32]
+- Updated dependencies [05b3718]
+- Updated dependencies [59d7061]
+- Updated dependencies [68853cb]
+  - @cycgraph/orchestrator@1.3.8
+  - @cycgraph/a2a@1.1.5
+  - @cycgraph/tools@1.4.2
+
 ## 0.2.0
 
 ### Minor Changes
