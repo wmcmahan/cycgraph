@@ -105,6 +105,11 @@ export function checksEnv(): NodeJS.ProcessEnv {
   delete env['GIT_AUTHOR_EMAIL'];
   delete env['GIT_COMMITTER_NAME'];
   delete env['GIT_COMMITTER_EMAIL'];
+  // The maintenance run raises its own LOG_LEVEL for diagnosable CI
+  // logs; inherited into a workspace's test suite, every engine those
+  // tests spawn logs at info too, burying the suite's real failures
+  // under multi-KB JSON log lines. Deleting restores the logger default.
+  delete env['LOG_LEVEL'];
   return env;
 }
 

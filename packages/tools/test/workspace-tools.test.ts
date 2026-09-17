@@ -299,6 +299,55 @@ describe('diagnosticsTool', () => {
       'passing noise 9',
     ].join('\n'));
   });
+
+  it('cuts an over-long line at the length cap with a marker', async () => {
+    const script = 'console.error("prefix-" + "x".repeat(50)); process.exit(1)';
+    const result = await diagnosticsTool({
+      cwd: root, command: 'node', maxLineLength: 10,
+      args: ['-e', script],
+    }).execute({}) as { output: string };
+
+    expect(result.output).toBe('prefix-xxx …[line truncated]');
+  });
+
+  it('leaves a line exactly at the length cap untouched', async () => {
+    const result = await diagnosticsTool({
+      cwd: root, command: 'node', maxLineLength: 40,
+      args: ['-e', 'console.error("y".repeat(40)); process.exit(1)'],
+    }).execute({}) as { output: string };
+
+    expect(result.output).toBe('y'.repeat(40));
+  });
+
+  it('caps line length in the marker-first overflow path too', async () => {
+    const script = 'console.error("FAIL " + "y".repeat(500)); for (let i = 0; i < 10; i++) console.error("passing noise " + i); process.exit(1)';
+    const result = await diagnosticsTool({
+      cwd: root, command: 'node', maxLines: 4, maxLineLength: 20,
+      args: ['-e', script],
+    }).execute({}) as { output: string };
+
+    expect(result.output).toBe([
+      '[11 line(s) total; 1 failure line(s) first, then the tail]',
+      'FAIL yyyyyyyyyyyyyyy …[line truncated]',
+      '---',
+      'passing noise 9',
+    ].join('\n'));
+  });
+
+  it('recognizes a failure marker past the length cap', async () => {
+    const script = 'console.error("z".repeat(25) + " AssertionError: boom"); for (let i = 0; i < 10; i++) console.error("passing noise " + i); process.exit(1)';
+    const result = await diagnosticsTool({
+      cwd: root, command: 'node', maxLines: 4, maxLineLength: 20,
+      args: ['-e', script],
+    }).execute({}) as { output: string };
+
+    expect(result.output).toBe([
+      '[11 line(s) total; 1 failure line(s) first, then the tail]',
+      `${'z'.repeat(20)} …[line truncated]`,
+      '---',
+      'passing noise 9',
+    ].join('\n'));
+  });
 });
 
 describe('workspaceTools', () => {
