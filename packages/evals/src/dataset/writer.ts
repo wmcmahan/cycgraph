@@ -7,7 +7,7 @@
  * @module dataset/writer
  */
 
-import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
@@ -59,6 +59,9 @@ export function createSqliteBuffer(trajectories: GoldenTrajectory[]): Buffer {
  * @param trajectories - Validated trajectories to write.
  * @param schemaVersion - Schema version string for the manifest entry.
  * @param goldenDir - Path to the golden directory.
+ * @throws If a trajectory fails validation, or if an existing manifest cannot be
+ *   parsed and validated — a corrupt manifest fails the write rather than being
+ *   replaced, since replacing it would deregister every other suite's dataset.
  */
 export function writeGoldenDataset(
   suite: SuiteName,
@@ -92,10 +95,14 @@ export function writeGoldenDataset(
   const manifestPath = resolve(goldenDir, 'manifest.json');
   let manifest: Manifest;
 
-  try {
+  // Only an absent manifest starts from empty. A manifest that exists but fails
+  // JSON or schema validation must abort the write: the merged manifest is
+  // written back unconditionally below, so treating corruption as "empty" would
+  // permanently deregister every other suite's dataset file.
+  if (existsSync(manifestPath)) {
     const raw = readFileSync(manifestPath, 'utf-8');
     manifest = ManifestSchema.parse(JSON.parse(raw));
-  } catch {
+  } else {
     manifest = { version: '1', datasets: [] };
   }
 

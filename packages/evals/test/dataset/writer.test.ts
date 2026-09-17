@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
@@ -74,6 +74,38 @@ describe('writeGoldenDataset', () => {
 
     expect(() => writeGoldenDataset('orchestrator', [invalid], '1.0.0', TEST_DIR)).toThrow();
     expect(existsSync(resolve(TEST_DIR, 'manifest.json'))).toBe(false);
+  });
+
+  it('preserves entries for other suites already in the manifest', () => {
+    writeGoldenDataset('orchestrator', [makeTrajectory()], '1.0.0', TEST_DIR);
+
+    writeGoldenDataset(
+      'context-engine',
+      [makeTrajectory({ suite: 'context-engine' })],
+      '1.0.0',
+      TEST_DIR,
+    );
+
+    const names = loadManifest(TEST_DIR).datasets.map(d => d.name);
+    expect(names).toEqual(['orchestrator', 'context-engine']);
+  });
+
+  it('throws and leaves a corrupt manifest untouched instead of replacing it', () => {
+    writeGoldenDataset('orchestrator', [makeTrajectory()], '1.0.0', TEST_DIR);
+    const manifestPath = resolve(TEST_DIR, 'manifest.json');
+    writeFileSync(manifestPath, '{"version":"1","datasets":[{"name":"orchestrator"}]}');
+
+    expect(() =>
+      writeGoldenDataset(
+        'context-engine',
+        [makeTrajectory({ suite: 'context-engine' })],
+        '1.0.0',
+        TEST_DIR,
+      ),
+    ).toThrow();
+    expect(readFileSync(manifestPath, 'utf-8')).toBe(
+      '{"version":"1","datasets":[{"name":"orchestrator"}]}',
+    );
   });
 
   it('replaces the existing entry when rewriting the same suite and major version', () => {
