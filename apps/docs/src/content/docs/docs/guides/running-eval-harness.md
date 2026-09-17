@@ -112,7 +112,7 @@ CLI flags override env vars where both apply. Judge concurrency is not an env va
 | Code | Meaning |
 |---|---|
 | `0` | Clean run |
-| `1` | Drift gate failed OR a suite failed to load |
+| `1` | Drift gate failed OR a suite failed to load OR the stored baseline failed to load |
 | `2` | Baseline regression detected but drift gate passed |
 
 For CI scripts, the canonical pattern is to hard-fail on `1` and warn-only (or open an issue) on `2`.
@@ -132,7 +132,7 @@ Not currently emitted:
 
 **"Cost warning: estimated $X exceeds threshold"**: the CI mode estimates total token usage. The default warning fires at $5. Raise it via the provider option in code, or accept it and continue, since the warning is non-blocking.
 
-**"Baseline schema version mismatch"**: you're loading an older snapshot than the current code understands. Delete `golden/baselines/main-latest.json` and re-run with `--baseline` to bootstrap a fresh one.
+**"Baseline schema version mismatch"**: you're loading an older snapshot than the current code understands. The run exits `1` and skips regression detection until the file is removed — delete `golden/baselines/main-latest.json` and re-run with `--baseline` to bootstrap a fresh one.
 
 **"No prior baseline"**: expected on the first run with `--baseline`. The current run becomes the baseline.
 

@@ -16,7 +16,8 @@
  *
  * Exit codes:
  *   0 — drift gate passed, no baseline regression
- *   1 — drift gate failed OR a suite failed to load
+ *   1 — drift gate failed OR a suite failed to load OR the stored
+ *       baseline failed to load
  *   2 — baseline regression detected but drift gate passed
  *
  * @module runner/runner
@@ -38,6 +39,7 @@ import {
   compareBaseline,
   formatBaselineDelta,
 } from '../baseline/index.js';
+import type { BaselineSnapshot } from '../baseline/index.js';
 import type { EvalRunConfig, EvalResult, DriftReport } from './types.js';
 import type { EvalProvider } from '../providers/types.js';
 import type { SuiteName } from '../dataset/types.js';
@@ -120,8 +122,9 @@ export async function runEvals(config: EvalRunConfig): Promise<EvalResult> {
 
   // ─── Baseline (optional) ─────────────────────────────────────────
   let baselineDelta: EvalResult['baselineDelta'] = undefined;
+  let baselineLoadError: string | undefined = undefined;
   if (config.baseline) {
-    baselineDelta = await runBaselineComparison({
+    const comparison = await runBaselineComparison({
       drift,
       driftCeiling,
       mode: config.mode,
@@ -129,12 +132,28 @@ export async function runEvals(config: EvalRunConfig): Promise<EvalResult> {
       noiseFloor: config.baselineNoiseFloor,
       persistOnPass: drift.passed,
     });
+    baselineDelta = comparison.delta;
+    baselineLoadError = comparison.loadError;
   }
 
   // ─── Reporting ───────────────────────────────────────────────────
-  printReport(drift, config.mode, baselineDelta, flakyTests, suiteLoadErrors);
+  printReport(
+    drift,
+    config.mode,
+    baselineDelta,
+    flakyTests,
+    suiteLoadErrors,
+    baselineLoadError,
+  );
 
-  return { drift, raw: allResults, suiteLoadErrors, baselineDelta, flakyTests };
+  return {
+    drift,
+    raw: allResults,
+    suiteLoadErrors,
+    baselineDelta,
+    flakyTests,
+    baselineLoadError,
+  };
 }
 
 // ─── Static Suite Dispatchers ──────────────────────────────────────
@@ -262,18 +281,25 @@ interface BaselineComparisonOptions {
   persistOnPass: boolean;
 }
 
+interface BaselineComparisonResult {
+  delta: EvalResult['baselineDelta'];
+  /** Set when a stored baseline exists but failed to load; comparison was skipped. */
+  loadError?: string;
+}
+
 async function runBaselineComparison(
   opts: BaselineComparisonOptions,
-): Promise<EvalResult['baselineDelta']> {
-  const baseline = (() => {
-    try {
-      return loadBaseline();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`[eval] Failed to load baseline: ${message}`);
-      return null;
-    }
-  })();
+): Promise<BaselineComparisonResult> {
+  let baseline: BaselineSnapshot | null;
+  try {
+    baseline = loadBaseline();
+  } catch (err) {
+    // `loadBaseline` returns null for "no baseline yet" and throws only for a
+    // baseline that exists but won't round-trip. Comparing against null here
+    // would read as "new suites, no regression", and persisting would overwrite
+    // the damaged file — so skip both and surface the failure to the gate.
+    return { delta: undefined, loadError: err instanceof Error ? err.message : String(err) };
+  }
 
   const current = snapshotFromDrift({
     drift: opts.drift,
@@ -298,7 +324,7 @@ async function runBaselineComparison(
     writeBaseline(current);
   }
 
-  return delta;
+  return { delta };
 }
 
 function printReport(
@@ -311,6 +337,7 @@ function printReport(
     phase: 'deterministic' | 'semantic';
     error: string;
   }>,
+  baselineLoadError?: string,
 ): void {
   const report = formatReport(drift, mode);
   console.log(report.text);
@@ -334,6 +361,14 @@ function printReport(
     console.log('');
     console.log('── Baseline ──');
     console.log(formatBaselineDelta(baselineDelta));
+  }
+
+  if (baselineLoadError) {
+    console.log('');
+    console.log('── Baseline ──');
+    console.error(
+      `[eval] Baseline failed to load; regression detection was skipped: ${baselineLoadError}`,
+    );
   }
 
   if (suiteLoadErrors.length > 0) {
@@ -389,10 +424,14 @@ async function main(): Promise<void> {
   });
 
   // Exit code priority:
-  //   1 — drift gate fail OR suite load error
+  //   1 — drift gate fail OR suite load error OR baseline load failure
   //   2 — baseline regression while gate passed
   //   0 — clean
-  if (!result.drift.passed || result.suiteLoadErrors.length > 0) {
+  if (
+    !result.drift.passed
+    || result.suiteLoadErrors.length > 0
+    || result.baselineLoadError !== undefined
+  ) {
     process.exitCode = 1;
   } else if (result.baselineDelta?.hasRegression) {
     process.exitCode = 2;

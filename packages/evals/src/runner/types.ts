@@ -138,9 +138,18 @@ export interface EvalResult {
   /**
    * Baseline comparison result, when the run was configured with
    * `baseline: true`. `undefined` when baseline comparison was not
-   * requested.
+   * requested, or when the stored baseline failed to load (see
+   * {@link baselineLoadError}).
    */
   baselineDelta?: import('../baseline/types.js').BaselineDelta;
+
+  /**
+   * Set when a baseline file exists but could not be loaded — a corrupt
+   * snapshot or an unknown schema version. Callers must treat this as a gate
+   * failure: comparison is skipped, so the run cannot prove the absence of a
+   * regression and must not be reported as clean.
+   */
+  baselineLoadError?: string;
 
   /**
    * Tests that produced inconsistent pass/fail outcomes across samples.

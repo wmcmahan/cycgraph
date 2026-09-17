@@ -192,7 +192,7 @@ const result = await runEvals({
   baseline: true,
   samples: 3,
 });
-// { drift, raw, suiteLoadErrors, baselineDelta?, flakyTests? }
+// { drift, raw, suiteLoadErrors, baselineDelta?, baselineLoadError?, flakyTests? }
 ```
 
 ## Golden dataset
