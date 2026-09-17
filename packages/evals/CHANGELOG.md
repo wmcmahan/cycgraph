@@ -1,5 +1,18 @@
 # @cycgraph/evals
 
+## 0.3.3
+
+### Patch Changes
+
+- f5f50cd: `runEvals` now surfaces a failed baseline load as `baselineLoadError` instead of swallowing it: baseline comparison and the baseline rewrite are both skipped, and the CLI exits `1`. A corrupt snapshot or unknown schema version can no longer be reported as a clean run with no regression.
+- 68de445: `writeGoldenDataset` now only starts from an empty manifest when `golden/manifest.json` does not exist; a manifest that exists but fails JSON or schema validation throws instead of being silently replaced. This prevents a corrupt or out-of-date manifest from wiping every other suite's dataset registration on the next write. The manifest is read and validated before the compressed dataset is written, so a failed write also leaves the existing `.sqlite.gz` and its recorded checksum in sync.
+- Updated dependencies [1ea53ff]
+- Updated dependencies [004bede]
+- Updated dependencies [ad1a8fe]
+- Updated dependencies [7301997]
+  - @cycgraph/context-engine@0.7.3
+  - @cycgraph/orchestrator@1.3.9
+
 ## 0.3.2
 
 ### Patch Changes
