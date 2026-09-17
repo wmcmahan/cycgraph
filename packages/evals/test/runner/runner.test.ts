@@ -11,8 +11,23 @@
  * as unreachable in-unit (see the group report).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { runEvals } from '../../src/runner/runner.js';
+
+const baselineMocks = vi.hoisted(() => ({
+  loadBaseline: vi.fn(),
+  writeBaseline: vi.fn(),
+}));
+
+vi.mock('../../src/baseline/index.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../src/baseline/index.js')>();
+  return {
+    ...actual,
+    loadBaseline: baselineMocks.loadBaseline,
+    writeBaseline: baselineMocks.writeBaseline,
+  };
+});
 
 describe('runEvals — deterministic-only mode', () => {
   it('runs without invoking any LLM or loading semantic suites', async () => {
@@ -123,6 +138,31 @@ describe('runEvals — baseline option', () => {
     });
 
     expect(result.baselineDelta).toBeUndefined();
+  });
+});
+
+describe('runEvals — baseline load failure', () => {
+  beforeEach(() => {
+    baselineMocks.loadBaseline.mockReset();
+    baselineMocks.writeBaseline.mockReset();
+  });
+
+  it('reports baselineLoadError, skips comparison, and does not rewrite the baseline', async () => {
+    baselineMocks.loadBaseline.mockImplementation(() => {
+      throw new Error('baseline schema version mismatch: got "0", expected "1"');
+    });
+
+    const result = await runEvals({
+      mode: 'local',
+      deterministicOnly: true,
+      baseline: true,
+    });
+
+    expect(result.baselineLoadError).toBe(
+      'baseline schema version mismatch: got "0", expected "1"',
+    );
+    expect(result.baselineDelta).toBeUndefined();
+    expect(baselineMocks.writeBaseline).not.toHaveBeenCalled();
   });
 });
 

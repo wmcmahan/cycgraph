@@ -192,7 +192,7 @@ const result = await runEvals({
   baseline: true,
   samples: 3,
 });
-// { drift, raw, suiteLoadErrors, baselineDelta?, flakyTests? }
+// { drift, raw, suiteLoadErrors, baselineDelta?, baselineLoadError?, flakyTests? }
 ```
 
 ## Golden dataset
@@ -271,4 +271,4 @@ Issues and PRs welcome on [GitHub](https://github.com/wmcmahan/cycgraph). See [C
 
 ## License
 
-[Apache 2.0](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE).
+[Apache 2.0](https://github.com/wmcmahan/cycgraph/blob/main/LICENSE).lob/main/LICENSE).

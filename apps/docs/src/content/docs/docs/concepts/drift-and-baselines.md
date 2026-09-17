@@ -258,7 +258,8 @@ The complete result of an eval run, returned by `runEvals`.
 | `drift` | `DriftReport` | Computed drift report with the gate pass/fail. |
 | `raw` | `unknown` | Raw per-test results across both tracks. |
 | `suiteLoadErrors` | `SuiteLoadError[]` | Suites that failed to load. A non-empty array should be treated as a gate failure, because a missing suite produces zero tests and would otherwise pass the drift gate trivially. |
-| `baselineDelta` | `BaselineDelta` | Optional. Baseline comparison result when the run set `baseline: true`. Undefined otherwise. |
+| `baselineDelta` | `BaselineDelta` | Optional. Baseline comparison result when the run set `baseline: true`. Undefined when baseline comparison was not requested, and also undefined when the stored baseline failed to load (see `baselineLoadError`). |
+| `baselineLoadError` | `string` | Optional. Set when a baseline file exists but could not be loaded (corrupt snapshot or unknown schema version). Should be treated as a gate failure, because comparison is skipped and the run cannot prove the absence of a regression. |
 | `flakyTests` | `Array<{ suite: string; passRate: number; samples: number }>` | Optional. Tests with inconsistent outcomes across samples. Empty when `samples: 1`. |
 
 ### BaselineSnapshot
