@@ -59,6 +59,22 @@ describe('createCircuitBreaker', () => {
     expect(tracker.getAverage('test-compressor').samplesCount).toBe(3);
   });
 
+  it('keeps executing a stage that saves tokens in unmeasurably little time', () => {
+    const tracker = createLatencyTracker();
+    tracker.record('test-compressor', 0, 100);
+    tracker.record('test-compressor', 0, 100);
+    const breaker = createCircuitBreaker(compressingStage(), tracker, {
+      warmupSamples: 2,
+      minEfficiency: 1.0,
+      cooldownMs: 60_000,
+    });
+
+    const result = breaker.execute(withFiller, makeContext());
+
+    expect(result.segments[0].content).toBe('hello world end');
+    expect(tracker.getAverage('test-compressor').samplesCount).toBe(3);
+  });
+
   it('records metrics for each executed run', () => {
     const tracker = createLatencyTracker();
     const breaker = createCircuitBreaker(compressingStage(), tracker, { warmupSamples: 1 });

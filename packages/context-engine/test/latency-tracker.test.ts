@@ -37,6 +37,28 @@ describe('createLatencyTracker', () => {
     expect(tracker.getEfficiency('fast')).toBe(0);
   });
 
+  it('reports infinite efficiency for a zero-duration stage that saves tokens', () => {
+    const tracker = createLatencyTracker();
+    tracker.record('regex-dedup', 0, 40);
+    tracker.record('regex-dedup', 0, 60);
+
+    expect(tracker.getEfficiency('regex-dedup')).toBe(Infinity);
+  });
+
+  it('reports zero efficiency for a zero-duration stage that saves nothing', () => {
+    const tracker = createLatencyTracker();
+    tracker.record('noop', 0, 0);
+
+    expect(tracker.getEfficiency('noop')).toBe(0);
+  });
+
+  it('reports negative infinite efficiency for a zero-duration stage that adds tokens', () => {
+    const tracker = createLatencyTracker();
+    tracker.record('inflating', 0, -20);
+
+    expect(tracker.getEfficiency('inflating')).toBe(-Infinity);
+  });
+
   it('reports negative efficiency when a stage adds tokens', () => {
     const tracker = createLatencyTracker();
     tracker.record('bad-stage', 10, -5);
