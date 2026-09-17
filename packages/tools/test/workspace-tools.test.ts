@@ -261,13 +261,43 @@ describe('diagnosticsTool', () => {
     vi.unstubAllEnvs();
   });
 
-  it('keeps the last lines when a flood of findings passes the cap', async () => {
+  it('keeps the last lines when a flood past the cap carries no failure markers', async () => {
     const result = await diagnosticsTool({
       cwd: root, command: 'node', maxLines: 3,
       args: ['-e', 'for (let i = 0; i < 10; i++) console.error("finding " + i); process.exit(1)'],
     }).execute({}) as { output: string };
 
-    expect(result.output).toBe('[7 earlier line(s) truncated]\nfinding 7\nfinding 8\nfinding 9');
+    expect(result.output).toBe('[8 earlier line(s) truncated]\nfinding 8\nfinding 9');
+  });
+
+  it('surfaces failure-marker lines ahead of the tail within the line cap', async () => {
+    const script = 'console.error("FAIL test/broken.test.ts"); for (let i = 0; i < 10; i++) console.error("passing noise " + i); process.exit(1)';
+    const result = await diagnosticsTool({
+      cwd: root, command: 'node', maxLines: 4,
+      args: ['-e', script],
+    }).execute({}) as { output: string };
+
+    expect(result.output).toBe([
+      '[11 line(s) total; 1 failure line(s) first, then the tail]',
+      'FAIL test/broken.test.ts',
+      '---',
+      'passing noise 9',
+    ].join('\n'));
+  });
+
+  it('treats an Error subclass line as a failure marker', async () => {
+    const script = 'console.error("TypeError: x is not a function"); for (let i = 0; i < 10; i++) console.error("passing noise " + i); process.exit(1)';
+    const result = await diagnosticsTool({
+      cwd: root, command: 'node', maxLines: 4,
+      args: ['-e', script],
+    }).execute({}) as { output: string };
+
+    expect(result.output).toBe([
+      '[11 line(s) total; 1 failure line(s) first, then the tail]',
+      'TypeError: x is not a function',
+      '---',
+      'passing noise 9',
+    ].join('\n'));
   });
 });
 

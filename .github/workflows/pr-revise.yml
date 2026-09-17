@@ -76,7 +76,10 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/context-engine --workspace=packages/tools --workspace=packages/a2a --workspace=packages/orchestrator-postgres --workspace=packages/evals
+      # The full build, not a subset: the workspace checks run every
+      # package's tests, and any unbuilt @cycgraph/* dist fails suite
+      # resolution — a gate that can never pass.
+      - run: npm run build
 
       - name: Address the review feedback
         env:

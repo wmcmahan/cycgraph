@@ -2,18 +2,19 @@
  * GitHub issues as a workflow's ledger.
  *
  * A maintenance workflow files what it senses as issues and must never
- * file the same finding twice, so the two operations here are listing
- * open issues (to read the dedupe markers out of their bodies) and
- * creating one. Both go through `gh`; when it cannot answer — missing,
- * unauthenticated, no remote — the result says so rather than
- * pretending an empty ledger, because filing blind is how duplicates
- * happen.
+ * file the same finding twice, so the operations here are listing open
+ * issues (to read the dedupe markers out of their bodies), creating
+ * one, commenting on one, and labeling one. All go through `gh`; when
+ * it cannot answer — missing, unauthenticated, no remote — the result
+ * says so rather than pretending an empty ledger, because filing blind
+ * is how duplicates happen.
  *
  * @module git/issues
  */
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { ghErrorDetail } from './pr.js';
 
 const exec = promisify(execFile);
 
@@ -112,4 +113,39 @@ export function issueMarkers(issues: readonly IssueRef[]): Set<string> {
     for (const match of issue.body.matchAll(MARKER)) keys.add(match[1]!);
   }
   return keys;
+}
+
+/** Comment on an issue; the failure's message when it cannot. */
+export async function commentOnIssue(
+  repoRoot: string,
+  issueNumber: number,
+  body: string,
+  options: { token?: string } = {},
+): Promise<{ ok: boolean; detail: string }> {
+  const env = ghEnv(options.token);
+  try {
+    await exec('gh', ['issue', 'comment', String(issueNumber), '--body', body],
+      { cwd: repoRoot, ...(env !== undefined ? { env } : {}) });
+    return { ok: true, detail: 'commented' };
+  } catch (error) {
+    return { ok: false, detail: ghErrorDetail(error) };
+  }
+}
+
+/** Add a label to an issue, creating it on the repository when missing. */
+export async function addIssueLabel(
+  repoRoot: string,
+  issueNumber: number,
+  label: string,
+  options: { token?: string } = {},
+): Promise<{ ok: boolean; detail: string }> {
+  const env = ghEnv(options.token);
+  const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
+  await exec('gh', ['label', 'create', label], opts).catch(() => undefined);
+  try {
+    await exec('gh', ['issue', 'edit', String(issueNumber), '--add-label', label], opts);
+    return { ok: true, detail: `labeled ${label}` };
+  } catch (error) {
+    return { ok: false, detail: ghErrorDetail(error) };
+  }
 }
