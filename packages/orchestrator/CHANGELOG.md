@@ -1,5 +1,12 @@
 # @cycgraph/orchestrator
 
+## 1.3.10
+
+### Patch Changes
+
+- 015a7ea: `listServers()` now re-validates every stored MCP server entry through `MCPServerEntrySchema`, matching `loadServer()`. A tampered or migrated-in row with a disallowed stdio command or an SSRF-prone URL makes the call throw instead of being returned to callers.
+- 98c1a84: An open node circuit breaker no longer counts its own refusal as an execution failure, so it stops resetting the recovery clock on every attempt and can actually transition to half-open once `timeout_ms` elapses. `CircuitBreakerOpenError` is now non-retryable, so a refused node fails fast instead of sleeping through its remaining retry backoffs, and node failure statistics no longer include attempts that ran no work.
+
 ## 1.3.9
 
 ### Patch Changes
