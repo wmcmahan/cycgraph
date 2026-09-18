@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ManifestSchema } from '../src/dataset/schema.js';
-import { resolveDatasetPath } from '../src/dataset/loader.js';
+import { resolveDatasetPath } from '../src/dataset/paths.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const GOLDEN_DIR = resolve(__dirname, '../golden');

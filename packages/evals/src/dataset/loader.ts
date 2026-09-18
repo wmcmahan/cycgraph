@@ -7,63 +7,20 @@
  * @module dataset/loader
  */
 
-import { readFileSync, existsSync, realpathSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { resolve, dirname, sep } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { GoldenTrajectorySchema, ManifestSchema } from './schema.js';
+import { resolveDatasetPath } from './paths.js';
 import type { GoldenTrajectory, Manifest, SuiteName } from './types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Default path to the golden directory relative to package root. */
 const GOLDEN_DIR = resolve(__dirname, '../../golden');
-
-function isWithin(root: string, candidate: string): boolean {
-  return candidate.startsWith(root + sep);
-}
-
-/**
- * Resolves a manifest `file` field to an absolute path confined to `goldenDir`.
- *
- * @param goldenDir - Path to the golden directory that must contain the file.
- * @param file - The manifest entry's `file` field.
- * @returns Absolute path inside `goldenDir`; symlinks are resolved when the file exists.
- * @throws If the path escapes `goldenDir`, whether lexically (`..`, absolute path)
- *   or through a symlink pointing outside it.
- */
-export function resolveDatasetPath(goldenDir: string, file: string): string {
-  const root = resolve(goldenDir);
-  const candidate = resolve(root, file);
-
-  if (!isWithin(root, candidate)) {
-    throw new Error(
-      `Manifest dataset path "${file}" escapes the golden directory (${root}). ` +
-        `Dataset paths must stay inside it; the manifest sha256 is an integrity ` +
-        `check, not a confinement boundary.`,
-    );
-  }
-
-  // A symlink planted inside golden/ passes the lexical test above while
-  // pointing anywhere on disk, so confinement is re-checked against real paths.
-  if (!existsSync(candidate)) {
-    return candidate;
-  }
-
-  const realRoot = realpathSync(root);
-  const realCandidate = realpathSync(candidate);
-
-  if (!isWithin(realRoot, realCandidate)) {
-    throw new Error(
-      `Manifest dataset path "${file}" resolves outside the golden directory ` +
-        `(${realCandidate} is not under ${realRoot}).`,
-    );
-  }
-
-  return realCandidate;
-}
 
 /**
  * Reads and validates the golden dataset manifest.
