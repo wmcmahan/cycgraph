@@ -12,14 +12,27 @@ import type { CompressionStage, PromptSegment, StageContext } from '../pipeline/
 import type { ScoredToken, TokenScorer, ScorerContext } from './types.js';
 
 /**
+ * Hard ceiling on the cost of protected tokens, as a multiple of `maxTokens`.
+ * Protected tokens outrank the budget (dropping a negation inverts meaning),
+ * but the overrun has to stay bounded: `pruneByScore` output feeds the
+ * allocator's budget enforcement, which callers treat as a real ceiling.
+ */
+const PROTECTED_OVERRUN_FACTOR = 2;
+
+/**
  * Prune scored tokens to fit within a token budget.
  *
  * Algorithm:
- * 1. Always keep `protected` tokens (e.g. negations) — never budget-dropped
+ * 1. Keep `protected` tokens (e.g. negations) ahead of any scored token,
+ *    highest-scored first, up to {@link PROTECTED_OVERRUN_FACTOR} × `maxTokens`
  * 2. Sort the rest by score descending (most important first)
  * 3. Greedily select tokens until budget is reached
  * 4. Re-sort selected tokens by original offset
  * 5. Join preserving whitespace structure
+ *
+ * The result never costs more than {@link PROTECTED_OVERRUN_FACTOR} ×
+ * `maxTokens`: protected tokens may overrun the soft budget, non-protected
+ * ones never do.
  */
 export function pruneByScore(
   tokens: ScoredToken[],
@@ -29,16 +42,19 @@ export function pruneByScore(
 ): string {
   if (tokens.length === 0) return '';
 
-  // Protected tokens are kept unconditionally: dropping a negation ("not",
-  // "never", …) inverts meaning, which is worse than slightly exceeding a
-  // soft budget. They're selected first and their cost is charged up front.
+  // Protected tokens outrank the budget: dropping a negation ("not", "never",
+  // …) inverts meaning, which is worse than slightly exceeding a soft budget.
+  // They're selected first and their cost is charged up front — but only up to
+  // the overrun ceiling, so a segment dense with negations cannot blow the
+  // budget without limit. Past the ceiling the lowest-scored ones are dropped.
+  const protectedCeiling = maxTokens * PROTECTED_OVERRUN_FACTOR;
   const selected: ScoredToken[] = [];
   let runningCount = 0;
-  for (const token of tokens) {
-    if (token.protected) {
-      selected.push(token);
-      runningCount += counter.countTokens(token.text, model);
-    }
+  for (const token of tokens.filter(t => t.protected).sort((a, b) => b.score - a.score)) {
+    const tokenCount = counter.countTokens(token.text, model);
+    if (runningCount + tokenCount > protectedCeiling) continue;
+    selected.push(token);
+    runningCount += tokenCount;
   }
 
   // Sort the remaining tokens by importance (highest first).
