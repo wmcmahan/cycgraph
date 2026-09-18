@@ -419,6 +419,16 @@ describe('requestFetch', () => {
     return fetchMock.mock.calls[0]![1]!.signal!;
   }
 
+  function redirectTo(location: string): Response {
+    return new Response(null, { status: 302, headers: { location } });
+  }
+
+  function redirectThenOk(location: string) {
+    return vi.fn()
+      .mockResolvedValueOnce(redirectTo(location))
+      .mockResolvedValue(new Response('{}'));
+  }
+
   it('aborts the request when the delivery bound fires and the sdk carries its own signal', async () => {
     const fetchMock = okFetch();
     vi.stubGlobal('fetch', fetchMock);
@@ -475,5 +485,111 @@ describe('requestFetch', () => {
       authorization: 'Bearer sesame',
       'content-type': 'application/json',
     });
+  });
+
+  it('requests every hop with manual redirect handling', async () => {
+    const fetchMock = redirectThenOk('http://other.example/rpc');
+    vi.stubGlobal('fetch', fetchMock);
+
+    await requestFetch({})(`${CARD_URL}/rpc`, {});
+
+    expect(fetchMock.mock.calls.map((call) => (call[1] as RequestInit).redirect)).toEqual(['manual', 'manual']);
+  });
+
+  it('follows a redirect to a public host with the per-server headers', async () => {
+    const fetchMock = redirectThenOk('http://other.example/rpc');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await requestFetch({ authorization: 'Bearer sesame' })(`${CARD_URL}/rpc`, {});
+
+    expect(response.status).toBe(200);
+    expect(String(fetchMock.mock.calls[1]![0])).toBe('http://other.example/rpc');
+    expect(((fetchMock.mock.calls[1]![1] as RequestInit).headers as Record<string, string>).authorization)
+      .toBe('Bearer sesame');
+  });
+
+  it('resolves a relative redirect location against the hop that sent it', async () => {
+    const fetchMock = redirectThenOk('/other');
+    vi.stubGlobal('fetch', fetchMock);
+
+    await requestFetch({})(`${CARD_URL}/rpc`, {});
+
+    expect(String(fetchMock.mock.calls[1]![0])).toBe(`${CARD_URL}/other`);
+  });
+
+  it('refuses a redirect to a private host', async () => {
+    const fetchMock = redirectThenOk(`http://${METADATA_IP}/rpc`);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(requestFetch({ authorization: 'Bearer sesame' })(`${CARD_URL}/rpc`, {})).rejects.toThrow(
+      `request redirected to "http://${METADATA_IP}/rpc", a private/loopback host, and is blocked (SSRF guard).`);
+  });
+
+  it('does not issue the redirected request when the target is a private host', async () => {
+    const fetchMock = redirectThenOk(`http://${METADATA_IP}/rpc`);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await settled(requestFetch({ authorization: 'Bearer sesame' })(`${CARD_URL}/rpc`, {}));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a redirect whose public-looking host resolves to a private address', async () => {
+    const fetchMock = redirectThenOk('http://attacker.example/rpc');
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockImplementation(async (host: string) =>
+      host === 'attacker.example'
+        ? [{ address: METADATA_IP, family: 4 }]
+        : [{ address: PUBLIC_IP, family: 4 }]);
+
+    await expect(requestFetch({})(`${CARD_URL}/rpc`, {})).rejects.toThrow(
+      `redirect target host "attacker.example" resolves to a private/loopback address (${METADATA_IP})`);
+  });
+
+  it('refuses a redirect that is not http(s)', async () => {
+    const fetchMock = redirectThenOk('file:///etc/passwd');
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(requestFetch({})(`${CARD_URL}/rpc`, {})).rejects.toThrow(
+      'request redirected to "file:///etc/passwd", which must use http(s), got "file:"');
+  });
+
+  it('refuses a request that exceeds five redirect hops', async () => {
+    const fetchMock = vi.fn(async () => redirectTo('http://other.example/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(requestFetch({})(`${CARD_URL}/rpc`, {})).rejects.toThrow(
+      `request to "${CARD_URL}/rpc" exceeded 5 redirects (SSRF guard)`);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it('returns a redirect response that carries no location header', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 302 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await requestFetch({})(`${CARD_URL}/rpc`, {});
+
+    expect(response.status).toBe(302);
+  });
+
+  it('honors the development opt-out for a redirect to a private host', async () => {
+    vi.stubEnv('CYCGRAPH_ALLOW_PRIVATE_A2A_URLS', 'true');
+    const fetchMock = redirectThenOk('http://127.0.0.1:9999/rpc');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await requestFetch({})(`${CARD_URL}/rpc`, {});
+
+    expect(response.status).toBe(200);
+  });
+
+  it('replays the method and body of a request input on a redirect hop', async () => {
+    const fetchMock = redirectThenOk('http://other.example/rpc');
+    vi.stubGlobal('fetch', fetchMock);
+
+    await requestFetch({})(new Request(`${CARD_URL}/rpc`, { method: 'POST', body: '{"id":1}' }));
+
+    const hop = fetchMock.mock.calls[1]![1] as RequestInit;
+    expect(hop.method).toBe('POST');
+    expect(new TextDecoder().decode(hop.body as ArrayBuffer)).toBe('{"id":1}');
   });
 });
