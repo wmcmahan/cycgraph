@@ -1,5 +1,13 @@
 # @cycgraph/a2a
 
+## 1.1.7
+
+### Patch Changes
+
+- 8eed7ca: Agent Card resolution is now claimed in the cache before the SSRF/DNS check runs, so concurrent first calls for the same agent card URL and header set share a single card fetch instead of each issuing their own. Fan-out patterns (map, voting, parallel branches) against one agent no longer hit the remote's card endpoint once per node execution.
+- 8aeb155: Pin the RPC endpoints an Agent Card may name, and every redirect hop a request follows, to the host of the registry's `agent_card_url` plus the optional new `allowed_endpoint_hosts` list on an A2A server entry. A card that names an unrelated public host, or a remote that answers with `Location:` pointing at one, is now refused instead of receiving the server's bearer token or custom auth header.
+- e01d19e: Revalidate every redirect hop on Agent Card and JSON-RPC requests. Redirects are now followed manually and each hop is re-checked against the scheme, literal-host, and DNS rules (capped at 5 hops), so a public host can no longer 302 a request — bearer token included — into private infrastructure.
+
 ## 1.1.6
 
 ### Patch Changes
