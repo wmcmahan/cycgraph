@@ -415,11 +415,14 @@ async function main(): Promise<void> {
     const { writeFile } = await import('node:fs/promises');
     const { MaintainResultSchema } = await import('./tune.js');
     const verdict = (recorded.memory as Record<string, unknown>)['gate_verification_passed'];
+    const gaveUp = memory['giveup_result'];
     await writeFile(resultPath, JSON.stringify(MaintainResultSchema.parse({
       status: recorded.state.status,
       gate: typeof verdict === 'boolean' ? verdict : null,
       tokens: recorded.state.total_tokens_used,
       cost_usd: recorded.state.total_cost_usd,
+      gave_up: gaveUp?.['flagged'] === true,
+      published: publish?.['prUrl'] !== undefined,
     })));
   }
   if (scan !== undefined) say(`findings in scope: ${String(scan['total'])}`);

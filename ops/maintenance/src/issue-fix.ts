@@ -352,6 +352,20 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         env: checksEnv(),
       });
 
+      // The first check command doubles as the fixer's own probe: an
+      // agent that cannot compile what it edits fails the later gate
+      // blind, and three blind gate cycles cost far more than in-pass
+      // probe calls. The full trio still runs at the gate; this is the
+      // fast subset, and its incremental state warms across calls.
+      const probeTool = diagnosticsTool({
+        name: 'workspace_check',
+        cwd: workspaceAt,
+        command: p.checks.length > 0 ? 'sh' : 'true',
+        ...(p.checks.length > 0 ? { args: ['-c', p.checks[0]!] } : { args: [] }),
+        timeoutMs: 600_000,
+        env: checksEnv(),
+      });
+
       const diffTool = tool({
         name: 'workspace_diff',
         description: 'The workspace\'s full uncommitted diff, for review.',
@@ -417,19 +431,22 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         model: env.model,
         provider: env.provider,
         temperature: 0.1,
-        maxSteps: 16,
+        // Sized for edit rounds plus the probe-and-fix cycles the
+        // workspace_check instruction asks for.
+        maxSteps: 20,
         instructions: p.prompt !== '' ? p.prompt : [
           'You resolve one piece of owed upkeep in a codebase: a TODO to implement, a skipped test to revive, a lint warning to fix, or an audited finding whose specification is the issue text in your instructions.',
           'Use search to orient, read_file to see exact bytes, and edit_file to change them.',
           'The find text must be the file’s exact bytes as read_file shows them: never include line-number prefixes from search results, and never change indentation.',
           'If edit_file refuses because the find text matches more than one place, read the file and retry with a longer find that includes enough neighbouring text to match exactly once.',
           'Resolve the work, never erase its marker: the follow-up instruction states what counts as erasure for this finding, and erasure is refused.',
+          'After your edits, run workspace_check and fix what it reports until it comes back clean — the gate re-runs a stricter version of the same checks, and a pass that ends with workspace_check red will fail it. Never reply FIXED without a clean workspace_check after your last edit.',
           'If a reviewer\'s findings are in your context, address exactly what they name and nothing more — unless a finding makes a factual claim about the wider tree (a dependency direction, an existing helper) that your tools show to be wrong: then verify, keep your fix, and state the disputing evidence in your reply (the file and line that disproves it).',
           STANDARDS_BRIEF,
           CHANGESET_INSTRUCTION,
           'Change nothing unrelated. When the fix is made, reply with one line: FIXED <file>.',
         ].join(' '),
-        tools: [hands.search, hands.read, hands.edit, hands.create],
+        tools: [hands.search, hands.read, hands.edit, hands.create, probeTool],
       });
 
       // The reviewer is an advisory critic, not the verdict: the
