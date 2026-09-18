@@ -49,6 +49,21 @@ describe('scanDocs', () => {
     expect(finding).toMatchObject({ kind: 'missing-path', target: 'packages/orchestrator/src/runner/graph-runner.ts' });
   });
 
+  it('reports a missing path under a non-package workspace group', async () => {
+    await write('README.md', 'The scanner lives in ops/maintenance/src/docs-scanner.ts today.\n');
+
+    const [finding] = await scanDocs(root);
+
+    expect(finding).toMatchObject({ kind: 'missing-path', file: 'README.md', target: 'ops/maintenance/src/docs-scanner.ts' });
+  });
+
+  it('accepts an existing path under a non-package workspace group', async () => {
+    await write('ops/maintenance/src/docs-scan.ts', 'export {};\n');
+    await write('README.md', 'It lives in ops/maintenance/src/docs-scan.ts.\n');
+
+    expect(await scanDocs(root)).toEqual([]);
+  });
+
   it('accepts a repository path that exists', async () => {
     await write('packages/thing/src/index.ts', 'export {};\n');
     await write('README.md', 'It lives in packages/thing/src/index.ts.\n');
