@@ -174,4 +174,52 @@ describe('ManifestSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('rejects a file field that traverses out of the golden directory', () => {
+    const result = ManifestEntrySchema.safeParse({
+      name: 'test',
+      file: '../../../../etc/passwd',
+      sha256: 'abc',
+      trajectoryCount: 1,
+      schemaVersion: '1.0.0',
+      lastUpdated: '2026-04-01T00:00:00Z',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an absolute file field', () => {
+    const result = ManifestEntrySchema.safeParse({
+      name: 'test',
+      file: '/etc/passwd',
+      sha256: 'abc',
+      trajectoryCount: 1,
+      schemaVersion: '1.0.0',
+      lastUpdated: '2026-04-01T00:00:00Z',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a file field with a nested traversal segment', () => {
+    const result = ManifestEntrySchema.safeParse({
+      name: 'test',
+      file: 'data/../../secrets.sqlite.gz',
+      sha256: 'abc',
+      trajectoryCount: 1,
+      schemaVersion: '1.0.0',
+      lastUpdated: '2026-04-01T00:00:00Z',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a file field outside the data directory', () => {
+    const result = ManifestEntrySchema.safeParse({
+      name: 'test',
+      file: 'test.sqlite.gz',
+      sha256: 'abc',
+      trajectoryCount: 1,
+      schemaVersion: '1.0.0',
+      lastUpdated: '2026-04-01T00:00:00Z',
+    });
+    expect(result.success).toBe(false);
+  });
 });

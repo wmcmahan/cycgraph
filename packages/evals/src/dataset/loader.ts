@@ -7,10 +7,10 @@
  * @module dataset/loader
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { GoldenTrajectorySchema, ManifestSchema } from './schema.js';
@@ -20,6 +20,50 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Default path to the golden directory relative to package root. */
 const GOLDEN_DIR = resolve(__dirname, '../../golden');
+
+function isWithin(root: string, candidate: string): boolean {
+  return candidate.startsWith(root + sep);
+}
+
+/**
+ * Resolves a manifest `file` field to an absolute path confined to `goldenDir`.
+ *
+ * @param goldenDir - Path to the golden directory that must contain the file.
+ * @param file - The manifest entry's `file` field.
+ * @returns Absolute path inside `goldenDir`; symlinks are resolved when the file exists.
+ * @throws If the path escapes `goldenDir`, whether lexically (`..`, absolute path)
+ *   or through a symlink pointing outside it.
+ */
+export function resolveDatasetPath(goldenDir: string, file: string): string {
+  const root = resolve(goldenDir);
+  const candidate = resolve(root, file);
+
+  if (!isWithin(root, candidate)) {
+    throw new Error(
+      `Manifest dataset path "${file}" escapes the golden directory (${root}). ` +
+        `Dataset paths must stay inside it; the manifest sha256 is an integrity ` +
+        `check, not a confinement boundary.`,
+    );
+  }
+
+  // A symlink planted inside golden/ passes the lexical test above while
+  // pointing anywhere on disk, so confinement is re-checked against real paths.
+  if (!existsSync(candidate)) {
+    return candidate;
+  }
+
+  const realRoot = realpathSync(root);
+  const realCandidate = realpathSync(candidate);
+
+  if (!isWithin(realRoot, realCandidate)) {
+    throw new Error(
+      `Manifest dataset path "${file}" resolves outside the golden directory ` +
+        `(${realCandidate} is not under ${realRoot}).`,
+    );
+  }
+
+  return realCandidate;
+}
 
 /**
  * Reads and validates the golden dataset manifest.
@@ -39,15 +83,17 @@ export function loadManifest(goldenDir: string = GOLDEN_DIR): Manifest {
  *
  * Steps:
  * 1. Read manifest to locate the dataset file for the suite
- * 2. Read the compressed `.sqlite.gz` file
- * 3. Decompress in memory
- * 4. Open as an in-memory SQLite database
- * 5. Query all trajectories and validate each against GoldenTrajectorySchema
+ * 2. Resolve the dataset path, confined to `goldenDir`
+ * 3. Read the compressed `.sqlite.gz` file and verify its sha256
+ * 4. Decompress in memory
+ * 5. Open as an in-memory SQLite database
+ * 6. Query all trajectories and validate each against GoldenTrajectorySchema
  *
  * @param suite - The suite name to load trajectories for.
  * @param goldenDir - Path to the golden directory. Defaults to `golden/` at package root.
  * @returns Array of validated golden trajectories.
- * @throws If the suite is not found in the manifest or trajectories fail validation.
+ * @throws If the suite is not found in the manifest, its dataset path escapes
+ *   `goldenDir`, the dataset fails its checksum, or trajectories fail validation.
  */
 export function loadGoldenTrajectories(
   suite: SuiteName,
@@ -62,7 +108,7 @@ export function loadGoldenTrajectories(
     );
   }
 
-  const compressedPath = resolve(goldenDir, entry.file);
+  const compressedPath = resolveDatasetPath(goldenDir, entry.file);
   const compressed = readFileSync(compressedPath);
 
   // Verify the dataset matches the manifest's recorded checksum before trusting

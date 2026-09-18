@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ManifestSchema } from '../src/dataset/schema.js';
+import { resolveDatasetPath } from '../src/dataset/loader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const GOLDEN_DIR = resolve(__dirname, '../golden');
@@ -51,7 +52,7 @@ async function main(): Promise<void> {
   let allPresent = true;
 
   for (const entry of manifest.datasets) {
-    const filePath = resolve(GOLDEN_DIR, entry.file);
+    const filePath = resolveDatasetPath(GOLDEN_DIR, entry.file);
     const exists = existsSync(filePath);
     const status = exists ? 'OK' : 'MISSING';
 
