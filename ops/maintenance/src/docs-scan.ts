@@ -213,8 +213,13 @@ function similarity(a: string, b: string): number {
 
 // A relative markdown link, ignoring anchors and external schemes.
 const LINK = /\]\((\.{1,2}\/[^)\s#]+)/g;
-// A repository path a document names in prose or a code fence.
-const REPO_PATH = /\b((?:packages|apps|docs|examples)\/[A-Za-z0-9._/-]+\.(?:ts|tsx|js|mjs|md|mdx|sql|json))\b/g;
+// A repository path a document names in prose or a code fence. The
+// prefixes must cover every workspace group the root manifest declares
+// (`packages/*`, `ops/*`) as well as the documentation trees that are not
+// workspaces: a group missing here is a stale claim no detector catches.
+// The list stays literal because `countReferences` shares this pattern —
+// matching more than the counter would read a deletion as a correction.
+const REPO_PATH = /\b((?:packages|apps|ops|docs|examples)\/[A-Za-z0-9._/-]+\.(?:ts|tsx|js|mjs|md|mdx|sql|json))\b/g;
 // An npm script a reader is told to run, with the workspace flag that
 // often follows it — `npm run evals --workspace=packages/evals` names a
 // package script and is correct, however the root's manifest looks.
