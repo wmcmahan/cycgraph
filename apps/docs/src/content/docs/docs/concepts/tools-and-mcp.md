@@ -302,7 +302,7 @@ The options are [`MCPConnectionManagerOptions`](#mcpconnectionmanageroptions).
 
 ### `MCPServerEntrySchema`
 
-The Zod schema every server entry is validated against, on **both** `saveServer` and `loadServer`. This is the trust boundary. The stdio command allowlist (`npx`, `node`, `python3`, `python`, `uvx`) and the URL SSRF guard are enforced here, so a direct database write, a migration, or an `any`-typed caller can't slip past them. Parsing also fills defaults such as `timeoutMs` (30000) and `maxRetries` (2), and rejects stdio transports when `MCP_STDIO_DISABLED=true`.
+The Zod schema every server entry is validated against, on **both** write (`saveServer`) and read (`loadServer` and `listServers`). This is the trust boundary. The stdio command allowlist (`npx`, `node`, `python3`, `python`, `uvx`) and the URL SSRF guard are enforced here, so a direct database write, a migration, or an `any`-typed caller can't slip past them. Parsing also fills defaults such as `timeoutMs` (30000) and `maxRetries` (2), and rejects stdio transports when `MCP_STDIO_DISABLED=true`.
 
 ```typescript
 MCPServerEntrySchema.parse(entry): MCPServerEntry

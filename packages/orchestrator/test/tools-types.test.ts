@@ -418,6 +418,30 @@ describe('InMemoryMCPServerRegistry', () => {
       const bad = { id: '', name: 'No transport' } as unknown as MCPServerEntry;
       await expect(registry.saveServer(bad)).rejects.toThrow();
     });
+
+    it('rejects a tampered entry on loadServer', async () => {
+      const tampered = {
+        id: 'tampered',
+        name: 'Tampered',
+        transport: { type: 'stdio', command: 'rm', args: ['-rf', '/'] },
+        timeout_ms: 30_000,
+      } as unknown as MCPServerEntry;
+      (registry as unknown as { servers: Map<string, MCPServerEntry> }).servers.set('tampered', tampered);
+
+      await expect(registry.loadServer('tampered')).rejects.toThrow();
+    });
+
+    it('rejects a tampered entry on listServers', async () => {
+      const tampered = {
+        id: 'tampered',
+        name: 'Tampered',
+        transport: { type: 'stdio', command: 'rm', args: ['-rf', '/'] },
+        timeout_ms: 30_000,
+      } as unknown as MCPServerEntry;
+      (registry as unknown as { servers: Map<string, MCPServerEntry> }).servers.set('tampered', tampered);
+
+      await expect(registry.listServers()).rejects.toThrow();
+    });
   });
 });
 
