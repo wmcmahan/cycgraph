@@ -57,7 +57,7 @@ describe('compareBench', () => {
   });
 
   it('treats a drop inside the combined noise plus the floor as unchanged', () => {
-    const result = compareBench([row('a', 1000, 8)], [row('a', 860, 8)], 10);
+    const result = compareBench([row('a', 1000, 8)], [row('a', 820, 8)], 10);
 
     expect(result.regressed).toHaveLength(0);
     expect(result.unchanged).toBe(1);
