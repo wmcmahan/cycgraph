@@ -33,6 +33,20 @@ await migrate(drizzle(pool), {
 
 Working in the cycgraph monorepo instead: `docker-compose up -d` starts Postgres on port 5433, then `npm run migrate --workspace=packages/orchestrator-postgres` applies the migrations.
 
+### Connection roles
+
+Three connection strings map to three roles. A single-tenant or development deployment sets only `DATABASE_URL`; the other two fall back to it.
+
+| Variable | Role | Used by | When unset |
+|----------|------|---------|------------|
+| `DATABASE_URL` | Table owner | Migrations and all unscoped adapter reads/writes (`getDb()`) | Required — `getDb()` throws |
+| `APP_DATABASE_URL` | Non-owner login with `cycgraph_app` membership, subject to row-level security | `withTenant` / tenant-scoped work (`getAppDb()`) | Falls back to the owner connection; RLS does not engage, and the adapters' `tenant_id` filters do the isolating |
+| `PLATFORM_DATABASE_URL` | `cycgraph_admin` (`BYPASSRLS`, created by migration `0019`) | `withPlatform` / cross-tenant sweeps such as queue dequeue, claim reclaim, and retention GC (`getPlatformDb()`) | Falls back to the owner connection — correct for a superuser owner, **but see the production requirement below** |
+
+> **Production requirement.** Migration `0019` applies `FORCE` row-level security, which subjects even a non-superuser table owner to tenant policies. A production deployment with `FORCE` RLS and a non-superuser owner **must** set `PLATFORM_DATABASE_URL`; otherwise the cross-tenant sweeps run on an RLS-subject connection and are silently filtered to zero rows — the queue stops dispatching and retention stops collecting, with no error.
+
+See [MULTI_TENANCY.md](https://github.com/wmcmahan/cycgraph/blob/main/packages/orchestrator-postgres/src/MULTI_TENANCY.md) for the role grants and the migration sequence that establishes them.
+
 ## Why
 
 - **Durable execution** — workflows survive process restarts via event-sourced replay
@@ -43,7 +57,9 @@ Working in the cycgraph monorepo instead: `docker-compose up -d` starts Postgres
 
 ## Concepts
 
-All adapters share a single lazily-initialized connection pool from `getDb()`. Set `DATABASE_URL` in the environment and the pool is created on first use (call `getDb()` up front to fail fast). Constructors take no `db` argument; each accepts an optional options object for concerns like tenant scoping, run fencing, or checkpoint retention.
+Adapters take their connection from the lazily-initialized owner pool behind `getDb()`. Set `DATABASE_URL` in the environment and the pool is created on first use (call `getDb()` up front to fail fast). Constructors take no `db` argument; each accepts an optional options object for concerns like tenant scoping, run fencing, or checkpoint retention.
+
+Two further pools exist for the isolation planes and are opened only when their connection strings are set: `getAppDb()` (`APP_DATABASE_URL`, the RLS-subject role used by `withTenant`) and `getPlatformDb()` (`PLATFORM_DATABASE_URL`, the `BYPASSRLS` role used by `withPlatform`). Each falls back to the owner pool when its variable is unset, so a deployment that sets only `DATABASE_URL` does run on one pool. `closeDb()` ends all three. See [Connection roles](#connection-roles) for the production requirement on `PLATFORM_DATABASE_URL`.
 
 ```typescript
 import {
