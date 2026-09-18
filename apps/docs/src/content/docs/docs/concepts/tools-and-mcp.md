@@ -169,7 +169,7 @@ try {
 | `http` | Remote MCP servers (stateless) | SSRF-guarded URLs (no private/loopback/metadata hosts) |
 | `sse` | Remote MCP servers (streaming) | SSRF-guarded URLs (no private/loopback/metadata hosts) |
 
-Every entry is re-validated through `MCPServerEntrySchema` on **both** `saveServer` and `loadServer`, so the command allowlist and SSRF guard are enforced even against a direct DB write, a migration, or an `any`-typed caller, not just at compile time. http/sse URLs that resolve to private, loopback, link-local, or cloud-metadata addresses are rejected; set `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true` to allow them in local development.
+Every entry is re-validated through `MCPServerEntrySchema` on **both** write (`saveServer`) and read (`loadServer` and `listServers`), so the command allowlist and SSRF guard are enforced even against a direct DB write, a migration, or an `any`-typed caller, not just at compile time. http/sse URLs that resolve to private, loopback, link-local, or cloud-metadata addresses are rejected; set `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true` to allow them in local development.
 
 Each entry also accepts optional resilience and access-control fields: `timeoutMs`, `toolTimeoutMs`, `maxConcurrentCalls`, `maxRetries`, and `allowedAgents`. See [`MCPServerConfig`](#mcpserverconfig) for the full field reference.
 
@@ -302,7 +302,7 @@ The options are [`MCPConnectionManagerOptions`](#mcpconnectionmanageroptions).
 
 ### `MCPServerEntrySchema`
 
-The Zod schema every server entry is validated against, on **both** `saveServer` and `loadServer`. This is the trust boundary. The stdio command allowlist (`npx`, `node`, `python3`, `python`, `uvx`) and the URL SSRF guard are enforced here, so a direct database write, a migration, or an `any`-typed caller can't slip past them. Parsing also fills defaults such as `timeoutMs` (30000) and `maxRetries` (2), and rejects stdio transports when `MCP_STDIO_DISABLED=true`.
+The Zod schema every server entry is validated against, on **both** write (`saveServer`) and read (`loadServer` and `listServers`). This is the trust boundary. The stdio command allowlist (`npx`, `node`, `python3`, `python`, `uvx`) and the URL SSRF guard are enforced here, so a direct database write, a migration, or an `any`-typed caller can't slip past them. Parsing also fills defaults such as `timeoutMs` (30000) and `maxRetries` (2), and rejects stdio transports when `MCP_STDIO_DISABLED=true`.
 
 ```typescript
 MCPServerEntrySchema.parse(entry): MCPServerEntry

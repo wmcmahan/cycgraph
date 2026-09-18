@@ -16,6 +16,28 @@ import { MCPServerEntrySchema, camelToSnakeDeep } from '@cycgraph/orchestrator';
 /** A query handle usable for both standalone (`db`) and tenant-scoped (`tx`) work. */
 type Queryer = typeof db | Tx;
 
+/** A selected `mcp_servers` row, before it has cleared the trust boundary. */
+type MCPServerRow = typeof mcp_servers.$inferSelect;
+
+/**
+ * Re-validate a stored row at the read boundary.
+ *
+ * SECURITY: a row written by a migration, a direct SQL statement, or an
+ * older/looser schema must not bypass the stdio command allowlist and the URL
+ * SSRF guard that live in MCPServerEntrySchema. Throws rather than returning
+ * an unvalidated transport to a caller that may connect to it.
+ */
+function parseRow(row: MCPServerRow): MCPServerEntry {
+  return MCPServerEntrySchema.parse({
+    id: row.id,
+    name: row.name,
+    description: row.description ?? undefined,
+    transport: row.transport,
+    allowed_agents: row.allowed_agents ?? undefined,
+    timeout_ms: row.timeout_ms,
+  });
+}
+
 export interface DrizzleMCPServerRegistryOptions {
   /**
    * Tenant whose MCP servers this registry sees. When set, reads/deletes are
@@ -97,29 +119,18 @@ export class DrizzleMCPServerRegistry implements MCPServerRegistry {
 
     if (result.length === 0) return null;
 
-    const row = result[0];
-    // Re-validate on read: a row written by a migration, a direct SQL
-    // statement, or an older/looser schema must not bypass the guards.
-    return MCPServerEntrySchema.parse({
-      id: row.id,
-      name: row.name,
-      description: row.description ?? undefined,
-      transport: row.transport,
-      allowed_agents: row.allowed_agents ?? undefined,
-      timeout_ms: row.timeout_ms,
-    });
+    return parseRow(result[0]);
   }
 
+  /**
+   * List every visible server entry, each re-validated at the read boundary.
+   *
+   * Throws if any stored row fails {@link MCPServerEntrySchema}, so a tampered
+   * transport surfaces loudly instead of being silently omitted from the list.
+   */
   async listServers(): Promise<MCPServerEntry[]> {
     const rows = await this.read((q) => q.select().from(mcp_servers).where(this.tenantEq(mcp_servers.tenant_id)));
-    return rows.map(row => ({
-      id: row.id,
-      name: row.name,
-      description: row.description ?? undefined,
-      transport: row.transport,
-      allowed_agents: row.allowed_agents ?? undefined,
-      timeout_ms: row.timeout_ms,
-    }));
+    return rows.map(parseRow);
   }
 
   async deleteServer(id: string): Promise<boolean> {

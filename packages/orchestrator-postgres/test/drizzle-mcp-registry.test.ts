@@ -2,11 +2,12 @@
  * DrizzleMCPServerRegistry Tests
  *
  * Integration tests for the Postgres-backed MCP server registry. Entries pass
- * through MCPServerEntrySchema on BOTH save and load — the trust boundary that
- * enforces the stdio-command allowlist and the URL SSRF guard. These tests
- * cover camelCase authoring → snake_case storage, allowlist/SSRF rejection at
- * the write boundary, re-validation on read, the CRUD lifecycle, and per-tenant
- * scoping including the cross-tenant id-collision no-op.
+ * through MCPServerEntrySchema on save and on every read (`loadServer` and
+ * `listServers`) — the trust boundary that enforces the stdio-command
+ * allowlist and the URL SSRF guard. These tests cover camelCase authoring →
+ * snake_case storage, allowlist/SSRF rejection at the write boundary,
+ * re-validation on read, the CRUD lifecycle, and per-tenant scoping including
+ * the cross-tenant id-collision no-op.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -138,6 +139,18 @@ describe.skipIf(!isDatabaseAvailable())('DrizzleMCPServerRegistry', () => {
       const list = await registry.listServers();
 
       expect(list).toEqual([]);
+    });
+
+    it('re-validates on read and rejects a row that bypassed the write guard', async () => {
+      const db = await getDb();
+      await db.insert(mcp_servers).values({
+        id: 'listed-smuggled',
+        name: 'Smuggled',
+        transport: { type: 'stdio', command: 'rm', args: ['-rf', '/'] } as never,
+        timeout_ms: 30_000,
+      });
+
+      await expect(registry.listServers()).rejects.toThrow();
     });
   });
 

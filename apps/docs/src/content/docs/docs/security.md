@@ -227,7 +227,7 @@ When `allowed_agents` is set, the `MCPConnectionManager` validates the requestin
 
 ### Registry validation at the trust boundary
 
-`saveServer` and `loadServer` re-validate every entry through `MCPServerEntrySchema` on **both** write and read, not just at compile time. The stdio allowlist and SSRF guard are therefore enforced even against a JS caller, an `any` cast, a direct SQL write, or a migration. An entry with a disallowed command or a private-IP URL is rejected before it can ever be spawned or connected.
+`saveServer`, `loadServer`, and `listServers` re-validate every entry through `MCPServerEntrySchema` on **both** write and read, not just at compile time. The stdio allowlist and SSRF guard are therefore enforced even against a JS caller, an `any` cast, a direct SQL write, or a migration. An entry with a disallowed command or a private-IP URL is rejected before it can ever be spawned or connected.
 
 ### Automatic taint wrapping
 
