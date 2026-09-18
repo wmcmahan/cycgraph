@@ -92,6 +92,46 @@ describe('A2AServerEntrySchema', () => {
     })).toThrow();
   });
 
+  it('accepts bare hostnames as allowed endpoint hosts', () => {
+    const entry = A2AServerEntrySchema.parse({
+      ...VALID,
+      agent_card_url: VALID.agentCardUrl,
+      allowed_endpoint_hosts: ['rpc.example.com', 'RPC2.example.com', '[2001:db8::1]'],
+    });
+
+    expect(entry.allowed_endpoint_hosts).toEqual(['rpc.example.com', 'RPC2.example.com', '[2001:db8::1]']);
+  });
+
+  it('leaves allowed endpoint hosts absent when the entry omits them', () => {
+    const entry = A2AServerEntrySchema.parse({ ...VALID, agent_card_url: VALID.agentCardUrl });
+
+    expect(entry.allowed_endpoint_hosts).toBeUndefined();
+  });
+
+  it('rejects an allowed endpoint host carrying a scheme', () => {
+    expect(() => A2AServerEntrySchema.parse({
+      ...VALID, agent_card_url: VALID.agentCardUrl, allowed_endpoint_hosts: ['https://rpc.example'],
+    })).toThrow(/bare hostname/);
+  });
+
+  it('rejects an allowed endpoint host carrying a port', () => {
+    expect(() => A2AServerEntrySchema.parse({
+      ...VALID, agent_card_url: VALID.agentCardUrl, allowed_endpoint_hosts: ['rpc.example:8080'],
+    })).toThrow(/bare hostname/);
+  });
+
+  it('rejects an allowed endpoint host carrying a path', () => {
+    expect(() => A2AServerEntrySchema.parse({
+      ...VALID, agent_card_url: VALID.agentCardUrl, allowed_endpoint_hosts: ['rpc.example/rpc'],
+    })).toThrow(/bare hostname/);
+  });
+
+  it('rejects an empty allowed endpoint host', () => {
+    expect(() => A2AServerEntrySchema.parse({
+      ...VALID, agent_card_url: VALID.agentCardUrl, allowed_endpoint_hosts: [''],
+    })).toThrow();
+  });
+
   it('rejects an id with characters outside the allowed set', () => {
     expect(() => A2AServerEntrySchema.parse({
       ...VALID, id: 'has spaces', agent_card_url: VALID.agentCardUrl,
@@ -138,6 +178,22 @@ describe('InMemoryA2AServerRegistry', () => {
       id: 'research-service',
       agent_card_url: VALID.agentCardUrl,
     });
+  });
+
+  it('maps allowedEndpointHosts to the snake_case wire field', async () => {
+    const registry = new InMemoryA2AServerRegistry();
+    await registry.saveServer({ ...VALID, allowedEndpointHosts: ['rpc.example.com'] });
+
+    expect((await registry.loadServer('research-service'))?.allowed_endpoint_hosts)
+      .toEqual(['rpc.example.com']);
+  });
+
+  it('refuses to store an entry whose allowed endpoint host is not bare', async () => {
+    const registry = new InMemoryA2AServerRegistry();
+
+    await expect(registry.saveServer({ ...VALID, allowedEndpointHosts: ['https://rpc.example'] }))
+      .rejects.toThrow(/bare hostname/);
+    expect(await registry.loadServer('research-service')).toBeNull();
   });
 
   it('returns null for an unknown id', async () => {

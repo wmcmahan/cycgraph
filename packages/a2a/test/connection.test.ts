@@ -508,6 +508,8 @@ describe('sdkClientFactory', () => {
 });
 
 describe('requestFetch', () => {
+  const PINNED = new Set(['agent.example', 'other.example']);
+
   function okFetch() {
     return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{}'));
   }
@@ -532,7 +534,7 @@ describe('requestFetch', () => {
     const sdk = new AbortController();
     const delivery = new AbortController();
 
-    await requestFetch({}, delivery.signal)(`${CARD_URL}/rpc`, { signal: sdk.signal });
+    await requestFetch({}, PINNED, delivery.signal)(`${CARD_URL}/rpc`, { signal: sdk.signal });
     delivery.abort();
 
     expect(sentSignal(fetchMock).aborted).toBe(true);
@@ -544,7 +546,7 @@ describe('requestFetch', () => {
     const sdk = new AbortController();
     const delivery = new AbortController();
 
-    await requestFetch({}, delivery.signal)(`${CARD_URL}/rpc`, { signal: sdk.signal });
+    await requestFetch({}, PINNED, delivery.signal)(`${CARD_URL}/rpc`, { signal: sdk.signal });
     sdk.abort();
 
     expect(sentSignal(fetchMock).aborted).toBe(true);
@@ -555,7 +557,7 @@ describe('requestFetch', () => {
     vi.stubGlobal('fetch', fetchMock);
     const delivery = new AbortController();
 
-    await requestFetch({}, delivery.signal)(`${CARD_URL}/rpc`, {});
+    await requestFetch({}, PINNED, delivery.signal)(`${CARD_URL}/rpc`, {});
 
     expect(sentSignal(fetchMock)).toBe(delivery.signal);
   });
@@ -565,7 +567,7 @@ describe('requestFetch', () => {
     vi.stubGlobal('fetch', fetchMock);
     const sdk = new AbortController();
 
-    await requestFetch({})(`${CARD_URL}/rpc`, { signal: sdk.signal });
+    await requestFetch({}, PINNED)(`${CARD_URL}/rpc`, { signal: sdk.signal });
 
     expect(sentSignal(fetchMock)).toBe(sdk.signal);
   });
@@ -574,7 +576,7 @@ describe('requestFetch', () => {
     const fetchMock = okFetch();
     vi.stubGlobal('fetch', fetchMock);
 
-    await requestFetch({ authorization: 'Bearer sesame' })(`${CARD_URL}/rpc`, {
+    await requestFetch({ authorization: 'Bearer sesame' }, PINNED)(`${CARD_URL}/rpc`, {
       headers: { authorization: 'Bearer stale', 'content-type': 'application/json' },
     });
 
@@ -588,16 +590,16 @@ describe('requestFetch', () => {
     const fetchMock = redirectThenOk('http://other.example/rpc');
     vi.stubGlobal('fetch', fetchMock);
 
-    await requestFetch({})(`${CARD_URL}/rpc`, {});
+    await requestFetch({}, PINNED)(`${CARD_URL}/rpc`, {});
 
     expect(fetchMock.mock.calls.map((call) => (call[1] as RequestInit).redirect)).toEqual(['manual', 'manual']);
   });
 
-  it('follows a redirect to a public host with the per-server headers', async () => {
+  it('follows a redirect to a pinned host with the per-server headers', async () => {
     const fetchMock = redirectThenOk('http://other.example/rpc');
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await requestFetch({ authorization: 'Bearer sesame' })(`${CARD_URL}/rpc`, {});
+    const response = await requestFetch({ authorization: 'Bearer sesame' }, PINNED)(`${CARD_URL}/rpc`, {});
 
     expect(response.status).toBe(200);
     expect(String(fetchMock.mock.calls[1]![0])).toBe('http://other.example/rpc');
@@ -609,7 +611,7 @@ describe('requestFetch', () => {
     const fetchMock = redirectThenOk('/other');
     vi.stubGlobal('fetch', fetchMock);
 
-    await requestFetch({})(`${CARD_URL}/rpc`, {});
+    await requestFetch({}, PINNED)(`${CARD_URL}/rpc`, {});
 
     expect(String(fetchMock.mock.calls[1]![0])).toBe(`${CARD_URL}/other`);
   });
@@ -618,7 +620,9 @@ describe('requestFetch', () => {
     const fetchMock = redirectThenOk(`http://${METADATA_IP}/rpc`);
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(requestFetch({ authorization: 'Bearer sesame' })(`${CARD_URL}/rpc`, {})).rejects.toThrow(
+    await expect(
+      requestFetch({ authorization: 'Bearer sesame' }, new Set(['agent.example', METADATA_IP]))(`${CARD_URL}/rpc`, {}),
+    ).rejects.toThrow(
       `request redirected to "http://${METADATA_IP}/rpc", a private/loopback host, and is blocked (SSRF guard).`);
   });
 
@@ -626,7 +630,9 @@ describe('requestFetch', () => {
     const fetchMock = redirectThenOk(`http://${METADATA_IP}/rpc`);
     vi.stubGlobal('fetch', fetchMock);
 
-    await settled(requestFetch({ authorization: 'Bearer sesame' })(`${CARD_URL}/rpc`, {}));
+    await settled(
+      requestFetch({ authorization: 'Bearer sesame' }, new Set(['agent.example', METADATA_IP]))(`${CARD_URL}/rpc`, {}),
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -639,7 +645,9 @@ describe('requestFetch', () => {
         ? [{ address: METADATA_IP, family: 4 }]
         : [{ address: PUBLIC_IP, family: 4 }]);
 
-    await expect(requestFetch({})(`${CARD_URL}/rpc`, {})).rejects.toThrow(
+    await expect(
+      requestFetch({}, new Set(['agent.example', 'attacker.example']))(`${CARD_URL}/rpc`, {}),
+    ).rejects.toThrow(
       `redirect target host "attacker.example" resolves to a private/loopback address (${METADATA_IP})`);
   });
 
@@ -647,7 +655,7 @@ describe('requestFetch', () => {
     const fetchMock = redirectThenOk('file:///etc/passwd');
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(requestFetch({})(`${CARD_URL}/rpc`, {})).rejects.toThrow(
+    await expect(requestFetch({}, PINNED)(`${CARD_URL}/rpc`, {})).rejects.toThrow(
       'request redirected to "file:///etc/passwd", which must use http(s), got "file:"');
   });
 
@@ -655,7 +663,7 @@ describe('requestFetch', () => {
     const fetchMock = vi.fn(async () => redirectTo('http://other.example/rpc'));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(requestFetch({})(`${CARD_URL}/rpc`, {})).rejects.toThrow(
+    await expect(requestFetch({}, PINNED)(`${CARD_URL}/rpc`, {})).rejects.toThrow(
       `request to "${CARD_URL}/rpc" exceeded 5 redirects (SSRF guard)`);
     expect(fetchMock).toHaveBeenCalledTimes(6);
   });
@@ -664,7 +672,7 @@ describe('requestFetch', () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 302 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await requestFetch({})(`${CARD_URL}/rpc`, {});
+    const response = await requestFetch({}, PINNED)(`${CARD_URL}/rpc`, {});
 
     expect(response.status).toBe(302);
   });
@@ -674,16 +682,46 @@ describe('requestFetch', () => {
     const fetchMock = redirectThenOk('http://127.0.0.1:9999/rpc');
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await requestFetch({})(`${CARD_URL}/rpc`, {});
+    const response = await requestFetch({}, new Set(['agent.example', '127.0.0.1']))(`${CARD_URL}/rpc`, {});
 
     expect(response.status).toBe(200);
+  });
+
+  it('refuses a redirect to an unpinned public host', async () => {
+    const fetchMock = redirectThenOk('https://attacker.example/rpc');
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      requestFetch({ authorization: 'Bearer sesame' }, PINNED)(`${CARD_URL}/rpc`, {}),
+    ).rejects.toThrow(
+      'request redirected to "https://attacker.example/rpc", whose host "attacker.example" is neither the agent '
+      + 'card url\'s host nor an allowed endpoint host for this server');
+  });
+
+  it('does not issue the redirected request when the target host is unpinned', async () => {
+    const fetchMock = redirectThenOk('https://attacker.example/rpc');
+    vi.stubGlobal('fetch', fetchMock);
+
+    await settled(requestFetch({ authorization: 'Bearer sesame' }, PINNED)(`${CARD_URL}/rpc`, {}));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an unpinned redirect target even under the development opt-out', async () => {
+    vi.stubEnv('CYCGRAPH_ALLOW_PRIVATE_A2A_URLS', 'true');
+    const fetchMock = redirectThenOk('https://attacker.example/rpc');
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      requestFetch({ authorization: 'Bearer sesame' }, PINNED)(`${CARD_URL}/rpc`, {}),
+    ).rejects.toThrow('is neither the agent card url\'s host nor an allowed endpoint host for this server');
   });
 
   it('replays the method and body of a request input on a redirect hop', async () => {
     const fetchMock = redirectThenOk('http://other.example/rpc');
     vi.stubGlobal('fetch', fetchMock);
 
-    await requestFetch({})(new Request(`${CARD_URL}/rpc`, { method: 'POST', body: '{"id":1}' }));
+    await requestFetch({}, PINNED)(new Request(`${CARD_URL}/rpc`, { method: 'POST', body: '{"id":1}' }));
 
     const hop = fetchMock.mock.calls[1]![1] as RequestInit;
     expect(hop.method).toBe('POST');

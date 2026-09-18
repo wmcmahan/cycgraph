@@ -149,8 +149,8 @@ function pinnedHosts(agentCardUrl: string, allowedEndpointHosts: readonly string
  * agent could point the transport at loopback or cloud-metadata hosts,
  * or at a public host of its own choosing.
  *
- * Each endpoint is pinned to `agentCardUrl`'s host or one the caller
- * allowlisted. Every request built from the card carries this server's
+ * Each endpoint is pinned to `pinned` — the card URL's own host plus any
+ * the caller allowlisted. Every request built from the card carries this server's
  * resolved credential, so an endpoint on an unrelated host — public and
  * DNS-clean though it may be — is a credential-exfiltration channel, not
  * merely an SSRF one. The pin therefore holds even under the private-URL
@@ -169,10 +169,8 @@ function pinnedHosts(agentCardUrl: string, allowedEndpointHosts: readonly string
 async function assertPublicEndpoints(
   card: unknown,
   cleared: ReadonlySet<string>,
-  agentCardUrl: string,
-  allowedEndpointHosts: readonly string[],
+  pinned: ReadonlySet<string>,
 ): Promise<void> {
-  const pinned = pinnedHosts(agentCardUrl, allowedEndpointHosts);
   const skipPrivateChecks = allowsPrivateUrls();
   const hosts = new Set<string>();
   for (const value of endpointUrls(card)) {
@@ -218,15 +216,29 @@ async function assertPublicEndpoints(
  *
  * The card-url and endpoint guards judge URLs THIS package chose to
  * request; a 3xx `location` is chosen by the remote, so it is judged on
- * the same terms — scheme, literal host, then resolved addresses. Honors
- * the same opt-out: one protocol, one decision.
+ * the same terms — scheme, pinned host, literal host, then resolved
+ * addresses.
+ *
+ * The host pin is the same `pinned` set the endpoint guard applies, and
+ * for the same reason: the replayed hop carries this server's credential
+ * in its headers, so a remote that can no longer NAME an unrelated host
+ * in its card would otherwise reach it by answering with `Location:`
+ * instead. It therefore holds even under the private-URL opt-out, which
+ * speaks only to internal addresses; the privacy checks below honor that
+ * opt-out, one protocol, one decision.
  */
-async function assertPublicRedirect(target: URL): Promise<void> {
-  if (allowsPrivateUrls()) return;
+async function assertPublicRedirect(target: URL, pinned: ReadonlySet<string>): Promise<void> {
   if (target.protocol !== 'http:' && target.protocol !== 'https:') {
     throw new Error(
       `request redirected to "${target.href}", which must use http(s), got "${target.protocol}" (SSRF guard)`);
   }
+  if (!pinned.has(normalizeHost(target.hostname))) {
+    throw new Error(
+      `request redirected to "${target.href}", whose host "${target.hostname}" is neither the agent card url's `
+      + `host nor an allowed endpoint host for this server; the redirected request would carry this server's `
+      + `credentials (SSRF guard).`);
+  }
+  if (allowsPrivateUrls()) return;
   if (isPrivateOrLoopbackHost(target.hostname)) {
     throw new Error(
       `request redirected to "${target.href}", a private/loopback host, and is blocked (SSRF guard). `
@@ -265,7 +277,9 @@ async function replayInit(source: Request | undefined, hopInit: RequestInit): Pr
 /**
  * The fetch every request of one call goes through: `headers` are applied
  * over whatever the SDK set, `signal`, when given, bounds the request, and
- * redirects are followed manually so every hop is SSRF-checked.
+ * redirects are followed manually so every hop is SSRF-checked and pinned
+ * to `pinned` — the card URL's host plus the caller's allowlisted endpoint
+ * hosts, the same set the endpoint guard enforces.
  *
  * A delivery bound is COMBINED with the SDK's own `init.signal` rather
  * than replacing it, so neither the SDK's per-request cancellation nor
@@ -280,7 +294,11 @@ async function replayInit(source: Request | undefined, hopInit: RequestInit): Pr
  * {@link assertPublicEndpoints} cleared, and repeating the lookup would
  * cost a DNS round trip per request.
  */
-export function requestFetch(headers: Record<string, string>, signal?: AbortSignal): typeof fetch {
+export function requestFetch(
+  headers: Record<string, string>,
+  pinned: ReadonlySet<string>,
+  signal?: AbortSignal,
+): typeof fetch {
   return async (input, init) => {
     const hopInit: RequestInit = {
       ...init,
@@ -301,7 +319,7 @@ export function requestFetch(headers: Record<string, string>, signal?: AbortSign
       if (location === null) return response;
       await response.body?.cancel();
       current = new URL(location, current ?? targetUrl(input));
-      await assertPublicRedirect(current);
+      await assertPublicRedirect(current, pinned);
       replay ??= await replayInit(source, hopInit);
       response = await fetch(current, replay);
     }
@@ -340,6 +358,11 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
     // concurrent first calls both miss and both fetch the card.
     const clearing = assertPublicCardUrl(agentCardUrl);
 
+    // One set for this call's card endpoints AND for every redirect hop
+    // its requests follow: both carry `headers`, so both are pinned the
+    // same way.
+    const pinned = pinnedHosts(agentCardUrl, allowedEndpointHosts ?? []);
+
     // Claimed synchronously — no await may separate this lookup from the
     // set below, or the dedup it exists for does not hold.
     const key = cardKey(agentCardUrl, headers);
@@ -354,7 +377,10 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
       // accepts the connection and never answers would otherwise leave a
       // pending promise cached at this key for the life of the process.
       const cardTimeout = AbortSignal.timeout(cardTimeoutMs);
-      const cardFetch = requestFetch(headers, cardTimeout);
+      // The claiming call's pin travels with the shared card fetch, as its
+      // headers already do: the cache key holds the credential constant,
+      // so every sharer's hop carries the same token to the same hosts.
+      const cardFetch = requestFetch(headers, pinned, cardTimeout);
       // Chained on this call's clearance, so no card request leaves for
       // a host the claiming call has not cleared; the race guarantees
       // the promise settles even if the fetch ignores its abort, and
@@ -374,7 +400,7 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
       card = resolving;
     }
 
-    const fetchImpl = requestFetch(headers, signal);
+    const fetchImpl = requestFetch(headers, pinned, signal);
     const factory = new ClientFactory({
       transports: [new JsonRpcTransportFactory({ fetchImpl })],
     });
@@ -382,7 +408,7 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
     const resolved = await card;
     // Checked per call, not per resolution: the card is cached, and the
     // guard must hold for cached reuse too.
-    await assertPublicEndpoints(resolved, cleared, agentCardUrl, allowedEndpointHosts ?? []);
+    await assertPublicEndpoints(resolved, cleared, pinned);
     // Cast: the resolver returns parsed JSON; the factory validates it.
     return factory.createFromAgentCard(resolved as never);
   };

@@ -50,6 +50,26 @@ await registry.saveServer({
 
 Credentials are named environment variables, never literal values. A registry row holds no secret, so a database dump or a `listServers()` response cannot leak one. Agent Card URLs are SSRF-guarded: private, loopback, and metadata hosts are refused.
 
+### Endpoint hosts are pinned to the card's host
+
+The card URL is trusted because you wrote it into the registry; the card's *contents* come from the remote. Every request built from a card carries this entry's credential, so the RPC endpoints a card names must share the host of `agentCardUrl`. A card served from `agents.example.com` that names `https://attacker.example/rpc` is refused before the token is sent, and a redirect off a pinned host is refused on the same terms — a 302 cannot move the credential to a host the card could not name directly.
+
+If you serve the card and the RPC endpoint from different hosts, list the extra hosts with `allowedEndpointHosts`:
+
+```typescript
+await registry.saveServer({
+  id: 'research-service',
+  name: 'Research Service',
+  agentCardUrl: 'https://agents.example.com/.well-known/agent-card.json',
+  allowedEndpointHosts: ['rpc.example.com'],
+  auth: { type: 'bearer', tokenEnv: 'RESEARCH_SERVICE_TOKEN' },
+});
+```
+
+Entries are bare hostnames — no scheme, port, or path — and the registry rejects anything else on write. The pin holds even under `CYCGRAPH_ALLOW_PRIVATE_A2A_URLS`, which speaks only to private addresses: a host you deliberately serve from belongs in this list, not behind the development opt-out.
+
+An existing entry whose card and RPC endpoint live on different hosts starts failing at call time until its hosts are listed here.
+
 ## Using it in a graph
 
 `a2a()` takes the server id and the node's placement. The mappings read the same way they do on a subgraph.
