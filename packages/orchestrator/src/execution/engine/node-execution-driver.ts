@@ -283,12 +283,14 @@ export class NodeExecutionDriver {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       attempts = attempt;
-      try {
-        // Check circuit breaker
-        if (policy.circuit_breaker?.enabled) {
-          this.circuitBreakers.check(node);
-        }
 
+      // A refusal ran no work, so it must not reach `update(node.id, false)`:
+      // that resets `last_failure_time`, re-arming the cooldown every attempt.
+      if (policy.circuit_breaker?.enabled) {
+        this.circuitBreakers.check(node);
+      }
+
+      try {
         // Execute node
         const action = await this.executeNodeLogic(node, attempt);
 

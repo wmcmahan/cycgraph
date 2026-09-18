@@ -96,6 +96,13 @@ export class NodeConfigError extends CycgraphError {
  * Thrown when a circuit breaker is open and the timeout has not elapsed.
  */
 export class CircuitBreakerOpenError extends CycgraphError {
+  /**
+   * Never retried: the breaker refuses for a whole `timeout_ms` cooldown, so
+   * every attempt inside one retry loop is refused identically. Sleeping the
+   * backoff between them only burns wall-clock on work that never ran.
+   */
+  readonly retryable = false;
+
   constructor(
     public readonly nodeId: string,
   ) {
