@@ -111,6 +111,9 @@ export interface BenchComparison {
   disappeared: string[];
 }
 
+/** Percent a drop must clear on top of the combined noise to regress. */
+const regressionFloorPct = 5;
+
 /**
  * Compare two bench runs. An improvement counts only when it clears
  * both `minImprovementPct` and the combined noise; a regression counts
@@ -134,7 +137,7 @@ export function compareBench(
     const pct = ((row.hz - base.hz) / base.hz) * 100;
     const noise = base.rme + row.rme;
     if (pct >= Math.max(minImprovementPct, noise)) improved.push({ id: row.id, pct, noise });
-    else if (pct <= -Math.max(5, noise)) regressed.push({ id: row.id, pct, noise });
+    else if (pct <= -(noise + regressionFloorPct)) regressed.push({ id: row.id, pct, noise });
     else unchanged += 1;
   }
   return { improved, regressed, unchanged, disappeared };
