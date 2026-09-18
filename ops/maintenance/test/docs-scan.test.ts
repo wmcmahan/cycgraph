@@ -183,6 +183,9 @@ describe('judgeFix', () => {
   const other: DocsFinding = {
     kind: 'broken-link', file: 'b.md', line: 2, target: './also-gone.md', detail: '',
   };
+  const missingPath: DocsFinding = {
+    kind: 'missing-path', file: 'c.md', line: 3, target: 'packages/orchestrator/src/runner/graph-runner.ts', detail: '',
+  };
 
   it('calls a fix resolved when the targeted finding is gone', () => {
     const verdict = judgeFix(targeted, [targeted, other], [other]);
@@ -211,6 +214,44 @@ describe('judgeFix', () => {
     const verdict = judgeFix(targeted, [targeted], [], {
       before: 'Run `npm run db:migrate` to set up.\n',
       after: 'Run `npm run migrate --workspace=packages/orchestrator-postgres` to set up.\n',
+    });
+
+    expect(verdict).toMatchObject({ resolved: true, weakened: false });
+  });
+
+  it('calls out a broken link that was deleted rather than repointed', () => {
+    const verdict = judgeFix(other, [other], [], {
+      before: 'See [the notes](./also-gone.md) for details.\n',
+      after: 'See the notes for details.\n',
+    });
+
+    expect(verdict).toMatchObject({ resolved: true, weakened: true });
+    expect(verdict.detail).toContain('removed');
+  });
+
+  it('accepts a broken link repointed at a file that exists', () => {
+    const verdict = judgeFix(other, [other], [], {
+      before: 'See [the notes](./also-gone.md) for details.\n',
+      after: 'See [the notes](./notes.md) for details.\n',
+    });
+
+    expect(verdict).toMatchObject({ resolved: true, weakened: false });
+  });
+
+  it('calls out a repository path that was deleted rather than corrected', () => {
+    const verdict = judgeFix(missingPath, [missingPath], [], {
+      before: 'The runner lives in packages/orchestrator/src/runner/graph-runner.ts today.\n',
+      after: 'The runner lives in the orchestrator package today.\n',
+    });
+
+    expect(verdict).toMatchObject({ resolved: true, weakened: true });
+    expect(verdict.detail).toContain('removed');
+  });
+
+  it('accepts a repository path corrected to where the code moved', () => {
+    const verdict = judgeFix(missingPath, [missingPath], [], {
+      before: 'The runner lives in packages/orchestrator/src/runner/graph-runner.ts today.\n',
+      after: 'The runner lives in packages/orchestrator/src/graph/runner.ts today.\n',
     });
 
     expect(verdict).toMatchObject({ resolved: true, weakened: false });
