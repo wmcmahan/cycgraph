@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NodeExecutionDriver } from '../src/execution/engine/node-execution-driver.js';
 import type { NodeExecutionDriverDeps } from '../src/execution/engine/node-execution-driver.js';
-import { WorkflowTimeoutError, UnsupportedNodeTypeError } from '../src/execution/errors.js';
+import { WorkflowTimeoutError, UnsupportedNodeTypeError, CircuitBreakerOpenError } from '../src/execution/errors.js';
 import { createStateView } from '../src/state/state-view.js';
 import { createTestState, makeNode, createSimpleGraph } from './helpers/factories.js';
 import type { GraphNode } from '../src/graph/graph.js';
@@ -47,9 +47,12 @@ function makeHarness(opts: {
   isStreaming?: boolean;
   startTime?: number;
   state?: WorkflowState;
+  /** Graph membership for the executed node — circuit-breaker thresholds are read off the graph copy. */
+  nodes?: readonly GraphNode[];
 } = {}): Harness {
   const state = opts.state ?? createTestState({ max_execution_time_ms: 3_600_000 });
-  const graph = createSimpleGraph();
+  const baseGraph = createSimpleGraph();
+  const graph: Graph = opts.nodes ? { ...baseGraph, nodes: [...opts.nodes] } : baseGraph;
   const abortController = new AbortController();
   const emit = vi.fn();
   const dispatchInternal = vi.fn();
@@ -335,6 +338,30 @@ describe('NodeExecutionDriver', () => {
       h.execute.mockRejectedValue(new Error('breaker fail'));
 
       await expect(h.driver.executeWithTimeout(breakerNode())).rejects.toThrow('breaker fail');
+    });
+
+    it('refuses an open breaker without running or retrying work', async () => {
+      const node = breakerNode({
+        failure_policy: {
+          max_retries: 3,
+          backoff_strategy: 'fixed',
+          initial_backoff_ms: 1,
+          max_backoff_ms: 1,
+          circuit_breaker: { enabled: true, failure_threshold: 3, success_threshold: 1, timeout_ms: 60_000 },
+        },
+      });
+      const h = makeHarness({ nodes: [node] });
+      h.execute.mockRejectedValue(new Error('downstream down'));
+      await expect(h.driver.executeWithTimeout(node)).rejects.toThrow('downstream down');
+      const executionsWhenTripped = h.execute.mock.calls.length;
+      h.emit.mockClear();
+
+      const refusal = await h.driver.executeWithTimeout(node).catch((e: unknown) => e);
+
+      expect(refusal).toBeInstanceOf(CircuitBreakerOpenError);
+      expect((refusal as { retryable?: boolean }).retryable).toBe(false);
+      expect(h.execute.mock.calls.length).toBe(executionsWhenTripped);
+      expect(h.emit.mock.calls.filter(c => c[0] === 'node:retry').length).toBe(0);
     });
   });
 
