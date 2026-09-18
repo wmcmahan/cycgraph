@@ -104,7 +104,12 @@ async function skippedTestFindings(root: string): Promise<CoreFinding[]> {
 interface EslintMessage { ruleId: string | null; severity: number; line: number; message: string; }
 interface EslintResult { filePath: string; messages: EslintMessage[]; }
 
-async function lintFindings(root: string): Promise<CoreFinding[]> {
+/**
+ * Every eslint problem under `packages`, as one finding per message.
+ * A path eslint reports inside `root` is made root-relative; any other
+ * path is kept as reported. Rejects when eslint itself failed to run.
+ */
+export async function lintFindings(root: string): Promise<CoreFinding[]> {
   // eslint exits 1 when it found problems; that is still a report.
   const { stdout } = await run(
     'npx', ['eslint', 'packages', '--format', 'json'],
