@@ -31,6 +31,9 @@ permissions:
   contents: write
   pull-requests: write
   issues: read
+  # The chain-continuation step re-dispatches this workflow after a
+  # give-up; workflow_dispatch needs it.
+  actions: write
 
 # One constant group: runs queue behind each other instead of
 # interleaving, which is the one-fix-at-a-time guarantee.
@@ -102,4 +105,25 @@ jobs:
           # retries; the engine's 50KB default truncates it mid-loop and
           # starves the fixer of the feedback the loop exists to deliver.
           MAX_MEMORY_PROMPT_BYTES: 204800
+          MAINTAIN_RESULT_JSON: ${{ runner.temp }}/maintain-result.json
         run: npm run maintain --workspace=ops/maintenance -- issue-fix --checks "npm run build:libs,npm run lint:eslint,npm test" --issueNumber ${{ github.event.issue.number || 0 }}
+
+      # A give-up delivers no PR, so no merge event continues the chain:
+      # without this, one stuck issue puts the whole pipeline to sleep
+      # while approved issues wait. Bounded against looping: every
+      # give-up marks its own issue needs-human, so each re-dispatch
+      # works a strictly smaller approved pool.
+      - name: Continue the chain past a given-up issue
+        if: steps.gate.outputs.idle == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
+        run: |
+          result="${{ runner.temp }}/maintain-result.json"
+          [ -f "$result" ] || exit 0
+          [ "$(jq -r '.gave_up // false' "$result")" = "true" ] || exit 0
+          remaining=$(gh issue list --label maintenance-approved --state open --json labels \
+            --jq '[.[] | select(all(.labels[]; .name != "needs-human"))] | length')
+          if [ "$remaining" -gt 0 ]; then
+            echo "::notice::issue flagged needs-human; $remaining approved issue(s) remain — dispatching the next pick."
+            gh workflow run issue-fix.yml
+          fi

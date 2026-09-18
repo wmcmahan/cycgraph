@@ -352,6 +352,20 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         env: checksEnv(),
       });
 
+      // The first check command doubles as the fixer's own probe: an
+      // agent that cannot compile what it edits fails the later gate
+      // blind, and three blind gate cycles cost far more than in-pass
+      // probe calls. The full trio still runs at the gate; this is the
+      // fast subset, and its incremental state warms across calls.
+      const probeTool = diagnosticsTool({
+        name: 'workspace_check',
+        cwd: workspaceAt,
+        command: p.checks.length > 0 ? 'sh' : 'true',
+        ...(p.checks.length > 0 ? { args: ['-c', p.checks[0]!] } : { args: [] }),
+        timeoutMs: 600_000,
+        env: checksEnv(),
+      });
+
       const diffTool = tool({
         name: 'workspace_diff',
         description: 'The workspace\'s full uncommitted diff, for review.',
@@ -364,22 +378,35 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
 
       const giveUpTool = tool({
         name: 'give_up',
-        description: 'Flag the picked issue as waiting on a human after the retry budget is spent.',
+        description: 'Flag the picked issue as waiting on a human when the run cannot deliver a pull request.',
         parameters: z.object({
           pick_result: z.unknown().optional(),
+          baseline_result: z.unknown().optional(),
+          judge_result: z.object({ attempts: z.number() }).partial().optional(),
           checks_result: z.unknown().optional(),
+          review_check_result: z.unknown().optional(),
         }),
         timeoutMs: 60_000,
-        execute: async ({ pick_result, checks_result }) => {
+        execute: async ({ pick_result, baseline_result, judge_result, checks_result, review_check_result }) => {
           const issue = (pick_result as { issue_number?: number } | undefined)?.issue_number;
           if (issue === undefined) return { flagged: false, detail: 'detached run — nothing to flag' };
-          const tail = String((checks_result as { output?: unknown } | undefined)?.output ?? '').slice(-1_500);
+          const baseline = baseline_result as { has_target?: boolean; detail?: string } | undefined;
+          const review = review_check_result as { approved?: boolean; round?: number; detail?: string } | undefined;
+          // One node serves every dead end in the graph, so the comment
+          // has to name which one sent the run here and carry that path's
+          // evidence. The order mirrors the edge conditions: no target,
+          // then the spent gate budget, then the unapproved review.
+          const [cause, evidence] = baseline?.has_target === false
+            ? ['the finding it names is no longer in the tree, so there is nothing to fix', String(baseline.detail ?? '')]
+            : (judge_result?.attempts ?? 0) >= 3
+              ? ['three consecutive gate failures without green checks', String((checks_result as { output?: unknown } | undefined)?.output ?? '')]
+              : [`the reviewer never approved after ${String(review?.round ?? 0)} round(s)`, String(review?.detail ?? '')];
           const result = await flagNeedsHuman(repoRoot, issue, [
-            'issue-fix spent its retry budget (three consecutive gate failures) without green checks, so this issue now carries the `needs-human` label and the picker skips it.',
-            'Remove the label to re-queue it, or investigate the failure below.',
+            `issue-fix ended without a pull request — ${cause} — so this issue now carries the \`needs-human\` label and the picker skips it.`,
+            'Remove the label to re-queue it, close the issue if it is already settled, or investigate the evidence below.',
             '',
             '```',
-            tail,
+            evidence.slice(-1_500),
             '```',
           ].join('\n'), token !== undefined ? { token } : {});
           return {
@@ -417,19 +444,22 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         model: env.model,
         provider: env.provider,
         temperature: 0.1,
-        maxSteps: 16,
+        // Sized for edit rounds plus the probe-and-fix cycles the
+        // workspace_check instruction asks for.
+        maxSteps: 20,
         instructions: p.prompt !== '' ? p.prompt : [
           'You resolve one piece of owed upkeep in a codebase: a TODO to implement, a skipped test to revive, a lint warning to fix, or an audited finding whose specification is the issue text in your instructions.',
           'Use search to orient, read_file to see exact bytes, and edit_file to change them.',
           'The find text must be the file’s exact bytes as read_file shows them: never include line-number prefixes from search results, and never change indentation.',
           'If edit_file refuses because the find text matches more than one place, read the file and retry with a longer find that includes enough neighbouring text to match exactly once.',
           'Resolve the work, never erase its marker: the follow-up instruction states what counts as erasure for this finding, and erasure is refused.',
+          'After your edits, run workspace_check and fix what it reports until it comes back clean — the gate re-runs a stricter version of the same checks, and a pass that ends with workspace_check red will fail it. Never reply FIXED without a clean workspace_check after your last edit.',
           'If a reviewer\'s findings are in your context, address exactly what they name and nothing more — unless a finding makes a factual claim about the wider tree (a dependency direction, an existing helper) that your tools show to be wrong: then verify, keep your fix, and state the disputing evidence in your reply (the file and line that disproves it).',
           STANDARDS_BRIEF,
           CHANGESET_INSTRUCTION,
           'Change nothing unrelated. When the fix is made, reply with one line: FIXED <file>.',
         ].join(' '),
-        tools: [hands.search, hands.read, hands.edit, hands.create],
+        tools: [hands.search, hands.read, hands.edit, hands.create, probeTool],
       });
 
       // The reviewer is an advisory critic, not the verdict: the
@@ -516,7 +546,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         type: 'tool',
         toolId: 'give_up',
         tools: [giveUpTool],
-        reads: [pick.result, 'checks_result'],
+        reads: [pick.result, baseline.result, 'judge_result', 'checks_result', 'review_check_result'],
       });
       const report = node({ id: 'report', type: 'router' });
 
@@ -531,8 +561,10 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             // No approved work is a clean outcome, not a failure.
             { from: pick, to: report, when: `not memory.${pick.result}.has_work` },
             { from: baseline, to: fix, when: `memory.${baseline.result}.has_target` },
-            // A finding already gone means the issue outlived its cause.
-            { from: baseline, to: report, when: `not memory.${baseline.result}.has_target` },
+            // A finding already gone means the issue outlived its cause:
+            // no PR is possible, and leaving the issue approved would let
+            // the next dispatch pick the same one, so a human is flagged.
+            { from: baseline, to: giveUp, when: `not memory.${baseline.result}.has_target` },
             { from: fix, to: judge },
             { from: judge, to: checks },
             { from: checks, to: gate },
@@ -541,7 +573,8 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             { from: review, to: reviewCheck },
             { from: reviewCheck, to: commit, when: `memory.${reviewCheck.result}.approved` },
             // Findings loop back to the fixer, bounded; a review that
-            // never approves ends the run visibly rather than delivering.
+            // never approves flags a human rather than delivering, so
+            // the issue stops being the picker's top pick.
             {
               from: reviewCheck,
               to: fix,
@@ -549,7 +582,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
             },
             {
               from: reviewCheck,
-              to: report,
+              to: giveUp,
               when: `not memory.${reviewCheck.result}.approved and memory.${reviewCheck.result}.round >= 3`,
             },
             // Bounded at three CONSECUTIVE gate failures: each retry

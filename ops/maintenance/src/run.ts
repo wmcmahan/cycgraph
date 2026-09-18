@@ -402,6 +402,7 @@ async function main(): Promise<void> {
   const publish = memory['publish_result'];
   const pick = memory['pick_result'];
   const judgeResult = memory['judge_result'];
+  const gaveUp = memory['giveup_result'];
   say('');
   say(`status: ${recorded.state.status}`);
   if (recorded.state.status !== 'completed' && recorded.state.last_error !== undefined) {
@@ -420,6 +421,7 @@ async function main(): Promise<void> {
       gate: typeof verdict === 'boolean' ? verdict : null,
       tokens: recorded.state.total_tokens_used,
       cost_usd: recorded.state.total_cost_usd,
+      gave_up: gaveUp?.['flagged'] === true,
     })));
   }
   if (scan !== undefined) say(`findings in scope: ${String(scan['total'])}`);
@@ -432,7 +434,6 @@ async function main(): Promise<void> {
       : String(pick['detail'] ?? 'nothing')}`);
   }
   if (judgeResult !== undefined) say(`judge: ${String(judgeResult['detail'] ?? '')}`);
-  const gaveUp = memory['giveup_result'];
   if (gaveUp !== undefined) say(`gave up: ${String(gaveUp['detail'] ?? '')}`);
   const accept = memory['accept_result'];
   if (accept !== undefined) {

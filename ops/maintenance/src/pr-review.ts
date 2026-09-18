@@ -31,7 +31,9 @@
  * labeled PR re-runs the review as a verification pass over the prior
  * findings, and the cycle is bounded by a rounds cap — after the third
  * review the findings post without a handoff and the PR waits for the
- * human, who can always take over sooner.
+ * human under the needs-human label, exactly like every other
+ * waiting-on-human state; a later approving review clears it. The
+ * human can always take over sooner.
  *
  * @module maintenance/pr-review
  */
@@ -305,12 +307,16 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           // and a branch push does not re-run this review.
           // Bounded at three reviews (two revisions) per PR: past the
           // cap, findings still post but the cycle hands back to the
-          // human instead of dispatching another revision.
-          const handoff = p.revise && verdict?.approved === false
-            && labels.includes(MANAGED_LABEL) && rounds < 2
+          // human instead of dispatching another revision — and the PR
+          // is labeled needs-human below, because an open managed PR
+          // holds the whole one-fix-in-flight pipeline and an unlabeled
+          // cap is a silent stall.
+          const reviseEligible = p.revise && verdict?.approved === false && labels.includes(MANAGED_LABEL);
+          const capReached = reviseEligible && rounds >= 2;
+          const handoff = reviseEligible && !capReached
             ? `\n\n${WORKFLOW_MENTION} please address the numbered findings above.`
-            : p.revise && verdict?.approved === false && labels.includes(MANAGED_LABEL)
-              ? '\n\nRevision cycle cap reached — leaving the remaining findings to human review.'
+            : capReached
+              ? '\n\nRevision cycle cap reached — leaving the remaining findings to human review. This PR now carries the `needs-human` label; address the findings and re-run the review (an approval clears it), or merge or close by hand.'
               : '';
           // Findings anchor inline where the diff can hold them; the
           // rest stay numbered in the body, which always carries all of
@@ -340,6 +346,12 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
             await commentOnPr(repoRoot, p.pr,
               `The review was written but could not be submitted (${submission.detail}); this PR now carries the \`needs-human\` label. Re-run the PR review workflow, or review by hand — a later successful review clears the label.`,
               token !== undefined ? { token } : {});
+          } else if (capReached) {
+            // The cap is a waiting-on-human state like any other: the
+            // label is what the busy gate's notice and the PR list
+            // filter on. A later approving review takes the branch
+            // below instead and clears it.
+            await setPrLabels(repoRoot, p.pr, { add: [NEEDS_HUMAN_LABEL] }, token !== undefined ? { token } : {});
           } else if (labels.includes(NEEDS_HUMAN_LABEL)) {
             // A successful review resolves the waiting-on-human state.
             await setPrLabels(repoRoot, p.pr, { remove: [NEEDS_HUMAN_LABEL] }, token !== undefined ? { token } : {});
@@ -370,9 +382,12 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
             review_event: submission.event ?? '',
             inline_count: submission.inlineCount ?? 0,
             resolved_count: resolvedCount,
-            revision_requested: handoff !== '',
+            revision_requested: reviseEligible && !capReached,
+            ...(capReached ? { needs_human: true } : {}),
             ...(merge !== undefined ? { merge_armed: merge.ok, merge_detail: merge.detail } : {}),
-            detail: `${verdict?.detail ?? ''}${handoff !== '' ? '; revision requested' : ''}; ${submission.detail}`
+            detail: `${verdict?.detail ?? ''}${capReached
+              ? '; revision cap reached — waiting on human'
+              : reviseEligible ? '; revision requested' : ''}; ${submission.detail}`
               + (resolvedCount > 0 ? `; resolved ${resolvedCount} addressed thread(s)` : '')
               + (merge !== undefined ? `; ${merge.detail}` : ''),
           };
