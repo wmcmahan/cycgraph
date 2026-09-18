@@ -74,6 +74,13 @@ export interface A2ATaskRequest {
   timeoutMs: number;
   /** Cancellation from the run's abort controller. */
   abortSignal?: AbortSignal;
+  /**
+   * Extra hosts the remote's Agent Card may name as an RPC endpoint, from
+   * the registry entry. `agentCardUrl`'s own host always counts; an
+   * implementation MUST refuse any other endpoint host, because `headers`
+   * carry this server's credential to whichever endpoint it connects to.
+   */
+  allowedEndpointHosts?: readonly string[];
 }
 
 /**
@@ -115,4 +122,10 @@ export interface A2AResumeRequest {
   timeoutMs: number;
   /** Cancellation from the run's abort controller. */
   abortSignal?: AbortSignal;
+  /**
+   * Extra hosts the remote's Agent Card may name as an RPC endpoint, from
+   * the registry entry. Same contract as
+   * {@link A2ATaskRequest.allowedEndpointHosts}.
+   */
+  allowedEndpointHosts?: readonly string[];
 }

@@ -98,6 +98,21 @@ export const A2AServerEntrySchema = z.object({
   description: z.string().optional(),
   /** URL of the agent's published Agent Card. */
   agent_card_url: safeAgentCardUrl(),
+  /**
+   * Extra hosts this agent's card may name as an RPC endpoint, beyond
+   * `agent_card_url`'s own host.
+   *
+   * SECURITY: the card is fetched from a trusted URL but its CONTENT comes
+   * from the remote, and every request built from it carries this entry's
+   * resolved credential. Without a pin, a card naming
+   * `https://attacker.example/rpc` would have the token delivered there.
+   * List only hosts you deliberately serve this agent's RPC endpoint from;
+   * hostnames only, no scheme or path.
+   */
+  allowed_endpoint_hosts: z.array(z.string().min(1).regex(
+    /^[^/\\:?#\s]+$|^\[[0-9a-f:.]+\]$/i,
+    'A2A allowed endpoint host must be a bare hostname, without scheme, port, or path',
+  )).optional(),
   /** How to authenticate. Defaults to unauthenticated. */
   auth: A2AAuthSchema.default({ type: 'none' }),
   /** Agent IDs allowed to use this server. Omit for unrestricted access. */

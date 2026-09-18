@@ -37,6 +37,7 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
     message: ReturnType<typeof userMessage>,
     timeoutMs: number,
     abortSignal?: AbortSignal,
+    allowedEndpointHosts?: readonly string[],
   ): Promise<A2ATaskResult> {
     const deadline = Date.now() + timeoutMs;
     const timeout = new AbortController();
@@ -44,7 +45,8 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
     const signal = abortSignal ? AbortSignal.any([timeout.signal, abortSignal]) : timeout.signal;
 
     try {
-      const client = await raceDeliveryBound(create(agentCardUrl, headers, signal), signal);
+      const client = await raceDeliveryBound(
+        create(agentCardUrl, headers, signal, allowedEndpointHosts), signal);
       // Cast: the generated request type demands fields the server defaults.
       const task = await raceDeliveryBound(client.sendMessage({ message } as never), signal);
       return toResult(await settle(client, task, deadline, signal));
@@ -73,6 +75,7 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
         userMessage(request.input),
         request.timeoutMs,
         request.abortSignal,
+        request.allowedEndpointHosts,
       ),
 
     /** See {@link A2AClient.resumeTask} */
@@ -83,6 +86,7 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
         userMessage(request.response, request.taskId),
         request.timeoutMs,
         request.abortSignal,
+        request.allowedEndpointHosts,
       ),
   };
 }

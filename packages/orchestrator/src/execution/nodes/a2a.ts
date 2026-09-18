@@ -119,6 +119,12 @@ export async function executeA2ANode(
     ? injectTraceContext(resolveAuthHeaders(server.auth))
     : resolveAuthHeaders(server.auth);
 
+  // The card's endpoints are pinned to its own host unless the entry
+  // widens them: every request built from the card carries `headers`.
+  const endpointHosts = server.allowed_endpoint_hosts
+    ? { allowedEndpointHosts: server.allowed_endpoint_hosts }
+    : {};
+
   // A stashed task id resumes that remote task instead of re-issuing the work.
   const resumingTaskId = stashed?.task_id;
 
@@ -138,6 +144,7 @@ export async function executeA2ANode(
           taskId: resumingTaskId,
           response: ctx.state.memory.human_response,
           timeoutMs,
+          ...endpointHosts,
           ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
         })
         : await client.runTask({
@@ -146,6 +153,7 @@ export async function executeA2ANode(
           input,
           ...(config.skill_id ? { skillId: config.skill_id } : {}),
           timeoutMs,
+          ...endpointHosts,
           ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
         });
 

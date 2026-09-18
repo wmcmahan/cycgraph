@@ -167,6 +167,23 @@ describe('executeA2ANode', () => {
     expect(capture.request.timeoutMs).toBe(600_000);
   });
 
+  it('forwards the entry allowed endpoint hosts to the client', async () => {
+    const capture: { request?: any } = {};
+    const registry = await registryWith({ allowedEndpointHosts: ['rpc.example.com'] });
+
+    await executeA2ANode(node(), stateView(), 1, await ctxWith(fakeClient({}, capture), registry));
+
+    expect(capture.request.allowedEndpointHosts).toEqual(['rpc.example.com']);
+  });
+
+  it('sends no allowed endpoint hosts when the entry lists none', async () => {
+    const capture: { request?: any } = {};
+
+    await executeA2ANode(node(), stateView(), 1, await ctxWith(fakeClient({}, capture)));
+
+    expect('allowedEndpointHosts' in capture.request).toBe(false);
+  });
+
   it('errors when no registry is configured', async () => {
     const ctx = { state: { iteration_count: 0 }, a2aClient: fakeClient({}) } as unknown as NodeExecutorContext;
 
@@ -409,6 +426,19 @@ describe('executeA2ANode — pausing for human input', () => {
 
     expect(capture.request).toBeUndefined();
     expect(capture.resume.taskId).toBe('task-7');
+  });
+
+  it('forwards the entry allowed endpoint hosts when resuming a stashed task', async () => {
+    const capture: { request?: any; resume?: any } = {};
+    const registry = await registryWith({ allowedEndpointHosts: ['rpc.example.com'] });
+    const ctx = await ctxWith(fakeClient({}, capture), registry, {
+      subgraph_checkpoints: { research: { task_id: 'task-7' } },
+      memory: { human_response: 'EMEA' },
+    });
+
+    await executeA2ANode(node(), stateView(), 1, ctx);
+
+    expect(capture.resume.allowedEndpointHosts).toEqual(['rpc.example.com']);
   });
 
   it('forwards the human answer to the remote agent', async () => {
