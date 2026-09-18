@@ -393,9 +393,14 @@ export class InMemoryMCPServerRegistry implements MCPServerRegistry {
     return MCPServerEntrySchema.parse(entry);
   }
 
-  /** List all registered servers. */
+  /**
+   * List all registered servers, each re-validated on read.
+   *
+   * Throws if any stored entry fails {@link MCPServerEntrySchema}, so a
+   * tampered transport surfaces loudly instead of being silently omitted.
+   */
   async listServers(): Promise<MCPServerEntry[]> {
-    return [...this.servers.values()];
+    return [...this.servers.values()].map(entry => MCPServerEntrySchema.parse(entry));
   }
 
   /** Remove a server by ID. Returns `true` if it existed. */

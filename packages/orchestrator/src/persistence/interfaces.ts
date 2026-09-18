@@ -394,7 +394,13 @@ export interface MCPServerRegistry {
   /** Load a server by ID. Returns `null` if not found. */
   loadServer(id: string): Promise<MCPServerEntry | null>;
 
-  /** List all registered servers. */
+  /**
+   * List all registered servers.
+   *
+   * Like {@link loadServer}, entries are re-validated at this read boundary;
+   * implementations throw rather than return a stored entry that no longer
+   * satisfies the transport guards.
+   */
   listServers(): Promise<MCPServerEntry[]>;
 
   /** Remove a server by ID. Returns `true` if it existed. */
