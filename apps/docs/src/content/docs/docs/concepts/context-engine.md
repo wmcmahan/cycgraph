@@ -1002,7 +1002,7 @@ distillCoT(content: string, options?: CotDistillationOptions, model?: string): C
 
 ### `pruneByScore`
 
-Reconstructs text from scored tokens under a budget: protected tokens (negations) are kept unconditionally, then the highest-scoring tokens in original order.
+Reconstructs text from scored tokens under a budget: protected tokens (negations) are kept highest-scored-first up to twice `maxTokens`, then the highest-scoring remaining tokens in original order. Non-protected tokens never push the result past `maxTokens`.
 
 ```typescript
 pruneByScore(tokens: ScoredToken[], maxTokens: number, counter: TokenCounter, model?: string): string

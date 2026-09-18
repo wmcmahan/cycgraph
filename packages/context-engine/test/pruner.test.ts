@@ -8,7 +8,7 @@ import { pruneByScore, createPruningStage } from '../src/pruning/pruner.js';
 import type { ScoredToken, TokenScorer } from '../src/pruning/types.js';
 import type { BudgetConfig, StageContext } from '../src/pipeline/types.js';
 import { DefaultTokenCounter } from '../src/providers/defaults.js';
-import { seg, makeContext } from './helpers.js';
+import { seg, makeContext, wordTokenCounter } from './helpers.js';
 
 const counter = new DefaultTokenCounter();
 
@@ -81,6 +81,33 @@ describe('pruneByScore', () => {
     ];
 
     expect(pruneByScore(tokens, 1, counter)).toContain('not');
+  });
+
+  it('caps protected tokens at twice the budget, keeping the highest-scored', () => {
+    const tokens: ScoredToken[] = [
+      { text: 'not', score: 0.9, offset: 0, protected: true },
+      { text: 'never', score: 0.8, offset: 2, protected: true },
+      { text: 'no', score: 0.7, offset: 4, protected: true },
+      { text: 'none', score: 0.6, offset: 6, protected: true },
+      { text: 'nothing', score: 0.5, offset: 8, protected: true },
+    ];
+
+    const result = pruneByScore(tokens, 2, wordTokenCounter);
+
+    expect(result).toBe('not never no none');
+    expect(wordTokenCounter.countTokens(result)).toBe(4);
+  });
+
+  it('drops non-protected tokens once protected tokens fill the budget', () => {
+    const tokens: ScoredToken[] = [
+      { text: 'not', score: 0.1, offset: 0, protected: true },
+      { text: 'never', score: 0.1, offset: 2, protected: true },
+      makeScored('critical', 0.99, 4),
+    ];
+
+    const result = pruneByScore(tokens, 2, wordTokenCounter);
+
+    expect(result).toBe('not never');
   });
 });
 
