@@ -14,7 +14,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { keySlug } from './key-slug.js';
+import { keySlug, legacyKeySlug } from './key-slug.js';
 
 const run = promisify(execFile);
 
@@ -28,10 +28,19 @@ export interface CoreFinding {
   detail: string;
   /** Stable identity for the issue ledger: kind, file, and normalized text. */
   key: string;
+  /**
+   * The key this finding was filed under before keys carried a digest.
+   * Dedupe matches it so an already-filed finding with a long text is
+   * not re-filed; {@link key} is what a new issue is marked with.
+   */
+  legacyKey: string;
 }
 
-function keyFor(kind: CoreFinding['kind'], file: string, text: string): string {
-  return `${kind}:${file}:${keySlug(text)}`;
+function keysFor(kind: CoreFinding['kind'], file: string, text: string): { key: string; legacyKey: string } {
+  return {
+    key: `${kind}:${file}:${keySlug(text)}`,
+    legacyKey: `${kind}:${file}:${legacyKeySlug(text)}`,
+  };
 }
 
 /**
@@ -76,7 +85,7 @@ async function todoFindings(root: string): Promise<CoreFinding[]> {
     file: row.file,
     line: row.line,
     detail: row.text.slice(0, 200),
-    key: keyFor('todo', row.file, row.text),
+    ...keysFor('todo', row.file, row.text),
   }));
 }
 
@@ -88,7 +97,7 @@ async function skippedTestFindings(root: string): Promise<CoreFinding[]> {
     file: row.file,
     line: row.line,
     detail: `skipped: ${row.text.slice(0, 180)}`,
-    key: keyFor('skipped-test', row.file, row.text),
+    ...keysFor('skipped-test', row.file, row.text),
   }));
 }
 
@@ -112,7 +121,7 @@ async function lintFindings(root: string): Promise<CoreFinding[]> {
       file,
       line: message.line,
       detail: `${message.ruleId ?? 'parse'}: ${message.message}`.slice(0, 200),
-      key: keyFor('lint-warning', file, `${message.ruleId ?? 'parse'} ${message.message}`),
+      ...keysFor('lint-warning', file, `${message.ruleId ?? 'parse'} ${message.message}`),
     }));
   });
 }
@@ -130,10 +139,14 @@ export async function scanCore(
   return findings.sort((a, b) => a.key.localeCompare(b.key));
 }
 
-/** Findings not yet represented in the ledger, given its marker set. */
+/**
+ * Findings not yet represented in the ledger, given its marker set.
+ * A finding counts as represented under either its current key or the
+ * pre-digest {@link CoreFinding.legacyKey} it may have been filed with.
+ */
 export function unfiledFindings(
   findings: readonly CoreFinding[],
   marked: ReadonlySet<string>,
 ): CoreFinding[] {
-  return findings.filter((finding) => !marked.has(finding.key));
+  return findings.filter((finding) => !marked.has(finding.key) && !marked.has(finding.legacyKey));
 }

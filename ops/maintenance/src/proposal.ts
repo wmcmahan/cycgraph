@@ -11,7 +11,7 @@
  * @module maintenance/proposal
  */
 
-import { keySlug } from './key-slug.js';
+import { keySlug, legacyKeySlug } from './key-slug.js';
 
 /** A parsed proposal; `missing` names whatever the text failed to carry. */
 export interface FeatureProposal {
@@ -76,6 +76,15 @@ export function parseProposal(text: string): FeatureProposal {
 /** The ledger key a proposal dedupes on: its normalized title (see {@link keySlug}). */
 export function proposalKey(title: string): string {
   return `feature:${keySlug(title)}`;
+}
+
+/**
+ * The key a proposal with this title was filed under before keys
+ * carried a digest (see {@link legacyKeySlug}). Dedupe reads it so an
+ * open long-titled proposal is not re-filed; nothing writes it.
+ */
+export function legacyProposalKey(title: string): string {
+  return `feature:${legacyKeySlug(title)}`;
 }
 
 /** Repository-path-shaped tokens in a text, for evidence verification. */

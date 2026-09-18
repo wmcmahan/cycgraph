@@ -9,7 +9,7 @@
  * @module maintenance/audit-findings
  */
 
-import { keySlug } from './key-slug.js';
+import { keySlug, legacyKeySlug } from './key-slug.js';
 import { pathTokens } from './proposal.js';
 
 /** Severity an auditor may assign, ordered worst-first for ranking. */
@@ -58,6 +58,16 @@ export function severityRank(labels: readonly string[]): number {
  */
 export function auditKey(title: string): string {
   return `audit:${keySlug(title)}`;
+}
+
+/**
+ * The key a finding with this title was filed under before keys carried
+ * a digest (see {@link legacyKeySlug}). Dedupe reads both forms so an
+ * open long-titled finding is not re-filed under its new key; nothing
+ * writes this form.
+ */
+export function legacyAuditKey(title: string): string {
+  return `audit:${legacyKeySlug(title)}`;
 }
 
 /**
@@ -187,7 +197,7 @@ export function siftAuditFindings(reports: string[], options: AuditSiftOptions):
         continue;
       }
       const key = auditKey(finding.title);
-      if (options.openKeys?.has(key)) {
+      if (options.openKeys?.has(key) || options.openKeys?.has(legacyAuditKey(finding.title))) {
         drops.already_filed += 1;
         continue;
       }
