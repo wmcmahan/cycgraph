@@ -22,11 +22,17 @@ import { raceAbort } from './race.js';
  * The optional `signal` bounds every request THIS client issues — it is
  * merged into the SDK transport's fetches so a stalled remote aborts at
  * the caller's deadline instead of holding the socket open forever.
+ *
+ * `allowedEndpointHosts` widens the set of hosts the resolved Agent Card
+ * may name as an RPC endpoint; `agentCardUrl`'s own host is always
+ * accepted. Anything else is refused, because `headers` carry the
+ * server's credential to whichever endpoint the card names.
  */
 export type CreateSdkClient = (
   agentCardUrl: string,
   headers: Record<string, string>,
   signal?: AbortSignal,
+  allowedEndpointHosts?: readonly string[],
 ) => Promise<SdkClient>;
 
 /**
@@ -112,22 +118,62 @@ async function assertPublicCardUrl(agentCardUrl: string): Promise<Set<string>> {
 }
 
 /**
+ * One host in the form the pin compares: lowercased, IPv6 brackets
+ * stripped, so a configured host and a `URL.hostname` of the same host
+ * are the same string.
+ */
+function normalizeHost(host: string): string {
+  const lower = host.toLowerCase();
+  return lower.startsWith('[') && lower.endsWith(']') ? lower.slice(1, -1) : lower;
+}
+
+/**
+ * The hosts a card's endpoints may name: the host of the trusted card
+ * URL, plus whatever the registry entry allowlisted. An unparseable card
+ * URL contributes nothing — the card resolver's own failure reports it.
+ */
+function pinnedHosts(agentCardUrl: string, allowedEndpointHosts: readonly string[]): Set<string> {
+  const hosts = new Set(allowedEndpointHosts.map(normalizeHost));
+  try {
+    hosts.add(normalizeHost(new URL(agentCardUrl).hostname));
+  } catch {
+    // Unparseable: nothing to pin to, so every endpoint is refused.
+  }
+  return hosts;
+}
+
+/**
  * SSRF guard over the endpoints a resolved Agent Card offers. The
  * registry validates the CARD url before any request leaves, but the
  * card's returned RPC endpoints come from the remote — a compromised
- * agent could point the transport at loopback or cloud-metadata hosts.
- * Honors the card-url guard's opt-out: one protocol, one decision.
+ * agent could point the transport at loopback or cloud-metadata hosts,
+ * or at a public host of its own choosing.
  *
- * Each endpoint is judged twice: on its literal hostname, then on the
- * addresses that hostname actually resolves to. The literal test alone
- * cannot see a public name whose DNS record points at a private IP, and
- * the transport's own fetch resolves the name again when it connects —
- * so a card advertising `attacker.example` would otherwise reach
- * 169.254.169.254 unchallenged. `cleared` names hosts already resolved
- * by {@link assertPublicCardUrl} in this same call.
+ * Each endpoint is pinned to `agentCardUrl`'s host or one the caller
+ * allowlisted. Every request built from the card carries this server's
+ * resolved credential, so an endpoint on an unrelated host — public and
+ * DNS-clean though it may be — is a credential-exfiltration channel, not
+ * merely an SSRF one. The pin therefore holds even under the private-URL
+ * opt-out, which speaks only to internal addresses: a host the operator
+ * genuinely serves the RPC endpoint from belongs in the allowlist.
+ *
+ * Each endpoint is then judged twice on privacy: on its literal
+ * hostname, then on the addresses that hostname actually resolves to.
+ * The literal test alone cannot see a public name whose DNS record
+ * points at a private IP, and the transport's own fetch resolves the
+ * name again when it connects — so a pinned host whose record flips to
+ * 169.254.169.254 would otherwise be reached unchallenged. `cleared`
+ * names hosts already resolved by {@link assertPublicCardUrl} in this
+ * same call.
  */
-async function assertPublicEndpoints(card: unknown, cleared: ReadonlySet<string>): Promise<void> {
-  if (allowsPrivateUrls()) return;
+async function assertPublicEndpoints(
+  card: unknown,
+  cleared: ReadonlySet<string>,
+  agentCardUrl: string,
+  allowedEndpointHosts: readonly string[],
+): Promise<void> {
+  const pinned = pinnedHosts(agentCardUrl, allowedEndpointHosts);
+  const skipPrivateChecks = allowsPrivateUrls();
   const hosts = new Set<string>();
   for (const value of endpointUrls(card)) {
     let parsed: URL;
@@ -142,11 +188,18 @@ async function assertPublicEndpoints(card: unknown, cleared: ReadonlySet<string>
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error(`agent card endpoint "${value}" must use http(s), got "${parsed.protocol}" (SSRF guard)`);
     }
-    if (isPrivateOrLoopbackHost(parsed.hostname)) {
+    if (!skipPrivateChecks && isPrivateOrLoopbackHost(parsed.hostname)) {
       throw new Error(
         `agent card endpoint "${value}" points at a private/loopback host and is blocked (SSRF guard). `
         + OPT_OUT_HINT);
     }
+    if (!pinned.has(normalizeHost(parsed.hostname))) {
+      throw new Error(
+        `agent card endpoint "${value}" is on host "${parsed.hostname}", which is neither the agent card url's `
+        + `host nor an allowed endpoint host for this server; requests to it would carry this server's `
+        + `credentials (SSRF guard).`);
+    }
+    if (skipPrivateChecks) continue;
     hosts.add(parsed.hostname);
   }
   // Every literal host cleared before any lookup runs, so a card that is
@@ -280,7 +333,7 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
   const cardTimeoutMs = options.cardTimeoutMs ?? CARD_TIMEOUT_MS;
   const cards = new Map<string, Promise<unknown>>();
 
-  return async (agentCardUrl, headers, signal) => {
+  return async (agentCardUrl, headers, signal, allowedEndpointHosts) => {
     // This call's own SSRF clearance, started but NOT awaited here: a
     // cache hit is still judged against what the name resolves to now,
     // and awaiting before the cache is consulted would let two
@@ -329,7 +382,7 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
     const resolved = await card;
     // Checked per call, not per resolution: the card is cached, and the
     // guard must hold for cached reuse too.
-    await assertPublicEndpoints(resolved, cleared);
+    await assertPublicEndpoints(resolved, cleared, agentCardUrl, allowedEndpointHosts ?? []);
     // Cast: the resolver returns parsed JSON; the factory validates it.
     return factory.createFromAgentCard(resolved as never);
   };

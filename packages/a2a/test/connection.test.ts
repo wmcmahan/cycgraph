@@ -174,9 +174,72 @@ describe('sdkClientFactory', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const create = sdkClientFactory();
-    const outcome = await create(CARD_URL, {}).then(() => 'created', (error: Error) => error.message);
+    const outcome = await create('http://127.0.0.1:9999/card.json', {})
+      .then(() => 'created', (error: Error) => error.message);
 
     expect(outcome).toBe('No compatible transport found, available transports: JSONRPC');
+  });
+
+  it('refuses a card whose endpoint is on an unrelated public host', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('https://attacker.example/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, { authorization: 'Bearer sesame' })).rejects.toThrow(
+      'agent card endpoint "https://attacker.example/rpc" is on host "attacker.example", which is neither '
+      + `the agent card url's host nor an allowed endpoint host for this server`);
+  });
+
+  it('refuses a secondary endpoint on an unrelated public host', async () => {
+    const fetchMock = vi.fn(async () => cardResponse(`${CARD_URL}/rpc`, {
+      additionalInterfaces: [{ url: 'https://attacker.example/rpc', transport: 'JSONRPC' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, { authorization: 'Bearer sesame' })).rejects.toThrow(
+      'agent card endpoint "https://attacker.example/rpc" is on host "attacker.example"');
+  });
+
+  it('refuses an unrelated endpoint host under the development opt-out', async () => {
+    vi.stubEnv('CYCGRAPH_ALLOW_PRIVATE_A2A_URLS', 'true');
+    const fetchMock = vi.fn(async () => cardResponse('https://attacker.example/rpc'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+
+    await expect(create(CARD_URL, { authorization: 'Bearer sesame' })).rejects.toThrow(
+      'agent card endpoint "https://attacker.example/rpc" is on host "attacker.example"');
+  });
+
+  it('accepts an endpoint on a host the caller allowlisted', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('https://rpc.example/rpc', {
+      supportedInterfaces: [
+        { url: 'https://rpc.example/rpc', protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' },
+      ],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    const client = await create(CARD_URL, {}, undefined, ['rpc.example']);
+
+    expect(typeof client.sendMessage).toBe('function');
+  });
+
+  it('matches an allowlisted endpoint host case-insensitively', async () => {
+    const fetchMock = vi.fn(async () => cardResponse('https://rpc.example/rpc', {
+      supportedInterfaces: [
+        { url: 'https://rpc.example/rpc', protocolBinding: 'JSONRPC', protocolVersion: '1.0', tenant: '' },
+      ],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    const client = await create(CARD_URL, {}, undefined, ['RPC.Example']);
+
+    expect(typeof client.sendMessage).toBe('function');
   });
 
   it('refuses a card whose endpoint is not http(s)', async () => {
@@ -250,7 +313,7 @@ describe('sdkClientFactory', () => {
 
     const create = sdkClientFactory();
 
-    await expect(create(CARD_URL, {})).rejects.toThrow(
+    await expect(create(CARD_URL, {}, undefined, ['attacker.example'])).rejects.toThrow(
       `agent card endpoint host "attacker.example" resolves to a private/loopback address (${METADATA_IP})`);
   });
 
@@ -264,7 +327,7 @@ describe('sdkClientFactory', () => {
 
     const create = sdkClientFactory();
 
-    await expect(create(CARD_URL, {})).rejects.toThrow(
+    await expect(create(CARD_URL, {}, undefined, ['attacker.example'])).rejects.toThrow(
       'agent card endpoint host "attacker.example" resolves to a private/loopback address (10.0.0.5)');
   });
 
@@ -278,7 +341,7 @@ describe('sdkClientFactory', () => {
 
     const create = sdkClientFactory();
 
-    await expect(create(CARD_URL, {})).rejects.toThrow(
+    await expect(create(CARD_URL, {}, undefined, ['other.example'])).rejects.toThrow(
       'agent card endpoint host "other.example" could not be resolved for SSRF validation: '
       + 'getaddrinfo ENOTFOUND other.example');
   });
@@ -303,7 +366,7 @@ describe('sdkClientFactory', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const create = sdkClientFactory();
-    await settled(create(CARD_URL, {}));
+    await settled(create(CARD_URL, {}, undefined, ['other.example']));
 
     expect(dnsLookupMock.mock.calls.map((call) => call[0])).toEqual(['agent.example', 'other.example']);
   });
