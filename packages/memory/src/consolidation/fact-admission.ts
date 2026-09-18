@@ -64,7 +64,11 @@ export interface FactAdmissionOptions {
   threshold?: number;
   /** Compare only against facts carrying any of these tags. */
   tags?: readonly string[];
-  /** How many stored facts to compare against. */
+  /**
+   * How many facts to fetch per page. The gate pages through every
+   * matching fact regardless of this value; it bounds only the size of
+   * one store round trip (and, with `embeddings`, one embed call).
+   */
   limit?: number;
   /**
    * Embeddings for paraphrase-aware comparison. Omit to use token overlap,
@@ -134,9 +138,13 @@ function cosine(a: number[], b: number[]): number {
  * an invalidated one is an `evicted_reentry`, since something removed it
  * on purpose.
  *
+ * Every matching fact is compared: the scan pages through the store (same
+ * pattern as `ConflictDetector.loadActiveFacts` and `MemoryConsolidator`)
+ * and reports the single highest-scoring collision across all pages.
+ *
  * @param store - Where existing facts live.
  * @param candidate - The fact about to be written; only `content` is read.
- * @param options - Threshold, tag scope, and optional embeddings.
+ * @param options - Threshold, page size, tag scope, and optional embeddings.
  * @returns Whether to admit, and what it collided with if not.
  *
  * @example
@@ -150,33 +158,43 @@ export async function checkFactAdmission(
   candidate: { content: string },
   options?: FactAdmissionOptions,
 ): Promise<FactAdmissionVerdict> {
-  const existing = await store.findFacts({
-    includeInvalidated: true,
-    ...(options?.tags ? { tags: options.tags } : {}),
-    limit: options?.limit ?? 1000,
-  });
-
-  if (existing.length === 0) return { admit: true };
-
-  const scores = options?.embeddings
-    ? await embeddingScores(options.embeddings, candidate.content, existing)
-    : lexicalScores(candidate.content, existing);
-
+  const batchSize = options?.limit ?? 1000;
   const threshold =
     options?.threshold ?? (options?.embeddings ? EMBEDDING_THRESHOLD : LEXICAL_THRESHOLD);
 
   let best = -1;
-  let bestIndex = -1;
-  for (let i = 0; i < scores.length; i += 1) {
-    if (scores[i] > best) {
-      best = scores[i];
-      bestIndex = i;
+  let matched: SemanticFact | undefined;
+  let offset = 0;
+
+  // Paged rather than one capped fetch: a single page would compare the
+  // candidate against an arbitrary slice (oldest-inserted first), so a
+  // duplicate or evicted fact past the cap would be admitted silently.
+  while (true) {
+    const batch = await store.findFacts({
+      includeInvalidated: true,
+      ...(options?.tags ? { tags: options.tags } : {}),
+      limit: batchSize,
+      offset,
+    });
+    if (batch.length === 0) break;
+
+    const scores = options?.embeddings
+      ? await embeddingScores(options.embeddings, candidate.content, batch)
+      : lexicalScores(candidate.content, batch);
+
+    for (let i = 0; i < scores.length; i += 1) {
+      if (scores[i] > best) {
+        best = scores[i];
+        matched = batch[i];
+      }
     }
+
+    if (batch.length < batchSize) break;
+    offset += batchSize;
   }
 
-  if (bestIndex === -1 || best < threshold) return { admit: true };
+  if (matched === undefined || best < threshold) return { admit: true };
 
-  const matched = existing[bestIndex];
   return {
     admit: false,
     reason: matched.invalidated_by !== undefined ? 'evicted_reentry' : 'duplicate',
@@ -194,7 +212,7 @@ function lexicalScores(content: string, existing: SemanticFact[]): number[] {
 /**
  * Score by cosine over embeddings. Stored embeddings are reused when
  * present; the rest are embedded in one batched call alongside the
- * candidate, so the gate costs at most a single provider round trip.
+ * candidate, so each page costs at most a single provider round trip.
  */
 async function embeddingScores(
   embeddings: EmbeddingProvider,
