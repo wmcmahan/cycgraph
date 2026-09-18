@@ -31,6 +31,7 @@ import { prReview } from './pr-review.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getInjectedFactIds } from '@cycgraph/orchestrator';
+import type { AuditSchedule } from './audit-schedule.js';
 import { maintenanceEnvFromProcess } from './env.js';
 import { memoryFromEnv } from './memory.js';
 import { resolveRepo } from './repo.js';
@@ -115,6 +116,26 @@ function providersFor(env: MaintenanceEnv): ProviderRegistry | undefined {
 
 function say(line: string): void {
   process.stdout.write(`${line}\n`);
+}
+
+/**
+ * One line describing the audit patrol's scheduler state for this run.
+ *
+ * Without a lesson store the last-audited clock is neither read nor
+ * advanced, so every run repeats the same diagonal lens × scope slice —
+ * a staleness indistinguishable, in a CI log, from a store that is
+ * present but never written. The banner separates the two cases.
+ */
+async function patrolStatus(env: MaintenanceEnv): Promise<string> {
+  if (env.auditSchedule === undefined) {
+    return 'patrol: off (no DATABASE_URL) — fixed diagonal charter order, no oldest-audited-first rotation and no clock to advance';
+  }
+  const schedule = await env.auditSchedule.load();
+  if (schedule === undefined) {
+    return 'patrol: on — no schedule recorded yet, this run seeds the clock';
+  }
+  const dated = Object.keys(schedule.pairs).length;
+  return `patrol: on — ${dated} pair(s) dated, last audited head ${schedule.head === undefined ? 'unknown' : schedule.head.slice(0, 7)}`;
 }
 
 /**
@@ -268,9 +289,13 @@ async function main(): Promise<void> {
   const lessonMemory = await memoryFromEnv();
   env.memory = lessonMemory !== undefined;
   if (lessonMemory !== undefined) {
-    env.auditSchedule = { load: () => lessonMemory.loadAuditSchedule() };
+    // Memoized: the banner and the workflow's charter ordering read the
+    // same state, and one fact fetched once keeps them consistent.
+    let pending: Promise<AuditSchedule | undefined> | undefined;
+    env.auditSchedule = { load: () => (pending ??= lessonMemory.loadAuditSchedule()) };
   }
   say(`${workflow.id} — model ${env.model} (${env.provider})${env.memory ? ' · lessons: on' : ''}`);
+  if (id === 'repo-audit') say(await patrolStatus(env));
 
   const repoRoot = await resolveRepo((params as { repoRoot?: string }).repoRoot ?? '');
   const stale = await stalenessOf(repoRoot);
@@ -362,6 +387,8 @@ async function main(): Promise<void> {
         if (auditedPairs.length > 0) {
           await lessonMemory.saveAuditSchedule({ head: cloneResult.head, auditedPairs, at: new Date() });
           say(`audit schedule: ${auditedPairs.length} pair(s) recorded at ${cloneResult.head.slice(0, 7)}`);
+        } else {
+          say('audit schedule: no worker delivered a report — the clock did not advance, the same pairs resurface next run');
         }
       }
     }
