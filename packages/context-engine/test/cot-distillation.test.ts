@@ -161,8 +161,8 @@ describe('distillCoT', () => {
   it('processes the outermost delimiter pair for nested blocks', () => {
     const result = distillCoT('<think>Outer reasoning <think>inner nested</think> still outer. Therefore: Result.</think>');
 
-    expect(result.tracesRemoved).toBeGreaterThanOrEqual(1);
-    expect(result.distilled).not.toContain('Outer reasoning');
+    expect(result.tracesRemoved).toBe(1);
+    expect(result.distilled).toBe('[Reasoning distilled] Result.');
   });
 
   it('returns the content unchanged when there is no reasoning block', () => {

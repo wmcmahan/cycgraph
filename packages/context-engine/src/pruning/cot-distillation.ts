@@ -84,6 +84,38 @@ function extractConclusion(block: string): string | null {
   return null;
 }
 
+/**
+ * Find the index of the close tag matching the `open` tag at `openIdx`,
+ * counting nested opens of the same delimiter so the outermost pair is
+ * matched. Returns -1 when the block is never closed at this depth.
+ */
+function findMatchingClose(
+  text: string,
+  delimiter: ReasoningDelimiter,
+  openIdx: number,
+): number {
+  let depth = 1;
+  let cursor = openIdx + delimiter.open.length;
+
+  while (depth > 0) {
+    const nextClose = text.indexOf(delimiter.close, cursor);
+    if (nextClose === -1) return -1;
+
+    const nextOpen = text.indexOf(delimiter.open, cursor);
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      depth++;
+      cursor = nextOpen + delimiter.open.length;
+      continue;
+    }
+
+    depth--;
+    if (depth === 0) return nextClose;
+    cursor = nextClose + delimiter.close.length;
+  }
+
+  return -1;
+}
+
 // ─── Core Distillation ────────────────────────────────────────────
 
 export interface CotDistillationOptions {
@@ -135,7 +167,7 @@ export function distillCoT(
       const openIdx = result.indexOf(delimiter.open, searchFrom);
       if (openIdx === -1) break;
 
-      const closeIdx = result.indexOf(delimiter.close, openIdx + delimiter.open.length);
+      const closeIdx = findMatchingClose(result, delimiter, openIdx);
       if (closeIdx === -1) {
         // Unclosed delimiter — skip, don't corrupt content
         searchFrom = openIdx + delimiter.open.length;
