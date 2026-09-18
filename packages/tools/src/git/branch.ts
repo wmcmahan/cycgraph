@@ -17,9 +17,9 @@
 
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { appendFile, mkdtemp, readdir, symlink } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { DEFAULT_IDENTITY, type CommitIdentity, type PublishConfig } from './config.js';
 
@@ -57,7 +57,20 @@ export async function cloneToBranch(
   return { root, branch };
 }
 
-/** Symlink every nested `node_modules` (two levels deep) into the clone. */
+/**
+ * Symlink every nested `node_modules` (two levels deep) into the clone,
+ * then link every workspace package to the clone's own tree.
+ *
+ * The second pass closes the cross-package staleness hole: a dependent
+ * resolving an internal package through the root `node_modules` symlink
+ * reaches the CHECKOUT's build, so a clone-side edit to a dependency
+ * could never be seen by its consumers' type checks — an unwinnable
+ * gate for any cross-package fix. A scope link at each workspace group
+ * level (`packages/node_modules/...`, `ops/node_modules/...`) sits
+ * earlier on Node's resolution walk than the root symlink and points
+ * every internal package at the clone itself, so consumers see what
+ * the clone's own build produced.
+ */
 export async function linkNestedModules(repoRoot: string, root: string): Promise<void> {
   const isPlainDir = (entry: { isDirectory(): boolean; name: string }) =>
     entry.isDirectory() && entry.name !== 'node_modules' && !entry.name.startsWith('.');
@@ -73,6 +86,61 @@ export async function linkNestedModules(repoRoot: string, root: string): Promise
       if (existsSync(source) && existsSync(inClone) && !existsSync(join(inClone, 'node_modules'))) {
         await symlink(source, join(inClone, 'node_modules'));
       }
+    }
+  }
+
+  // A manifest name becomes path segments under node_modules below, and
+  // the manifests are read from the CLONE — in pr-revise that is a PR
+  // branch's content. npm's own name grammar (no leading dot, no
+  // separators beyond the one scope slash) is what keeps a hostile
+  // manifest from steering the symlink or removal outside the clone.
+  const SAFE_PACKAGE_NAME = /^(?:@[a-z0-9~][a-z0-9._~-]*\/)?[a-z0-9~][a-z0-9._~-]*$/i;
+  const clonePackages = new Map<string, string>();
+  for (const entry of top) {
+    const children = (await readdir(join(root, entry.name), { withFileTypes: true }).catch(() => []))
+      .filter(isPlainDir);
+    for (const child of children) {
+      const cloneDir = join(root, entry.name, child.name);
+      try {
+        const manifest = JSON.parse(await readFile(join(cloneDir, 'package.json'), 'utf8')) as { name?: string };
+        if (typeof manifest.name === 'string' && SAFE_PACKAGE_NAME.test(manifest.name)) clonePackages.set(manifest.name, cloneDir);
+      } catch { /* no manifest here: not a package */ }
+    }
+  }
+  // Every write below must land inside the clone. A directory pass one
+  // linked to the checkout would silently forward a mkdir/symlink into
+  // the source tree — and leave it dangling there once the clone is
+  // removed — so any symlinked directory on the path is first replaced
+  // by a real clone-local directory that re-links the target's entries.
+  const materialize = async (dirPath: string): Promise<void> => {
+    const stat = await lstat(dirPath).catch(() => undefined);
+    if (stat === undefined || !stat.isSymbolicLink()) return;
+    const target = await realpath(dirPath);
+    await rm(dirPath);
+    await mkdir(dirPath);
+    for (const child of await readdir(target)) {
+      await symlink(join(target, child), join(dirPath, child));
+    }
+  };
+  const rootReal = await realpath(root);
+  for (const entry of top) {
+    const groupDir = join(root, entry.name);
+    if (!existsSync(groupDir)) continue;
+    await materialize(join(groupDir, 'node_modules'));
+    for (const [name, dir] of clonePackages) {
+      const linkPath = join(groupDir, 'node_modules', ...name.split('/'));
+      await materialize(dirname(linkPath));
+      const existing = await lstat(linkPath).catch(() => undefined);
+      if (existing !== undefined) {
+        // Never replace a real file or directory; a link already inside
+        // the clone is this pass's own work from an earlier call.
+        if (!existing.isSymbolicLink()) continue;
+        const resolved = await realpath(linkPath).catch(() => undefined);
+        if (resolved !== undefined && (resolved === rootReal || resolved.startsWith(rootReal + sep))) continue;
+        await rm(linkPath);
+      }
+      await mkdir(dirname(linkPath), { recursive: true });
+      await symlink(dir, linkPath);
     }
   }
 }

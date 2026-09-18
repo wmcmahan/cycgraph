@@ -250,6 +250,87 @@ describe('pushBranch', () => {
   });
 });
 
+describe('linkNestedModules', () => {
+  async function seedWorkspaces(checkout: string, clone: string): Promise<void> {
+    for (const base of [checkout, clone]) {
+      await mkdir(join(base, 'packages', 'core'), { recursive: true });
+      await mkdir(join(base, 'packages', 'dependent'), { recursive: true });
+      await writeFile(join(base, 'packages', 'core', 'package.json'), '{"name":"@scope/core"}');
+      await writeFile(join(base, 'packages', 'dependent', 'package.json'), '{"name":"@scope/dependent"}');
+    }
+  }
+
+  it('resolves an internal package to the clone tree ahead of the root symlink', async () => {
+    const checkout = join(root, 'checkout');
+    const clone = join(root, 'clone');
+    await seedWorkspaces(checkout, clone);
+    await mkdir(join(checkout, 'node_modules', '@scope', 'core'), { recursive: true });
+    await writeFile(join(checkout, 'node_modules', '@scope', 'core', 'package.json'),
+      '{"name":"@scope/core","from":"checkout"}');
+    const { symlink } = await import('node:fs/promises');
+    await symlink(join(checkout, 'node_modules'), join(clone, 'node_modules'));
+    const { linkNestedModules } = await import('../src/git/branch.js');
+
+    await linkNestedModules(checkout, clone);
+
+    const { createRequire } = await import('node:module');
+    const resolver = createRequire(join(clone, 'packages', 'dependent', 'index.js'));
+    const resolved = resolver.resolve('@scope/core/package.json');
+    const { readFileSync, realpathSync } = await import('node:fs');
+    expect(JSON.parse(readFileSync(resolved, 'utf8'))['from']).toBeUndefined();
+    expect(realpathSync(resolved).startsWith(realpathSync(join(clone, 'packages', 'core')))).toBe(true);
+  });
+
+  it('refuses a manifest name that would link outside the clone', async () => {
+    const checkout = join(root, 'checkout');
+    const clone = join(root, 'clone');
+    await seedWorkspaces(checkout, clone);
+    await mkdir(join(clone, 'packages', 'evil'), { recursive: true });
+    await writeFile(join(clone, 'packages', 'evil', 'package.json'), '{"name":"../../../escaped"}');
+    const { linkNestedModules } = await import('../src/git/branch.js');
+
+    await linkNestedModules(checkout, clone);
+
+    const { existsSync, lstatSync } = await import('node:fs');
+    expect(existsSync(join(root, 'escaped'))).toBe(false);
+    expect(lstatSync(join(clone, 'packages', 'node_modules', '@scope', 'core')).isSymbolicLink()).toBe(true);
+  });
+
+  it('never writes through a group node_modules symlink into the checkout', async () => {
+    const checkout = join(root, 'checkout');
+    const clone = join(root, 'clone');
+    await seedWorkspaces(checkout, clone);
+    await mkdir(join(checkout, 'packages', 'node_modules', 'shared-dep'), { recursive: true });
+    const { linkNestedModules } = await import('../src/git/branch.js');
+
+    await linkNestedModules(checkout, clone);
+
+    const { existsSync, lstatSync, realpathSync } = await import('node:fs');
+    expect(existsSync(join(checkout, 'packages', 'node_modules', '@scope'))).toBe(false);
+    expect(lstatSync(join(clone, 'packages', 'node_modules')).isSymbolicLink()).toBe(false);
+    expect(realpathSync(join(clone, 'packages', 'node_modules', 'shared-dep')))
+      .toBe(realpathSync(join(checkout, 'packages', 'node_modules', 'shared-dep')));
+    expect(realpathSync(join(clone, 'packages', 'node_modules', '@scope', 'core')))
+      .toBe(realpathSync(join(clone, 'packages', 'core')));
+  });
+
+  it('still links nested node_modules from the checkout into the clone', async () => {
+    const checkout = join(root, 'checkout');
+    const clone = join(root, 'clone');
+    await mkdir(join(checkout, 'packages', 'core', 'node_modules', 'dep'), { recursive: true });
+    await mkdir(join(clone, 'packages', 'core'), { recursive: true });
+    await writeFile(join(checkout, 'packages', 'core', 'package.json'), '{"name":"@scope/core"}');
+    await writeFile(join(clone, 'packages', 'core', 'package.json'), '{"name":"@scope/core"}');
+    const { linkNestedModules } = await import('../src/git/branch.js');
+
+    await linkNestedModules(checkout, clone);
+
+    const { realpathSync } = await import('node:fs');
+    const linked = realpathSync(join(clone, 'packages', 'core', 'node_modules'));
+    expect(linked).toBe(realpathSync(join(checkout, 'packages', 'core', 'node_modules')));
+  });
+});
+
 describe('deliveryNodes', () => {
   function build(overrides: Partial<Parameters<typeof deliveryNodes>[0]> = {}) {
     return deliveryNodes({

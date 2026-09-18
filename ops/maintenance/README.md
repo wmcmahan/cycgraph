@@ -176,10 +176,15 @@ first for two distinct reasons. A file that imports its own package's
 name resolves through that package's exports against the clone (Node
 self-reference, no node_modules involved), so without a clone build
 those tests cannot resolve at all. And the build is the type check on
-the fixer's edits before anything publishes. Cross-package imports are
-different: they resolve through the symlinked node_modules to the
-checkout's build, so a cross-package edit is exercised here only by
-its own package's tests and type check, and fully in the PR's CI. When a PR's CI still fails after publish,
+the fixer's edits before anything publishes. Cross-package imports
+resolve to the clone too: `linkNestedModules` links every internal
+package at the workspace group level (`packages/node_modules/...`),
+which sits earlier on Node's resolution walk than the root symlink to
+the checkout's dependency tree, so a consumer's build sees what the
+clone's own build produced. Without those links a cross-package fix
+was an unwinnable gate — an edit to a dependency's source could never
+reach its consumers' type checks, which resolved the checkout's stale
+build instead (issue #301 burned two full runs exactly this way). When a PR's CI still fails after publish,
 `.github/workflows/pr-ci-failure.yml` reacts — the first failure
 dispatches pr-revise with the failing run linked, a repeat failure
 labels the PR `needs-human` instead of cycling, and a green run on a
