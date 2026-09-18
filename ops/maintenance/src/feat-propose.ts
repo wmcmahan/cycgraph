@@ -25,7 +25,7 @@ import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
-import { parseProposal, pathTokens, proposalKey } from './proposal.js';
+import { legacyProposalKey, parseProposal, pathTokens, proposalKey } from './proposal.js';
 import { repoMap, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -140,7 +140,8 @@ export function featPropose(): MaintenanceWorkflow<typeof params> {
           if (issues === undefined) {
             return { filed: false, key, detail: 'cannot read the issue ledger — refusing to file blind' };
           }
-          if (issueMarkers(issues).has(key)) {
+          const markers = issueMarkers(issues);
+          if (markers.has(key) || markers.has(legacyProposalKey(shape?.title ?? ''))) {
             return { filed: false, key, detail: 'an open ticket already carries this proposal' };
           }
 

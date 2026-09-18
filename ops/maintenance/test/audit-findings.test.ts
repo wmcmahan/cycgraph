@@ -83,6 +83,12 @@ describe('auditKey', () => {
   it('is namespaced apart from feature keys', () => {
     expect(auditKey('anything')).toMatch(/^audit:/);
   });
+
+  it('keys two long titles apart when they diverge only past the slug boundary', () => {
+    const shared = 'Retriever drops fact ids when the adapter maps lessons into the prompt builder for';
+
+    expect(auditKey(`${shared} the planner`)).not.toBe(auditKey(`${shared} the supervisor`));
+  });
 });
 
 describe('auditTitle', () => {

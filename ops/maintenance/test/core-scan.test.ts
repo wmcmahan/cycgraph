@@ -109,4 +109,21 @@ describe('unfiledFindings', () => {
     expect(fresh).toHaveLength(findings.length - 1);
     expect(fresh.some((f) => f.key === findings[0]!.key)).toBe(false);
   });
+
+  it('drops a long-text finding the ledger carries under its pre-digest legacy key', async () => {
+    await writeFile(
+      join(root, 'packages', 'x', 'src', 'long.ts'),
+      '// TODO: replace the hand-rolled retriever adapter with the shared lesson mapper before the next release\n',
+    );
+    await exec('git', ['add', '-A'], { cwd: root });
+    const findings = await scanCore(root, { lint: false });
+    const long = findings.find((f) => f.file.includes('long.ts'))!;
+    const marked = new Set([long.legacyKey]);
+
+    const fresh = unfiledFindings(findings, marked);
+
+    expect(long.legacyKey).not.toBe(long.key);
+    expect(fresh).toHaveLength(findings.length - 1);
+    expect(fresh.some((f) => f.key === long.key)).toBe(false);
+  });
 });

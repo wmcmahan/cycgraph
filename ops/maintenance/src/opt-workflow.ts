@@ -38,6 +38,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { compareBench, runAliasedBench, type BenchComparison, type BenchRow } from './bench.js';
+import { keySlug, legacyKeySlug } from './key-slug.js';
 import { checksEnv, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
@@ -72,8 +73,14 @@ function benchTable(rows: readonly BenchRow[], limit: number): string {
 
 function keyFor(comparison: BenchComparison, files: readonly string[]): string {
   const top = [...comparison.improved].sort((a, b) => b.pct - a.pct)[0];
-  const normalize = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return `optimization:${normalize(top?.id ?? 'none').slice(0, 60)}:${normalize(files.join('+')).slice(0, 60)}`;
+  return `optimization:${keySlug(top?.id ?? 'none')}:${keySlug(files.join('+'))}`;
+}
+
+/** The pre-digest key an already-filed ticket for this proposal may carry. */
+function legacyKeyFor(comparison: BenchComparison, files: readonly string[]): string {
+  const top = [...comparison.improved].sort((a, b) => b.pct - a.pct)[0];
+  const truncate = (text: string) => legacyKeySlug(text).slice(0, 60);
+  return `optimization:${truncate(top?.id ?? 'none')}:${truncate(files.join('+'))}`;
 }
 
 /** The opt-propose workflow. */
@@ -189,7 +196,8 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
         execute: async ({ verdict_result, proposal }) => {
           const verdict = verdict_result as (BenchComparison & { changed_files?: string[]; detail?: string }) | undefined;
           const files = verdict?.changed_files ?? [];
-          const key = keyFor(verdict ?? { improved: [], regressed: [], unchanged: 0, disappeared: [] }, files);
+          const comparison = verdict ?? { improved: [], regressed: [], unchanged: 0, disappeared: [] };
+          const key = keyFor(comparison, files);
           const diff = await pendingDiff(workspaceAt);
           if (!p.file) return { filed: false, key, detail: 'dry run', diff };
 
@@ -197,7 +205,8 @@ export function optPropose(): MaintenanceWorkflow<typeof params> {
           if (issues === undefined) {
             return { filed: false, key, diff, detail: 'cannot read the issue ledger — refusing to file blind' };
           }
-          if (issueMarkers(issues).has(key)) {
+          const markers = issueMarkers(issues);
+          if (markers.has(key) || markers.has(legacyKeyFor(comparison, files))) {
             return { filed: false, key, detail: 'an open ticket already carries this proposal' };
           }
 

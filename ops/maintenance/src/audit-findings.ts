@@ -9,6 +9,7 @@
  * @module maintenance/audit-findings
  */
 
+import { keySlug, legacyKeySlug } from './key-slug.js';
 import { pathTokens } from './proposal.js';
 
 /** Severity an auditor may assign, ordered worst-first for ranking. */
@@ -50,10 +51,23 @@ export function severityRank(labels: readonly string[]): number {
   return index === -1 ? AUDIT_SEVERITIES.length : index;
 }
 
-/** Dedupe key for a finding, stable under case and punctuation noise. */
+/**
+ * Dedupe key for a finding: its normalized title (see {@link keySlug}),
+ * stable under case and punctuation noise and distinct for titles that
+ * diverge only past the slug's readable-prefix limit.
+ */
 export function auditKey(title: string): string {
-  const normalized = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
-  return `audit:${normalized}`;
+  return `audit:${keySlug(title)}`;
+}
+
+/**
+ * The key a finding with this title was filed under before keys carried
+ * a digest (see {@link legacyKeySlug}). Dedupe reads both forms so an
+ * open long-titled finding is not re-filed under its new key; nothing
+ * writes this form.
+ */
+export function legacyAuditKey(title: string): string {
+  return `audit:${legacyKeySlug(title)}`;
 }
 
 /**
@@ -183,7 +197,7 @@ export function siftAuditFindings(reports: string[], options: AuditSiftOptions):
         continue;
       }
       const key = auditKey(finding.title);
-      if (options.openKeys?.has(key)) {
+      if (options.openKeys?.has(key) || options.openKeys?.has(legacyAuditKey(finding.title))) {
         drops.already_filed += 1;
         continue;
       }

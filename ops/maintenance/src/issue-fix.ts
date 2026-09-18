@@ -251,7 +251,12 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
               ].join('\n'),
             };
           }
-          const target = findings.find((finding) => finding.key === pick?.key);
+          // The marker key is whatever was written when the issue was
+          // filed, so a long-text finding filed before keys carried a
+          // digest is only findable under its pre-digest form.
+          const target = findings.find(
+            (finding) => finding.key === pick?.key || finding.legacyKey === pick?.key,
+          );
           if (target === undefined) {
             return {
               has_target: false,
