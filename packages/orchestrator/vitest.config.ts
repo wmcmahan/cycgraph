@@ -1,6 +1,19 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  resolve: {
+    alias: [
+      // The example suites under examples/ are written the way a consumer
+      // writes them — importing the package by name, which resolves through
+      // `dist/`. Tests must not depend on a build artifact (and must measure
+      // src), so the self-reference is pinned to the source barrel here.
+      {
+        find: /^@cycgraph\/orchestrator$/,
+        replacement: fileURLToPath(new URL('./src/index.ts', import.meta.url)),
+      },
+    ],
+  },
   test: {
     globals: true,
     environment: 'node',
