@@ -1,5 +1,12 @@
 # @cycgraph/context-engine
 
+## 0.7.4
+
+### Patch Changes
+
+- 79d83bf: `pruneByScore` now caps the cost of protected tokens (negations) at twice `maxTokens` instead of keeping them unconditionally, so text dense with negations can no longer overrun the budget without limit. Protected tokens are admitted highest-scored-first up to that ceiling.
+- c492704: Chain-of-thought distillation now matches the outermost close tag by tracking nesting depth per delimiter, so a nested reasoning block (e.g. `<think>...<think>...</think>...</think>`) collapses into a single distilled block instead of leaking the remaining reasoning text and a dangling close tag into the prompt.
+
 ## 0.7.3
 
 ### Patch Changes
