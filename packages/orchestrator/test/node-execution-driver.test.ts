@@ -9,7 +9,7 @@ import type { NodeExecutionDriverDeps } from '../src/execution/engine/node-execu
 import { WorkflowTimeoutError, UnsupportedNodeTypeError, CircuitBreakerOpenError } from '../src/execution/errors.js';
 import { createStateView } from '../src/state/state-view.js';
 import { createTestState, makeNode, createSimpleGraph } from './helpers/factories.js';
-import type { GraphNode } from '../src/graph/graph.js';
+import type { Graph, GraphNode } from '../src/graph/graph.js';
 import type { WorkflowState } from '../src/state/state.js';
 import type { NodeExecutorContext } from '../src/execution/nodes/context.js';
 

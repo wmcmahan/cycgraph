@@ -53,7 +53,7 @@ These fail **before any node runs** (a pre-flight check at the start of `run()`)
 
 - `BudgetExceededError`: token budget exhausted. Non-retryable within the same run.
 - `WorkflowTimeoutError`: execution exceeded the wall-clock limit.
-- `CircuitBreakerOpenError`: node failures tripped the breaker. Automatically retries after timeout.
+- `CircuitBreakerOpenError`: node failures tripped the breaker. The refused node fails fast: it is non-retryable, so the retry loop does not re-attempt it, and the refusal is not recorded as another failure against the breaker. Once `timeout_ms` has elapsed, the next visit to the node is admitted as a half-open probe.
 - `AgentTimeoutError`: an individual LLM call timed out. Retryable per `failure_policy`.
 - `AgentExecutionError`: the LLM call failed. Carries a `retryable` flag derived from the provider's `APICallError.isRetryable`: transient failures (429 rate-limit, 5xx, 529 overloaded) retry per `failure_policy`, while **definitively non-retryable** failures (400 invalid-request, context-length-exceeded, 401/403/404) short-circuit the retry loop instead of re-issuing an identical request `max_retries` times. Both `AgentExecutionError` and `AgentTimeoutError` also carry best-effort `partialUsage` so a failed attempt's tokens are still counted toward budgets.
 - `MCPServerNotFoundError`: the registry has no entry for the requested MCP server ID. Non-retryable; fix the agent's tool sources or register the server.
@@ -84,7 +84,7 @@ Both mean another worker is executing the same run. They bypass retries and the 
 | `AgentExecutionError` | Yes | With exponential backoff |
 | `MCPServerNotFoundError` | No | Fix tool sources or register the server |
 | `MCPAccessDeniedError` | No | Security violation; fix agent permissions |
-| `CircuitBreakerOpenError` | Auto | Transitions to half-open after timeout |
+| `CircuitBreakerOpenError` | No | Fails fast; a later visit probes half-open once `timeout_ms` elapses |
 | `NodeConfigError` | No | Fix the graph definition |
 | `UnsupportedNodeTypeError` | No | Fix the graph definition |
 | `BudgetExceededError` | No | Budget is exhausted for the run |
@@ -251,4 +251,6 @@ const { waiting, active, paused, dead_letter } = await queue.getQueueDepth();
 - [Workflow State](/docs/concepts/workflow-state/): the shared state that errors affect
 - [Distributed Execution](/docs/concepts/distributed-execution/): worker crash recovery and dead-lettering
 - [Security](/docs/security/): how `writes` grants and taint tracking enforce zero trust
+- [Tracing](/docs/observability/tracing/): correlating errors with distributed traces
+curity](/docs/security/): how `writes` grants and taint tracking enforce zero trust
 - [Tracing](/docs/observability/tracing/): correlating errors with distributed traces
