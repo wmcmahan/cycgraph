@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { keySlug } from '../src/key-slug.js';
+import { keySlug, legacyKeySlug } from '../src/key-slug.js';
 
 const EIGHTY = 'retriever-drops-fact-ids-when-the-adapter-maps-lessons-into-the-prompt-builder-1';
 
@@ -37,5 +37,23 @@ describe('keySlug', () => {
 
   it('does not digest a short slug into a long one', () => {
     expect(keySlug('  Batch variant, for the Memory Writer!  ')).toBe('batch-variant-for-the-memory-writer');
+  });
+});
+
+describe('legacyKeySlug', () => {
+  it('matches keySlug for text within the truncation boundary', () => {
+    expect(legacyKeySlug(EIGHTY)).toBe(keySlug(EIGHTY));
+    expect(legacyKeySlug('Retriever drops fact IDs!  (adapter)')).toBe('retriever-drops-fact-ids-adapter');
+  });
+
+  it('bare-truncates past the boundary where keySlug appends a digest', () => {
+    const text = `${EIGHTY}-the-planner`;
+
+    const legacy = legacyKeySlug(text);
+
+    expect(legacy).toBe(EIGHTY);
+    expect(legacy).toHaveLength(80);
+    expect(keySlug(text)).not.toBe(legacy);
+    expect(keySlug(text).startsWith(legacy)).toBe(true);
   });
 });
