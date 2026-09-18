@@ -68,6 +68,40 @@ describe('sdkClientFactory', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('shares one card fetch between concurrent first calls for the same url', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await Promise.all([settled(create(CARD_URL, {})), settled(create(CARD_URL, {}))]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves the card again for concurrent first calls with different headers', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await Promise.all([
+      settled(create(CARD_URL, { authorization: 'Bearer tenant-a' })),
+      settled(create(CARD_URL, { authorization: 'Bearer tenant-b' })),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not request the card for concurrent first calls to a privately resolving host', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    dnsLookupMock.mockResolvedValue([{ address: METADATA_IP, family: 4 }]);
+
+    const create = sdkClientFactory();
+    await Promise.all([settled(create(CARD_URL, {})), settled(create(CARD_URL, {}))]);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('resolves the card again for the same url with different headers', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => cardResponse());
     vi.stubGlobal('fetch', fetchMock);

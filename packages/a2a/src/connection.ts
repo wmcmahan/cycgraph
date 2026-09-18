@@ -281,13 +281,14 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
   const cards = new Map<string, Promise<unknown>>();
 
   return async (agentCardUrl, headers, signal) => {
-    // Before the cache lookup, so a cache miss never fetches a card from
-    // a host this call has not cleared, and a cache hit is still judged
-    // against what the name resolves to now.
-    const cleared = await assertPublicCardUrl(agentCardUrl);
+    // This call's own SSRF clearance, started but NOT awaited here: a
+    // cache hit is still judged against what the name resolves to now,
+    // and awaiting before the cache is consulted would let two
+    // concurrent first calls both miss and both fetch the card.
+    const clearing = assertPublicCardUrl(agentCardUrl);
 
-    const fetchImpl = requestFetch(headers, signal);
-
+    // Claimed synchronously — no await may separate this lookup from the
+    // set below, or the dedup it exists for does not hold.
     const key = cardKey(agentCardUrl, headers);
     let card = cards.get(key);
     if (!card) {
@@ -301,10 +302,13 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
       // pending promise cached at this key for the life of the process.
       const cardTimeout = AbortSignal.timeout(cardTimeoutMs);
       const cardFetch = requestFetch(headers, cardTimeout);
-      // The race is what guarantees the promise settles even if the fetch
-      // ignores its abort, and settling is what evicts the cache entry.
+      // Chained on this call's clearance, so no card request leaves for
+      // a host the claiming call has not cleared; the race guarantees
+      // the promise settles even if the fetch ignores its abort, and
+      // settling is what evicts the cache entry.
       const resolving = raceAbort(
-        new DefaultAgentCardResolver({ fetchImpl: cardFetch }).resolve(agentCardUrl, ''),
+        clearing.then(() =>
+          new DefaultAgentCardResolver({ fetchImpl: cardFetch }).resolve(agentCardUrl, '')),
         cardTimeout,
         () => new Error(
           `agent card resolution did not complete within the ${cardTimeoutMs}ms budget`,
@@ -317,9 +321,11 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
       card = resolving;
     }
 
+    const fetchImpl = requestFetch(headers, signal);
     const factory = new ClientFactory({
       transports: [new JsonRpcTransportFactory({ fetchImpl })],
     });
+    const cleared = await clearing;
     const resolved = await card;
     // Checked per call, not per resolution: the card is cached, and the
     // guard must hold for cached reuse too.
