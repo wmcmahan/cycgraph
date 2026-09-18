@@ -14,6 +14,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { GoldenTrajectorySchema, ManifestSchema } from './schema.js';
+import { resolveDatasetPath } from './paths.js';
 import type { GoldenTrajectory, Manifest, SuiteName } from './types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -39,15 +40,17 @@ export function loadManifest(goldenDir: string = GOLDEN_DIR): Manifest {
  *
  * Steps:
  * 1. Read manifest to locate the dataset file for the suite
- * 2. Read the compressed `.sqlite.gz` file
- * 3. Decompress in memory
- * 4. Open as an in-memory SQLite database
- * 5. Query all trajectories and validate each against GoldenTrajectorySchema
+ * 2. Resolve the dataset path, confined to `goldenDir`
+ * 3. Read the compressed `.sqlite.gz` file and verify its sha256
+ * 4. Decompress in memory
+ * 5. Open as an in-memory SQLite database
+ * 6. Query all trajectories and validate each against GoldenTrajectorySchema
  *
  * @param suite - The suite name to load trajectories for.
  * @param goldenDir - Path to the golden directory. Defaults to `golden/` at package root.
  * @returns Array of validated golden trajectories.
- * @throws If the suite is not found in the manifest or trajectories fail validation.
+ * @throws If the suite is not found in the manifest, its dataset path escapes
+ *   `goldenDir`, the dataset fails its checksum, or trajectories fail validation.
  */
 export function loadGoldenTrajectories(
   suite: SuiteName,
@@ -62,7 +65,7 @@ export function loadGoldenTrajectories(
     );
   }
 
-  const compressedPath = resolve(goldenDir, entry.file);
+  const compressedPath = resolveDatasetPath(goldenDir, entry.file);
   const compressed = readFileSync(compressedPath);
 
   // Verify the dataset matches the manifest's recorded checksum before trusting

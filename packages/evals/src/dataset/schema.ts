@@ -72,12 +72,30 @@ export const GoldenTrajectorySchema = z.object({
 // ─── Manifest Schemas ──────────────────────────────────────────────
 
 /**
+ * Shape a manifest `file` field must match: a `data/`-relative `.sqlite.gz`
+ * filename with no path separators after the prefix.
+ *
+ * The manifest is untrusted input — it can arrive from a pull request, a
+ * downloaded artifact, or a remote dataset URL. Without a shape constraint,
+ * `file` could be `../../../../etc/passwd` or an absolute path (which
+ * `path.resolve` returns unchanged, ignoring the golden directory), turning
+ * the loader into an arbitrary file read. The manifest's own sha256 is
+ * integrity, not confinement: whoever controls `file` controls `sha256` too.
+ */
+export const DATASET_FILE_PATTERN = /^data\/[A-Za-z0-9_.-]+\.sqlite\.gz$/;
+
+/**
  * Schema for a single dataset entry in the manifest.
  * Maps a trajectory set to its compressed SQLite file.
  */
 export const ManifestEntrySchema = z.object({
   name: z.string(),
-  file: z.string(),
+  file: z
+    .string()
+    .regex(
+      DATASET_FILE_PATTERN,
+      'file must be a data/-relative .sqlite.gz path (e.g. "data/orchestrator-v3.sqlite.gz")',
+    ),
   sha256: z.string(),
   trajectoryCount: z.number().int().nonnegative(),
   schemaVersion: z.string(),

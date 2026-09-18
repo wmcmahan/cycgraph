@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import {
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  renameSync,
+  symlinkSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
@@ -130,6 +138,26 @@ describe('loadGoldenTrajectories', () => {
       );
     } finally {
       rmSync(badDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a dataset file that is a symlink out of the golden directory', () => {
+    const root = resolve(import.meta.dirname, '../.test-golden-symlink');
+    const goldenDir = resolve(root, 'golden');
+    const outside = resolve(root, 'outside.sqlite.gz');
+    try {
+      writeRawDataset(goldenDir, 'orchestrator', [
+        { id: randomUUID(), data: JSON.stringify(sampleTrajectories[0]) },
+      ]);
+      const filePath = resolve(goldenDir, 'data/orchestrator-v1.sqlite.gz');
+      renameSync(filePath, outside);
+      symlinkSync(outside, filePath);
+
+      expect(() => loadGoldenTrajectories('orchestrator', goldenDir)).toThrow(
+        /resolves outside the golden directory/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
