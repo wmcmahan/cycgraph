@@ -46,7 +46,8 @@ export function pruneByScore(
   // …) inverts meaning, which is worse than slightly exceeding a soft budget.
   // They're selected first and their cost is charged up front — but only up to
   // the overrun ceiling, so a segment dense with negations cannot blow the
-  // budget without limit. Past the ceiling the lowest-scored ones are dropped.
+  // budget without limit. A protected token that would cross the ceiling is
+  // skipped, so a smaller lower-scored one can still be admitted after it.
   const protectedCeiling = maxTokens * PROTECTED_OVERRUN_FACTOR;
   const selected: ScoredToken[] = [];
   let runningCount = 0;
