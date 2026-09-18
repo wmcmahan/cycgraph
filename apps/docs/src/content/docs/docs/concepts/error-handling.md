@@ -252,5 +252,3 @@ const { waiting, active, paused, dead_letter } = await queue.getQueueDepth();
 - [Distributed Execution](/docs/concepts/distributed-execution/): worker crash recovery and dead-lettering
 - [Security](/docs/security/): how `writes` grants and taint tracking enforce zero trust
 - [Tracing](/docs/observability/tracing/): correlating errors with distributed traces
-curity](/docs/security/): how `writes` grants and taint tracking enforce zero trust
-- [Tracing](/docs/observability/tracing/): correlating errors with distributed traces
