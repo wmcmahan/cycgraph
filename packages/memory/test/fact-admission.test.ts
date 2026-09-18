@@ -110,6 +110,30 @@ describe('checkFactAdmission', () => {
     expect(verdict).toEqual({ admit: true });
   });
 
+  it('refuses a duplicate stored past the first page of the scan', async () => {
+    const store = await storeWith(
+      { content: UNRELATED },
+      { content: 'Grid operators added four gigawatts of pumped hydro capacity last quarter' },
+      { content: SOLID_STATE },
+    );
+
+    const verdict = await checkFactAdmission(store, { content: SOLID_STATE_REWORDED }, { limit: 1 });
+
+    expect(verdict.admit).toBe(false);
+    expect(verdict.admit === false && verdict.matched.content).toBe(SOLID_STATE);
+  });
+
+  it('refuses an eviction stored past the first page of the scan', async () => {
+    const store = await storeWith(
+      { content: UNRELATED },
+      { content: SOLID_STATE, invalidated_by: 'eval-gate:harmful' },
+    );
+
+    const verdict = await checkFactAdmission(store, { content: SOLID_STATE_REWORDED }, { limit: 1 });
+
+    expect(verdict.admit === false && verdict.reason).toBe('evicted_reentry');
+  });
+
   it('uses embeddings for similarity when a provider is supplied', async () => {
     const store = await storeWith({ content: SOLID_STATE });
     const embeddings = stubEmbeddings({
