@@ -27,6 +27,7 @@ export class SimpleSemanticExtractor implements SemanticExtractor {
         created_at: now,
       },
       valid_from: episode.started_at,
+      access_count: 0,
       tags: [],
     };
 

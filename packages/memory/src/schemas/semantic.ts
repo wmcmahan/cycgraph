@@ -32,8 +32,12 @@ export const SemanticFactSchema = z.object({
   valid_until: z.coerce.date().optional(),
   /** ID of the fact that invalidated this one, or a descriptive reason. */
   invalidated_by: z.string().optional(),
-  /** Number of times this fact has been accessed. */
-  access_count: z.number().int().nonnegative().default(0).optional(),
+  /**
+   * Number of times this fact has been accessed. Defaults to 0 — the
+   * `.default()` must stay outermost, since `ZodOptional` short-circuits on
+   * `undefined` input and would never reach an inner `ZodDefault`.
+   */
+  access_count: z.number().int().nonnegative().default(0),
   /** When this fact was last accessed. */
   last_accessed_at: z.coerce.date().optional(),
   /**

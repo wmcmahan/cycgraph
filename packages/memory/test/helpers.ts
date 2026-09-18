@@ -39,6 +39,7 @@ export function makeFact(overrides: Partial<SemanticFact> = {}): SemanticFact {
     entity_ids: [],
     provenance: makeProvenance(),
     valid_from: FIXED_DATE,
+    access_count: 0,
     tags: [],
     ...overrides,
   };

@@ -98,6 +98,7 @@ function makeSimFact(lesson: SimulatedLesson, candidateTag: string): SemanticFac
     entity_ids: [],
     provenance: { source: 'system', created_at: new Date(SIM_EPOCH_MS) },
     valid_from: new Date(SIM_EPOCH_MS + lesson.arrivesAtRun * 1000),
+    access_count: 0,
     tags: ['lesson', SIM_TAG, candidateTag],
   };
 }
