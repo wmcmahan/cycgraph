@@ -14,6 +14,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { keySlug } from './key-slug.js';
+
 const run = promisify(execFile);
 
 /** One mechanically-detected piece of owed upkeep. */
@@ -29,8 +31,7 @@ export interface CoreFinding {
 }
 
 function keyFor(kind: CoreFinding['kind'], file: string, text: string): string {
-  const normalized = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
-  return `${kind}:${file}:${normalized}`;
+  return `${kind}:${file}:${keySlug(text)}`;
 }
 
 /**

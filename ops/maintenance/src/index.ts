@@ -32,6 +32,7 @@ export { parseTuneProposal, tuneKey, tunePropose, variantWins, TUNABLE } from '.
 export type { ArmResult, TuneProposal } from './tune.js';
 export { featImplement } from './feat-implement.js';
 export { extractTicketDiff, parseProposal, pathTokens, proposalKey, safeAcceptanceCommand } from './proposal.js';
+export { keySlug } from './key-slug.js';
 export type { FeatureProposal } from './proposal.js';
 export { compareBench, parseBenchJson, runAliasedBench } from './bench.js';
 export type { BenchComparison, BenchDelta, BenchRow } from './bench.js';
