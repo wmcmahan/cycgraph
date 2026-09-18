@@ -161,23 +161,103 @@ async function assertPublicEndpoints(card: unknown, cleared: ReadonlySet<string>
 }
 
 /**
+ * SSRF guard over a redirect target, run before the next hop leaves.
+ *
+ * The card-url and endpoint guards judge URLs THIS package chose to
+ * request; a 3xx `location` is chosen by the remote, so it is judged on
+ * the same terms — scheme, literal host, then resolved addresses. Honors
+ * the same opt-out: one protocol, one decision.
+ */
+async function assertPublicRedirect(target: URL): Promise<void> {
+  if (allowsPrivateUrls()) return;
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    throw new Error(
+      `request redirected to "${target.href}", which must use http(s), got "${target.protocol}" (SSRF guard)`);
+  }
+  if (isPrivateOrLoopbackHost(target.hostname)) {
+    throw new Error(
+      `request redirected to "${target.href}", a private/loopback host, and is blocked (SSRF guard). `
+      + OPT_OUT_HINT);
+  }
+  await assertResolvedHostPublic(target.hostname, {
+    subject: 'redirect target host',
+    hint: OPT_OUT_HINT,
+  });
+}
+
+/** Maximum redirect hops one request follows, matching the web tools' guard. */
+const MAX_REDIRECTS = 5;
+
+/** The URL a fetch call targets, whichever input shape the caller used. */
+function targetUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.href : input.url;
+}
+
+/**
+ * Init for a redirect hop. A `Request` input carries the method and body
+ * that `init` does not, and its URL cannot be swapped for the hop's, so
+ * both are lifted out of a clone taken before the first hop consumed it;
+ * the body is buffered because a stream cannot be sent twice.
+ */
+async function replayInit(source: Request | undefined, hopInit: RequestInit): Promise<RequestInit> {
+  if (source === undefined) return hopInit;
+  return {
+    ...hopInit,
+    method: source.method,
+    ...(source.body !== null ? { body: await source.arrayBuffer() } : {}),
+  };
+}
+
+/**
  * The fetch every request of one call goes through: `headers` are applied
- * over whatever the SDK set, and `signal`, when given, bounds the request.
+ * over whatever the SDK set, `signal`, when given, bounds the request, and
+ * redirects are followed manually so every hop is SSRF-checked.
  *
  * A delivery bound is COMBINED with the SDK's own `init.signal` rather
  * than replacing it, so neither the SDK's per-request cancellation nor
  * the caller's deadline can be lost. Omitting `signal` leaves the SDK's
  * own signal, if any, exactly as it came.
+ *
+ * `redirect: 'follow'` would let a public, DNS-clean host 302 the request
+ * — `headers`, bearer token and all — into internal infrastructure
+ * unchecked, since the card-url and endpoint guards only ever see the URL
+ * this package chose. The first hop is not re-judged here: it is either
+ * the card URL {@link assertPublicCardUrl} just cleared or an endpoint
+ * {@link assertPublicEndpoints} cleared, and repeating the lookup would
+ * cost a DNS round trip per request.
  */
 export function requestFetch(headers: Record<string, string>, signal?: AbortSignal): typeof fetch {
-  return (input, init) =>
-    fetch(input, {
+  return async (input, init) => {
+    const hopInit: RequestInit = {
       ...init,
       headers: { ...(init?.headers as Record<string, string>), ...headers },
       ...(signal !== undefined
         ? { signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal }
         : {}),
-    });
+      redirect: 'manual',
+    };
+    const source = typeof input === 'string' || input instanceof URL ? undefined : input.clone();
+
+    let response = await fetch(input, hopInit);
+    let current: URL | undefined;
+    let replay: RequestInit | undefined;
+    for (let hop = 0; hop < MAX_REDIRECTS; hop++) {
+      if (response.status < 300 || response.status >= 400) return response;
+      const location = response.headers.get('location');
+      if (location === null) return response;
+      await response.body?.cancel();
+      current = new URL(location, current ?? targetUrl(input));
+      await assertPublicRedirect(current);
+      replay ??= await replayInit(source, hopInit);
+      response = await fetch(current, replay);
+    }
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error(
+        `request to "${targetUrl(input)}" exceeded ${MAX_REDIRECTS} redirects (SSRF guard)`);
+    }
+    return response;
+  };
 }
 
 /**
