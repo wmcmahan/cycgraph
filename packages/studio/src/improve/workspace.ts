@@ -67,9 +67,12 @@ export async function createWorkspace(
   await exec('git', ['checkout', '--quiet', '-b', branch], { cwd: root });
 
   // A clone carries only tracked files, and verification needs to import and
-  // typecheck — so the source repo's dependency tree is linked in, read-only
-  // by convention. Engine code resolves from the link; the code under edit
-  // is the clone's own.
+  // typecheck — so the source repo's dependency tree is linked in. Engine
+  // code resolves from the link; the code under edit is the clone's own.
+  // The link points out of the clone, so the workspace jail refuses every
+  // editor path that resolves through it: nothing the editing session writes
+  // can reach the source checkout's dependencies, which `npx tsc` and the
+  // scenario import below both execute from.
   const modules = join(repoRoot, 'node_modules');
   if (existsSync(modules) && !existsSync(join(root, 'node_modules'))) {
     await symlink(modules, join(root, 'node_modules'));
