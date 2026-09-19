@@ -9,6 +9,7 @@ import {
   HTTPTransportSchema,
   SSETransportSchema,
   BUILTIN_TOOL_NAMES,
+  isPrivateOrLoopbackHost,
 } from '../src/tools/schema.js';
 import { InMemoryMCPServerRegistry } from '../src/persistence/in-memory.js';
 import { MCPServerNotFoundError } from '../src/mcp/errors.js';
@@ -204,6 +205,11 @@ describe('MCPTransportConfigSchema', () => {
       ['decimal-encoded metadata', 'http://2852039166/'],
       ['IPv4-mapped IPv6 hex loopback', 'http://[::ffff:7f00:1]/'],
       ['IPv4-mapped IPv6 dotted metadata', 'http://[::ffff:169.254.169.254]/'],
+      ['expanded IPv6 loopback', 'http://[0:0:0:0:0:0:0:1]:9200/card'],
+      ['expanded IPv6 unspecified', 'http://[0:0:0:0:0:0:0:0]/'],
+      ['expanded IPv4-mapped loopback', 'http://[0:0:0:0:0:ffff:7f00:1]/'],
+      ['expanded IPv6 ULA', 'http://[fd00:0:0:0:0:0:0:1]/'],
+      ['IPv4-compatible IPv6 loopback', 'http://[::127.0.0.1]/'],
     ] as const;
 
     for (const [label, url] of blocked) {
@@ -240,6 +246,48 @@ describe('MCPTransportConfigSchema', () => {
     const sse = MCPTransportConfigSchema.parse({ type: 'sse', url: 'https://example.com' });
     expect(sse.type).toBe('sse');
   });
+});
+
+describe('isPrivateOrLoopbackHost', () => {
+  const privateHosts = [
+    ['localhost', 'localhost'],
+    ['expanded IPv6 loopback', '0:0:0:0:0:0:0:1'],
+    ['partially compressed IPv6 loopback', '0::1'],
+    ['tail-compressed IPv6 loopback', '::0:1'],
+    ['bracketed expanded IPv6 loopback', '[0:0:0:0:0:0:0:1]'],
+    ['expanded IPv6 unspecified', '0:0:0:0:0:0:0:0'],
+    ['expanded IPv4-mapped loopback', '0:0:0:0:0:ffff:7f00:1'],
+    ['expanded IPv4-mapped metadata', '0:0:0:0:0:ffff:169.254.169.254'],
+    ['IPv4-compatible IPv6 loopback', '::127.0.0.1'],
+    ['IPv4-translated IPv6 loopback', '::ffff:0:7f00:1'],
+    ['NAT64-prefixed metadata', '64:ff9b::169.254.169.254'],
+    ['expanded IPv6 ULA', 'fd00:0:0:0:0:0:0:1'],
+    ['expanded IPv6 link-local', 'fe80:0:0:0:0:0:0:1'],
+    ['uppercase IPv6 link-local', 'FE80::1'],
+    ['zone-qualified IPv6 link-local', 'fe80::1%eth0'],
+    ['uncanonicalizable IPv6 literal', '::ffff::1'],
+  ] as const;
+
+  for (const [label, host] of privateHosts) {
+    it(`blocks ${label}: ${host}`, () => {
+      expect(isPrivateOrLoopbackHost(host)).toBe(true);
+    });
+  }
+
+  const publicHosts = [
+    ['public hostname', 'mcp.example.com'],
+    ['hostname with a private-range prefix', 'fdisk.example.com'],
+    ['public IPv4', '93.184.216.34'],
+    ['public IPv6', '2606:4700:4700::1111'],
+    ['expanded public IPv6', '2606:4700:4700:0:0:0:0:1111'],
+    ['IPv4-mapped public address', '::ffff:93.184.216.34'],
+  ] as const;
+
+  for (const [label, host] of publicHosts) {
+    it(`allows ${label}: ${host}`, () => {
+      expect(isPrivateOrLoopbackHost(host)).toBe(false);
+    });
+  }
 });
 
 describe('MCPServerEntrySchema', () => {

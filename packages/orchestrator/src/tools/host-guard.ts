@@ -2,10 +2,10 @@
  * Connect-time SSRF host guard.
  *
  * One implementation of "resolve this host, reject if any address it maps
- * to is private" for every caller that has already judged a literal
- * hostname with {@link isPrivateOrLoopbackHost}: MCP transports, A2A agent
- * card endpoints, and the web tools. The range logic, the lookup budget,
- * and the literal-IP short circuit live here so the copies cannot drift.
+ * to is private" for every caller that also judges the literal hostname
+ * with {@link isPrivateOrLoopbackHost}: MCP transports, A2A agent card
+ * endpoints, and the web tools. The range logic, the lookup budget, and the
+ * literal-IP handling live here so the copies cannot drift.
  *
  * @module tools/host-guard
  */
@@ -51,22 +51,23 @@ export interface ResolvedHostGuardOptions {
 /**
  * True for a host that is already an IP literal in any encoding the
  * hostname guard understands (dotted or integer IPv4, bare IPv6). Such a
- * host was fully judged by the caller's literal check, so resolving it
- * would buy nothing and cost a `getaddrinfo`.
+ * host has no DNS record to consult, so it is range-checked here instead
+ * of resolved.
  */
 function isIpLiteral(host: string): boolean {
-  return isIP(host) !== 0 || /^[0-9.]+$/.test(host);
+  return isIP(host) !== 0 || /^[0-9.]+$/.test(host) || host.includes(':');
 }
 
 /**
  * Reject a hostname whose DNS record points anywhere private: resolve it
  * and throw if ANY returned address is private/loopback/link-local.
  *
- * Callers must have already run {@link isPrivateOrLoopbackHost} on the
- * literal hostname — this is the second half of that protocol, catching
- * the public NAME that resolves to a private ADDRESS (DNS rebinding) that
- * a literal test cannot see. Lookup failure and lookup timeout both fail
- * closed rather than letting the connection proceed blind.
+ * This is the second half of the guard protocol, catching the public NAME
+ * that resolves to a private ADDRESS (DNS rebinding) that a literal test
+ * cannot see. An IP literal has no record to consult, so it is range-checked
+ * here rather than resolved — the stage re-judges it instead of trusting
+ * that the caller's literal test ran. Lookup failure and lookup timeout both
+ * fail closed rather than letting the connection proceed blind.
  *
  * Documented residual: the caller's own connect re-resolves the name, so a
  * TTL-0 attacker flipping the record inside that window is not closed
@@ -74,7 +75,8 @@ function isIpLiteral(host: string): boolean {
  *
  * @param hostname - Host to resolve; IPv6 brackets are tolerated and stripped.
  * @param options - Message subject, opt-out, and budget for this call site.
- * @throws {ResolvedHostBlockedError} When any resolved address is private.
+ * @throws {ResolvedHostBlockedError} When the host is a private literal or
+ * any resolved address is private.
  * @throws {Error} When the host cannot be resolved within the budget.
  */
 export async function assertResolvedHostPublic(
@@ -85,7 +87,14 @@ export async function assertResolvedHostPublic(
 
   // dns.lookup wants a bare host; URL.hostname keeps IPv6 bracketed.
   const host = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
-  if (isIpLiteral(host)) return;
+  if (isIpLiteral(host)) {
+    if (!isPrivateOrLoopbackHost(host)) return;
+    throw new ResolvedHostBlockedError(
+      `${options.subject} "${host}" is a private/loopback address literal and is blocked (SSRF guard).`
+      + `${options.hint === undefined ? '' : ` ${options.hint}`}`,
+      [host],
+    );
+  }
 
   const timeoutMs = options.timeoutMs ?? DNS_LOOKUP_TIMEOUT_MS;
 
