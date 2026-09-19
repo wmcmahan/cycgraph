@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { setupDatabaseTests, isDatabaseAvailable, seedRun } from './setup.js';
 import { DrizzlePersistenceProvider, toWorkflowStateJson } from '../src/drizzle-persistence.js';
 import { DrizzleEventLogWriter } from '../src/drizzle-event-log.js';
-import { createWorkflowState, createGraph } from '@cycgraph/orchestrator';
+import { createWorkflowState, createGraph, WorkflowStateSchema } from '@cycgraph/orchestrator';
 import type { WorkflowState } from '@cycgraph/orchestrator';
 
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
@@ -16,8 +16,8 @@ const NODE_BREAKDOWN = { write: { input_tokens: 10, output_tokens: 20, cost_usd:
 const MODEL_BREAKDOWN = { 'claude-sonnet-4': { input_tokens: 10, output_tokens: 20, cost_usd: 0.5, calls: 2 } };
 
 /**
- * A state with every optional and accounting field set, so a key-set
- * comparison against the serialized JSON is not satisfied by absent optionals.
+ * A state with every optional and accounting field set, so serialization
+ * assertions compare real values rather than absent optionals.
  */
 function fullyPopulatedState(): WorkflowState {
   return {
@@ -62,12 +62,12 @@ describe('toWorkflowStateJson', () => {
     expect(json.state_schema_version).toBe(state.state_schema_version);
   });
 
-  it('serializes every field the engine state carries', () => {
+  it('serializes every field the state schema declares', () => {
     const state = fullyPopulatedState();
 
     const json = toWorkflowStateJson(state);
 
-    expect(Object.keys(json).sort()).toEqual(Object.keys(state).sort());
+    expect(Object.keys(json).sort()).toEqual(Object.keys(WorkflowStateSchema.shape).sort());
   });
 
   it('carries per-node spend so a resumed run can still price its tail', () => {
