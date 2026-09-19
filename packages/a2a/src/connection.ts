@@ -386,7 +386,7 @@ export function sdkClientFactory(options: SdkClientFactoryOptions = {}): CreateS
       // the promise settles even if the fetch ignores its abort, and
       // settling is what evicts the cache entry.
       const resolving = raceAbort(
-        clearing.then(() =>
+        () => clearing.then(() =>
           new DefaultAgentCardResolver({ fetchImpl: cardFetch }).resolve(agentCardUrl, '')),
         cardTimeout,
         () => new Error(
