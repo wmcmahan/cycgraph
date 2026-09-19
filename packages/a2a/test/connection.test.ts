@@ -11,6 +11,8 @@ vi.mock('node:dns/promises', () => ({ lookup: dnsLookupMock }));
 import { requestFetch, sdkClientFactory } from '../src/connection.js';
 
 const CARD_URL = 'http://agent.example';
+/** Scheme-relative, so `new URL()` rejects it while a lenient parser might not. */
+const UNPARSEABLE_CARD_URL = '//agent.example/card.json';
 const PUBLIC_IP = '93.184.216.34';
 const METADATA_IP = '169.254.169.254';
 
@@ -460,6 +462,26 @@ describe('sdkClientFactory', () => {
       'agent card url "file:///etc/passwd" must use http(s), got "file:"');
   });
 
+  it('fails a call whose card url does not parse', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    const outcome = await create(UNPARSEABLE_CARD_URL, {}).then(() => 'created', () => 'refused');
+
+    expect(outcome).toBe('refused');
+  });
+
+  it('issues no request for a card url that does not parse', async () => {
+    const fetchMock = vi.fn(async () => cardResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const create = sdkClientFactory();
+    await settled(create(UNPARSEABLE_CARD_URL, {}));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('honors the development opt-out for a private card url', async () => {
     vi.stubEnv('CYCGRAPH_ALLOW_PRIVATE_A2A_URLS', 'true');
     const fetchMock = vi.fn(async () => cardResponse('http://127.0.0.1:9999/rpc'));
@@ -715,6 +737,26 @@ describe('requestFetch', () => {
     await expect(
       requestFetch({ authorization: 'Bearer sesame' }, PINNED)(`${CARD_URL}/rpc`, {}),
     ).rejects.toThrow('is neither the agent card url\'s host nor an allowed endpoint host for this server');
+  });
+
+  it('refuses a redirect when nothing is pinned', async () => {
+    const fetchMock = redirectThenOk(`${CARD_URL}/moved`);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      requestFetch({ authorization: 'Bearer sesame' }, new Set())(`${CARD_URL}/rpc`, {}),
+    ).rejects.toThrow(
+      `request redirected to "${CARD_URL}/moved", whose host "agent.example" is neither the agent card url's `
+      + 'host nor an allowed endpoint host for this server');
+  });
+
+  it('issues no redirected request when nothing is pinned', async () => {
+    const fetchMock = redirectThenOk(`${CARD_URL}/moved`);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await settled(requestFetch({ authorization: 'Bearer sesame' }, new Set())(`${CARD_URL}/rpc`, {}));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('replays the method and body of a request input on a redirect hop', async () => {
