@@ -5,14 +5,16 @@
  * allowlist-first: creating it without a non-empty `allowedHosts` throws.
  * Operator-configured `defaultHeaders` (API keys and the like) are merged
  * over LLM-supplied headers and never appear in the tool's schema, so
- * secrets stay config-side. Results are taint-tracked.
+ * secrets stay config-side: the allowlist is re-checked on every redirect
+ * hop and those headers are dropped as soon as a hop changes origin, so a
+ * 302 cannot carry them to another host. Results are taint-tracked.
  *
  * @module web/http-request
  */
 
 import { z } from 'zod';
 import { defineTool, type DefinedTool, ToolDefinitionError } from '@cycgraph/orchestrator';
-import { guardedFetch, readBodyCapped } from './ssrf.js';
+import { guardedFetch, HostNotAllowedError, readBodyCapped } from './ssrf.js';
 import { DEFAULT_MAX_RESPONSE_BYTES } from './web-fetch.js';
 
 const ALL_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -20,7 +22,10 @@ type HttpMethod = (typeof ALL_METHODS)[number];
 
 /** Options for {@link httpRequestTool}. */
 export interface HttpRequestToolOptions {
-  /** Hostnames this tool may call (exact match). Required and non-empty. */
+  /**
+   * Hostnames this tool may call (exact match), enforced on the requested URL
+   * and on every redirect hop. Required and non-empty.
+   */
   allowedHosts: string[];
   /** Methods the LLM may use. @default ['GET', 'POST'] */
   allowedMethods?: HttpMethod[];
@@ -47,6 +52,8 @@ export function httpRequestTool(options: HttpRequestToolOptions): DefinedTool {
   }
   const methods = options.allowedMethods ?? (['GET', 'POST'] as HttpMethod[]);
   const maxBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  const allowedHosts = options.allowedHosts;
+  const isHostAllowed = (hostname: string): boolean => allowedHosts.includes(hostname);
 
   return defineTool({
     name: 'http_request',
@@ -63,8 +70,8 @@ export function httpRequestTool(options: HttpRequestToolOptions): DefinedTool {
     timeoutMs: options.timeoutMs ?? 15_000,
     execute: async ({ url, method, headers, body }) => {
       const host = new URL(url).hostname;
-      if (!options.allowedHosts.includes(host)) {
-        throw new Error(`Host "${host}" is not in this tool's allowed hosts`);
+      if (!isHostAllowed(host)) {
+        throw new HostNotAllowedError(`Host "${host}" is not in this tool's allowed hosts`);
       }
       const effectiveMethod = method ?? 'GET';
       if (!methods.includes(effectiveMethod)) {
@@ -91,6 +98,10 @@ export function httpRequestTool(options: HttpRequestToolOptions): DefinedTool {
           ...(body !== undefined && effectiveMethod !== 'GET' ? { body } : {}),
         },
         options.allowPrivateHosts,
+        {
+          isHostAllowed,
+          credentialHeaders: Object.keys(options.defaultHeaders ?? {}),
+        },
       );
       const read = await readBodyCapped(response, maxBytes);
 
