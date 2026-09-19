@@ -25,6 +25,13 @@ import { DEFAULT_IDENTITY, type CommitIdentity, type PublishConfig } from './con
 
 const exec = promisify(execFile);
 
+function assertSafeGitArg(value: string, name: string): void {
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed.startsWith('-')) {
+    throw new Error(`Invalid ${name}: ${value}`);
+  }
+}
+
 /** A disposable clone on its own branch. */
 export interface Branch {
   root: string;
@@ -38,6 +45,8 @@ export async function cloneToBranch(
   options: { at?: string } = {},
 ): Promise<Branch> {
   const root = options.at ?? await mkdtemp(join(tmpdir(), 'cycgraph-work-'));
+  assertSafeGitArg(repoRoot, 'repoRoot');
+  assertSafeGitArg(root, 'clone destination');
   await exec('git', ['clone', '--quiet', '--no-hardlinks', repoRoot, root]);
   await exec('git', ['checkout', '--quiet', '-b', branch], { cwd: root });
 
