@@ -1,5 +1,12 @@
 # @cycgraph/orchestrator
 
+## 1.4.1
+
+### Patch Changes
+
+- b47bd71: A2A artifacts named `__proto__`, `constructor`, or `prototype` are no longer used as result keys, and the delegation boundary now resolves output mappings with own-property semantics. A remote agent can no longer smuggle values into workflow memory through the prototype chain, where they would land untainted.
+- 9b24d23: The SSRF host guard now canonicalizes IPv6 literals (expanding `::`, dropping zone ids, folding IPv4-mapped/translated/compatible and NAT64 forms) before range-checking, and fails closed on any IPv6 literal it cannot canonicalize. Non-canonical spellings of loopback such as `[0:0:0:0:0:0:0:1]` or `[0:0:0:0:0:ffff:7f00:1]` are no longer accepted as public hosts by MCP transport URLs, A2A agent card URLs, or web tool fetches.
+
 ## 1.4.0
 
 ### Minor Changes
