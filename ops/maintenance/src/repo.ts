@@ -20,7 +20,13 @@ import { addIssueLabel, commentOnIssue } from '@cycgraph/tools/git';
  * subdirectory is not a thing git will do.
  */
 export async function resolveRepo(value: string): Promise<string> {
-  if (value && value !== '.') return isAbsolute(value) ? value : resolve(process.cwd(), value);
+  if (value && value !== '.') {
+    const trimmed = value.trim();
+    if (!trimmed) throw new Error('Invalid repository path: empty value');
+    if (trimmed.startsWith('-')) throw new Error(`Invalid repository path: ${value}`);
+    if (trimmed.includes('\0') || /[\r\n]/.test(trimmed)) throw new Error(`Invalid repository path: ${value}`);
+    return isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
+  }
   try {
     const { stdout } = await promisify(execFile)('git', ['rev-parse', '--show-toplevel'], { cwd: process.cwd() });
     return stdout.trim();
