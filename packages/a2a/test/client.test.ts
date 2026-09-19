@@ -403,6 +403,65 @@ describe('createA2AClient', () => {
     expect(seen[0]).toEqual({ authorization: 'Bearer s', traceparent: '00-abc-def-01' });
   });
 
+  it('passes a run request allowed endpoint hosts to the transport factory', async () => {
+    const seen: (readonly string[] | undefined)[] = [];
+    const client = createA2AClient({
+      createClient: async (_url, _headers, _signal, allowedEndpointHosts) => {
+        seen.push(allowedEndpointHosts);
+        return { sendMessage: async () => ({ id: 't', status: { state: 'completed' }, artifacts: [] }) } as never;
+      },
+    });
+
+    await client.runTask({
+      agentCardUrl: 'https://cards.example/card.json',
+      headers: {},
+      input: {},
+      timeoutMs: 1000,
+      allowedEndpointHosts: ['rpc.example.com', 'alt.example.com'],
+    });
+
+    expect(seen).toEqual([['rpc.example.com', 'alt.example.com']]);
+  });
+
+  it('passes a resume request allowed endpoint hosts to the transport factory', async () => {
+    const seen: (readonly string[] | undefined)[] = [];
+    const client = createA2AClient({
+      createClient: async (_url, _headers, _signal, allowedEndpointHosts) => {
+        seen.push(allowedEndpointHosts);
+        return {
+          sendMessage: async () => ({ id: 'task-7', status: { state: 'completed' }, artifacts: [] }),
+        } as never;
+      },
+    });
+
+    await client.resumeTask({
+      agentCardUrl: 'https://cards.example/card.json',
+      headers: {},
+      taskId: 'task-7',
+      response: 'EMEA',
+      timeoutMs: 1000,
+      allowedEndpointHosts: ['rpc.example.com'],
+    });
+
+    expect(seen).toEqual([['rpc.example.com']]);
+  });
+
+  it('passes no allowed endpoint hosts when the request omits them', async () => {
+    const seen: (readonly string[] | undefined)[] = [];
+    const client = createA2AClient({
+      createClient: async (_url, _headers, _signal, allowedEndpointHosts) => {
+        seen.push(allowedEndpointHosts);
+        return { sendMessage: async () => ({ id: 't', status: { state: 'completed' }, artifacts: [] }) } as never;
+      },
+    });
+
+    await client.runTask({
+      agentCardUrl: 'https://cards.example/card.json', headers: {}, input: {}, timeoutMs: 1000,
+    });
+
+    expect(seen).toEqual([undefined]);
+  });
+
   it('returns a failed state rather than throwing when a task ends badly', async () => {
     const client = createA2AClient({
       createClient: async () => ({
