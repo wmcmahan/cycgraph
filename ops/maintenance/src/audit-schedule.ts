@@ -46,31 +46,37 @@ export function pairKey(lens: string, scope: string): string {
  * with never-audited pairs ahead of everything dated. Ties keep the
  * incoming diagonal order, so with no state at all this degrades to
  * exactly the previous behavior.
+ *
+ * `changedSlotCap` bounds the changed-first block: churn on a hot scope
+ * would otherwise fill every slot of a capped run and starve the
+ * rotation — a scope never visited stays "oldest" forever without ever
+ * getting the slot that would date it. Changed pairs past the cap fall
+ * into the rotation and compete by age like everything else, where
+ * their recent audit dates sink them behind the starved tail.
  */
 export function scheduleCharters(
   pairs: Array<{ lens: string; scope: string }>,
-  options: { changedScopes?: ReadonlySet<string>; schedule?: AuditSchedule },
+  options: { changedScopes?: ReadonlySet<string>; schedule?: AuditSchedule; changedSlotCap?: number },
 ): Array<{ lens: string; scope: string }> {
   const changed = options.changedScopes ?? new Set<string>();
   const audited = options.schedule?.pairs ?? {};
 
-  return pairs
-    .map((pair, index) => ({
-      pair,
-      index,
-      isChanged: changed.has(pair.scope),
-      auditedAt: audited[pairKey(pair.lens, pair.scope)],
-    }))
-    .sort((a, b) => {
-      if (a.isChanged !== b.isChanged) return a.isChanged ? -1 : 1;
-      if (!a.isChanged) {
-        const aTime = a.auditedAt === undefined ? -Infinity : Date.parse(a.auditedAt);
-        const bTime = b.auditedAt === undefined ? -Infinity : Date.parse(b.auditedAt);
-        if (aTime !== bTime) return aTime - bTime;
-      }
-      return a.index - b.index;
-    })
-    .map((entry) => entry.pair);
+  const decorated = pairs.map((pair, index) => ({
+    pair,
+    index,
+    isChanged: changed.has(pair.scope),
+    auditedAt: audited[pairKey(pair.lens, pair.scope)],
+  }));
+  const byAge = (a: (typeof decorated)[number], b: (typeof decorated)[number]): number => {
+    const aTime = a.auditedAt === undefined ? -Infinity : Date.parse(a.auditedAt);
+    const bTime = b.auditedAt === undefined ? -Infinity : Date.parse(b.auditedAt);
+    if (aTime !== bTime) return aTime - bTime;
+    return a.index - b.index;
+  };
+  const changedFirst = decorated.filter((entry) => entry.isChanged);
+  const cap = options.changedSlotCap ?? changedFirst.length;
+  const tail = [...decorated.filter((entry) => !entry.isChanged), ...changedFirst.slice(cap)].sort(byAge);
+  return [...changedFirst.slice(0, cap), ...tail].map((entry) => entry.pair);
 }
 
 /** Load the schedule state, or `undefined` when none has been recorded. */
