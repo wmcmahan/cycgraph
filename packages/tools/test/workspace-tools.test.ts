@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -48,6 +48,31 @@ describe('jailedPath', () => {
 
   it('allows a dotted path that stays inside', () => {
     expect(jailedPath(root, 'src/../src/config.ts')).toBe(join(root, 'src', 'config.ts'));
+  });
+
+  it('refuses a file reached through a symlinked directory pointing out of the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cycgraph-outside-'));
+    await writeFile(join(outside, 'index.js'), 'host\n');
+    await symlink(outside, join(root, 'node_modules', 'linked'));
+
+    expect(() => jailedPath(root, 'node_modules/linked/index.js')).toThrow(WorkspaceEscapeError);
+
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  it('refuses a new path under a symlinked directory pointing out of the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cycgraph-outside-'));
+    await symlink(outside, join(root, 'node_modules', 'linked'));
+
+    expect(() => jailedPath(root, 'node_modules/linked/deep/new.js')).toThrow(WorkspaceEscapeError);
+
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  it('allows a symlink that points back inside the root', async () => {
+    await symlink(join(root, 'src'), join(root, 'alias'));
+
+    expect(jailedPath(root, 'alias/config.ts')).toBe(join(root, 'alias', 'config.ts'));
   });
 });
 
@@ -187,6 +212,21 @@ describe('editFileTool', () => {
 
     expect(result).toContain('more than once');
     expect(await readFile(join(root, 'src', 'config.ts'), 'utf8')).toContain('maxIterations = 6');
+  });
+
+  it('refuses to write through a dependency symlink into the source checkout', async () => {
+    const host = await mkdtemp(join(tmpdir(), 'cycgraph-host-'));
+    await mkdir(join(host, 'node_modules', 'typescript', 'lib'), { recursive: true });
+    await writeFile(join(host, 'node_modules', 'typescript', 'lib', 'tsc.js'), 'original\n');
+    await rm(join(root, 'node_modules'), { recursive: true, force: true });
+    await symlink(join(host, 'node_modules'), join(root, 'node_modules'));
+
+    await expect(editFileTool({ root }).execute({
+      path: 'node_modules/typescript/lib/tsc.js', find: 'original', replace: 'payload',
+    })).rejects.toThrow(WorkspaceEscapeError);
+    expect(await readFile(join(host, 'node_modules', 'typescript', 'lib', 'tsc.js'), 'utf8')).toBe('original\n');
+
+    await rm(host, { recursive: true, force: true });
   });
 });
 
