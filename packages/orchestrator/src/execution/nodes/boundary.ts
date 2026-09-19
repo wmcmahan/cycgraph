@@ -134,7 +134,10 @@ export function mapOutbound(
   const taint: Record<string, TaintMetadata> = {};
 
   for (const [delegateKey, parentKey] of Object.entries(outputMapping)) {
-    if (!(delegateKey in delegateMemory)) continue;
+    // Own-property check, matching the taint registry's lookup semantics: a
+    // key reachable only through the prototype chain would otherwise be
+    // copied out with no taint entry to accompany it.
+    if (!Object.hasOwn(delegateMemory, delegateKey)) continue;
 
     const value = delegateMemory[delegateKey];
     const decl = declared?.[delegateKey];

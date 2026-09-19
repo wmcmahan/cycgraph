@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { executeA2ANode } from '../src/execution/nodes/a2a.js';
 import { A2ATaskFailedError } from '../src/execution/nodes/errors.js';
 import { NodeConfigError } from '../src/execution/errors.js';
+import { mapOutbound } from '../src/execution/nodes/boundary.js';
 import { InMemoryA2AServerRegistry } from '../src/a2a/in-memory-registry.js';
 import { resetA2AServerConcurrency } from '../src/a2a/concurrency.js';
 import { a2a } from '../src/authoring/a2a.js';
@@ -235,6 +236,69 @@ describe('executeA2ANode', () => {
     expect((action.payload as any).updates.findings).toBe('ok');
   });
 
+  it('drops an artifact whose name would repoint the result prototype', async () => {
+    const client = fakeClient({ artifacts: [{ name: '__proto__', value: { report: 'injected' } }] });
+
+    const action = await executeA2ANode(node(), stateView(), 1, await ctxWith(client));
+
+    expect((action.payload as any).updates).toEqual({});
+  });
+
+  it('maps nothing for an output key that exists only on the prototype chain', async () => {
+    const inherited = node({
+      a2a_config: {
+        server_id: 'research-service',
+        input_mapping: {},
+        output_mapping: { constructor: 'ctor' },
+      },
+    } as Partial<GraphNode>);
+    const client = fakeClient({ artifacts: [] });
+
+    const action = await executeA2ANode(inherited, stateView(), 1, await ctxWith(client));
+
+    expect((action.payload as any).updates).toEqual({});
+  });
+
+  it('taints artifacts that survive the name check', async () => {
+    const client = fakeClient({
+      artifacts: [{ name: '__proto__', value: { report: 'injected' } }, { name: 'report', value: 'real' }],
+    });
+
+    const action = await executeA2ANode(node(), stateView(), 1, await ctxWith(client));
+
+    const updates = (action.payload as any).updates;
+    expect(updates.findings).toBe('real');
+    expect(Object.keys(updates._taint_registry)).toEqual(['findings']);
+    expect(updates._taint_registry.findings.source).toBe('a2a');
+  });
+});
+
+describe('mapOutbound — own-property lookup', () => {
+  const fail = (): never => {
+    throw new Error('unexpected boundary failure');
+  };
+
+  it('maps nothing for a delegate key reachable only through a polluted prototype', () => {
+    const protoKey = '__proto__';
+    const delegateMemory: Record<string, unknown> = {};
+    delegateMemory[protoKey] = { findings: 'injected' };
+
+    const updates = mapOutbound(delegateMemory, {}, { findings: 'report' }, undefined, fail);
+
+    expect(updates).toEqual({});
+  });
+
+  it('maps nothing for a key inherited from Object.prototype', () => {
+    const updates = mapOutbound({}, {}, { constructor: 'ctor' }, undefined, fail);
+
+    expect(updates).toEqual({});
+  });
+
+  it('maps an own delegate key the mapping names', () => {
+    const updates = mapOutbound({ findings: 'real' }, {}, { findings: 'report' }, undefined, fail);
+
+    expect(updates).toEqual({ report: 'real' });
+  });
 });
 
 describe('executeA2ANode — per-server concurrency cap', () => {

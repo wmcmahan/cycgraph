@@ -37,6 +37,12 @@ import type { TaintRegistry } from '../../state/state.js';
 const logger = createLogger('runner.node.a2a');
 const tracer = getTracer('orchestrator.a2a');
 
+/**
+ * Artifact names that reach the prototype chain when used as an object key.
+ * A remote agent controls the name, so these never become keys.
+ */
+const UNSAFE_ARTIFACT_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
+
 /** Taint every returned artifact as external data, keyed by artifact name. */
 function taintAll(artifacts: A2AArtifact[], serverId: string, nodeId: string): TaintRegistry {
   let registry: TaintRegistry = {};
@@ -213,15 +219,31 @@ export async function executeA2ANode(
     throw new A2ATaskFailedError(node.id, config.server_id, result.state, result.taskId, result.message);
   }
 
-  // Artifacts are keyed by name; `output_mapping` matches on it.
-  const artifactMemory: Record<string, unknown> = {};
-  for (const artifact of result.artifacts) {
+  // Artifacts are keyed by name; `output_mapping` matches on it. The name is
+  // remote-controlled, so a prototype-reaching one is dropped before it is
+  // used as a key: an artifact named `__proto__` would otherwise repoint the
+  // object's prototype and surface keys the taint registry — which records
+  // own properties only — has no entry for.
+  const safeArtifacts = result.artifacts.filter((artifact) => {
+    if (!UNSAFE_ARTIFACT_NAMES.has(artifact.name)) return true;
+    logger.warn('a2a_artifact_name_rejected', {
+      node_id: node.id,
+      server_id: config.server_id,
+      artifact_name: artifact.name,
+    });
+    return false;
+  });
+
+  // Null-prototype: assignment cannot reach an inherited setter even if a
+  // future caller skips the filter above.
+  const artifactMemory = Object.create(null) as Record<string, unknown>;
+  for (const artifact of safeArtifacts) {
     artifactMemory[artifact.name] = artifact.value;
   }
 
   const updates = mapOutbound(
     artifactMemory,
-    taintAll(result.artifacts, config.server_id, node.id),
+    taintAll(safeArtifacts, config.server_id, node.id),
     config.output_mapping,
     undefined,
     fail,
