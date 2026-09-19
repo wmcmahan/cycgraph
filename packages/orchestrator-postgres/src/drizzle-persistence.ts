@@ -87,6 +87,7 @@ export function toWorkflowStateJson(state: WorkflowState): WorkflowStateJson {
     _last_event_sequence_id: state._last_event_sequence_id,
     budget_usd: state.budget_usd,
     _cost_alert_thresholds_fired: state._cost_alert_thresholds_fired,
+    node_breakdown: state.node_breakdown,
     model_breakdown: state.model_breakdown,
     memory_drops: state.memory_drops,
     // Engine-owned registries (schema v2) — omitting any of these would

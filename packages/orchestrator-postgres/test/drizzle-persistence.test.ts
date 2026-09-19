@@ -7,10 +7,36 @@ import { describe, it, expect } from 'vitest';
 import { setupDatabaseTests, isDatabaseAvailable, seedRun } from './setup.js';
 import { DrizzlePersistenceProvider, toWorkflowStateJson } from '../src/drizzle-persistence.js';
 import { DrizzleEventLogWriter } from '../src/drizzle-event-log.js';
-import { createWorkflowState, createGraph } from '@cycgraph/orchestrator';
+import { createWorkflowState, createGraph, WorkflowStateSchema } from '@cycgraph/orchestrator';
 import type { WorkflowState } from '@cycgraph/orchestrator';
 
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+
+const NODE_BREAKDOWN = { write: { input_tokens: 10, output_tokens: 20, cost_usd: 0.5, calls: 2 } };
+const MODEL_BREAKDOWN = { 'claude-sonnet-4': { input_tokens: 10, output_tokens: 20, cost_usd: 0.5, calls: 2 } };
+
+/**
+ * A state with every optional and accounting field set, so serialization
+ * assertions compare real values rather than absent optionals.
+ */
+function fullyPopulatedState(): WorkflowState {
+  return {
+    ...createWorkflowState({ workflow_id: crypto.randomUUID(), goal: 'do the thing' }),
+    current_node: 'write',
+    _last_event_sequence_id: 7,
+    last_error: 'boom',
+    waiting_for: 'human_approval',
+    waiting_since: new Date(),
+    waiting_timeout_at: new Date(),
+    started_at: new Date(),
+    max_token_budget: 1_000,
+    total_cost_usd: 0.5,
+    budget_usd: 12.5,
+    pending_approval: { node_id: 'write' },
+    node_breakdown: NODE_BREAKDOWN,
+    model_breakdown: MODEL_BREAKDOWN,
+  };
+}
 
 describe('toWorkflowStateJson', () => {
   it('copies the identity and goal fields through unchanged', () => {
@@ -31,9 +57,26 @@ describe('toWorkflowStateJson', () => {
     const json = toWorkflowStateJson(state);
 
     expect(json.budget_usd).toBe(5);
-    expect('taint_registry' in json).toBe(true);
-    expect('lesson_provenance' in json).toBe(true);
-    expect('state_schema_version' in json).toBe(true);
+    expect(json.taint_registry).toEqual(state.taint_registry);
+    expect(json.lesson_provenance).toEqual(state.lesson_provenance);
+    expect(json.state_schema_version).toBe(state.state_schema_version);
+  });
+
+  it('serializes every field the state schema declares', () => {
+    const state = fullyPopulatedState();
+
+    const json = toWorkflowStateJson(state);
+
+    expect(Object.keys(json).sort()).toEqual(Object.keys(WorkflowStateSchema.shape).sort());
+  });
+
+  it('carries per-node spend so a resumed run can still price its tail', () => {
+    const state = fullyPopulatedState();
+
+    const json = toWorkflowStateJson(state);
+
+    expect(json.node_breakdown).toEqual(NODE_BREAKDOWN);
+    expect(json.model_breakdown).toEqual(MODEL_BREAKDOWN);
   });
 });
 
@@ -234,6 +277,27 @@ describe.skipIf(!isDatabaseAvailable())('DrizzlePersistenceProvider', () => {
       const loaded = await provider.loadLatestWorkflowState(NIL_UUID);
 
       expect(loaded).toBeNull();
+    });
+
+    it('restores per-node spend, per-model spend and the budget after a reload', async () => {
+      const graph = makeGraph();
+      await provider.saveGraph(graph);
+      const state = {
+        ...makeState(graph.id),
+        total_cost_usd: 0.5,
+        budget_usd: 12.5,
+        node_breakdown: NODE_BREAKDOWN,
+        model_breakdown: MODEL_BREAKDOWN,
+      };
+      await provider.saveWorkflowRun(state);
+
+      await provider.saveWorkflowState(state);
+      const loaded = await provider.loadLatestWorkflowState(state.run_id);
+
+      expect(loaded!.node_breakdown).toEqual(NODE_BREAKDOWN);
+      expect(loaded!.model_breakdown).toEqual(MODEL_BREAKDOWN);
+      expect(loaded!.budget_usd).toBe(12.5);
+      expect(loaded!.total_cost_usd).toBe(0.5);
     });
 
     it('returns the highest version regardless of created_at ordering', async () => {
