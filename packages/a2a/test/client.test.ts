@@ -251,6 +251,52 @@ describe('createA2AClient', () => {
     })).rejects.toThrow('aborted by the caller');
   });
 
+  it('never builds a client when the caller signal is already aborted', async () => {
+    let creations = 0;
+    const client = createA2AClient({
+      createClient: async () => {
+        creations += 1;
+        throw new Error('agent card url points at a private/loopback host and is blocked (SSRF guard)');
+      },
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(client.runTask({
+      agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 5_000,
+      abortSignal: controller.signal,
+    })).rejects.toThrow('aborted by the caller');
+    expect(creations).toBe(0);
+  });
+
+  it('issues no further poll when the backoff sleep ends on the deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      let polls = 0;
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: async () => ({ id: 't1', status: { state: 'TASK_STATE_WORKING' } }),
+          getTask: async () => {
+            polls += 1;
+            throw Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+          },
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 100,
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      const result = await pending;
+
+      expect(polls).toBe(0);
+      expect(result.taskId).toBe('t1');
+      expect(result.state).toBe('failed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('polls a working task until it completes and returns the settled result', async () => {
     vi.useFakeTimers();
     try {

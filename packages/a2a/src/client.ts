@@ -46,9 +46,9 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
 
     try {
       const client = await raceDeliveryBound(
-        create(agentCardUrl, headers, signal, allowedEndpointHosts), signal);
+        () => create(agentCardUrl, headers, signal, allowedEndpointHosts), signal);
       // Cast: the generated request type demands fields the server defaults.
-      const task = await raceDeliveryBound(client.sendMessage({ message } as never), signal);
+      const task = await raceDeliveryBound(() => client.sendMessage({ message } as never), signal);
       return toResult(await settle(client, task, deadline, signal));
     } catch (error) {
       // A rejection here means no task was ever observed (settle absorbs
@@ -92,11 +92,12 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
 }
 
 /**
- * Race a promise against the delivery signal, so an await cannot outlive
- * the budget even when the underlying SDK call ignores cancellation.
+ * Race a call against the delivery signal, so an await cannot outlive
+ * the budget even when the underlying SDK call ignores cancellation. The
+ * call is passed as a thunk: an already-bound delivery never issues it.
  */
-function raceDeliveryBound<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  return raceAbort(promise, signal, () =>
+function raceDeliveryBound<T>(start: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  return raceAbort(start, signal, () =>
     signal.reason instanceof Error ? signal.reason : new Error('aborted'));
 }
 
@@ -145,11 +146,18 @@ async function settle(
 
     waitMs = Math.min(waitMs * 2, 2_000);
 
+    // Re-checked after the sleep: the last backoff is clamped to the
+    // remaining budget, so the bound routinely fires while we wait and a
+    // poll issued now would be born aborted.
+    if (signal.aborted || Date.now() >= deadline) {
+      return task;
+    }
+
     if (!task.id) {
       return task;
     }
     try {
-      task = await raceDeliveryBound(client.getTask({ name: `tasks/${task.id}` } as never), signal);
+      task = await raceDeliveryBound(() => client.getTask({ name: `tasks/${task.id}` } as never), signal);
     } catch (error) {
       // The bound fired while a poll was in flight: the last observed task
       // is still the honest answer. A non-abort rejection is a real

@@ -6,9 +6,13 @@
  */
 
 /**
- * Settle with `promise`, or reject with `rejection()` once `signal`
- * aborts — whichever comes first. An already-aborted signal rejects
- * without subscribing.
+ * Start `start()` and settle with its promise, or reject with
+ * `rejection()` once `signal` aborts — whichever comes first.
+ *
+ * The call is taken as a thunk rather than a promise so an
+ * already-aborted signal never starts it: a call started first and
+ * abandoned here would reject with an AbortError nothing is listening
+ * for, and an unhandled rejection terminates the process by default.
  *
  * The awaited promise MUST be able to settle even when the underlying
  * call ignores cancellation: the loser is left to settle on its own, so
@@ -16,11 +20,12 @@
  * closed.
  */
 export function raceAbort<T>(
-  promise: Promise<T>,
+  start: () => Promise<T>,
   signal: AbortSignal,
   rejection: () => Error,
 ): Promise<T> {
   if (signal.aborted) return Promise.reject(rejection());
+  const promise = start();
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(rejection());
     signal.addEventListener('abort', onAbort, { once: true });
