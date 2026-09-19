@@ -1,14 +1,9 @@
-<div align="center">
-
 # CYCGRAPH
 
 [![npm](https://img.shields.io/npm/v/@cycgraph/orchestrator?label=%40cycgraph%2Forchestrator&color=cb3837)](https://www.npmjs.com/package/@cycgraph/orchestrator)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-flattop.io-3b82f6)](https://flattop.io/docs/)
+[![npm](https://img.shields.io/npm/v/@cycgraph/tools?label=%40cycgraph%2Ftools&color=cb3837)](https://www.npmjs.com/package/@cycgraph/tools)
 
-</div>
-
-Build and compose your own agent workflows with a unified engine for running custom workflows with helpful built-in patterns like supervisor, swarm, map-reduce, and reflection.
+CYCGRAPH is built on the core idea that agent workflows should be easily composable to solve complex problems, portable across runtimes, connectable to each other across systems, and allow full observability and ownership.
 
 - **[Quick Start](https://flattop.io/docs/getting-started/quick-start/)** - build your first workflow in 5 minutes
 - **[Core Concepts](https://flattop.io/docs/concepts/overview/)** - graphs, nodes, agents, state

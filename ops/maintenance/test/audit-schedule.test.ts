@@ -32,6 +32,38 @@ describe('scheduleCharters', () => {
     expect(ordered[0]!.lens).toBe('a');
   });
 
+  it('caps the changed-first block so the rotation always gets slots', () => {
+    const ordered = scheduleCharters(PAIRS, {
+      changedScopes: new Set(['packages/y']),
+      changedSlotCap: 1,
+    });
+
+    expect(ordered[0]).toEqual({ lens: 'a', scope: 'packages/y' });
+    expect(ordered.slice(1).map((p) => p.scope)).toEqual(['packages/x', 'packages/x', 'packages/y']);
+  });
+
+  it('sinks over-cap changed pairs behind never-audited rotation by their recent dates', () => {
+    const schedule = {
+      pairs: {
+        [pairKey('a', 'packages/y')]: '2026-09-18T12:00:00Z',
+        [pairKey('b', 'packages/y')]: '2026-09-18T13:00:00Z',
+      },
+    };
+
+    const ordered = scheduleCharters(PAIRS, {
+      changedScopes: new Set(['packages/y']),
+      schedule,
+      changedSlotCap: 1,
+    });
+
+    expect(ordered.map((p) => `${p.lens}|${p.scope}`)).toEqual([
+      'a|packages/y',
+      'a|packages/x',
+      'b|packages/x',
+      'b|packages/y',
+    ]);
+  });
+
   it('fills the unchanged remainder oldest-audited-first with never-audited ahead', () => {
     const schedule = {
       pairs: {

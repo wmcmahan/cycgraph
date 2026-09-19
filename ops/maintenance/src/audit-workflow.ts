@@ -33,7 +33,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { agent, graph, mapReduce, node, reflection, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
+import { DEFAULT_IDENTITY, cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { auditKey, renderAuditIssueBody, siftAuditFindings, type AuditFinding } from './audit-findings.js';
 import { scheduleCharters } from './audit-schedule.js';
@@ -124,20 +124,39 @@ export function charterOrder(lenses: string[], scopes: string[]): Array<{ lens: 
 }
 
 /**
- * Scopes with commits since the last audited head. Any failure to
- * answer — no recorded head, a head garbage-collected out of history —
- * yields the empty set: the run then leans entirely on oldest-first
- * rotation, which visits everything anyway.
+ * Scopes with commits since the last audited head, excluding commits
+ * authored by the maintenance identity itself. The pipeline's own
+ * merged fixes were gated, adversarially reviewed, and merged moments
+ * ago; counting them as "change" is the feedback loop that pinned
+ * every audit run to the pipeline's current hot spot — audit finds,
+ * fix merges, the scope is "changed" again, audit returns. Best-effort
+ * de-noising, not a guarantee: a squash merge of a multi-commit PR is
+ * attributed to the PR's opener, so some bot work slips through — the
+ * changed-slot cap in `scheduleCharters` is the coverage guarantee.
+ *
+ * Any failure to answer — no recorded head, a head garbage-collected
+ * out of history — yields the empty set: the run then leans entirely
+ * on oldest-first rotation, which visits everything anyway.
  */
-async function changedScopesSince(repoRoot: string, lastHead: string | undefined): Promise<Set<string>> {
+export async function changedScopesSince(
+  repoRoot: string,
+  lastHead: string | undefined,
+  botAuthors: ReadonlySet<string> = new Set(),
+): Promise<Set<string>> {
   if (lastHead === undefined) return new Set();
   try {
     const { stdout } = await promisify(execFile)(
-      'git', ['diff', '--name-only', `${lastHead}..HEAD`], { cwd: repoRoot, timeout: 20_000 },
+      'git', ['log', `${lastHead}..HEAD`, '--name-only', '--format=%x01%an'], { cwd: repoRoot, timeout: 20_000 },
     );
     const scopes = new Set<string>();
-    for (const file of stdout.split('\n')) {
-      const match = /^((?:packages|ops|apps)\/[^/]+)\//.exec(file);
+    let skipCommit = false;
+    for (const line of stdout.split('\n')) {
+      if (line.startsWith('\u0001')) {
+        skipCommit = botAuthors.has(line.slice(1).trim());
+        continue;
+      }
+      if (skipCommit) continue;
+      const match = /^((?:packages|ops|apps)\/[^/]+)\//.exec(line);
       if (match) scopes.add(match[1]!);
     }
     return scopes;
@@ -160,11 +179,16 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
       const workspaceAt = join(tmpdir(), `cycgraph-audit-${randomUUID()}`);
       const token = env.publish?.token;
 
-      // Patrol scheduling: changed scopes take slots first, the rest of
-      // the cross-product fills oldest-audited-first. With no recorded
-      // state both inputs are empty and the diagonal order stands.
+      // Patrol scheduling: human-changed scopes take up to half the
+      // slots, the rest of the cross-product fills oldest-audited-first.
+      // With no recorded state both inputs are empty and the diagonal
+      // order stands.
       const schedule = await env.auditSchedule?.load();
-      const changedScopes = await changedScopesSince(repoRoot, schedule?.head);
+      const botAuthors = new Set([
+        DEFAULT_IDENTITY.name,
+        ...(env.publish?.identity?.name !== undefined ? [env.publish.identity.name] : []),
+      ]);
+      const changedScopes = await changedScopesSince(repoRoot, schedule?.head, botAuthors);
 
       const hands = {
         read: readFileTool({ root: workspaceAt, session }),
@@ -180,7 +204,11 @@ export function repoAudit(): MaintenanceWorkflow<typeof params> {
           const ws = await cloneToBranch(repoRoot, `audit/scan-${randomUUID().slice(0, 8)}`, { at: workspaceAt });
           const { stdout: headRaw } = await promisify(execFile)('git', ['rev-parse', 'HEAD'], { cwd: ws.root });
           const scopes = p.scopes.length > 0 ? p.scopes : await deriveScopes(ws.root);
-          const charters: AuditCharter[] = scheduleCharters(charterOrder(p.lenses, scopes), { changedScopes, schedule })
+          const charters: AuditCharter[] = scheduleCharters(charterOrder(p.lenses, scopes), {
+            changedScopes,
+            schedule,
+            changedSlotCap: Math.ceil(p.maxAuditors / 2),
+          })
             .slice(p.skip, p.skip + p.maxAuditors)
             .map(({ lens, scope }) => ({
               lens,
