@@ -89,9 +89,9 @@ const OPT_OUT_HINT = 'Set CYCGRAPH_ALLOW_PRIVATE_A2A_URLS=true to allow it in de
  * and privately at call time (DNS rebinding, or an A record simply
  * changed since) would otherwise reach internal infrastructure or the
  * cloud metadata endpoint. The literal test is repeated here because this
- * factory is also reachable without the registry, and because the
- * resolved-host guard short-circuits IP literals on the premise that its
- * caller already judged them.
+ * factory is also reachable without the registry, and so a private literal
+ * is refused with this guard's own message rather than the resolved-host
+ * guard's.
  */
 async function assertPublicCardUrl(agentCardUrl: string): Promise<Set<string>> {
   if (allowsPrivateUrls()) return new Set();

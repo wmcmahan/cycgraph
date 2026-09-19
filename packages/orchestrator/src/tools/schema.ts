@@ -263,28 +263,98 @@ function canonicalizeIpv4(host: string): [number, number, number, number] | null
   return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
 }
 
-/** Extract the embedded IPv4 from an IPv4-mapped IPv6 host (`::ffff:…`), or null. */
-function extractMappedIpv4(host: string): string | null {
-  const m = host.match(/^::ffff:(.+)$/);
-  if (!m) return null;
-  const rest = m[1];
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(rest)) return rest; // ::ffff:127.0.0.1
-  const hex = rest.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/); // ::ffff:7f00:1
-  if (hex) {
-    const hi = parseInt(hex[1], 16);
-    const lo = parseInt(hex[2], 16);
-    return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+/**
+ * Parse one colon-separated run of IPv6 groups into 16-bit values.
+ *
+ * A trailing dotted form in the last position is an embedded IPv4 and
+ * contributes the two groups it occupies. Returns `null` on any part that is
+ * not a valid group.
+ */
+function parseIpv6Groups(run: string): number[] | null {
+  if (run === '') return [];
+  const parts = run.split(':');
+  const groups: number[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (i === parts.length - 1 && part.includes('.')) {
+      const octets = canonicalizeIpv4(part);
+      if (!octets) return null;
+      groups.push((octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]);
+      continue;
+    }
+    if (!/^[0-9a-f]{1,4}$/.test(part)) return null;
+    groups.push(parseInt(part, 16));
   }
-  return null;
+  return groups;
+}
+
+/**
+ * Expand an IPv6 literal to its eight 16-bit groups.
+ *
+ * `getaddrinfo` accepts every RFC 4291 spelling of one address, so a guard
+ * that prefix-matches strings waves through `0:0:0:0:0:0:0:1` and
+ * `0:0:0:0:0:ffff:7f00:1` while the socket layer still reaches loopback.
+ * Canonicalize first, then range-check. A zone id (`fe80::1%eth0`) is
+ * dropped — it selects an interface, not an address. Returns `null` if the
+ * host is not a well-formed IPv6 literal.
+ */
+function canonicalizeIpv6(host: string): number[] | null {
+  const bare = host.split('%')[0];
+  if (!bare.includes(':')) return null;
+
+  const runs = bare.split('::');
+  if (runs.length > 2) return null;
+
+  const head = parseIpv6Groups(runs[0]);
+  if (head === null) return null;
+  if (runs.length === 1) return head.length === 8 ? head : null;
+
+  const tail = parseIpv6Groups(runs[1]);
+  if (tail === null) return null;
+  const zeros = 8 - head.length - tail.length;
+  if (zeros < 1) return null;
+  return [...head, ...new Array<number>(zeros).fill(0), ...tail];
+}
+
+/**
+ * The IPv4 address an IPv6 group array embeds in its low 32 bits, for the
+ * prefixes whose traffic a stack forwards to that IPv4 target: IPv4-mapped
+ * (`::ffff:0:0/96`), IPv4-translated (`::ffff:0:0:0/96`), the deprecated
+ * IPv4-compatible (`::/96`), and the NAT64 well-known prefix
+ * (`64:ff9b::/96`). Returns `null` when no IPv4 is embedded.
+ */
+function embeddedIpv4(groups: number[]): [number, number, number, number] | null {
+  const prefixIsZero = (upTo: number) => groups.slice(0, upTo).every((g) => g === 0);
+  const embeds =
+    (prefixIsZero(5) && groups[5] === 0xffff) ||                                  // ::ffff:a.b.c.d
+    (prefixIsZero(4) && groups[4] === 0xffff && groups[5] === 0) ||               // ::ffff:0:a.b.c.d
+    prefixIsZero(6) ||                                                            // ::a.b.c.d
+    (groups[0] === 0x0064 && groups[1] === 0xff9b && groups.slice(2, 6).every((g) => g === 0));
+  if (!embeds) return null;
+  return [(groups[6] >> 8) & 0xff, groups[6] & 0xff, (groups[7] >> 8) & 0xff, groups[7] & 0xff];
+}
+
+/** Range-check canonical IPv6 groups against loopback/unspecified/link-local/ULA. */
+function isPrivateIpv6(groups: number[]): boolean {
+  if (groups.every((g) => g === 0)) return true;                                 // unspecified ::
+  if (groups.slice(0, 7).every((g) => g === 0) && groups[7] === 1) return true;  // loopback ::1
+  if ((groups[0] & 0xffc0) === 0xfe80) return true;                              // link-local fe80::/10
+  if ((groups[0] & 0xfe00) === 0xfc00) return true;                              // unique-local fc00::/7
+
+  const mapped = embeddedIpv4(groups);
+  if (mapped) return isPrivateIpv4(mapped[0], mapped[1], mapped[2], mapped[3]);
+
+  return false;
 }
 
 /**
  * True when a host is private / loopback / link-local / unique-local /
  * unspecified. Accepts a hostname or a literal IP in any encoding (dotted or
- * integer IPv4, IPv4-mapped IPv6, bracketed or bare IPv6). Exported so the
- * connection manager can re-check DNS-*resolved* addresses at connect time —
- * the parse-time schema guard only sees the literal hostname string and cannot
- * catch a public name that resolves to a private IP (DNS rebinding).
+ * integer IPv4, bracketed or bare IPv6 in any RFC 4291 spelling, with or
+ * without a zone id). Exported so the connection manager can re-check
+ * DNS-*resolved* addresses at connect time — the parse-time schema guard only
+ * sees the literal hostname string and cannot catch a public name that
+ * resolves to a private IP (DNS rebinding).
  */
 export function isPrivateOrLoopbackHost(hostname: string): boolean {
   // URL.hostname keeps IPv6 in brackets — strip them.
@@ -293,16 +363,16 @@ export function isPrivateOrLoopbackHost(hostname: string): boolean {
 
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
 
-  // IPv4 in any encoding, including IPv4-mapped IPv6 (dotted or hex form).
-  const ipv4Candidate = extractMappedIpv4(host) ?? host;
-  const octets = canonicalizeIpv4(ipv4Candidate);
+  const octets = canonicalizeIpv4(host);
   if (octets) return isPrivateIpv4(octets[0], octets[1], octets[2], octets[3]);
 
-  // IPv6
-  if (host === '::1' || host === '::') return true;            // loopback / unspecified
-  if (host.startsWith('fe8') || host.startsWith('fe9') ||
-    host.startsWith('fea') || host.startsWith('feb')) return true; // link-local fe80::/10
-  if (host.startsWith('fc') || host.startsWith('fd')) return true;   // unique-local fc00::/7
+  if (host.includes(':')) {
+    const groups = canonicalizeIpv6(host);
+    // Fail closed: a colon never appears in a DNS name, so an IPv6 literal
+    // this guard cannot canonicalize is treated as private rather than
+    // trusted — the socket layer may still parse what we could not.
+    return groups === null ? true : isPrivateIpv6(groups);
+  }
 
   return false;
 }

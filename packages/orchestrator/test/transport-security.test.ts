@@ -74,6 +74,20 @@ describe('assertHostResolvesPublic', () => {
     expect(dnsLookupMock).not.toHaveBeenCalled();
   });
 
+  it('rejects a bracketed private IPv6 literal without resolving', async () => {
+    await expect(assertHostResolvesPublic('https://[fd00::1]/mcp', 'srv'))
+      .rejects.toThrow(/private\/loopback address literal/i);
+
+    expect(dnsLookupMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bracketed IPv4-mapped metadata IPv6 literal without resolving', async () => {
+    await expect(assertHostResolvesPublic('https://[::ffff:169.254.169.254]/mcp', 'srv'))
+      .rejects.toThrow(/private\/loopback address literal/i);
+
+    expect(dnsLookupMock).not.toHaveBeenCalled();
+  });
+
   it('resolves for a host that maps to a public address', async () => {
     await expect(assertHostResolvesPublic('https://mcp.example.com/api', 'srv')).resolves.toBeUndefined();
   });
