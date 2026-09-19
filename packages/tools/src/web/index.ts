@@ -12,4 +12,12 @@ export { webSearchTool } from './web-search.js';
 export type { WebSearchToolOptions, WebSearchResult } from './web-search.js';
 export { htmlToMarkdownTool, convertHtml } from './html-to-markdown.js';
 export type { HtmlToMarkdownToolOptions, HtmlExtractMode } from './html-to-markdown.js';
-export { assertUrlPublic, guardedFetch, readBodyCapped, SsrfBlockedError, MAX_REDIRECTS } from './ssrf.js';
+export {
+  assertUrlPublic,
+  guardedFetch,
+  readBodyCapped,
+  SsrfBlockedError,
+  HostNotAllowedError,
+  MAX_REDIRECTS,
+} from './ssrf.js';
+export type { RedirectPolicy } from './ssrf.js';

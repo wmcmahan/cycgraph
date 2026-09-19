@@ -11,7 +11,7 @@
 
 import { z } from 'zod';
 import { defineTool, type DefinedTool } from '@cycgraph/orchestrator';
-import { guardedFetch, readBodyCapped } from './ssrf.js';
+import { guardedFetch, HostNotAllowedError, readBodyCapped } from './ssrf.js';
 import { convertHtml, type HtmlExtractMode } from './html-to-markdown.js';
 
 /** Default cap on fetched body size: 1 MiB of text is plenty for an LLM. */
@@ -19,7 +19,10 @@ export const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
 
 /** Options for {@link webFetchTool}. */
 export interface WebFetchToolOptions {
-  /** Restrict fetches to these hostnames (exact match). Omit for any public host. */
+  /**
+   * Restrict fetches to these hostnames (exact match), enforced on the
+   * requested URL and on every redirect hop. Omit for any public host.
+   */
   allowedHosts?: string[];
   /** Cap on response body bytes. @default 1 MiB */
   maxResponseBytes?: number;
@@ -44,6 +47,10 @@ export interface WebFetchToolOptions {
  */
 export function webFetchTool(options: WebFetchToolOptions = {}): DefinedTool {
   const maxBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  const allowedHosts = options.allowedHosts;
+  const isHostAllowed = allowedHosts
+    ? (hostname: string): boolean => allowedHosts.includes(hostname)
+    : undefined;
 
   return defineTool({
     name: 'web_fetch',
@@ -57,14 +64,15 @@ export function webFetchTool(options: WebFetchToolOptions = {}): DefinedTool {
     timeoutMs: options.timeoutMs ?? 15_000,
     execute: async ({ url }) => {
       const host = new URL(url).hostname;
-      if (options.allowedHosts && !options.allowedHosts.includes(host)) {
-        throw new Error(`Host "${host}" is not in this tool's allowed hosts`);
+      if (isHostAllowed && !isHostAllowed(host)) {
+        throw new HostNotAllowedError(`Host "${host}" is not in this tool's allowed hosts`);
       }
 
       const { response, finalUrl } = await guardedFetch(
         url,
         { method: 'GET', headers: options.userAgent ? { 'user-agent': options.userAgent } : {} },
         options.allowPrivateHosts,
+        { isHostAllowed },
       );
       const { body, truncated } = await readBodyCapped(response, maxBytes);
       const contentType = response.headers.get('content-type') ?? '';

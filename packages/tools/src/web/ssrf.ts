@@ -7,8 +7,9 @@
  * re-check: a public-looking name must not resolve to a private address at
  * request time (DNS rebinding).
  *
- * Every redirect hop is re-validated by the caller, so a public host
- * cannot bounce a request into internal infrastructure via a 302.
+ * Every redirect hop is re-validated, so a public host cannot bounce a
+ * request into internal infrastructure — or onto a host outside the calling
+ * tool's allowlist — via a 302.
  *
  * @module web/ssrf
  */
@@ -20,6 +21,14 @@ export class SsrfBlockedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'SsrfBlockedError';
+  }
+}
+
+/** Thrown when a URL — initial or redirect hop — is not on the tool's host allowlist. */
+export class HostNotAllowedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'HostNotAllowedError';
   }
 }
 
@@ -55,28 +64,68 @@ export async function assertUrlPublic(url: URL, allowPrivateHosts = false): Prom
 /** Maximum redirect hops a guarded fetch will follow. */
 export const MAX_REDIRECTS = 5;
 
+/** Header names dropped on any cross-origin hop, whatever the caller configured. */
+const CREDENTIAL_HEADERS = ['authorization', 'cookie', 'proxy-authorization'];
+
+/** Policy {@link guardedFetch} applies to every hop, including redirects. */
+export interface RedirectPolicy {
+  /**
+   * Predicate each hop's hostname must satisfy. Omit to accept any host the
+   * SSRF guard permits.
+   */
+  isHostAllowed?: (hostname: string) => boolean;
+  /**
+   * Additional header names (case-insensitive) to drop once a hop changes
+   * origin — pass the operator's configured header names so secrets are
+   * never re-sent to a different origin.
+   */
+  credentialHeaders?: readonly string[];
+}
+
+function withoutCredentials(init: RequestInit, extra: readonly string[]): RequestInit {
+  const headers = new Headers(init.headers);
+  for (const name of [...CREDENTIAL_HEADERS, ...extra]) headers.delete(name);
+  return { ...init, headers };
+}
+
 /**
- * Fetch with per-hop SSRF validation. Redirects are followed manually so
- * every hop — not just the first URL — passes {@link assertUrlPublic};
- * `redirect: 'follow'` would let a public host 302 into internal
- * infrastructure unchecked.
+ * Fetch with per-hop SSRF and allowlist validation. Redirects are followed
+ * manually so every hop — not just the first URL — passes
+ * {@link assertUrlPublic} and `policy.isHostAllowed`; `redirect: 'follow'`
+ * would let a public host 302 into internal infrastructure, or off the
+ * allowlist, unchecked. Credential headers are stripped for good once a hop
+ * changes origin, so they never reach a host the caller did not authenticate to.
+ *
+ * @throws {SsrfBlockedError} When a hop fails the SSRF policy or the hop cap is hit.
+ * @throws {HostNotAllowedError} When a hop's host fails `policy.isHostAllowed`.
  */
 export async function guardedFetch(
   initialUrl: string,
   init: RequestInit,
   allowPrivateHosts = false,
+  policy: RedirectPolicy = {},
 ): Promise<{ response: Response; finalUrl: string }> {
   let current = new URL(initialUrl);
+  let request = init;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     await assertUrlPublic(current, allowPrivateHosts);
-    const response = await fetch(current, { ...init, redirect: 'manual' });
+    if (policy.isHostAllowed && !policy.isHostAllowed(current.hostname)) {
+      throw new HostNotAllowedError(
+        `Host "${current.hostname}" is not in this tool's allowed hosts`,
+      );
+    }
+    const response = await fetch(current, { ...request, redirect: 'manual' });
 
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
       if (!location) return { response, finalUrl: current.href };
       await response.body?.cancel();
-      current = new URL(location, current);
+      const next = new URL(location, current);
+      if (next.origin !== current.origin) {
+        request = withoutCredentials(request, policy.credentialHeaders ?? []);
+      }
+      current = next;
       continue;
     }
 

@@ -12,8 +12,19 @@ vi.mock('node:dns/promises', () => ({ lookup }));
 
 const { webFetchTool } = await import('../src/web/web-fetch.js');
 const { httpRequestTool } = await import('../src/web/http-request.js');
+const { HostNotAllowedError } = await import('../src/web/ssrf.js');
 
 type FetchResult = { url: string; status: number; contentType: string; body: string; truncated: boolean };
+
+/** Read one header from a fetch init, whether its headers are a plain object or a Headers. */
+function headerOf(init: RequestInit, name: string): string | null {
+  return new Headers(init.headers).get(name);
+}
+
+/** Build a redirect response the guarded fetch will follow. */
+function redirectTo(location: string): Response {
+  return new Response(null, { status: 302, headers: { location } });
+}
 
 beforeEach(() => {
   lookup.mockResolvedValue([{ address: '93.184.216.34' }]);
@@ -68,6 +79,21 @@ describe('webFetchTool', () => {
       /not in this tool's allowed hosts/,
     );
     expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it('rejects a redirect hop whose host is outside the allowlist', async () => {
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(redirectTo('https://attacker.example/'))
+      .mockResolvedValue(new Response('pwned', { status: 200 }));
+    vi.stubGlobal('fetch', fetchStub);
+    const tool = webFetchTool({ allowedHosts: ['example.com'] });
+
+    await expect(tool.execute({ url: 'https://example.com/start' })).rejects.toThrow(
+      HostNotAllowedError,
+    );
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(String(fetchStub.mock.calls[0][0])).toBe('https://example.com/start');
   });
 
   it('rejects invalid URL arguments via the schema', async () => {
@@ -145,6 +171,67 @@ describe('httpRequestTool', () => {
     await expect(
       tool.execute({ url: 'https://other.example.com/x' }),
     ).rejects.toThrow(/not in this tool's allowed hosts/);
+  });
+
+  it('drops operator default headers on a cross-origin redirect', async () => {
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(redirectTo('https://other.example.com/next'))
+      .mockResolvedValue(new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', fetchStub);
+    const tool = httpRequestTool({
+      allowedHosts: ['api.example.com', 'other.example.com'],
+      defaultHeaders: { authorization: 'Bearer config-secret', 'x-api-key': 'config-key' },
+    });
+
+    const result = (await tool.execute({ url: 'https://api.example.com/start' })) as FetchResult;
+
+    expect(result.url).toBe('https://other.example.com/next');
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+    expect(headerOf(fetchStub.mock.calls[0][1] as RequestInit, 'authorization')).toBe(
+      'Bearer config-secret',
+    );
+    expect(headerOf(fetchStub.mock.calls[0][1] as RequestInit, 'x-api-key')).toBe('config-key');
+    expect(headerOf(fetchStub.mock.calls[1][1] as RequestInit, 'authorization')).toBe(null);
+    expect(headerOf(fetchStub.mock.calls[1][1] as RequestInit, 'x-api-key')).toBe(null);
+  });
+
+  it('keeps operator default headers on a same-origin redirect', async () => {
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(redirectTo('https://api.example.com/next'))
+      .mockResolvedValue(new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', fetchStub);
+    const tool = httpRequestTool({
+      allowedHosts: ['api.example.com'],
+      defaultHeaders: { authorization: 'Bearer config-secret' },
+    });
+
+    const result = (await tool.execute({ url: 'https://api.example.com/start' })) as FetchResult;
+
+    expect(result.url).toBe('https://api.example.com/next');
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+    expect(headerOf(fetchStub.mock.calls[1][1] as RequestInit, 'authorization')).toBe(
+      'Bearer config-secret',
+    );
+  });
+
+  it('rejects a redirect hop whose host is outside the allowlist', async () => {
+    const fetchStub = vi
+      .fn()
+      .mockResolvedValueOnce(redirectTo('https://attacker.example/'))
+      .mockResolvedValue(new Response('pwned', { status: 200 }));
+    vi.stubGlobal('fetch', fetchStub);
+    const tool = httpRequestTool({
+      allowedHosts: ['api.example.com'],
+      defaultHeaders: { authorization: 'Bearer config-secret' },
+    });
+
+    await expect(tool.execute({ url: 'https://api.example.com/start' })).rejects.toThrow(
+      HostNotAllowedError,
+    );
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(String(fetchStub.mock.calls[0][0])).toBe('https://api.example.com/start');
   });
 
   it('rejects methods outside the allowed set', async () => {

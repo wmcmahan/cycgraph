@@ -20,10 +20,12 @@ export {
   guardedFetch,
   readBodyCapped,
   SsrfBlockedError,
+  HostNotAllowedError,
   MAX_REDIRECTS,
   DEFAULT_MAX_RESPONSE_BYTES,
 } from './web/index.js';
 export type {
+  RedirectPolicy,
   WebFetchToolOptions,
   HttpRequestToolOptions,
   WebSearchToolOptions,
