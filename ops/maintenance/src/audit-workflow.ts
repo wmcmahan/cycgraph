@@ -144,6 +144,11 @@ export async function changedScopesSince(
   botAuthors: ReadonlySet<string> = new Set(),
 ): Promise<Set<string>> {
   if (lastHead === undefined) return new Set();
+  // The recorded head becomes half of a revision-range argument; only
+  // a hex object name is ever stored, so anything else — including a
+  // string that would parse as an option — reads as a corrupt record
+  // and falls back to rotation.
+  if (!/^[0-9a-f]{4,40}$/i.test(lastHead)) return new Set();
   try {
     const { stdout } = await promisify(execFile)(
       'git', ['log', `${lastHead}..HEAD`, '--name-only', '--format=%x01%an'], { cwd: repoRoot, timeout: 20_000 },

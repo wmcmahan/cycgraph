@@ -62,7 +62,9 @@ export async function createWorkspace(
   options: { at?: string } = {},
 ): Promise<Workspace> {
   const root = options.at ?? await mkdtemp(join(tmpdir(), 'cycgraph-ws-'));
-  await exec('git', ['clone', '--quiet', '--no-hardlinks', repoRoot, root]);
+  // '--' ends option parsing: a path beginning with '-' stays a
+  // positional instead of becoming an option (CWE-88).
+  await exec('git', ['clone', '--quiet', '--no-hardlinks', '--', repoRoot, root]);
   const branch = branchNameFor(record);
   await exec('git', ['checkout', '--quiet', '-b', branch], { cwd: root });
 

@@ -38,7 +38,9 @@ export async function cloneToBranch(
   options: { at?: string } = {},
 ): Promise<Branch> {
   const root = options.at ?? await mkdtemp(join(tmpdir(), 'cycgraph-work-'));
-  await exec('git', ['clone', '--quiet', '--no-hardlinks', repoRoot, root]);
+  // '--' ends option parsing: a path beginning with '-' stays a
+  // positional instead of becoming an option (CWE-88).
+  await exec('git', ['clone', '--quiet', '--no-hardlinks', '--', repoRoot, root]);
   await exec('git', ['checkout', '--quiet', '-b', branch], { cwd: root });
 
   // A clone carries only tracked files, and checks need to resolve imports,
@@ -246,8 +248,38 @@ function remoteWebUrl(remote: string): string | undefined {
  * where `origin` is the real remote. Failures throw.
  */
 export async function pushBranch(ws: Branch, repoRoot: string): Promise<void> {
-  await exec('git', ['push', 'origin', ws.branch], { cwd: ws.root });
-  await exec('git', ['push', '-u', 'origin', ws.branch], { cwd: repoRoot });
+  try {
+    await exec('git', ['push', 'origin', ws.branch], { cwd: ws.root });
+    await exec('git', ['push', '-u', 'origin', ws.branch], { cwd: repoRoot });
+  } catch (error) {
+    // execFile's message leads with "Command failed: …" and buries the
+    // actionable git line (rejected, denied, protection) in stderr;
+    // callers surface one line, so that line must be the reason.
+    const stderr = String((error as { stderr?: unknown }).stderr ?? '');
+    const reason = stderr.split('\n').find((line) => /rejected|error:|fatal:|denied/i.test(line))?.trim()
+      ?? stderr.split('\n').find((line) => line.trim() !== '')?.trim()
+      ?? (error as Error).message.split('\n')[0];
+    throw new Error(`git push of ${ws.branch} failed: ${reason}`, { cause: error });
+  }
+}
+
+/**
+ * Whether `name` is usable as one git ref argument. Git's own
+ * check-ref-format rules, conservatively: rejects option-looking names
+ * (a leading '-' is how a branch name in argv becomes `--upload-pack`
+ * or `-b`), traversal ('..'), refspec and glob syntax (':', '*', '?',
+ * '['), reflog syntax ('@{'), and control bytes. Ref names reach argv
+ * from PR metadata, which a fork author controls, so callers refuse an
+ * unsafe name rather than sanitize it.
+ */
+export function safeGitRef(name: string): boolean {
+  if (name === '' || name.length > 250) return false;
+  if (name.startsWith('-') || name.startsWith('/') || name.endsWith('/') || name.endsWith('.')) return false;
+  if (name.endsWith('.lock') || name === '@') return false;
+  // eslint-disable-next-line no-control-regex
+  if (/[\s~^:?*[\\\u0000-\u001f\u007f]/.test(name)) return false;
+  if (name.includes('..') || name.includes('@{') || name.includes('//')) return false;
+  return true;
 }
 
 /**

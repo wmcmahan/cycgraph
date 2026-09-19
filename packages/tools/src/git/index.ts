@@ -12,6 +12,7 @@
 export {
   branchDiff,
   pushBranch,
+  safeGitRef,
   changedIn,
   cloneToBranch,
   linkNestedModules,

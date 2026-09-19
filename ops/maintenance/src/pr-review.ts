@@ -47,7 +47,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { agent, graph, node, reflection, tool } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { commentOnPr, commentableDiffLines, enableAutoMerge, listReviewThreads, prFeedback, resolveReviewThread, setPrLabels, submitPrReview, viewIssue } from '@cycgraph/tools/git';
+import { commentOnPr, commentableDiffLines, enableAutoMerge, listReviewThreads, prFeedback, resolveReviewThread, safeGitRef, setPrLabels, submitPrReview, viewIssue } from '@cycgraph/tools/git';
 import { closesIn } from './pr-template.js';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
@@ -110,6 +110,14 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
             return { has_work: false, detail: `cannot read PR #${p.pr} — gh unavailable or the PR does not exist` };
           }
           const head = feedback.headRefName;
+          // Both names reach git argv below. The head is PR metadata —
+          // a fork author picks it — and a name like `--upload-pack=…`
+          // would parse as an option, not a ref (CWE-88); the base is
+          // operator input with the same argv position. Refused, never
+          // sanitized.
+          if (!safeGitRef(head) || !safeGitRef(p.base)) {
+            return { has_work: false, detail: `refusing to review PR #${p.pr}: branch name ${JSON.stringify(!safeGitRef(head) ? head : p.base)} is not a safe git ref` };
+          }
           // Idempotent under node retry: a failure after the clone must
           // not leave a workspace the next attempt refuses to clone into.
           await rm(workspaceAt, { recursive: true, force: true });
@@ -117,11 +125,13 @@ export function prReview(): MaintenanceWorkflow<typeof params> {
           // base live on the source repository's remote (a CI checkout has
           // no local base branch at all), so each is fetched from the
           // source's remote-tracking refs.
-          await exec('git', ['clone', '--quiet', '--no-hardlinks', repoRoot, workspaceAt]);
+          // '--' ends option parsing: a path beginning with '-' stays a
+          // positional instead of becoming an option (CWE-88).
+          await exec('git', ['clone', '--quiet', '--no-hardlinks', '--', repoRoot, workspaceAt]);
           await exec('git', ['fetch', '--quiet', 'origin',
             `+refs/remotes/origin/${head}:refs/heads/${head}`,
             `+refs/remotes/origin/${p.base}:refs/pr-review/base`], { cwd: workspaceAt });
-          await exec('git', ['checkout', '--quiet', head], { cwd: workspaceAt });
+          await exec('git', ['checkout', '--quiet', '--end-of-options', head], { cwd: workspaceAt });
           const { stdout: diff } = await exec(
             'git', ['diff', 'refs/pr-review/base...HEAD'],
             { cwd: workspaceAt, maxBuffer: 64 * 1024 * 1024 },

@@ -239,6 +239,27 @@ describe('commentOnPr', () => {
   });
 });
 
+describe('safeGitRef', () => {
+  it('accepts ordinary branch and tag names', async () => {
+    const { safeGitRef } = await import('../src/git/branch.js');
+
+    for (const name of ['main', 'upkeep/fix-1a2b3c4d', 'feature/some-thing', 'v1.2.3', 'chore/pr']) {
+      expect(safeGitRef(name)).toBe(true);
+    }
+  });
+
+  it('rejects names that would parse as options or refspec syntax', async () => {
+    const { safeGitRef } = await import('../src/git/branch.js');
+
+    for (const name of [
+      '--upload-pack=touch /tmp/pwned', '-b', '-', 'a..b', 'a b', 'a:b', 'a@{1}',
+      'a*b', 'a?b', 'a[b', 'a\\b', 'a~1', 'a^2', '/lead', 'trail/', 'trail.', 'x.lock', '@', '', 'a//b', 'a b',
+    ]) {
+      expect(safeGitRef(name)).toBe(false);
+    }
+  });
+});
+
 describe('pushBranch', () => {
   it('rejects when there is no remote to push to', async () => {
     await exec('git', ['init', '--quiet', root]);

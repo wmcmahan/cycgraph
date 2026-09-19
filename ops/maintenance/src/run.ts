@@ -503,7 +503,12 @@ async function main(): Promise<void> {
     const would = triage['would_file'] as string[] | undefined;
     if (would !== undefined && would.length > 0) say(`  would file: ${would.join(', ')}`);
   }
-  process.exitCode = recorded.state.status === 'completed' ? 0 : 1;
+  // A push failure leaves the deliverable stranded in the workspace
+  // while the graph itself completed; the nonzero exit is what fires
+  // the CI workflow's failure trace, so a run that delivered nothing
+  // never shows green.
+  const pushFailed = deliver?.['push_failed'] === true;
+  process.exitCode = recorded.state.status === 'completed' && !pushFailed ? 0 : 1;
 }
 
 main().catch((error: unknown) => {

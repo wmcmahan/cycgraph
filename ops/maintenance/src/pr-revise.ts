@@ -36,6 +36,7 @@ import {
   linkNestedModules,
   pushBranch,
   replyToReviewComment,
+  safeGitRef,
   setPrLabels,
 } from '@cycgraph/tools/git';
 import { parseNumberedReplies } from './review-findings.js';
@@ -136,15 +137,24 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
             return { has_work: false, detail: `PR #${p.pr} carries no review feedback to address` };
           }
           const head = feedback.headRefName;
+          // The head reaches git argv below (fetch refspec, checkout)
+          // and later the push — and it is PR metadata a fork author
+          // picks. A name like `--upload-pack=…` would parse as an
+          // option, not a ref (CWE-88). Refused, never sanitized.
+          if (!safeGitRef(head)) {
+            return { has_work: false, detail: `refusing to revise PR #${p.pr}: branch name ${JSON.stringify(head)} is not a safe git ref` };
+          }
           // Idempotent under node retry: a failure after the clone must
           // not leave a workspace the next attempt refuses to clone into.
           await rm(workspaceAt, { recursive: true, force: true });
           // The clone copies local branches only; the PR head lives on the
           // source repository's remote, so it is fetched from the source's
           // remote-tracking ref into a local branch, then checked out.
-          await exec('git', ['clone', '--quiet', '--no-hardlinks', repoRoot, workspaceAt]);
+          // '--' ends option parsing: a path beginning with '-' stays a
+          // positional instead of becoming an option (CWE-88).
+          await exec('git', ['clone', '--quiet', '--no-hardlinks', '--', repoRoot, workspaceAt]);
           await exec('git', ['fetch', '--quiet', 'origin', `+refs/remotes/origin/${head}:refs/heads/${head}`], { cwd: workspaceAt });
-          await exec('git', ['checkout', '--quiet', head], { cwd: workspaceAt });
+          await exec('git', ['checkout', '--quiet', '--end-of-options', head], { cwd: workspaceAt });
           const { existsSync } = await import('node:fs');
           const { symlink } = await import('node:fs/promises');
           if (existsSync(join(repoRoot, 'node_modules')) && !existsSync(join(workspaceAt, 'node_modules'))) {
@@ -247,7 +257,19 @@ export function prRevise(): MaintenanceWorkflow<typeof params> {
           try {
             await pushBranch({ root: workspaceAt, branch: head }, repoRoot);
           } catch (error) {
-            return { pushed: false, detail: `push failed: ${(error as Error).message.split('\n')[0] ?? ''}`, diff };
+            // Not a throw: the node's retry would find the tree already
+            // committed, return "nothing was changed", and the failure
+            // would vanish into a green run. The flag makes run.ts exit
+            // nonzero instead, which is what fires the workflow's
+            // failure trace (needs-human label + comment with the run
+            // link) — a revision that never reached the PR must never
+            // look delivered.
+            return {
+              pushed: false,
+              push_failed: true,
+              detail: `push failed: ${(error as Error).message}`,
+              diff,
+            };
           }
           // Diff-anchored feedback is answered in its own thread, after
           // the push so no thread claims work that never landed; the
