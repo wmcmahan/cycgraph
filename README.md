@@ -5,7 +5,7 @@
 
 CYCGRAPH is built on the core idea that agent workflows should be easily composable to solve complex problems, portable across runtimes, connectable to each other across systems, and allow full observability and ownership.
 
-- **[Quick Start](https://flattop.io/docs/getting-started/quick-start/)** - build your first workflow in 5 minutes
+- **[Quick Start](https://flattop.io/docs/getting-started/quickstart/)** - build your first workflow in 5 minutes
 - **[Core Concepts](https://flattop.io/docs/concepts/overview/)** - graphs, nodes, agents, state
 - **[Patterns](https://flattop.io/docs/patterns/supervisor/)** - runnable guides for each built-in pattern
 - **[Troubleshooting](https://flattop.io/docs/getting-started/troubleshooting/)** - common errors, fixes, and the gotchas that fail silently
@@ -13,7 +13,7 @@ CYCGRAPH is built on the core idea that agent workflows should be easily composa
 
 ## Install
 
-See the [Quick Start guide](https://flattop.io/docs/getting-started/quick-start/) for a complete walkthrough.
+See the [Quick Start guide](https://flattop.io/docs/getting-started/quickstart/) for a complete walkthrough.
 
 ```bash
 npm install @cycgraph/orchestrator
