@@ -25,7 +25,7 @@ import {
 } from '@a2a-js/sdk/server';
 import { jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { TaskState } from '@a2a-js/sdk';
-import { SCENARIOS, type Scenario } from './scenarios.js';
+import { SCENARIOS, type Scenario, type ScenarioState } from './scenarios.js';
 import { modelAvailable } from './agent.js';
 
 /** Counts card fetches, so a test can see how chatty the client is. */
@@ -91,7 +91,7 @@ function agentCard(scenario: Scenario, baseUrl: string) {
  * report `failed` while the message still arrives — a confusing failure
  * that the `as never` casts below would otherwise hide.
  */
-const STATE_VALUE: Record<string, TaskState> = {
+export const STATE_VALUE: Record<ScenarioState, TaskState> = {
   TASK_STATE_COMPLETED: TaskState.TASK_STATE_COMPLETED,
   TASK_STATE_FAILED: TaskState.TASK_STATE_FAILED,
   TASK_STATE_REJECTED: TaskState.TASK_STATE_REJECTED,
