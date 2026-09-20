@@ -30,6 +30,17 @@ export const MCP_TOOLS = [
  */
 const callCounts = new Map<string, number>();
 
+/**
+ * The sleep the `slow` tool honors for a requested duration.
+ *
+ * Clamped to 0..30_000ms: a negative duration is not a sleep, and an
+ * unbounded one holds the request open long past any client timeout, which
+ * reads as a hung server rather than a slow tool.
+ */
+export function boundedSleepMs(ms: number): number {
+  return Math.min(Math.max(ms, 0), 30_000);
+}
+
 /** Build the MCP server with the scenario tools registered. */
 export function createMCPServer(): McpServer {
   const server = new McpServer({ name: 'cycgraph-test-mcp', version: '0.0.0' });
@@ -61,7 +72,7 @@ export function createMCPServer(): McpServer {
       inputSchema: { ms: z.number().describe('Milliseconds to sleep') },
     },
     async ({ ms }) => {
-      const bounded = Math.min(Math.max(ms, 0), 30_000);
+      const bounded = boundedSleepMs(ms);
       await new Promise((resolve) => setTimeout(resolve, bounded));
       return { content: [{ type: 'text', text: `slept ${bounded}ms` }] };
     },
