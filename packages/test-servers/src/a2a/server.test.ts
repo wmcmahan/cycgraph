@@ -32,7 +32,7 @@ let pulledTags: string[] = [];
 let httpServer: Server | undefined;
 
 function makeProbe() {
-  return vi.fn(async () => new Response(
+  return vi.fn<typeof fetch>(async () => new Response(
     JSON.stringify({ models: pulledTags.map((name) => ({ name })) }),
     { status: 200, headers: { 'content-type': 'application/json' } },
   ));
@@ -205,7 +205,7 @@ describe('model-backed scenario advertising', () => {
 });
 
 describe('model reachability cache', () => {
-  it('probes once for every request inside the TTL window', async () => {
+  it('probes once for all requests inside the TTL window', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
     pulledTags = [];
     const baseUrl = await startScenarioServer();
