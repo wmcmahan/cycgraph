@@ -54,6 +54,7 @@ const TICKET_BODY = renderTuneTicket({
   file: 'ops/maintenance/src/docs-workflow.ts',
   find: 'Write the section.',
   replace: 'Write the section, and never omit the summary.',
+  costOnly: false,
   marker: '<!-- cycgraph:finding=tune:docs-maintenance:abc123def456 -->',
 });
 
@@ -68,6 +69,19 @@ describe('parseTuneTicket', () => {
 
   it('returns undefined for a ticket body with no edit block', () => {
     expect(parseTuneTicket('## Summary\n\nA feature request with no edit.')).toBeUndefined();
+  });
+});
+
+describe('renderTuneTicket cost-win flag', () => {
+  const base = {
+    target: 'docs-maintenance', hypothesis: 'h', trials: 3, trialDetail: 'd', trialTable: 't',
+    file: 'ops/maintenance/src/docs-workflow.ts', find: 'a', replace: 'b',
+    marker: '<!-- cycgraph:finding=tune:docs-maintenance:abc123def456 -->',
+  };
+
+  it('renders the verify-before-merging caveat only when costOnly is set', () => {
+    expect(renderTuneTicket({ ...base, costOnly: true })).toContain('Cost win — verify before merging');
+    expect(renderTuneTicket({ ...base, costOnly: false })).not.toContain('Cost win');
   });
 });
 
@@ -96,7 +110,7 @@ describe('resolveSourcePath', () => {
 
 describe('variantWins', () => {
   const arm = (overrides: Partial<ArmResult> = {}): ArmResult =>
-    ({ runs: 3, completed: 3, gatePassed: 2, avgTokens: 10_000, ...overrides });
+    ({ runs: 3, completed: 3, gatePassed: 2, avgTokens: 10_000, costUsd: 10, ...overrides });
 
   it('wins on strictly more gate passes', () => {
     expect(variantWins(arm(), arm({ gatePassed: 3 })).wins).toBe(true);
@@ -108,6 +122,33 @@ describe('variantWins', () => {
 
   it('never wins on tokens alone', () => {
     expect(variantWins(arm(), arm({ avgTokens: 1 })).wins).toBe(false);
+  });
+
+  it('files a cost win when materially cheaper at equal gates and completions', () => {
+    const verdict = variantWins(arm(), arm({ costUsd: 5 }));
+
+    expect(verdict.wins).toBe(true);
+    expect(verdict.costOnly).toBe(true);
+    expect(verdict.detail).toContain('cheaper');
+  });
+
+  it('does not call a small cost drop a win', () => {
+    expect(variantWins(arm(), arm({ costUsd: 9 })).wins).toBe(false);
+  });
+
+  it('does not flag a genuine gate win as cost-only', () => {
+    expect(variantWins(arm(), arm({ gatePassed: 3, costUsd: 1 })).costOnly).toBeUndefined();
+  });
+
+  it('never rescues a gate regression with a cheaper cost', () => {
+    expect(variantWins(arm({ gatePassed: 3 }), arm({ gatePassed: 2, costUsd: 1 })).wins).toBe(false);
+  });
+
+  it('does not read a crashed variant (zero completions, zero cost) as a cost win', () => {
+    const control = arm({ completed: 0, gatePassed: 0 });
+    const crashed = arm({ completed: 0, gatePassed: 0, costUsd: 0 });
+
+    expect(variantWins(control, crashed).wins).toBe(false);
   });
 });
 

@@ -151,6 +151,13 @@ export interface TuneTicketFields {
   file: string;
   find: string;
   replace: string;
+  /**
+   * A cost win: the variant tied on gates and completions and only ran
+   * cheaper. The rendered ticket flags it so a human knows to verify
+   * the workflow is no less thorough before merging, rather than reading
+   * it as a quality improvement.
+   */
+  costOnly: boolean;
   /** The finding marker line that keys and dedupes the ticket. */
   marker: string;
 }
@@ -165,6 +172,9 @@ export function renderTuneTicket(fields: TuneTicketFields): string {
   return [
     `The tune loop proposes one edit to ${fields.target}'s own source, measured before proposal.`,
     '',
+    ...(fields.costOnly
+      ? ['**Cost win — verify before merging**: the variant did not improve gates or completions; it only ran cheaper. The benchmark cannot tell efficiency from doing less, so confirm this edit leaves the workflow no less thorough.', '']
+      : []),
     `**Hypothesis**: ${fields.hypothesis}`,
     '',
     `**Trial** (${fields.trials} dry runs per arm — a small sample by design; this table is a filter, the merge decision is the judgment): ${fields.trialDetail}`,
@@ -234,11 +244,25 @@ export interface ArmResult {
 }
 
 /**
- * Whether the variant beats control: strictly more gate passes, or
- * equal gate passes with fewer failures — never a token tiebreak alone.
- * Small samples by design; the verdict is a filter, the human judges.
+ * How much cheaper the variant must run, at equal gates and completions,
+ * to be worth a human-judged ticket: a cost drop below this fraction of
+ * control is material enough that a person should decide whether it is
+ * efficiency or a thoroughness regression.
  */
-export function variantWins(control: ArmResult, variant: ArmResult): { wins: boolean; detail: string } {
+export const COST_WIN_RATIO = 0.75;
+
+/**
+ * Whether the variant beats control. A quality win is strictly more gate
+ * passes, or equal gates with more completions. Absent that, a variant
+ * that holds gates and completions but runs materially cheaper
+ * ({@link COST_WIN_RATIO}) is a *cost win*: still filed, but flagged
+ * `costOnly`, because the benchmark cannot tell real efficiency from a
+ * variant that simply does less — that judgement is the human
+ * reviewer's, and the ticket says so. A cost drop is never a silent
+ * auto-win against a gate regression. Small samples by design; the
+ * verdict is a filter, the human judges.
+ */
+export function variantWins(control: ArmResult, variant: ArmResult): { wins: boolean; costOnly?: boolean; detail: string } {
   if (variant.completed < control.completed) {
     return { wins: false, detail: `variant completed ${variant.completed}/${variant.runs} vs control ${control.completed}/${control.runs}` };
   }
@@ -247,6 +271,23 @@ export function variantWins(control: ArmResult, variant: ArmResult): { wins: boo
   }
   if (variant.gatePassed === control.gatePassed && variant.completed > control.completed) {
     return { wins: true, detail: `completions ${variant.completed}/${variant.runs} vs ${control.completed}/${control.runs}, gates level` };
+  }
+  if (variant.gatePassed === control.gatePassed
+    && variant.completed === control.completed
+    // A crashed variant writes zero cost and zero completions, which
+    // would otherwise read as "100% cheaper at equal gates" and file a
+    // ticket for the edit that broke it. A cost win must have actually
+    // run and actually spent.
+    && variant.completed > 0
+    && variant.costUsd > 0
+    && control.costUsd > 0
+    && variant.costUsd <= control.costUsd * COST_WIN_RATIO) {
+    const pct = Math.round((1 - variant.costUsd / control.costUsd) * 100);
+    return {
+      wins: true,
+      costOnly: true,
+      detail: `${pct}% cheaper at equal gates (${variant.gatePassed}/${variant.runs}) and completions — a cost win the gate cannot vouch for, so verify the workflow is no less thorough before merging`,
+    };
   }
   return { wins: false, detail: `no improvement: gates ${variant.gatePassed}/${variant.runs} vs ${control.gatePassed}/${control.runs}` };
 }
@@ -452,6 +493,7 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
               control,
               variant,
               wins: verdict.wins,
+              cost_only: verdict.costOnly === true,
               detail: verdict.detail,
               table: [
                 `| arm | runs | completed | gate passed | avg tokens | cost |`,
@@ -473,7 +515,8 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
         timeoutMs: 120_000,
         execute: async ({ shape_result, trial_result }) => {
           const shaped = shape_result as { hypothesis?: string; file?: string; find?: string; replace?: string } | undefined;
-          const trial = trial_result as { table?: string; detail?: string } | undefined;
+          const trial = trial_result as { table?: string; detail?: string; cost_only?: boolean } | undefined;
+          const costOnly = trial?.cost_only === true;
           if (shaped?.file === undefined) return { filed: false, detail: 'nothing to file' };
           const key = tuneKey(p.target, { file: shaped.file, replace: shaped.replace ?? '' });
           if (!p.file) return { filed: false, key, detail: 'dry run' };
@@ -486,7 +529,7 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
             return { filed: false, key, detail: 'an open ticket already carries this proposal' };
           }
           const outcome = await createIssue(repoRoot, {
-            title: `[tune] ${p.target}: ${(shaped.hypothesis ?? '').slice(0, 80)}`,
+            title: `[tune]${costOnly ? ' cost-win' : ''} ${p.target}: ${(shaped.hypothesis ?? '').slice(0, 80)}`,
             body: renderTuneTicket({
               target: p.target,
               hypothesis: shaped.hypothesis ?? '',
@@ -496,6 +539,7 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
               file: shaped.file,
               find: shaped.find ?? '',
               replace: shaped.replace ?? '',
+              costOnly,
               marker: findingMarker(key),
             }),
           }, token !== undefined ? { token } : {});
