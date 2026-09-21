@@ -33,7 +33,7 @@ import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
 import { fetchStats, formatStats } from './stats.js';
-import { checksEnv, resolveRepo } from './repo.js';
+import { checksEnv, maintenanceSecrets, resolveRepo } from './repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const exec = promisify(execFile);
@@ -303,8 +303,11 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
                     maxBuffer: 64 * 1024 * 1024,
                     timeout: 1_500_000,
                     // No DB: trials must not pollute the corpus, and the
-                    // arms must not differ by lesson injection.
-                    env: { ...checksEnv(), MAINTAIN_RESULT_JSON: resultAt },
+                    // arms must not differ by lesson injection. A trial
+                    // is the maintenance process itself, so it keeps the
+                    // run's credentials that `checksEnv` scrubs from
+                    // workspace commands — without them every arm crashes.
+                    env: { ...checksEnv(), ...maintenanceSecrets(), MAINTAIN_RESULT_JSON: resultAt },
                   });
               } catch {
                 // A crashed trial counts as a run that did not complete.
