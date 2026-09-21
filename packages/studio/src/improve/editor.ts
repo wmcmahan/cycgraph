@@ -20,7 +20,6 @@
  * @module improve/editor
  */
 
-import { join } from 'node:path';
 import {
   agent,
   describeChange,
@@ -39,6 +38,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { threadClosure } from '../run/closure.js';
+import { typecheckDir } from './layout.js';
 import type { ProposalRecord } from './proposals.js';
 import type { Scenario } from '../scenarios/types.js';
 import { providerFor, providersFor } from '../stack/index.js';
@@ -101,15 +101,18 @@ export async function verifyBuilt(
  * The instruction the session works from is read from the `instruction`
  * memory key, seeded directly by `editInWorkspace` or mapped in by a parent
  * graph's `inputs`.
+ *
+ * `sourcePath` is where the workflow under edit lives inside that root; the
+ * `diagnose` tool typechecks that file's project rather than a fixed one.
  */
-export function editorGraph(stack: Stack, workspaceRoot: string) {
+export function editorGraph(stack: Stack, workspaceRoot: string, sourcePath?: string) {
   const session = createWorkspaceSession();
   const hands = {
     search: searchTool({ root: workspaceRoot }),
     read: readFileTool({ root: workspaceRoot, session }),
     edit: editFileTool({ root: workspaceRoot, session }),
     diagnose: diagnosticsTool({
-      cwd: join(workspaceRoot, 'packages', 'playground'),
+      cwd: typecheckDir(workspaceRoot, sourcePath),
       command: 'npx',
       args: ['tsc', '--noEmit'],
     }),
@@ -236,6 +239,10 @@ export function editInstructionFor(record: ProposalRecord, sourcePath?: string):
  * whether the diagnostics gate was still failing at the iteration cap —
  * which is informational: the caller's verify decides what actually
  * happened.
+ *
+ * `sourcePath` is the workflow's file inside the clone, relative to
+ * `workspaceRoot`: it is both the locate hint and the project `diagnose`
+ * typechecks.
  */
 export async function editInWorkspace(
   stack: Stack,
@@ -243,7 +250,7 @@ export async function editInWorkspace(
   record: ProposalRecord,
   sourcePath?: string,
 ): Promise<string> {
-  const g = editorGraph(stack, workspaceRoot);
+  const g = editorGraph(stack, workspaceRoot, sourcePath);
   const providers = providersFor(stack.config.model, stack.config.endpoints.ollama);
   const memory = await run(g, {
     goal: 'Apply the change to the repository, keep it building, and report the edited file.',
