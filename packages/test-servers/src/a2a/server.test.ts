@@ -3,8 +3,8 @@ import { once } from 'node:events';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { TaskState } from '@a2a-js/sdk';
-import { STATE_VALUE } from './server.js';
-import type { ScenarioState } from './scenarios.js';
+import { STATE_VALUE, scenarioExecutor } from './server.js';
+import { findScenario, type ScenarioState } from './scenarios.js';
 
 // Bound before any test replaces globalThis.fetch: requests to the app under
 // test have to reach its loopback socket, not the Ollama tag-list stub.
@@ -26,6 +26,32 @@ const ALL_STATES: ScenarioState[] = [
 interface IndexBody {
   agents: Array<{ id: string }>;
   unavailable: Array<{ id: string; reason: string }>;
+}
+
+/** The `contextId` a published event carries, inside whatever oneof wrapper the SDK builds around it. */
+function contextIdOf(event: unknown): string | undefined {
+  if (typeof event !== 'object' || event === null) return undefined;
+  const fields = event as Record<string, unknown>;
+  if (typeof fields.contextId === 'string') return fields.contextId;
+  for (const value of Object.values(fields)) {
+    const found = contextIdOf(value);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** The status-update payload an event carries, inside whatever oneof wrapper the SDK builds around it. */
+function statusUpdateOf(event: unknown): { final: boolean; status: { state: TaskState } } | undefined {
+  if (typeof event !== 'object' || event === null) return undefined;
+  const fields = event as Record<string, unknown>;
+  if (typeof fields.final === 'boolean' && typeof fields.status === 'object' && fields.status !== null) {
+    return fields as unknown as { final: boolean; status: { state: TaskState } };
+  }
+  for (const value of Object.values(fields)) {
+    const found = statusUpdateOf(value);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 let pulledTags: string[] = [];
@@ -201,6 +227,58 @@ describe('model-backed scenario advertising', () => {
 
     expect(response.status).toBe(200);
     expect(card.name).toBe('scenario-agent');
+  });
+});
+
+describe('scenarioExecutor cancellation', () => {
+  it('cancels an open task with the context id the task was opened with', async () => {
+    const executor = scenarioExecutor(findScenario('asks-question')!);
+    const published: unknown[] = [];
+    const eventBus = { publish: (event: unknown) => { published.push(event); }, finished: () => {} };
+    const requestContext = {
+      taskId: 'task-1',
+      contextId: 'ctx-1',
+      userMessage: { parts: [{ content: { $case: 'data', value: 'which region?' } }] },
+    };
+
+    await executor.execute(requestContext as never, eventBus as never);
+    await executor.cancelTask('task-1', eventBus as never);
+
+    const canceled = statusUpdateOf(published.at(-1));
+    expect(published).toHaveLength(3);
+    expect(canceled?.status.state).toBe(TaskState.TASK_STATE_CANCELED);
+    expect(canceled?.final).toBe(true);
+    expect(contextIdOf(published.at(-1))).toBe('ctx-1');
+  });
+
+  it('cancels a completed task with the context id the task was opened with', async () => {
+    const executor = scenarioExecutor(findScenario('echo')!);
+    const published: unknown[] = [];
+    const eventBus = { publish: (event: unknown) => { published.push(event); }, finished: () => {} };
+    const requestContext = {
+      taskId: 'task-2',
+      contextId: 'ctx-2',
+      userMessage: { parts: [{ content: { $case: 'data', value: 'ping' } }] },
+    };
+
+    await executor.execute(requestContext as never, eventBus as never);
+    await executor.cancelTask('task-2', eventBus as never);
+
+    const canceled = statusUpdateOf(published.at(-1));
+    expect(published).toHaveLength(4);
+    expect(canceled?.status.state).toBe(TaskState.TASK_STATE_CANCELED);
+    expect(canceled?.final).toBe(true);
+    expect(contextIdOf(published.at(-1))).toBe('ctx-2');
+  });
+
+  it('publishes nothing for a task id the executor never ran', async () => {
+    const executor = scenarioExecutor(findScenario('echo')!);
+    const published: unknown[] = [];
+    const eventBus = { publish: (event: unknown) => { published.push(event); }, finished: () => {} };
+
+    await executor.cancelTask('unknown-task', eventBus as never);
+
+    expect(published).toEqual([]);
   });
 });
 

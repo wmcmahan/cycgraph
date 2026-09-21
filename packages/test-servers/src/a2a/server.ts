@@ -113,18 +113,34 @@ function readInput(message: { parts?: Array<{ content?: { $case?: string; value?
  * `requestContext.task` being already set is how a continuation is
  * detected — that is what lets `asks-question` complete on the second call
  * rather than asking forever.
+ *
+ * Cancelling a task publishes a final `canceled` status carrying the context
+ * id that task was opened with — including a cancel that arrives after the
+ * task already reached a terminal state — so every event for a task shares
+ * one `contextId`.
+ *
+ * @param scenario - The scripted agent this executor drives.
  */
-function scenarioExecutor(scenario: Scenario): AgentExecutor {
+export function scenarioExecutor(scenario: Scenario): AgentExecutor {
   // What each open task was originally asked. A resumed call carries only the
   // answer, and a scenario that has to produce a real response needs the
   // question it was answering as well.
   const opened = new Map<string, unknown>();
+
+  // The context each task was opened in, held until that task is cancelled.
+  // `AgentExecutor.cancelTask` is handed only a task id, and every event for
+  // a task has to carry the context the SDK opened it with, or a consumer
+  // correlating by `contextId` sees the cancellation as a different
+  // conversation. A cancel can arrive after a terminal status, so the entry
+  // outlives the task's own completion.
+  const contexts = new Map<string, string>();
 
   return {
     async execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
       const resumed = Boolean(requestContext.task);
       const input = readInput(requestContext.userMessage);
       if (!resumed) opened.set(requestContext.taskId, input);
+      contexts.set(requestContext.taskId, requestContext.contextId);
 
       // Submitted first, then the work. A scenario backed by a model takes
       // seconds to answer, and a caller waiting on the task should see it
@@ -139,7 +155,9 @@ function scenarioExecutor(scenario: Scenario): AgentExecutor {
       } as never));
 
       const outcome = await scenario.respond(input, resumed, opened.get(requestContext.taskId));
-      if (outcome.state !== 'TASK_STATE_INPUT_REQUIRED') opened.delete(requestContext.taskId);
+      if (outcome.state !== 'TASK_STATE_INPUT_REQUIRED') {
+        opened.delete(requestContext.taskId);
+      }
 
       for (const artifact of outcome.artifacts ?? []) {
         eventBus.publish(AgentEvent.artifactUpdate({
@@ -186,9 +204,21 @@ function scenarioExecutor(scenario: Scenario): AgentExecutor {
     },
 
     async cancelTask(taskId: string, eventBus: ExecutionEventBus): Promise<void> {
+      const contextId = contexts.get(taskId);
+      contexts.delete(taskId);
+      opened.delete(taskId);
+
+      // A task this executor never ran has no context to name, and
+      // `contextId` is a required field: publishing an empty one would put a
+      // malformed event on the wire rather than say nothing.
+      if (contextId === undefined) {
+        eventBus.finished();
+        return;
+      }
+
       eventBus.publish(AgentEvent.statusUpdate({
         taskId,
-        contextId: taskId,
+        contextId,
         final: true,
         status: { state: TaskState.TASK_STATE_CANCELED, timestamp: new Date().toISOString(), message: undefined },
         metadata: undefined,
