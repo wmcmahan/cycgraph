@@ -150,6 +150,28 @@ describe('variantWins', () => {
 
     expect(variantWins(control, crashed).wins).toBe(false);
   });
+
+  it('grants a cost win when the cheaper variant produced no less output', () => {
+    const verdict = variantWins(arm({ yield: 12 }), arm({ costUsd: 5, yield: 12 }));
+
+    expect(verdict.wins).toBe(true);
+    expect(verdict.costOnly).toBe(true);
+    expect(verdict.detail).toContain('output');
+  });
+
+  it('refuses a cost win when the cheaper variant produced less', () => {
+    const verdict = variantWins(arm({ yield: 12 }), arm({ costUsd: 5, yield: 6 }));
+
+    expect(verdict.wins).toBe(false);
+    expect(verdict.detail).toContain('produced less');
+  });
+
+  it('falls back to the caveat-only cost win when no yield is reported', () => {
+    const verdict = variantWins(arm(), arm({ costUsd: 5 }));
+
+    expect(verdict.wins).toBe(true);
+    expect(verdict.detail).toContain('cannot vouch');
+  });
 });
 
 describe('tuneKey', () => {

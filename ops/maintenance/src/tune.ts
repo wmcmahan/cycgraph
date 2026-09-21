@@ -50,13 +50,31 @@ export const MaintainResultSchema = z.object({
   cost_usd: z.number(),
   /** True when the run flagged its picked issue needs-human instead of delivering. */
   gave_up: z.boolean().optional(),
+  /**
+   * A workflow-specific thoroughness count when the run produces one:
+   * repo-audit's findings kept after the sift, or the docs family's
+   * fixes committed. Absent for workflows with no such measure (a
+   * single-proposal run). Tune uses it to refuse a cost win that
+   * produced materially less than control.
+   */
+  yield: z.number().optional(),
 });
 
-/** Workflows a tune run may target, with the flags that make a trial dry. */
+/**
+ * Workflows a tune run may target, with the flags that make a trial dry.
+ *
+ * The docs workflows commit into their own disposable clone (never push
+ * — `--publish false`) across a `--batch` of findings so the trial
+ * yields a fixes-landed count that varies with the fixer's thoroughness;
+ * without a batch there is no count for a cost win to check against.
+ */
 export const TUNABLE: Record<string, string[]> = {
-  'docs-maintenance': ['--commit', 'false', '--batch', '1'],
-  'repo-docs': ['--commit', 'false', '--batch', '1'],
-  'website-docs': ['--commit', 'false', '--batch', '1'],
+  // --budgetTokens is raised from the batch-1 default (400k) to cover
+  // three fix-verify-commit cycles; a breach fails the run and would
+  // measure nothing in either arm.
+  'docs-maintenance': ['--commit', 'true', '--publish', 'false', '--batch', '3', '--budgetTokens', '1200000'],
+  'repo-docs': ['--commit', 'true', '--publish', 'false', '--batch', '3', '--budgetTokens', '1200000'],
+  'website-docs': ['--commit', 'true', '--publish', 'false', '--batch', '3', '--budgetTokens', '1200000'],
   'repo-audit': ['--file', 'false', '--maxAuditors', '2', '--steps', '16', '--budgetTokens', '600000'],
   'feat-propose': ['--file', 'false'],
 };
@@ -241,6 +259,13 @@ export interface ArmResult {
   gatePassed: number;
   avgTokens: number;
   costUsd: number;
+  /**
+   * Total thoroughness count across the arm's runs — repo-audit's kept
+   * findings, or the docs family's fixes committed — or `undefined`
+   * when the target reports none. A cost win requires the variant's
+   * yield to hold against control's.
+   */
+  yield?: number;
 }
 
 /**
@@ -258,9 +283,14 @@ export const COST_WIN_RATIO = 0.75;
  * ({@link COST_WIN_RATIO}) is a *cost win*: still filed, but flagged
  * `costOnly`, because the benchmark cannot tell real efficiency from a
  * variant that simply does less — that judgement is the human
- * reviewer's, and the ticket says so. A cost drop is never a silent
- * auto-win against a gate regression. Small samples by design; the
- * verdict is a filter, the human judges.
+ * reviewer's, and the ticket says so. When both arms report a
+ * thoroughness count (`yield` — repo-audit's kept findings or the docs
+ * family's fixes committed), a cost win additionally requires the
+ * variant's yield to be no lower than control's; a cheaper variant that
+ * produced less is refused, since that is the degradation the gate
+ * cannot see. A cost drop is never a
+ * silent auto-win against a gate or thoroughness regression. Small
+ * samples by design; the verdict is a filter, the human judges.
  */
 export function variantWins(control: ArmResult, variant: ArmResult): { wins: boolean; costOnly?: boolean; detail: string } {
   if (variant.completed < control.completed) {
@@ -283,6 +313,21 @@ export function variantWins(control: ArmResult, variant: ArmResult): { wins: boo
     && control.costUsd > 0
     && variant.costUsd <= control.costUsd * COST_WIN_RATIO) {
     const pct = Math.round((1 - variant.costUsd / control.costUsd) * 100);
+    // Yield parity: when both arms report a thoroughness count (kept
+    // findings for repo-audit, fixes committed for the docs family), a
+    // cheaper variant that produced materially less is thoroughness loss
+    // wearing cheapness — not a win. The gate cannot see this; the
+    // yield can.
+    if (control.yield !== undefined && variant.yield !== undefined) {
+      if (variant.yield < control.yield) {
+        return { wins: false, detail: `${pct}% cheaper but produced less (${variant.yield} vs ${control.yield}) — likely less thorough, not a cost win` };
+      }
+      return {
+        wins: true,
+        costOnly: true,
+        detail: `${pct}% cheaper at equal gates (${variant.gatePassed}/${variant.runs}), completions, and output (${variant.yield} vs ${control.yield}) — thoroughness held; still confirm before merging`,
+      };
+    }
     return {
       wins: true,
       costOnly: true,
@@ -449,6 +494,8 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
           const arm = async (root: string): Promise<ArmResult> => {
             const result: ArmResult = { runs: 0, completed: 0, gatePassed: 0, avgTokens: 0, costUsd: 0 };
             let tokens = 0;
+            let yieldSum = 0;
+            let sawYield = false;
             for (let i = 0; i < p.trials; i++) {
               const resultAt = join(cloneAt, `result-${randomUUID().slice(0, 8)}.json`);
               try {
@@ -474,11 +521,13 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
                 if (parsed.gate === true) result.gatePassed += 1;
                 tokens += parsed.tokens;
                 result.costUsd += parsed.cost_usd;
+                if (parsed.yield !== undefined) { yieldSum += parsed.yield; sawYield = true; }
               } catch {
                 // No result file: the subprocess died before reporting.
               }
             }
             result.avgTokens = result.runs === 0 ? 0 : Math.round(tokens / result.runs);
+            if (sawYield) result.yield = yieldSum;
             return result;
           };
 
@@ -496,10 +545,10 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
               cost_only: verdict.costOnly === true,
               detail: verdict.detail,
               table: [
-                `| arm | runs | completed | gate passed | avg tokens | cost |`,
-                `| --- | --- | --- | --- | --- | --- |`,
-                `| control | ${control.runs} | ${control.completed} | ${control.gatePassed} | ${control.avgTokens} | $${control.costUsd.toFixed(2)} |`,
-                `| variant | ${variant.runs} | ${variant.completed} | ${variant.gatePassed} | ${variant.avgTokens} | $${variant.costUsd.toFixed(2)} |`,
+                `| arm | runs | completed | gate passed | output | avg tokens | cost |`,
+                `| --- | --- | --- | --- | --- | --- | --- |`,
+                `| control | ${control.runs} | ${control.completed} | ${control.gatePassed} | ${control.yield ?? '—'} | ${control.avgTokens} | $${control.costUsd.toFixed(2)} |`,
+                `| variant | ${variant.runs} | ${variant.completed} | ${variant.gatePassed} | ${variant.yield ?? '—'} | ${variant.avgTokens} | $${variant.costUsd.toFixed(2)} |`,
               ].join('\n'),
             };
           } finally {

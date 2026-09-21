@@ -416,12 +416,26 @@ async function main(): Promise<void> {
     const { writeFile } = await import('node:fs/promises');
     const { MaintainResultSchema } = await import('./tune.js');
     const verdict = (recorded.memory as Record<string, unknown>)['gate_verification_passed'];
+    // The run's thoroughness signal for a tune trial, by workflow: how
+    // many findings repo-audit kept, or how many stale references the
+    // docs workflows fixed. A cheaper variant that produced fewer is a
+    // thoroughness regression the gate cannot see. Only one of these
+    // keys is present in any single run, so the order is not a
+    // priority — it is a union. Workflows with a single-unit output
+    // (feat-propose's one proposal) report none: gate parity already
+    // captures their thoroughness.
+    const keptCount = (memory['sift_result'] as { kept_count?: unknown } | undefined)?.['kept_count'];
+    const fixedCount = (memory['commit_result'] as { count?: unknown } | undefined)?.['count'];
+    const yieldValue = typeof keptCount === 'number' ? keptCount
+      : typeof fixedCount === 'number' ? fixedCount
+        : undefined;
     await writeFile(resultPath, JSON.stringify(MaintainResultSchema.parse({
       status: recorded.state.status,
       gate: typeof verdict === 'boolean' ? verdict : null,
       tokens: recorded.state.total_tokens_used,
       cost_usd: recorded.state.total_cost_usd,
       gave_up: gaveUp?.['flagged'] === true,
+      ...(yieldValue !== undefined ? { yield: yieldValue } : {}),
     })));
   }
   if (scan !== undefined) say(`findings in scope: ${String(scan['total'])}`);
