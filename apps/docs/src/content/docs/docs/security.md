@@ -105,7 +105,7 @@ Taint metadata is stored in the first-class `state.taint_registry` field. It is 
 
 ### Strict taint mode
 
-By default, tainted data in routing decisions produces a warning. Set `strict_taint: true` at the graph level to reject tainted data in routing decisions entirely:
+By default, tainted data in routing decisions produces a warning. Set `strict_taint: true` at the graph level to reject tainted data in conditional edge conditions:
 
 ```typescript
 const workflow = graph({
@@ -116,7 +116,9 @@ const workflow = graph({
 });
 ```
 
-When `strict_taint` is enabled, conditional edge expressions that reference tainted keys evaluate to `false`, and supervisor nodes that receive tainted routing inputs will refuse to route. See [Taint Tracking](/docs/concepts/taint-tracking/) for details on taint enforcement at decision points.
+`strict_taint` enforcement applies only to conditional edge expressions: an expression that references a tainted key evaluates to `false`, so the run takes the fallback path instead of routing on untrusted data.
+
+Supervisor routing is **not** hard-blocked, with or without `strict_taint`. A supervisor whose input contains tainted keys receives an explicit warning in its prompt naming those keys, and the handoff remains the LLM's decision. Do not rely on `strict_taint` to stop a prompt-injected supervisor handoff — gate LLM-supervised routing with conditional edges, an allowed-successor list, or a security policy check instead. See [Taint Tracking](/docs/concepts/taint-tracking/) for details on taint enforcement at decision points.
 
 See [Taint Tracking](/docs/concepts/taint-tracking/) for the full API reference.
 
