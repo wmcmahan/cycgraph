@@ -79,7 +79,8 @@ const COMMANDS: Record<string, (ctx: CliContext) => Promise<void>> = {
 export async function runCli(argv: string[], harness: CliHarness): Promise<void> {
   const { config, rest } = takeStackFlags(argv, harness.stackDefaults);
   const [command, ...args] = rest;
-  const ctx = commandContext(harness.catalog, config, args);
+  const usage = harness.usage ?? STUDIO_USAGE;
+  const ctx = commandContext(harness.catalog, config, args, usage);
 
   if (command === undefined) {
     await listCommand(ctx);
@@ -88,7 +89,7 @@ export async function runCli(argv: string[], harness: CliHarness): Promise<void>
 
   const handler = COMMANDS[command] ?? harness.commands?.[command];
   if (!handler) {
-    renderUsage(harness.usage ?? STUDIO_USAGE);
+    renderUsage(usage);
     process.exitCode = 1;
     return;
   }

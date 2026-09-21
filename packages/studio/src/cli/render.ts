@@ -277,8 +277,13 @@ export function renderFork(outcome: ForkOutcome): void {
  * One row per scenario, and a line per point that failed to reproduce the
  * original. A faithful scenario needs no detail: the count says it.
  */
-/** The watch tick's report: one row per workflow, gated tier by tier. */
-export function renderWatch(rows: readonly WatchRow[]): void {
+/**
+ * The watch tick's report: one row per workflow, gated tier by tier.
+ *
+ * `usage` spells the follow-up hint in the invocation the calling host is
+ * actually reached by.
+ */
+export function renderWatch(rows: readonly WatchRow[], usage: CliUsage): void {
   const width = Math.max(10, ...rows.map((row) => row.workflow.length));
 
   out();
@@ -293,7 +298,7 @@ export function renderWatch(rows: readonly WatchRow[]): void {
   out();
   const proposed = rows.filter((row) => row.outcome === 'proposed');
   if (proposed.length > 0) {
-    out(`  ${GREEN}${proposed.length} proposal(s) awaiting a human${RESET} — \`npm run play -- proposals\``);
+    out(`  ${GREEN}${proposed.length} proposal(s) awaiting a human${RESET} — \`${usage.verbPrefix}proposals\``);
     out();
   }
 }
@@ -790,11 +795,14 @@ export function renderTuneEstimate(estimates: readonly SweepEstimate[]): void {
  *
  * Status leads because it is the decision; the evidence follows because a
  * decision without its evidence is just a preference.
+ *
+ * `usage` spells the empty-ledger hint in the invocation the calling host is
+ * actually reached by.
  */
-export function renderProposals(records: readonly ProposalRecord[]): void {
+export function renderProposals(records: readonly ProposalRecord[], usage: CliUsage): void {
   out();
   if (records.length === 0) {
-    out(`  ${DIM}no proposals saved. \`npm run play -- tune <id> --save\` writes winners here.${RESET}`);
+    out(`  ${DIM}no proposals saved. \`${usage.verbPrefix}tune <id> --save\` writes winners here.${RESET}`);
     out();
     return;
   }

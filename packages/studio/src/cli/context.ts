@@ -34,6 +34,8 @@ export interface CliContext {
   promptForHuman(question: string): Promise<HumanResponse>;
   /** Terminal prompt at a ladder gate: yes walks on, anything else stops. */
   promptForGate(question: string): Promise<HumanResponse>;
+  /** How printed hints spell the invocation this command was reached by. */
+  usage: CliUsage;
 }
 
 /** How the usage text names a host and prefixes its example invocations. */
@@ -144,7 +146,12 @@ async function promptForHuman(question: string): Promise<HumanResponse> {
 }
 
 /** Build the context one invocation's commands run against. */
-export function commandContext(catalog: Catalog, config: StackConfig, args: string[]): CliContext {
+export function commandContext(
+  catalog: Catalog,
+  config: StackConfig,
+  args: string[],
+  usage: CliUsage = STUDIO_USAGE,
+): CliContext {
   const requireScenario = async (id: string | undefined): Promise<Scenario> => {
     if (!id) fail('Name a scenario. The catalog listing names them.');
     // Improve sessions are a tunable corpus but not a catalog entry: the
@@ -172,5 +179,5 @@ export function commandContext(catalog: Catalog, config: StackConfig, args: stri
     fail(`No scenario or recorded workflow named "${arg}".`);
   };
 
-  return { args, config, catalog, requireScenario, resolveWorkflowId, promptForHuman, promptForGate };
+  return { args, config, catalog, requireScenario, resolveWorkflowId, promptForHuman, promptForGate, usage };
 }

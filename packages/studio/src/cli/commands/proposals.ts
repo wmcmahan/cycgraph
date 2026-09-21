@@ -16,7 +16,7 @@ import { renderProposals } from '../render.js';
 export async function proposalsCommand(ctx: CliContext): Promise<void> {
   const { args, config } = ctx;
   const workflow = args[0] && !args[0].startsWith('--') ? args[0] : undefined;
-  renderProposals(await listProposals(config.artifactRoot, workflow));
+  renderProposals(await listProposals(config.artifactRoot, workflow), ctx.usage);
 }
 
 export async function trialCommand(ctx: CliContext): Promise<void> {
