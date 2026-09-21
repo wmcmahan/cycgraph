@@ -98,9 +98,11 @@ export async function registerMCPScenarios(baseUrl: string): Promise<MCPServerRe
     id: MCP_SERVER_ID,
     name: 'Scenario MCP server',
     transport: { type: 'http', url: `${baseUrl}/mcp` },
-    // Above the `slow` tool's sleep, so per-tool timeouts are what a scenario
-    // trips rather than the connection giving up first.
-    timeoutMs: 30_000,
+    // Strictly above the `slow` tool's 30s sleep cap, with margin for the
+    // round trip the client's clock counts but the server's sleep does not,
+    // so a scenario trips the engine's per-tool timeout rather than the
+    // connection giving up first.
+    timeoutMs: 35_000,
   });
   return registry;
 }
