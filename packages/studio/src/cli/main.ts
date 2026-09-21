@@ -23,7 +23,13 @@ process.env['LOG_LEVEL'] ??= 'info';
 process.env['METRICS_ENABLED'] ??= 'true';
 
 import { FlagError } from './flags.js';
-import { commandContext, takeStackFlags, type CliContext, type CliHarness } from './context.js';
+import {
+  commandContext,
+  takeStackFlags,
+  STUDIO_USAGE,
+  type CliContext,
+  type CliHarness,
+} from './context.js';
 import { renderUsage } from './render.js';
 import { listCommand, paramsCommand, stackCommand } from './commands/catalog.js';
 import { runCommand } from './commands/run.js';
@@ -44,7 +50,8 @@ import {
   trialCommand,
 } from './commands/proposals.js';
 
-export type { CliContext, CliHarness } from './context.js';
+export { STUDIO_USAGE } from './context.js';
+export type { CliContext, CliHarness, CliUsage } from './context.js';
 
 const COMMANDS: Record<string, (ctx: CliContext) => Promise<void>> = {
   stack: stackCommand,
@@ -81,7 +88,7 @@ export async function runCli(argv: string[], harness: CliHarness): Promise<void>
 
   const handler = COMMANDS[command] ?? harness.commands?.[command];
   if (!handler) {
-    renderUsage();
+    renderUsage(harness.usage ?? STUDIO_USAGE);
     process.exitCode = 1;
     return;
   }

@@ -36,12 +36,35 @@ export interface CliContext {
   promptForGate(question: string): Promise<HumanResponse>;
 }
 
+/** How the usage text names a host and prefixes its example invocations. */
+export interface CliUsage {
+  /** Banner name, e.g. `cycgraph studio`. */
+  name: string;
+  /** The invocation that on its own lists scenarios, e.g. `npm run studio`. */
+  command: string;
+  /**
+   * What an example carrying a subcommand starts with, e.g.
+   * `npm run studio -- `. An npm script needs the `--` separator before the
+   * CLI's own arguments; a bin invoked directly does not.
+   */
+  verbPrefix: string;
+}
+
+/** The studio's own invocation, used when a harness names none. */
+export const STUDIO_USAGE: CliUsage = {
+  name: 'cycgraph studio',
+  command: 'npm run studio',
+  verbPrefix: 'npm run studio -- ',
+};
+
 /** What a host supplies: its workflows, and any commands of its own. */
 export interface CliHarness {
   catalog: Catalog;
   commands?: Record<string, (ctx: CliContext) => Promise<void>>;
   /** Stack defaults (e.g. from a config file). Explicit flags still win. */
   stackDefaults?: Partial<StackConfig>;
+  /** How usage text addresses this host. Defaults to {@link STUDIO_USAGE}. */
+  usage?: CliUsage;
 }
 
 /** Print the message and end the invocation. */

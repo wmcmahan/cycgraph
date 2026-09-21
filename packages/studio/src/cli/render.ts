@@ -8,6 +8,7 @@
  */
 
 import { describeLever, describeProposal } from '@cycgraph/evals';
+import type { CliUsage } from './context.js';
 import type { InsightsReport, VariantOutcome, WorkflowProfile } from '@cycgraph/evals';
 import type { ProposalRecord } from '../improve/proposals.js';
 import type { SweepEstimate, TuneOutcome } from '../improve/tune.js';
@@ -469,30 +470,51 @@ export function renderLogs(entry: HistoryEntry, lines: readonly RunLogLine[]): v
   out();
 }
 
-/** Usage text for a bare or malformed invocation. */
-export function renderUsage(): void {
+/**
+ * Usage text for a bare or malformed invocation, spelled in the invocation
+ * the calling host is actually reached by.
+ */
+export function renderUsage(usage: CliUsage): void {
+  const verb = usage.verbPrefix;
+  const column = verb.length + 25;
+  const commands: ReadonlyArray<readonly [string, string]> = [
+    [usage.command, 'list scenarios and stack status'],
+    [`${verb}run <id> [--flags]`, 'run a scenario — <id> may be a file: ./graph.ts or bundle.json'],
+    [`${verb}params <id>`, "show a scenario's parameters"],
+    [`${verb}stack`, 'show stack status only'],
+    [`${verb}sweep <id> --vary <param>=<a,b>`, 'run every combination'],
+    [`${verb}history [id] [--limit n] [--failed]`, 'past runs, newest first'],
+    [
+      `${verb}serve [--port n] [--watch] [--load file]`,
+      'the dashboard; --watch ticks the improvement watcher, --load adds an ad-hoc scenario',
+    ],
+    [`${verb}logs [run] [--level warn] [--grep x]`, "one run's log lines"],
+    [`${verb}insights [id] [--limit n]`, 'what recorded runs say is wrong'],
+    [`${verb}import <runId>|--all`, 'pull externally recorded runs into the artifact tree'],
+    [
+      `${verb}tune <id> [--prefixes n] [--dry-run] [--max-forks n] [--max-seconds n] [--models a,b] [--samples n] [--validate n] [--prompts n] [--concurrency n] [--no-combine] [--reuse] [--save]`,
+      '',
+    ],
+    [`${verb}improve <id> [tune flags] [--repo path]`, 'the whole ladder, gated'],
+    [
+      `${verb}loop <id> [--autonomy propose|trial|apply] [--max-runs n] [--max-minutes n] [--models a,b] [--prompts n]`,
+      'run, measure, adopt — unattended, stopping at a committed diff',
+    ],
+    [`${verb}loop-check [--repo path]`, 'the improve loop end to end, scored'],
+    [`${verb}watch [id] [--min-runs n] [--max-forks n] [--dry-run]`, 'one watcher tick: sense, measure, propose'],
+    [`${verb}proposals [id]`, 'the ledger of measured proposals'],
+    [`${verb}trial|apply|revert <id>`, 'overlay, write to source, or take back'],
+    ['', 'measure knob changes against the evals'],
+  ];
+
+  out();
+  out(`${BOLD}${usage.name}${RESET}`);
+  out();
+  for (const [call, description] of commands) {
+    out(description ? `  ${call.padEnd(column)} ${description}` : `  ${call}`);
+  }
+
   out(`
-${BOLD}cycgraph playground${RESET}
-
-  npm run play                         list scenarios and stack status
-  npm run play -- run <id> [--flags]   run a scenario — <id> may be a file: ./graph.ts or bundle.json
-  npm run play -- params <id>          show a scenario's parameters
-  npm run play -- stack                show stack status only
-  npm run play -- sweep <id> --vary <param>=<a,b>   run every combination
-  npm run play -- history [id] [--limit n] [--failed]  past runs, newest first
-  npm run play -- serve [--port n] [--watch] [--load file]  the dashboard; --watch ticks the improvement watcher, --load adds an ad-hoc scenario
-  npm run play -- logs [run] [--level warn] [--grep x]  one run's log lines
-  npm run play -- insights [id] [--limit n]  what recorded runs say is wrong
-  npm run play -- import <runId>|--all  pull externally recorded runs into the artifact tree
-  npm run play -- tune <id> [--prefixes n] [--dry-run] [--max-forks n] [--max-seconds n] [--models a,b] [--samples n] [--validate n] [--prompts n] [--concurrency n] [--no-combine] [--reuse] [--save]
-  npm run play -- improve <id> [tune flags] [--repo path]  the whole ladder, gated
-  npm run play -- loop <id> [--autonomy propose|trial|apply] [--max-runs n] [--max-minutes n] [--models a,b] [--prompts n]  run, measure, adopt — unattended, stopping at a committed diff
-  npm run play -- loop-check [--repo path]  the improve loop end to end, scored
-  npm run play -- watch [id] [--min-runs n] [--max-forks n] [--dry-run]  one watcher tick: sense, measure, propose
-  npm run play -- proposals [id]       the ledger of measured proposals
-  npm run play -- trial|apply|revert <id>  overlay, write to source, or take back
-                                        measure knob changes against the evals
-
 ${BOLD}stack flags${RESET} (accepted before the subcommand or after it)
 
   --model <id>       model every agent resolves through (default: qwen2.5:7b)
