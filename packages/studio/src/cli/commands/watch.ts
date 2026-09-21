@@ -31,7 +31,7 @@ export async function watchCommand(ctx: CliContext): Promise<void> {
       ...(args.includes('--dry-run') ? { dryRun: true } : {}),
       onProgress: (message) => process.stdout.write(`  ${message}\n`),
     });
-    renderWatch(rows);
+    renderWatch(rows, ctx.usage);
   } finally {
     await stack.close();
   }

@@ -83,8 +83,8 @@ export { createBus } from './server/bus.js';
 export type { Bus } from './server/bus.js';
 
 // ── The CLI, as a harness the host parameterizes ──
-export { runCli, runCliMain } from './cli/main.js';
-export type { CliHarness, CliContext } from './cli/main.js';
+export { runCli, runCliMain, STUDIO_USAGE } from './cli/main.js';
+export type { CliHarness, CliContext, CliUsage } from './cli/main.js';
 export { renderStack, renderForkConformance } from './cli/render.js';
 
 // ── Params introspection (schema-driven forms and flags) ──

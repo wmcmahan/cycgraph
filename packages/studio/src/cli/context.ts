@@ -34,7 +34,30 @@ export interface CliContext {
   promptForHuman(question: string): Promise<HumanResponse>;
   /** Terminal prompt at a ladder gate: yes walks on, anything else stops. */
   promptForGate(question: string): Promise<HumanResponse>;
+  /** How printed hints spell the invocation this command was reached by. */
+  usage: CliUsage;
 }
+
+/** How the usage text names a host and prefixes its example invocations. */
+export interface CliUsage {
+  /** Banner name, e.g. `cycgraph studio`. */
+  name: string;
+  /** The invocation that on its own lists scenarios, e.g. `npm run studio`. */
+  command: string;
+  /**
+   * What an example carrying a subcommand starts with, e.g.
+   * `npm run studio -- `. An npm script needs the `--` separator before the
+   * CLI's own arguments; a bin invoked directly does not.
+   */
+  verbPrefix: string;
+}
+
+/** The studio's own invocation, used when a harness names none. */
+export const STUDIO_USAGE: CliUsage = {
+  name: 'cycgraph studio',
+  command: 'npm run studio',
+  verbPrefix: 'npm run studio -- ',
+};
 
 /** What a host supplies: its workflows, and any commands of its own. */
 export interface CliHarness {
@@ -42,6 +65,8 @@ export interface CliHarness {
   commands?: Record<string, (ctx: CliContext) => Promise<void>>;
   /** Stack defaults (e.g. from a config file). Explicit flags still win. */
   stackDefaults?: Partial<StackConfig>;
+  /** How usage text addresses this host. Defaults to {@link STUDIO_USAGE}. */
+  usage?: CliUsage;
 }
 
 /** Print the message and end the invocation. */
@@ -121,7 +146,12 @@ async function promptForHuman(question: string): Promise<HumanResponse> {
 }
 
 /** Build the context one invocation's commands run against. */
-export function commandContext(catalog: Catalog, config: StackConfig, args: string[]): CliContext {
+export function commandContext(
+  catalog: Catalog,
+  config: StackConfig,
+  args: string[],
+  usage: CliUsage = STUDIO_USAGE,
+): CliContext {
   const requireScenario = async (id: string | undefined): Promise<Scenario> => {
     if (!id) fail('Name a scenario. The catalog listing names them.');
     // Improve sessions are a tunable corpus but not a catalog entry: the
@@ -149,5 +179,5 @@ export function commandContext(catalog: Catalog, config: StackConfig, args: stri
     fail(`No scenario or recorded workflow named "${arg}".`);
   };
 
-  return { args, config, catalog, requireScenario, resolveWorkflowId, promptForHuman, promptForGate };
+  return { args, config, catalog, requireScenario, resolveWorkflowId, promptForHuman, promptForGate, usage };
 }
