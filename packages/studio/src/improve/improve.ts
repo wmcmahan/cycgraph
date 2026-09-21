@@ -328,7 +328,11 @@ export function buildImproveGraph(
           const { id } = firstOf(args);
           const record = await findProposal(artifactRoot, id);
           if (!record) throw new Error(`proposal ${id} disappeared from the ledger`);
-          return editInstructionFor(record);
+          // Unguarded by `existsSync`: the brief is composed before the
+          // clone node runs, so the workspace copy cannot be checked yet.
+          // A hint naming a file the clone lacks costs a failed search; the
+          // editor falls back to searching either way.
+          return editInstructionFor(record, rebased);
         },
       });
       const cloneTool = tool({
