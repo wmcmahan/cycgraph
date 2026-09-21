@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseTuneProposal, parseTuneTicket, renderTuneTicket, resolveSourcePath, tuneKey, variantWins, type ArmResult } from '../src/tune.js';
+import { parseTuneProposal, parseTuneTicket, renderTuneTicket, resolveSourcePath, tuneKey, variantWins, type ArmResult } from '../src/tune/index.js';
 
 const REPLY = [
   'HYPOTHESIS: auditors drop findings because the evidence format is underspecified.',

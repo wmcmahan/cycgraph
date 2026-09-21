@@ -37,13 +37,13 @@ import {
   readFileTool,
   searchTool,
 } from '@cycgraph/tools/workspace';
-import { scanCore, type CoreFinding } from './core-scan.js';
-import { auditTitle, severityRank } from './audit-findings.js';
-import { findingFromKey, judgeAuditFix, judgeIssueFix, nextGateAttempt, parseIssueFinding, type IssueFinding } from './issue-judge.js';
-import { checksEnv, CHANGESET_INSTRUCTION, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, flagNeedsHuman, resolveRepo } from './repo.js';
-import { LESSON_TAG, MAINT_TAG } from './memory.js';
-import { stripCloses, templateEvidence } from './pr-template.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { scanCore, type CoreFinding } from '../core/scan.js';
+import { auditTitle, severityRank } from '../audit/findings.js';
+import { findingFromKey, judgeAuditFix, judgeIssueFix, nextGateAttempt, parseIssueFinding, type IssueFinding } from './judge.js';
+import { checksEnv, CHANGESET_INSTRUCTION, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, flagNeedsHuman, resolveRepo } from '../shared/repo.js';
+import { LESSON_TAG, MAINT_TAG } from '../shared/memory.js';
+import { stripCloses, templateEvidence } from '../shared/pr-template.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const params = z.object({
   repoRoot: z.string().default('')

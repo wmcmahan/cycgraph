@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { RUNTIME_CONFIG_ENV_VARS } from '@cycgraph/orchestrator/internal';
-import { MAINTENANCE_SECRET_ENV_VARS, NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, flagNeedsHuman, maintenanceSecrets, repoMap, stripMentions } from '../src/repo.js';
+import { MAINTENANCE_SECRET_ENV_VARS, NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, flagNeedsHuman, maintenanceSecrets, repoMap, stripMentions } from '../src/shared/repo.js';
 
 const exec = promisify(execFile);
 

@@ -48,12 +48,12 @@ import { z } from 'zod';
 import { agent, graph, node, reflection, tool } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { commentOnPr, commentableDiffLines, enableAutoMerge, listReviewThreads, prFeedback, resolveReviewThread, setPrLabels, submitPrReview, viewIssue } from '@cycgraph/tools/git';
-import { closesIn } from './pr-template.js';
+import { closesIn } from '../shared/pr-template.js';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
-import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
-import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseReviewFindings, parseReviewVerdict } from './review-findings.js';
-import { MANAGED_LABEL, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, WORKFLOW_MENTION, resolveRepo, stripMentions } from './repo.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from '../shared/memory.js';
+import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseReviewFindings, parseReviewVerdict } from '../shared/review-findings.js';
+import { MANAGED_LABEL, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, WORKFLOW_MENTION, resolveRepo, stripMentions } from '../shared/repo.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const exec = promisify(execFile);
 

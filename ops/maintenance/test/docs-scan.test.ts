@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { findingKey, judgeFix, scanDocs, type DocsFinding } from '../src/docs-scan.js';
+import { findingKey, judgeFix, scanDocs, type DocsFinding } from '../src/docs/scan.js';
 
 let root: string;
 

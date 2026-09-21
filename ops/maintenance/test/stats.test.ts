@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { formatStats, type WorkflowStats } from '../src/stats.js';
+import { formatStats, type WorkflowStats } from '../src/shared/stats.js';
 
 const row = (overrides: Partial<WorkflowStats> = {}): WorkflowStats => ({
   name: 'docs-maintenance',

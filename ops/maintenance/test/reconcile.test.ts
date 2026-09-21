@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mergeScore, prNumberFrom, reconcileRows } from '../src/reconcile.js';
+import { mergeScore, prNumberFrom, reconcileRows } from '../src/shared/reconcile.js';
 
 describe('prNumberFrom', () => {
   it('extracts the number from a pull request url', () => {

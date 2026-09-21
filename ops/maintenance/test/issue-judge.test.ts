@@ -14,7 +14,7 @@ import {
   parseIssueFinding,
   testCount,
   type IssueFixEvidence,
-} from '../src/issue-judge.js';
+} from '../src/issue-fix/judge.js';
 
 describe('parseIssueFinding', () => {
   it('recovers kind, file, and key from a filed issue body', () => {

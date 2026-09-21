@@ -14,7 +14,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { keySlug, legacyKeySlug } from './key-slug.js';
+import { keySlug, legacyKeySlug } from '../shared/key-slug.js';
 
 const run = promisify(execFile);
 

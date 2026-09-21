@@ -9,8 +9,8 @@
  * @module maintenance/audit-findings
  */
 
-import { keySlug, legacyKeySlug } from './key-slug.js';
-import { pathTokens } from './proposal.js';
+import { keySlug, legacyKeySlug } from '../shared/key-slug.js';
+import { pathTokens } from '../shared/proposal.js';
 
 /** Severity an auditor may assign, ordered worst-first for ranking. */
 export const AUDIT_SEVERITIES = ['high', 'medium', 'low'] as const;
