@@ -28,7 +28,7 @@ export type { AuditFinding, AuditSeverity, AuditSiftOptions, AuditSiftResult } f
 export { optApply } from './opt-apply.js';
 export { prRevise } from './pr-revise.js';
 export { prReview } from './pr-review.js';
-export { parseTuneProposal, tuneKey, tunePropose, variantWins, TUNABLE } from './tune.js';
+export { parseTuneProposal, parseTuneTicket, renderTuneTicket, resolveSourcePath, tuneKey, tunePropose, variantWins, TUNABLE } from './tune.js';
 export type { ArmResult, TuneProposal } from './tune.js';
 export { featImplement } from './feat-implement.js';
 export { extractTicketDiff, legacyProposalKey, parseProposal, pathTokens, proposalKey, safeAcceptanceCommand } from './proposal.js';
