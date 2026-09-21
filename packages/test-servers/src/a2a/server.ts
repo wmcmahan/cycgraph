@@ -114,9 +114,10 @@ function readInput(message: { parts?: Array<{ content?: { $case?: string; value?
  * detected — that is what lets `asks-question` complete on the second call
  * rather than asking forever.
  *
- * Cancelling an open task publishes a final `canceled` status carrying the
- * context id that task was opened with, so every event for a task shares one
- * `contextId`.
+ * Cancelling a task publishes a final `canceled` status carrying the context
+ * id that task was opened with — including a cancel that arrives after the
+ * task already reached a terminal state — so every event for a task shares
+ * one `contextId`.
  *
  * @param scenario - The scripted agent this executor drives.
  */
@@ -126,10 +127,12 @@ export function scenarioExecutor(scenario: Scenario): AgentExecutor {
   // question it was answering as well.
   const opened = new Map<string, unknown>();
 
-  // The context each live task belongs to. `AgentExecutor.cancelTask` is
-  // handed only a task id, and every event for a task has to carry the
-  // context the SDK opened it with, or a consumer correlating by `contextId`
-  // sees the cancellation as a different conversation.
+  // The context each task was opened in, held until that task is cancelled.
+  // `AgentExecutor.cancelTask` is handed only a task id, and every event for
+  // a task has to carry the context the SDK opened it with, or a consumer
+  // correlating by `contextId` sees the cancellation as a different
+  // conversation. A cancel can arrive after a terminal status, so the entry
+  // outlives the task's own completion.
   const contexts = new Map<string, string>();
 
   return {
@@ -154,7 +157,6 @@ export function scenarioExecutor(scenario: Scenario): AgentExecutor {
       const outcome = await scenario.respond(input, resumed, opened.get(requestContext.taskId));
       if (outcome.state !== 'TASK_STATE_INPUT_REQUIRED') {
         opened.delete(requestContext.taskId);
-        contexts.delete(requestContext.taskId);
       }
 
       for (const artifact of outcome.artifacts ?? []) {
@@ -202,9 +204,17 @@ export function scenarioExecutor(scenario: Scenario): AgentExecutor {
     },
 
     async cancelTask(taskId: string, eventBus: ExecutionEventBus): Promise<void> {
-      const contextId = contexts.get(taskId) ?? '';
+      const contextId = contexts.get(taskId);
       contexts.delete(taskId);
       opened.delete(taskId);
+
+      // A task this executor never ran has no context to name, and
+      // `contextId` is a required field: publishing an empty one would put a
+      // malformed event on the wire rather than say nothing.
+      if (contextId === undefined) {
+        eventBus.finished();
+        return;
+      }
 
       eventBus.publish(AgentEvent.statusUpdate({
         taskId,
