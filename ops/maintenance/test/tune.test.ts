@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseTuneProposal, tuneKey, variantWins, type ArmResult } from '../src/tune.js';
+import { parseTuneProposal, resolveSourcePath, tuneKey, variantWins, type ArmResult } from '../src/tune.js';
 
 const REPLY = [
   'HYPOTHESIS: auditors drop findings because the evidence format is underspecified.',
@@ -42,6 +42,29 @@ describe('parseTuneProposal', () => {
     const identical = REPLY.replace('name the exact code path with file and line', 'name the exact code path');
 
     expect(parseTuneProposal(identical).missing).toEqual(['a REPLACE that differs from FIND']);
+  });
+});
+
+describe('resolveSourcePath', () => {
+  const root = '/repo';
+  const sourceDir = 'ops/maintenance/src';
+
+  it('resolves a file inside the source directory', () => {
+    expect(resolveSourcePath(root, sourceDir, 'ops/maintenance/src/tune.ts')).toBe('/repo/ops/maintenance/src/tune.ts');
+  });
+
+  it('rejects a traversal that escapes through the source directory prefix', () => {
+    expect(resolveSourcePath(root, sourceDir, 'ops/maintenance/src/../../../package.json')).toBeUndefined();
+    expect(resolveSourcePath(root, sourceDir, 'ops/maintenance/src/../../../.github/workflows/ci.yml')).toBeUndefined();
+  });
+
+  it('rejects an absolute path and a sibling directory sharing the prefix', () => {
+    expect(resolveSourcePath(root, sourceDir, '/etc/passwd')).toBeUndefined();
+    expect(resolveSourcePath(root, sourceDir, 'ops/maintenance/srcx/tune.ts')).toBeUndefined();
+  });
+
+  it('rejects the source directory itself', () => {
+    expect(resolveSourcePath(root, sourceDir, 'ops/maintenance/src')).toBeUndefined();
   });
 });
 

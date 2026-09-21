@@ -25,7 +25,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
@@ -112,6 +112,26 @@ export function parseTuneProposal(text: string): { proposal?: TuneProposal; miss
   if (missing.length > 0) return { missing };
   if (find === replace) return { missing: ['a REPLACE that differs from FIND'] };
   return { proposal: { hypothesis, file, find: find!, replace: replace! }, missing: [] };
+}
+
+/**
+ * Resolve a proposal's FILE against `root`, accepting it only when it
+ * lands strictly inside `root`'s `sourceDir`.
+ *
+ * The proposal text is model-generated, and a trial writes to this path
+ * for real inside its clone, so containment is decided on resolved
+ * paths: `ops/maintenance/src/../../../package.json` and absolute paths
+ * both satisfy a plain prefix test yet resolve outside the subtree.
+ *
+ * @param root - Directory the repo-relative `file` is resolved against.
+ * @param sourceDir - Repo-relative subtree the file must stay inside.
+ * @param file - The proposal's FILE value, untrusted.
+ * @returns The absolute path inside `sourceDir`, or undefined when it escapes.
+ */
+export function resolveSourcePath(root: string, sourceDir: string, file: string): string | undefined {
+  const dir = resolve(root, sourceDir);
+  const at = resolve(root, file);
+  return at.startsWith(dir + sep) ? at : undefined;
 }
 
 /** One trial arm's aggregates. */
@@ -224,10 +244,10 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
           if (parsed === undefined) {
             return { valid: false, round, detail: `missing ${missing.join(', ')} — reply with HYPOTHESIS:, FILE:, then FIND:/REPLACE: blocks fenced by <<< and >>> lines` };
           }
-          if (!parsed.file.startsWith(`${sourceDir}/`)) {
-            return { valid: false, round, detail: `FILE must live under ${sourceDir}/ — the tune loop edits workflow source only, got '${parsed.file}'` };
+          const at = resolveSourcePath(repoRoot, sourceDir, parsed.file);
+          if (at === undefined) {
+            return { valid: false, round, detail: `FILE must resolve inside ${sourceDir}/ — the tune loop edits workflow source only, got '${parsed.file}'` };
           }
-          const at = join(repoRoot, parsed.file);
           if (!existsSync(at)) {
             return { valid: false, round, detail: `'${parsed.file}' does not exist` };
           }
@@ -279,7 +299,11 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
           };
           const controlRoot = await cloneArm('control');
           const variantRoot = await cloneArm('variant');
-          const editAt = join(variantRoot, shaped.file);
+          const editAt = resolveSourcePath(variantRoot, sourceDir, shaped.file);
+          if (editAt === undefined) {
+            await rm(cloneAt, { recursive: true, force: true });
+            return { compared: false, detail: `'${shaped.file}' resolves outside ${sourceDir}/ — refusing to edit the clone` };
+          }
           const original = await readFile(editAt, 'utf8');
           const occurrences = original.split(shaped.find!).length - 1;
           if (occurrences !== 1) {
