@@ -49,7 +49,7 @@ export async function applyCommand(ctx: CliContext): Promise<void> {
     if (repo.fixture) {
       process.stdout.write(`  the repository does not track the workflow's source — using a fixture at ${repo.root}\n`);
     }
-    const outcome = await applyProposal(stack, repo.root, record, (line) => {
+    const outcome = await applyProposal(stack, repo, record, (line) => {
       process.stdout.write(`  ${line}\n`);
     }, sourcePath);
 

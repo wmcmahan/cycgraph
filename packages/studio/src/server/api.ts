@@ -905,7 +905,7 @@ export async function handle(
         ? { root: config.applyRepo, fixture: false }
         : await resolveApplyRepo(resolve(process.cwd(), '..', '..'), process.cwd(), sourcePath);
       if (repo.fixture) send('line', { message: `repository does not track the workflow's source — using a fixture at ${repo.root}` });
-      const outcome = await applyProposal(stack, repo.root, record, (message) => {
+      const outcome = await applyProposal(stack, repo, record, (message) => {
         send('line', { message });
         bus?.publish({ kind: 'apply', scenarioId: record.workflow, data: { message } });
       }, sourcePath);

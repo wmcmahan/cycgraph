@@ -63,6 +63,7 @@ export {
   writeEpoch,
 } from './improve/proposals.js';
 export { applyProposal, resolveApplyRepo } from './improve/apply.js';
+export type { ApplyProposalOutcome, ApplyRepo } from './improve/apply.js';
 export { editInWorkspace, editorGraph, verifyBuilt } from './improve/editor.js';
 export { workspaceDiff, createWorkspace, prCommand } from './improve/workspace.js';
 export { refreshFixtureRepo } from './improve/fixture.js';

@@ -37,6 +37,13 @@ import type { Stack } from '../stack/index.js';
 
 const exec = promisify(execFile);
 
+/** A repository an apply can clone, and whether it is disposable. */
+export interface ApplyRepo {
+  root: string;
+  /** True when this repository is a throwaway fixture, not the real source. */
+  fixture: boolean;
+}
+
 /** What an apply produced, beyond the ledger transition it wrote. */
 export interface ApplyProposalOutcome {
   record: ProposalRecord;
@@ -65,7 +72,7 @@ export async function resolveApplyRepo(
   repoRoot: string,
   playgroundRoot: string,
   sourcePath?: string,
-): Promise<{ root: string; fixture: boolean }> {
+): Promise<ApplyRepo> {
   const real = resolve(repoRoot);
   const sentinel = rebaseSource(real, sourcePath) ?? 'packages/playground/src';
   const { stdout } = await exec(
@@ -84,15 +91,21 @@ export async function resolveApplyRepo(
  * does not carry the proposed value, a broken typecheck — and leaves the
  * ledger where it was, so the standalone commands can pick the proposal up
  * again.
+ *
+ * `repo` may be a bare path, which is taken to be the real repository, or
+ * the result of `resolveApplyRepo`, whose `fixture` flag is carried through
+ * to the outcome so a caller can tell an operator that the branch it just
+ * named lives in a disposable clone with no remote.
  */
 export async function applyProposal(
   stack: Stack,
-  repoRoot: string,
+  repo: string | ApplyRepo,
   record: ProposalRecord,
   say: (message: string) => void = () => {},
   /** Where this workflow is defined, when the catalog knows. */
   sourcePath?: string,
 ): Promise<ApplyProposalOutcome> {
+  const { root: repoRoot, fixture } = typeof repo === 'string' ? { root: repo, fixture: false } : repo;
   if (record.status === 'pr' || record.status === 'applied') {
     throw new Error(`${record.id} is already ${record.status}`);
   }
@@ -146,6 +159,6 @@ export async function applyProposal(
     diff,
     prCommand: command,
     repoRoot,
-    fixture: false,
+    fixture,
   };
 }

@@ -190,7 +190,7 @@ export async function runImproveLoop(
       emit('apply', `writing ${open.id} into source at ${repo.root}`);
       let outcome;
       try {
-        outcome = await applyProposal(stack, repo.root, open, (line) => emit('apply', line), workflow.sourcePath);
+        outcome = await applyProposal(stack, repo, open, (line) => emit('apply', line), workflow.sourcePath);
       } catch (err) {
         // The editing session produced something the rebuild does not
         // carry — the verification gate refusing a bad edit is the system
