@@ -87,20 +87,44 @@ export async function repoMap(root: string): Promise<string> {
 }
 
 /**
+ * Credentials the maintenance process itself holds, which nothing it
+ * spawns inside a checked-out tree may read. The commands a workspace
+ * check runs (`npm test`, `npx vitest run`) execute source an agent
+ * just wrote from a semi-trusted issue body, so a token left in the
+ * environment is a token that source can post anywhere: GH_TOKEN
+ * carries repo write (push, comment, label), the model keys carry
+ * billable API access, and the registry tokens carry publish rights.
+ * A new credential the workflows set belongs here the day it is added.
+ */
+export const MAINTENANCE_SECRET_ENV_VARS: readonly string[] = [
+  'GH_TOKEN',
+  'GITHUB_TOKEN',
+  'MAINTENANCE_PAT',
+  'REVIEW_PAT',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'NPM_TOKEN',
+  'NODE_AUTH_TOKEN',
+];
+
+/**
  * Environment for anything a workflow spawns inside a checked-out tree
- * (checks, acceptance commands, benches): the process env minus four
- * categories the maintenance run holds for itself — database
- * credentials, ambient git identity, the raised log level, and the
- * engine's runtime-config tuning knobs. Each category, inherited, makes
- * the workspace behave differently from every other environment: the
- * orchestrator-postgres suite activates on DATABASE_URL and cleans every
- * table it touches (a production wipe, not a hypothetical), GIT_* vars
- * override the identities tests commit with, LOG_LEVEL floods the suite
- * output with engine JSON logs, and a tuning knob retunes the engine the
- * suite is asserting defaults against.
+ * (checks, acceptance commands, benches): the process env minus five
+ * categories the maintenance run holds for itself — its own
+ * credentials, database credentials, ambient git identity, the raised
+ * log level, and the engine's runtime-config tuning knobs. Each
+ * category, inherited, hands the workspace something no other
+ * environment gives it: agent-authored test code reads GH_TOKEN and the
+ * model keys straight out of `process.env`, the orchestrator-postgres
+ * suite activates on DATABASE_URL and cleans every table it touches (a
+ * production wipe, not a hypothetical), GIT_* vars override the
+ * identities tests commit with, LOG_LEVEL floods the suite output with
+ * engine JSON logs, and a tuning knob retunes the engine the suite is
+ * asserting defaults against.
  */
 export function checksEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
+  for (const name of MAINTENANCE_SECRET_ENV_VARS) delete env[name];
   // Every credential the postgres adapter reads: the primary URL, the
   // RLS-subject app role, the BYPASSRLS platform role, and the local
   // convenience alias. A new connection var belongs here before it is
@@ -130,6 +154,22 @@ export function checksEnv(): NodeJS.ProcessEnv {
   // scrubbed the day it exists.
   for (const name of RUNTIME_CONFIG_ENV_VARS) delete env[name];
   return env;
+}
+
+/**
+ * The maintenance run's own credentials, as a spread onto a
+ * `checksEnv()` base. Only for a subprocess that *is* the maintenance
+ * process — a tune trial re-running `run.ts`, which calls the model and
+ * the GitHub API on the run's behalf — never for a command that
+ * executes source from a checked-out workspace.
+ */
+export function maintenanceSecrets(): NodeJS.ProcessEnv {
+  const secrets: NodeJS.ProcessEnv = {};
+  for (const name of MAINTENANCE_SECRET_ENV_VARS) {
+    const value = process.env[name];
+    if (value !== undefined) secrets[name] = value;
+  }
+  return secrets;
 }
 
 /**

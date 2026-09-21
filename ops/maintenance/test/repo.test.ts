@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { RUNTIME_CONFIG_ENV_VARS } from '@cycgraph/orchestrator/internal';
-import { NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, flagNeedsHuman, repoMap, stripMentions } from '../src/repo.js';
+import { MAINTENANCE_SECRET_ENV_VARS, NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, flagNeedsHuman, maintenanceSecrets, repoMap, stripMentions } from '../src/repo.js';
 
 const exec = promisify(execFile);
 
@@ -236,6 +236,53 @@ describe('checksEnv', () => {
     checksEnv();
 
     expect(process.env['DATABASE_URL']).toBe('postgres://localhost:5432/app');
+  });
+
+  it('drops the GitHub token so spawned commands cannot act on the repository', () => {
+    vi.stubEnv('GH_TOKEN', 'ghp_write_access');
+    vi.stubEnv('GITHUB_TOKEN', 'ghs_write_access');
+
+    const env = checksEnv();
+
+    expect(env['GH_TOKEN']).toBeUndefined();
+    expect(env['GITHUB_TOKEN']).toBeUndefined();
+  });
+
+  it('drops every credential the maintenance run holds for itself', () => {
+    for (const name of MAINTENANCE_SECRET_ENV_VARS) vi.stubEnv(name, 'secret-value');
+
+    const env = checksEnv();
+
+    for (const name of MAINTENANCE_SECRET_ENV_VARS) expect(env[name]).toBeUndefined();
+  });
+});
+
+describe('maintenanceSecrets', () => {
+  it('returns only the credentials that are set', () => {
+    for (const name of MAINTENANCE_SECRET_ENV_VARS) vi.stubEnv(name, undefined);
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-trial');
+    vi.stubEnv('GH_TOKEN', 'ghp_trial');
+
+    const secrets = maintenanceSecrets();
+
+    expect(secrets).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-trial', GH_TOKEN: 'ghp_trial' });
+  });
+
+  it('keeps a credential set to an empty string', () => {
+    for (const name of MAINTENANCE_SECRET_ENV_VARS) vi.stubEnv(name, undefined);
+    vi.stubEnv('OPENAI_API_KEY', '');
+
+    const secrets = maintenanceSecrets();
+
+    expect(secrets).toEqual({ OPENAI_API_KEY: '' });
+  });
+
+  it('restores every credential checksEnv scrubs', () => {
+    for (const name of MAINTENANCE_SECRET_ENV_VARS) vi.stubEnv(name, 'secret-value');
+
+    const env = { ...checksEnv(), ...maintenanceSecrets() };
+
+    for (const name of MAINTENANCE_SECRET_ENV_VARS) expect(env[name]).toBe('secret-value');
   });
 });
 
