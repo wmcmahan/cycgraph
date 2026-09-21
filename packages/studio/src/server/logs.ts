@@ -181,6 +181,24 @@ async function rowsForRun(entry: HistoryEntry): Promise<LogRow[]> {
   return rows;
 }
 
+const byNewestFirst = (a: LogRow, b: LogRow) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
+
+/**
+ * Whether a run could hold a row newer than `floor`.
+ *
+ * A run's lines fall between its start and its end, so a run that ended
+ * before the floor cannot reach above it. Its start says nothing: runs
+ * overlap (the dashboard runs several at once) while the scan order is by
+ * start time, so a run listed later can have finished later or still be
+ * running. A run with no recorded end may still be writing, so it is always
+ * a candidate.
+ */
+function runReachesAbove(entry: HistoryEntry, floor: string): boolean {
+  const endedAt = entry.meta.endedAt;
+  if (!endedAt) return true;
+  return endedAt > floor;
+}
+
 /** Run the query. Rows come back newest first. */
 export async function queryLogs(
   artifactRoot: string,
@@ -197,15 +215,17 @@ export async function queryLogs(
 
   const rows: LogRow[] = [];
   let scanned = 0;
-  // Newest runs first; stop scanning once older runs cannot contribute.
+  // Sorted and trimmed per run, so the last kept row is the real floor of the
+  // page: rows arrive within a run in file order, not time order.
   for (const entry of eligible) {
-    if (rows.length >= limit && rows[rows.length - 1]!.at > (entry.meta.startedAt ?? '')) break;
+    if (rows.length >= limit && !runReachesAbove(entry, rows[rows.length - 1]!.at)) continue;
     scanned++;
     for (const row of await rowsForRun(entry)) {
       if (matchesQuery(row, query)) rows.push(row);
     }
+    rows.sort(byNewestFirst);
+    if (rows.length > limit) rows.length = limit;
   }
 
-  rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-  return { rows: rows.slice(0, limit), runsScanned: scanned };
+  return { rows, runsScanned: scanned };
 }
