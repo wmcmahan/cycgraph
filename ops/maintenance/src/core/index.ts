@@ -29,9 +29,9 @@ import {
   issueMarkers,
   listOpenIssues,
 } from '@cycgraph/tools/git';
-import { scanCore, unfiledFindings, type CoreFinding } from './core-scan.js';
-import { resolveRepo } from './repo.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { scanCore, unfiledFindings, type CoreFinding } from './scan.js';
+import { resolveRepo } from '../shared/repo.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const params = z.object({
   repoRoot: z.string().default('')

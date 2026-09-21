@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { compareBench, parseBenchJson, type BenchRow } from '../src/bench.js';
+import { compareBench, parseBenchJson, type BenchRow } from '../src/tune/bench.js';
 
 function row(id: string, hz: number, rme = 0.5): BenchRow {
   return { id, hz, rme };

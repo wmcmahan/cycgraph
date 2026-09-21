@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { closesIn, diffPaths, stripCloses, templateEvidence } from '../src/pr-template.js';
+import { closesIn, diffPaths, stripCloses, templateEvidence } from '../src/shared/pr-template.js';
 
 function diffFor(paths: string[], addedByPath: Record<string, string[]> = {}): string {
   return paths.map((path) => [

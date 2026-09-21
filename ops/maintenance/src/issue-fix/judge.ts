@@ -11,7 +11,7 @@
  */
 
 import { issueMarkers, type IssueRef } from '@cycgraph/tools/git';
-import type { CoreFinding } from './core-scan.js';
+import type { CoreFinding } from '../core/scan.js';
 
 /** The finding an issue was filed for, recovered from its body. */
 export interface IssueFinding {

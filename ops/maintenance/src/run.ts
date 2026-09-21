@@ -15,26 +15,26 @@
 import { createProviderRegistry, registerOllamaProvider, runRecorded } from '@cycgraph/orchestrator';
 import type { EventLogWriter, GraphRunnerMiddleware, PersistenceProvider, ProviderRegistry } from '@cycgraph/orchestrator';
 import { createOpenAI } from '@ai-sdk/openai';
-import { coreUpkeep } from './core-workflow.js';
-import { docsMaintenance, repoDocsMaintenance, websiteDocsMaintenance } from './docs-workflow.js';
-import { issueFix } from './issue-fix.js';
-import { optPropose } from './opt-workflow.js';
-import { featPropose } from './feat-propose.js';
-import { repoAudit } from './audit-workflow.js';
-import { reconcileOutcomes } from './reconcile.js';
-import { fetchStats, formatStats } from './stats.js';
-import { tunePropose } from './tune.js';
-import { featImplement } from './feat-implement.js';
-import { optApply } from './opt-apply.js';
-import { prRevise } from './pr-revise.js';
-import { prReview } from './pr-review.js';
+import { coreUpkeep } from './core/index.js';
+import { docsMaintenance, repoDocsMaintenance, websiteDocsMaintenance } from './docs/index.js';
+import { issueFix } from './issue-fix/index.js';
+import { optPropose } from './opt/propose.js';
+import { featPropose } from './feat/propose.js';
+import { repoAudit } from './audit/index.js';
+import { reconcileOutcomes } from './shared/reconcile.js';
+import { fetchStats, formatStats } from './shared/stats.js';
+import { tunePropose } from './tune/index.js';
+import { featImplement } from './feat/implement.js';
+import { optApply } from './opt/apply.js';
+import { prRevise } from './pr-revise/index.js';
+import { prReview } from './pr-review/index.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getInjectedFactIds } from '@cycgraph/orchestrator';
-import type { AuditSchedule } from './audit-schedule.js';
-import { maintenanceEnvFromProcess } from './env.js';
-import { memoryFromEnv } from './memory.js';
-import { resolveRepo } from './repo.js';
+import type { AuditSchedule } from './audit/schedule.js';
+import { maintenanceEnvFromProcess } from './shared/env.js';
+import { memoryFromEnv } from './shared/memory.js';
+import { resolveRepo } from './shared/repo.js';
 import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 
 const WORKFLOWS: Record<string, () => MaintenanceWorkflow> = {
@@ -414,7 +414,7 @@ async function main(): Promise<void> {
   const resultPath = process.env['MAINTAIN_RESULT_JSON'];
   if (resultPath !== undefined && resultPath !== '') {
     const { writeFile } = await import('node:fs/promises');
-    const { MaintainResultSchema } = await import('./tune.js');
+    const { MaintainResultSchema } = await import('./tune/index.js');
     const verdict = (recorded.memory as Record<string, unknown>)['gate_verification_passed'];
     // The run's thoroughness signal for a tune trial, by workflow: how
     // many findings repo-audit kept, or how many stale references the

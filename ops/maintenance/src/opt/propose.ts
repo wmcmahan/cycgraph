@@ -37,10 +37,10 @@ import {
   readFileTool,
   searchTool,
 } from '@cycgraph/tools/workspace';
-import { compareBench, runAliasedBench, type BenchComparison, type BenchRow } from './bench.js';
-import { keySlug, legacyKeySlug } from './key-slug.js';
-import { checksEnv, resolveRepo } from './repo.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { compareBench, runAliasedBench, type BenchComparison, type BenchRow } from '../tune/bench.js';
+import { keySlug, legacyKeySlug } from '../shared/key-slug.js';
+import { checksEnv, resolveRepo } from '../shared/repo.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const params = z.object({
   repoRoot: z.string().default('')

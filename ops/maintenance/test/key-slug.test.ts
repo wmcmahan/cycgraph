@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { keySlug, legacyKeySlug } from '../src/key-slug.js';
+import { keySlug, legacyKeySlug } from '../src/shared/key-slug.js';
 
 const EIGHTY = 'retriever-drops-fact-ids-when-the-adapter-maps-lessons-into-the-prompt-builder-1';
 

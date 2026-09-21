@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseNumberedReplies, parseReviewFindings, parseReviewVerdict } from '../src/review-findings.js';
+import { inlineFindingMarker, parseAddressedFindings, parseFindingMarker, parseNumberedReplies, parseReviewFindings, parseReviewVerdict } from '../src/shared/review-findings.js';
 
 describe('parseReviewFindings', () => {
   it('lifts path and line from an anchored finding', () => {

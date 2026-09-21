@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { auditKey, auditTitle, parseAuditFindings, renderAuditIssueBody, severityRank, siftAuditFindings, type AuditFinding } from '../src/audit-findings.js';
-import { charterOrder } from '../src/audit-workflow.js';
+import { auditKey, auditTitle, parseAuditFindings, renderAuditIssueBody, severityRank, siftAuditFindings, type AuditFinding } from '../src/audit/findings.js';
+import { charterOrder } from '../src/audit/index.js';
 
 const WELL_FORMED = [
   'FINDING: Retriever drops fact ids',

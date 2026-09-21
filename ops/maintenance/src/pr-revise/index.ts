@@ -38,7 +38,7 @@ import {
   replyToReviewComment,
   setPrLabels,
 } from '@cycgraph/tools/git';
-import { parseNumberedReplies } from './review-findings.js';
+import { parseNumberedReplies } from '../shared/review-findings.js';
 import {
   createFileTool,
   createWorkspaceSession,
@@ -46,10 +46,10 @@ import {
   readFileTool,
   searchTool,
 } from '@cycgraph/tools/workspace';
-import { safeAcceptanceCommand } from './proposal.js';
-import { CHANGESET_INSTRUCTION, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, TRUSTED_ASSOCIATIONS, checksEnv, resolveRepo, stripMentions } from './repo.js';
-import { LESSON_TAG, MAINT_TAG } from './memory.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { safeAcceptanceCommand } from '../shared/proposal.js';
+import { CHANGESET_INSTRUCTION, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF, TRUSTED_ASSOCIATIONS, checksEnv, resolveRepo, stripMentions } from '../shared/repo.js';
+import { LESSON_TAG, MAINT_TAG } from '../shared/memory.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const exec = promisify(execFile);
 

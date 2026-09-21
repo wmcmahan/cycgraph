@@ -39,12 +39,12 @@ import {
   readFileTool,
   searchTool,
 } from '@cycgraph/tools/workspace';
-import { parseProposal, safeAcceptanceCommand } from './proposal.js';
-import { parseTuneTicket, resolveSourcePath } from './tune.js';
-import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, checksEnv, resolveRepo } from './repo.js';
-import { LESSON_TAG, MAINT_TAG } from './memory.js';
-import { stripCloses, templateEvidence } from './pr-template.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { parseProposal, safeAcceptanceCommand } from '../shared/proposal.js';
+import { parseTuneTicket, resolveSourcePath } from '../tune/index.js';
+import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, checksEnv, resolveRepo } from '../shared/repo.js';
+import { LESSON_TAG, MAINT_TAG } from '../shared/memory.js';
+import { stripCloses, templateEvidence } from '../shared/pr-template.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const exec = promisify(execFile);
 

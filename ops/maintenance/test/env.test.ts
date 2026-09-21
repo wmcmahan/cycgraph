@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { inferProvider, maintenanceEnvFromProcess } from '../src/env.js';
+import { inferProvider, maintenanceEnvFromProcess } from '../src/shared/env.js';
 
 describe('inferProvider', () => {
   it('maps model prefixes to their providers', () => {

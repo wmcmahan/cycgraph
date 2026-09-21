@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { scopeFindings, type DocsFinding } from '../src/docs-scan.js';
+import { scopeFindings, type DocsFinding } from '../src/docs/scan.js';
 
 function finding(overrides: Partial<DocsFinding>): DocsFinding {
   return {

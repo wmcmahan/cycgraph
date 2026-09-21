@@ -32,9 +32,9 @@ import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
-import { fetchStats, formatStats } from './stats.js';
-import { checksEnv, maintenanceSecrets, resolveRepo } from './repo.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { fetchStats, formatStats } from '../shared/stats.js';
+import { checksEnv, maintenanceSecrets, resolveRepo } from '../shared/repo.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const exec = promisify(execFile);
 

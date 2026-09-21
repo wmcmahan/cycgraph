@@ -27,11 +27,11 @@ import { z } from 'zod';
 import { graph, node, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { deliveryNodes, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
-import { compareBench, runAliasedBench, type BenchRow } from './bench.js';
-import { extractTicketDiff } from './proposal.js';
-import { checksEnv, resolveRepo } from './repo.js';
-import { stripCloses, templateEvidence } from './pr-template.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { compareBench, runAliasedBench, type BenchRow } from '../tune/bench.js';
+import { extractTicketDiff } from '../shared/proposal.js';
+import { checksEnv, resolveRepo } from '../shared/repo.js';
+import { stripCloses, templateEvidence } from '../shared/pr-template.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const exec = promisify(execFile);
 

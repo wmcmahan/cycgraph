@@ -41,12 +41,12 @@ import {
   createWorkspaceSession,
 } from '@cycgraph/tools/workspace';
 import { readFile } from 'node:fs/promises';
-import { findingKey, judgeFix, scanDocs, scopeFindings, type DocsFinding } from './docs-scan.js';
-import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
-import { checksEnv, resolveRepo } from './repo.js';
+import { findingKey, judgeFix, scanDocs, scopeFindings, type DocsFinding } from './scan.js';
+import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from '../shared/memory.js';
+import { checksEnv, resolveRepo } from '../shared/repo.js';
 import { deliveryNodes, openPrFiles } from '@cycgraph/tools/git';
-import { templateEvidence } from './pr-template.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { templateEvidence } from '../shared/pr-template.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 
 const params = z.object({

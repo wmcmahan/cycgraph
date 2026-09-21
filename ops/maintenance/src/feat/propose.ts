@@ -25,9 +25,9 @@ import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
-import { legacyProposalKey, parseProposal, pathTokens, proposalKey } from './proposal.js';
-import { repoMap, resolveRepo } from './repo.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { legacyProposalKey, parseProposal, pathTokens, proposalKey } from '../shared/proposal.js';
+import { repoMap, resolveRepo } from '../shared/repo.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const params = z.object({
   repoRoot: z.string().default('')

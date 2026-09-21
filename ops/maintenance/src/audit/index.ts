@@ -35,11 +35,11 @@ import { agent, graph, mapReduce, node, reflection, tool, verifier } from '@cycg
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { DEFAULT_IDENTITY, cloneToBranch, createIssue, findingMarker, issueMarkers, listOpenIssues } from '@cycgraph/tools/git';
 import { createWorkspaceSession, readFileTool, searchTool } from '@cycgraph/tools/workspace';
-import { auditKey, renderAuditIssueBody, siftAuditFindings, type AuditFinding } from './audit-findings.js';
-import { scheduleCharters } from './audit-schedule.js';
-import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from './memory.js';
-import { repoMap, resolveRepo } from './repo.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from './types.js';
+import { auditKey, renderAuditIssueBody, siftAuditFindings, type AuditFinding } from './findings.js';
+import { scheduleCharters } from './schedule.js';
+import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from '../shared/memory.js';
+import { repoMap, resolveRepo } from '../shared/repo.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
 const LENS_BRIEFS: Record<string, string> = {
   correctness:

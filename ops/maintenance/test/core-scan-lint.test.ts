@@ -47,7 +47,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
-const { lintFindings, scanCore } = await import('../src/core-scan.js');
+const { lintFindings, scanCore } = await import('../src/core/scan.js');
 const { execFile: realExecFile } = await vi.importActual<typeof import('node:child_process')>(
   'node:child_process',
 );
