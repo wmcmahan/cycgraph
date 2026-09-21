@@ -23,7 +23,7 @@ headless runner here is what CI uses.
 | `opt-propose` | Benchmarks, makes one optimization, re-benchmarks; a verified improvement becomes a ticket carrying the measured table and diff — never a PR |
 | `feat-propose` | Studies the codebase read-only and files one well-formed feature ticket: motivation, design, evidence naming real files, mechanical acceptance criteria |
 | `opt-apply` | Implements one approved optimization ticket: re-applies its verified diff, re-benchmarks, PRs only if the improvement still holds; no model |
-| `feat-implement` | Implements one approved feature ticket against its own acceptance criteria; runnable criteria execute as the judge, the rest wait for PR review |
+| `feat-implement` | Implements one approved `feature:` ticket against its own acceptance criteria (runnable criteria execute as the judge, the rest wait for PR review), and applies one approved `tune:` ticket by landing its exact measured edit — judged by that replacement being present, the repository checks gating both |
 | `pr-revise` | Addresses human review feedback on a maintenance PR: reads the comments, revises the same branch so the PR updates in place, and replies with what changed |
 
 ## Running

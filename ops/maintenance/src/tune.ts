@@ -115,6 +115,96 @@ export function parseTuneProposal(text: string): { proposal?: TuneProposal; miss
 }
 
 /**
+ * The next ```-fenced block after `from`, and the index just past it.
+ * Linear index scans, never a regex: the body is semi-trusted issue
+ * text, and a greedy pattern over it is a ReDoS surface.
+ */
+function nextFence(body: string, from: number): { text: string; end: number } | undefined {
+  const open = body.indexOf('```', from);
+  if (open === -1) return undefined;
+  const contentStart = body.indexOf('\n', open);
+  if (contentStart === -1) return undefined;
+  const close = body.indexOf('\n```', contentStart + 1);
+  if (close === -1) return undefined;
+  return { text: body.slice(contentStart + 1, close), end: close + 4 };
+}
+
+/**
+ * Recover the `{ file, find, replace }` edit from a filed tune ticket's
+ * body — the `**The edit** — in \`file\`, replace: <find fence> with:
+ * <replace fence>` block the ticket tool renders. This is what lets the
+ * apply step re-apply a tune proposal from its ticket, closing the
+ * propose→approve→apply loop. Returns `undefined` when the block is
+ * absent or malformed, so a non-tune ticket falls through cleanly.
+ *
+ * Parsed with index scans rather than a regex: the body is
+ * semi-trusted issue text, so a backtracking pattern over it is a
+ * denial-of-service surface (CWE-1333).
+ */
+/** The measured proposal and its trial evidence, as a tune ticket carries them. */
+export interface TuneTicketFields {
+  target: string;
+  hypothesis: string;
+  trials: number;
+  trialDetail: string;
+  trialTable: string;
+  file: string;
+  find: string;
+  replace: string;
+  /** The finding marker line that keys and dedupes the ticket. */
+  marker: string;
+}
+
+/**
+ * Render a tune ticket's body. The one source of the format, shared by
+ * the filer and {@link parseTuneTicket}'s tests, so a drift in the
+ * layout breaks the round-trip test loudly instead of silently
+ * defeating the parser.
+ */
+export function renderTuneTicket(fields: TuneTicketFields): string {
+  return [
+    `The tune loop proposes one edit to ${fields.target}'s own source, measured before proposal.`,
+    '',
+    `**Hypothesis**: ${fields.hypothesis}`,
+    '',
+    `**Trial** (${fields.trials} dry runs per arm — a small sample by design; this table is a filter, the merge decision is the judgment): ${fields.trialDetail}`,
+    '',
+    fields.trialTable,
+    '',
+    `**The edit** — in \`${fields.file}\`, replace:`,
+    '```',
+    fields.find,
+    '```',
+    'with:',
+    '```',
+    fields.replace,
+    '```',
+    '',
+    'Approve with the `maintenance-approved` label; feat-implement applies it as any other approved ticket.',
+    '',
+    fields.marker,
+  ].join('\n');
+}
+
+export function parseTuneTicket(body: string): { file: string; find: string; replace: string } | undefined {
+  const marker = body.indexOf('**The edit**');
+  if (marker === -1) return undefined;
+  const openTick = body.indexOf('`', marker);
+  if (openTick === -1) return undefined;
+  const closeTick = body.indexOf('`', openTick + 1);
+  if (closeTick === -1) return undefined;
+  const file = body.slice(openTick + 1, closeTick).trim();
+  if (file === '') return undefined;
+
+  const findBlock = nextFence(body, closeTick + 1);
+  if (findBlock === undefined) return undefined;
+  const replaceBlock = nextFence(body, findBlock.end);
+  if (replaceBlock === undefined) return undefined;
+  if (findBlock.text === replaceBlock.text) return undefined;
+  return { file, find: findBlock.text, replace: replaceBlock.text };
+}
+
+/**
  * Resolve a proposal's FILE against `root`, accepting it only when it
  * lands strictly inside `root`'s `sourceDir`.
  *
@@ -397,28 +487,17 @@ export function tunePropose(): MaintenanceWorkflow<typeof params> {
           }
           const outcome = await createIssue(repoRoot, {
             title: `[tune] ${p.target}: ${(shaped.hypothesis ?? '').slice(0, 80)}`,
-            body: [
-              `The tune loop proposes one edit to ${p.target}'s own source, measured before proposal.`,
-              '',
-              `**Hypothesis**: ${shaped.hypothesis ?? ''}`,
-              '',
-              `**Trial** (${p.trials} dry runs per arm — a small sample by design; this table is a filter, the merge decision is the judgment): ${trial?.detail ?? ''}`,
-              '',
-              trial?.table ?? '',
-              '',
-              `**The edit** — in \`${shaped.file}\`, replace:`,
-              '```',
-              shaped.find ?? '',
-              '```',
-              'with:',
-              '```',
-              shaped.replace ?? '',
-              '```',
-              '',
-              'Approve with the `maintenance-approved` label; feat-implement applies it as any other approved ticket.',
-              '',
-              findingMarker(key),
-            ].join('\n'),
+            body: renderTuneTicket({
+              target: p.target,
+              hypothesis: shaped.hypothesis ?? '',
+              trials: p.trials,
+              trialDetail: trial?.detail ?? '',
+              trialTable: trial?.table ?? '',
+              file: shaped.file,
+              find: shaped.find ?? '',
+              replace: shaped.replace ?? '',
+              marker: findingMarker(key),
+            }),
           }, token !== undefined ? { token } : {});
           return 'url' in outcome
             ? { filed: true, key, url: outcome.url, detail: `filed ${outcome.url}` }

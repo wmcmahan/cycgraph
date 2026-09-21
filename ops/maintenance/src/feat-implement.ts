@@ -14,6 +14,11 @@
  * criteria may invoke the repository's own scripts and checkers, never
  * arbitrary programs. `--ticketFile` runs detached from GitHub.
  *
+ * It is also the applier for `tune:` tickets, which carry a pre-measured
+ * find/replace edit rather than a feature spec: that edit is applied
+ * verbatim, with the repository checks as its guard, so the tune loop's
+ * propose→approve→apply ladder closes here like every other one.
+ *
  * @module maintenance/feat-implement
  */
 
@@ -26,7 +31,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { agent, graph, node, tool, verifier } from '@cycgraph/orchestrator';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
-import { changedIn, deliveryNodes, issueMarkers, listOpenIssues, pendingDiff } from '@cycgraph/tools/git';
+import { changedIn, deliveryNodes, issueMarkers, listOpenIssues, pendingDiff, type IssueRef } from '@cycgraph/tools/git';
 import {
   createFileTool,
   createWorkspaceSession,
@@ -35,6 +40,7 @@ import {
   searchTool,
 } from '@cycgraph/tools/workspace';
 import { parseProposal, safeAcceptanceCommand } from './proposal.js';
+import { parseTuneTicket, resolveSourcePath } from './tune.js';
 import { CHANGESET_INSTRUCTION, STANDARDS_BRIEF, checksEnv, resolveRepo } from './repo.js';
 import { LESSON_TAG, MAINT_TAG } from './memory.js';
 import { stripCloses, templateEvidence } from './pr-template.js';
@@ -124,7 +130,7 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         evidence: (details: string[], context: { diff: string }) => ({
           summary: `An approved feature ticket, implemented by the feat-implement workflow. ${stripCloses(details).join(' ')}`.trim(),
           ...(details.length > 0 ? { changes: stripCloses(details) } : {}),
-          provenance: 'feat-implement: the ticket is the spec; every runnable acceptance criterion passed in the clone, and the criteria needing judgement are listed for this review.',
+          provenance: 'feat-implement: applied in a fresh clone and verified before commit — a feature ticket by its runnable acceptance criteria (the rest listed for this review), a tune ticket by its exact approved edit landing verbatim; the repository checks gate both.',
           ...templateEvidence(context.diff, { checks: p.checks, reviewed: true, details }),
         }),
         commit: p.commit,
@@ -163,7 +169,58 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
             };
           };
 
-          if (p.ticketFile !== '') return parse(await readFile(p.ticketFile, 'utf8'));
+          // A tune ticket carries a pre-measured find/replace edit rather
+          // than a feature spec, so it is applied verbatim instead of
+          // implemented from a design. The ticket names feat-implement as
+          // its applier; this branch makes that true.
+          const parseTune = (body: string, issueNumber?: number, title?: string): Record<string, unknown> => {
+            const edit = parseTuneTicket(body);
+            if (edit === undefined) {
+              return { has_work: false, detail: 'the tune ticket carries no parseable edit block' };
+            }
+            // The ticket body is semi-trusted — an approver can edit it
+            // after labelling — so the file it names is confined to the
+            // tuning source tree, exactly as the propose side confines
+            // the model-generated FILE. A path outside it is refused, not
+            // clamped.
+            if (resolveSourcePath(repoRoot, 'ops/maintenance/src', edit.file) === undefined) {
+              return { has_work: false, detail: `the tune ticket names '${edit.file}', outside ops/maintenance/src — refusing` };
+            }
+            return {
+              has_work: true,
+              ...(issueNumber !== undefined ? { issue_number: issueNumber } : { detached: true }),
+              title: (title ?? '').replace(/^\[tune\]\s*/, ''),
+              // A tune edit is pre-measured; its guard is the repository
+              // checks plus the acceptance step's check that the exact
+              // approved replacement landed, not ticket-authored commands.
+              runnable: [],
+              manual: [],
+              tune_edit: edit,
+              instruction: [
+                `Apply one approved, pre-measured tuning edit to \`${edit.file}\` — exact source, not a feature to design.`,
+                `In ${edit.file}, replace this text verbatim:`,
+                '```',
+                edit.find,
+                '```',
+                'with:',
+                '```',
+                edit.replace,
+                '```',
+                'Apply it exactly. This edit was measured as written, so do not improvise a substitute: if the find text is not present in the file byte-for-byte, stop and report the ticket is stale for a human to re-measure. Change nothing else.',
+              ].join('\n'),
+            };
+          };
+
+          const applicable = (issue: IssueRef): boolean =>
+            [...issueMarkers([issue])].some((key) => key.startsWith('feature:') || key.startsWith('tune:'));
+          const isTune = (issue: IssueRef): boolean =>
+            [...issueMarkers([issue])].some((key) => key.startsWith('tune:'));
+
+          if (p.ticketFile !== '') {
+            const body = await readFile(p.ticketFile, 'utf8');
+            // Detached: no marker to read, so the edit-block shape decides.
+            return parseTuneTicket(body) !== undefined ? parseTune(body) : parse(body);
+          }
           const issues = await listOpenIssues(repoRoot, {
             label: p.label,
             ...(token !== undefined ? { token } : {}),
@@ -173,10 +230,12 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
           }
           const picked = issues
             .filter((issue) => p.issueNumber === 0 || issue.number === p.issueNumber)
-            .filter((issue) => [...issueMarkers([issue])].some((key) => key.startsWith('feature:')))
+            .filter(applicable)
             .sort((a, b) => a.number - b.number)[0];
-          if (picked === undefined) return { has_work: false, detail: `no open '${p.label}' feature ticket` };
-          return parse(picked.body, picked.number);
+          if (picked === undefined) return { has_work: false, detail: `no open '${p.label}' feature or tune ticket` };
+          return isTune(picked)
+            ? parseTune(picked.body, picked.number, picked.title)
+            : parse(picked.body, picked.number);
         },
       });
 
@@ -187,7 +246,8 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
         timeoutMs: 1_800_000,
         execute: async ({ pick_result }) => {
           const pick = pick_result as
-            { issue_number?: number; title?: string; runnable?: string[]; manual?: string[] } | undefined;
+            { issue_number?: number; title?: string; runnable?: string[]; manual?: string[];
+              tune_edit?: { file: string; replace: string } } | undefined;
           const changed = await changedIn(workspaceAt);
           // Snapshot before running: acceptance executes agent-authored
           // code, and a test that writes source files is using the judge
@@ -209,7 +269,16 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
           }
           const treeAfter = (await changedIn(workspaceAt)).join('\n');
           const mutated = treeAfter !== treeBefore;
-          const passed = failed.length === 0 && changed.length > 0 && !mutated;
+          // A tune ticket's judge is exactness: the approved, measured
+          // replacement text must be present in the named file. This ties
+          // the landed change back to what the human approved, since the
+          // ticket carries no runnable criteria of its own.
+          let tuneEditMissing = false;
+          if (pick?.tune_edit !== undefined) {
+            const content = await readFile(join(workspaceAt, pick.tune_edit.file), 'utf8').catch(() => '');
+            tuneEditMissing = pick.tune_edit.replace !== '' && !content.includes(pick.tune_edit.replace);
+          }
+          const passed = failed.length === 0 && changed.length > 0 && !mutated && !tuneEditMissing;
           const closes = pick?.issue_number !== undefined ? `Closes #${pick.issue_number}. ` : '';
           return {
             passed,
@@ -223,9 +292,13 @@ export function featImplement(): MaintenanceWorkflow<typeof params> {
               ? `${closes}nothing was changed`
               : mutated
                 ? `${closes}running the acceptance criteria itself modified the tree — tests must not write source files; make the changes with your editing tools instead`
-                : failed.length > 0
-                  ? `${closes}acceptance failed: ${failed.map((f) => f.command).join('; ')}`
-                  : `${closes}all ${pick?.runnable?.length ?? 0} runnable acceptance criteria passed; ${pick?.manual?.length ?? 0} left for review`,
+                : tuneEditMissing
+                  ? `${closes}the approved replacement text is not present in ${pick?.tune_edit?.file ?? 'the named file'} — the exact measured edit was not applied`
+                  : failed.length > 0
+                    ? `${closes}acceptance failed: ${failed.map((f) => f.command).join('; ')}`
+                    : pick?.tune_edit !== undefined
+                      ? `${closes}the approved tuning edit landed verbatim`
+                      : `${closes}all ${pick?.runnable?.length ?? 0} runnable acceptance criteria passed; ${pick?.manual?.length ?? 0} left for review`,
           };
         },
       });

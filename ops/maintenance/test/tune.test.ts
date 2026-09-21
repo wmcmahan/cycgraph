@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseTuneProposal, resolveSourcePath, tuneKey, variantWins, type ArmResult } from '../src/tune.js';
+import { parseTuneProposal, parseTuneTicket, renderTuneTicket, resolveSourcePath, tuneKey, variantWins, type ArmResult } from '../src/tune.js';
 
 const REPLY = [
   'HYPOTHESIS: auditors drop findings because the evidence format is underspecified.',
@@ -42,6 +42,32 @@ describe('parseTuneProposal', () => {
     const identical = REPLY.replace('name the exact code path with file and line', 'name the exact code path');
 
     expect(parseTuneProposal(identical).missing).toEqual(['a REPLACE that differs from FIND']);
+  });
+});
+
+const TICKET_BODY = renderTuneTicket({
+  target: 'docs-maintenance',
+  hypothesis: 'the writer omits a required section',
+  trials: 3,
+  trialDetail: 'variant wins',
+  trialTable: '| arm | gate |\n| --- | --- |\n| variant | 3 |',
+  file: 'ops/maintenance/src/docs-workflow.ts',
+  find: 'Write the section.',
+  replace: 'Write the section, and never omit the summary.',
+  marker: '<!-- cycgraph:finding=tune:docs-maintenance:abc123def456 -->',
+});
+
+describe('parseTuneTicket', () => {
+  it('round-trips the file and both fenced blocks through the ticket renderer', () => {
+    expect(parseTuneTicket(TICKET_BODY)).toEqual({
+      file: 'ops/maintenance/src/docs-workflow.ts',
+      find: 'Write the section.',
+      replace: 'Write the section, and never omit the summary.',
+    });
+  });
+
+  it('returns undefined for a ticket body with no edit block', () => {
+    expect(parseTuneTicket('## Summary\n\nA feature request with no edit.')).toBeUndefined();
   });
 });
 
