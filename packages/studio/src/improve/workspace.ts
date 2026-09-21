@@ -25,6 +25,7 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import type { Change } from '@cycgraph/orchestrator';
 import { verifyBuilt } from './editor.js';
+import { scenarioModulePath, typecheckDir } from './layout.js';
 import type { ProposalRecord } from './proposals.js';
 import type { Scenario } from '../scenarios/types.js';
 import type { Stack } from '../stack/index.js';
@@ -100,17 +101,23 @@ export async function workspaceDiff(ws: Workspace): Promise<string> {
  *
  * Two gates, both blind to how the edit looks. The scenario module is
  * imported fresh **from the clone** and rebuilt: the built workflow must
- * carry exactly the proposed values. Then the clone's playground package
- * typechecks, so an edit that satisfies the value but breaks the code is
- * caught before anyone reviews it.
+ * carry exactly the proposed values. Then the edited file's own TypeScript
+ * project typechecks, so an edit that satisfies the value but breaks the
+ * code is caught before anyone reviews it.
+ *
+ * `sourcePath` is where this workflow is defined INSIDE the clone —
+ * relative to `ws.root`, or absolute and already under it. Without one
+ * both gates fall back to this repository's internal playground layout,
+ * which is all an unlocated workflow offers.
  */
 export async function verifyWorkspace(
   ws: Workspace,
   stack: Stack,
   workflow: string,
   changes: readonly Change[],
+  sourcePath?: string,
 ): Promise<string | undefined> {
-  const scenarioPath = join(ws.root, 'packages', 'playground', 'src', 'scenarios', workflow, 'scenario.ts');
+  const scenarioPath = scenarioModulePath(ws.root, workflow, sourcePath);
   try {
     const mod = await import(`${pathToFileURL(scenarioPath).href}?ws=${Date.now()}`) as { default: Scenario };
     const mismatch = await verifyBuilt(mod.default, stack, changes);
@@ -120,7 +127,7 @@ export async function verifyWorkspace(
   }
 
   try {
-    await exec('npx', ['tsc', '--noEmit'], { cwd: join(ws.root, 'packages', 'playground') });
+    await exec('npx', ['tsc', '--noEmit'], { cwd: typecheckDir(ws.root, sourcePath) });
   } catch (err) {
     const detail = err instanceof Error && 'stdout' in err ? String((err as { stdout: unknown }).stdout) : String(err);
     return `the workspace fails typecheck: ${detail.split('\n').filter(Boolean).slice(0, 3).join(' | ')}`;

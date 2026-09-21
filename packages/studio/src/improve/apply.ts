@@ -21,6 +21,7 @@ import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { editInWorkspace } from './editor.js';
 import { refreshFixtureRepo } from './fixture.js';
+import { rebaseSource } from './layout.js';
 import { existsSync } from 'node:fs';
 import { setProposalStatus } from './proposals.js';
 import type { ProposalRecord } from './proposals.js';
@@ -105,18 +106,16 @@ export async function applyProposal(
   say(`editing: ${record.nodeId}.${record.knob} ${String(record.from)} → ${String(record.to)}`);
   // A tail is a draw: an editor session that produced nothing gets one
   // fresh attempt before the pass is declared failed.
+  // An absolute host path means nothing inside a clone, and a fixture
+  // repository may not hold this file at all — so the rebased path is
+  // used only when it resolves to something the workspace actually has.
+  const rebased = rebaseSource(repoRoot, sourcePath);
+  const inWorkspace = rebased && existsSync(join(ws.root, rebased)) ? rebased : undefined;
+  if (sourcePath && !inWorkspace) say('the declared source file is not in this repository — searching for it instead');
+
   let files: string[] = [];
   for (let attempt = 0; attempt < 2 && files.length === 0; attempt++) {
-    // An absolute host path means nothing inside a clone, and a fixture
-    // repository may not hold this file at all — so the hint is offered
-    // only when it resolves to something the workspace actually has.
-    const inWorkspace = sourcePath ? relative(repoRoot, sourcePath) : undefined;
-    const hint = inWorkspace && !inWorkspace.startsWith('..') && existsSync(join(ws.root, inWorkspace))
-      ? inWorkspace
-      : undefined;
-    if (sourcePath && !hint) say('the declared source file is not in this repository — searching for it instead');
-
-    const report = await editInWorkspace(stack, ws.root, record, hint);
+    const report = await editInWorkspace(stack, ws.root, record, inWorkspace);
     say(`editor: ${report.split('\n')[0]}`);
     files = await changedFiles(ws);
   }
@@ -125,7 +124,7 @@ export async function applyProposal(
   }
   say(`changed: ${files.join(', ')}`);
 
-  const failure = await verifyWorkspace(ws, stack, record.workflow, record.change);
+  const failure = await verifyWorkspace(ws, stack, record.workflow, record.change, inWorkspace);
   if (failure) throw new Error(`verification failed: ${failure}`);
   say('verified: rebuild carries the proposed values; typecheck clean');
 
