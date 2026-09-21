@@ -30,6 +30,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -54,6 +55,7 @@ import {
   workspaceDiff,
 } from './workspace.js';
 import { editorGraph, editInstructionFor, MAX_EDIT_ITERATIONS } from './editor.js';
+import { rebaseSource } from './layout.js';
 import { scenario } from '../scenarios/types.js';
 import type { Catalog } from '../scenarios/catalog.js';
 import type { Scenario } from '../scenarios/types.js';
@@ -310,7 +312,13 @@ export function buildImproveGraph(
     })()
     : (() => {
       const wsRoot = options.workspaceAt ?? join(tmpdir(), `cycgraph-ws-improve-${randomUUID()}`);
-      const child = editorGraph(stack, wsRoot);
+      // A clone mirrors its source repository's tracked layout, so the
+      // target's repo-relative source path locates the same file inside the
+      // workspace. The clone does not exist until the clone node runs, so
+      // whether it actually holds the file is checked in `ship_workspace`,
+      // where a missing file would otherwise break the verify.
+      const rebased = rebaseSource(options.repoRoot, target.sourcePath);
+      const child = editorGraph(stack, wsRoot, rebased);
 
       const briefTool = tool({
         name: 'edit_brief',
@@ -352,7 +360,8 @@ export function buildImproveGraph(
           if (files.length === 0) throw new Error('the editor changed nothing — no branch was made');
           say(`changed: ${files.join(', ')}`);
 
-          const failure = await verifyWorkspace(ws, stack, record.workflow, record.change);
+          const inWorkspace = rebased && existsSync(join(wsRoot, rebased)) ? rebased : undefined;
+          const failure = await verifyWorkspace(ws, stack, record.workflow, record.change, inWorkspace);
           if (failure) throw new Error(`verification failed: ${failure}`);
           say('verified: rebuild carries the proposed values; typecheck clean');
 

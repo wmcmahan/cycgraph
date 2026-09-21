@@ -17,7 +17,7 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { editInWorkspace } from './editor.js';
 import { refreshFixtureRepo } from './fixture.js';
@@ -67,9 +67,7 @@ export async function resolveApplyRepo(
   sourcePath?: string,
 ): Promise<{ root: string; fixture: boolean }> {
   const real = resolve(repoRoot);
-  const sentinel = sourcePath !== undefined && !relative(real, sourcePath).startsWith('..')
-    ? relative(real, sourcePath)
-    : 'packages/playground/src';
+  const sentinel = rebaseSource(real, sourcePath) ?? 'packages/playground/src';
   const { stdout } = await exec(
     'git', ['-C', real, 'ls-files', sentinel],
   ).catch(() => ({ stdout: '' }));
@@ -104,8 +102,6 @@ export async function applyProposal(
   say(`${ws.root} on ${ws.branch}`);
 
   say(`editing: ${record.nodeId}.${record.knob} ${String(record.from)} → ${String(record.to)}`);
-  // A tail is a draw: an editor session that produced nothing gets one
-  // fresh attempt before the pass is declared failed.
   // An absolute host path means nothing inside a clone, and a fixture
   // repository may not hold this file at all — so the rebased path is
   // used only when it resolves to something the workspace actually has.
@@ -114,6 +110,8 @@ export async function applyProposal(
   if (sourcePath && !inWorkspace) say('the declared source file is not in this repository — searching for it instead');
 
   let files: string[] = [];
+  // A tail is a draw: an editor session that produced nothing gets one
+  // fresh attempt before the pass is declared failed.
   for (let attempt = 0; attempt < 2 && files.length === 0; attempt++) {
     const report = await editInWorkspace(stack, ws.root, record, inWorkspace);
     say(`editor: ${report.split('\n')[0]}`);
