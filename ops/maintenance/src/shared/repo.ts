@@ -36,22 +36,39 @@ export async function resolveRepo(value: string): Promise<string> {
 }
 
 /**
+ * The top-level directories this repository organizes its workspaces
+ * under. {@link repoMap} groups tracked files by these; a repository
+ * with a different layout supplies its own through the maintenance
+ * context.
+ */
+export const DEFAULT_WORKSPACE_ROOTS: readonly string[] = ['packages', 'ops', 'apps'];
+
+/** The branch pull requests target and staleness is measured against. */
+export const DEFAULT_BASE_BRANCH = 'main';
+
+/**
  * A compact, deterministic map of the repository's tracked structure:
  * each workspace package with its description and source layout, plus
  * the root documents. Costs no model tokens to produce and spares an
  * exploring agent the many searches it would otherwise spend
  * rediscovering the same shape every run.
  */
-export async function repoMap(root: string): Promise<string> {
+export async function repoMap(
+  root: string,
+  workspaceRoots: readonly string[] = DEFAULT_WORKSPACE_ROOTS,
+): Promise<string> {
   const { stdout } = await promisify(execFile)(
     'git', ['ls-files'], { cwd: root, maxBuffer: 32 * 1024 * 1024 },
   );
   const files = stdout.split('\n').filter(Boolean);
 
+  const rootGroup = new RegExp(
+    `^(${workspaceRoots.map((r) => r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})/([^/]+)/(.*)$`,
+  );
   const packages = new Map<string, { srcDirs: Set<string>; srcFiles: number; docs: string[] }>();
   const rootDocs: string[] = [];
   for (const file of files) {
-    const match = file.match(/^(packages|ops|apps)\/([^/]+)\/(.*)$/);
+    const match = file.match(rootGroup);
     if (!match) {
       if (/^[^/]+\.md$/i.test(file)) rootDocs.push(file);
       continue;
@@ -108,50 +125,63 @@ export const MAINTENANCE_SECRET_ENV_VARS: readonly string[] = [
 ];
 
 /**
- * Environment for anything a workflow spawns inside a checked-out tree
- * (checks, acceptance commands, benches): the process env minus five
- * categories the maintenance run holds for itself — its own
- * credentials, database credentials, ambient git identity, the raised
- * log level, and the engine's runtime-config tuning knobs. Each
- * category, inherited, hands the workspace something no other
- * environment gives it: agent-authored test code reads GH_TOKEN and the
- * model keys straight out of `process.env`, the orchestrator-postgres
- * suite activates on DATABASE_URL and cleans every table it touches (a
- * production wipe, not a hypothetical), GIT_* vars override the
- * identities tests commit with, LOG_LEVEL floods the suite output with
- * engine JSON logs, and a tuning knob retunes the engine the suite is
- * asserting defaults against.
+ * The variables a workspace check legitimately needs to run — the
+ * allow-list {@link checksEnv} copies. Locale categories (`LC_CTYPE`,
+ * `LC_NUMERIC`, …) are matched by their `LC_` prefix in addition to these.
+ */
+export const CHECK_ENV_ALLOWLIST: readonly string[] = [
+  'PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP',
+  'LANG', 'LANGUAGE', 'LC_ALL', 'TERM', 'SHELL', 'PWD', 'USER', 'LOGNAME', 'CI',
+];
+
+/**
+ * The minimal environment for anything a workflow spawns inside a
+ * checked-out tree (checks, acceptance commands, benches), built by
+ * allow-list so it fails closed. Those commands run source an agent just
+ * wrote from a semi-trusted issue body, so a credential left in the
+ * environment is one that source can read from `process.env` and post
+ * anywhere. A deny-list cannot enumerate what to remove — the cloud, OIDC,
+ * and alternate-model keys a deployment sets are not knowable here — so
+ * this copies only what a repository check needs (`npm test`, `npx vitest`,
+ * `npx tsc`) and drops everything else, secrets included, by construction.
+ * It also drops, for correctness, what a deny-list used to remove by hand:
+ * DATABASE_URL (the postgres suite wipes tables when it sees one), ambient
+ * GIT_* identity, the raised LOG_LEVEL, and the engine runtime-config
+ * knobs are none of them on the allow-list.
  */
 export function checksEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value === undefined) continue;
+    if (CHECK_ENV_ALLOWLIST.includes(name) || name.startsWith('LC_')) env[name] = value;
+  }
+  return env;
+}
+
+/**
+ * Environment for the tune trial subprocess, which *is* the maintenance
+ * process re-running `run.ts`: it calls the model and the GitHub API on
+ * the run's behalf, so unlike a workspace check it keeps the run's
+ * configuration (model, provider, Ollama URL). It is not the security
+ * boundary — the untrusted commands it spawns downstream use
+ * {@link checksEnv}. It drops only what would corrupt a trial or leak into
+ * a commit identity: its own credentials (a caller restores them through
+ * {@link maintenanceSecrets}), the database URLs (a trial must not touch
+ * the corpus), ambient GIT_* identity, the raised LOG_LEVEL, and the engine
+ * runtime-config knobs (so arms differ only by the edit under test).
+ */
+export function maintenanceRunEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const name of MAINTENANCE_SECRET_ENV_VARS) delete env[name];
-  // Every credential the postgres adapter reads: the primary URL, the
-  // RLS-subject app role, the BYPASSRLS platform role, and the local
-  // convenience alias. A new connection var belongs here before it is
-  // ever set in a deployment.
   delete env['DATABASE_URL'];
   delete env['APP_DATABASE_URL'];
   delete env['PLATFORM_DATABASE_URL'];
   delete env['SUPABASE_DB_URL'];
-  // Ambient git identity: GIT_AUTHOR_/GIT_COMMITTER_ vars override the
-  // explicit `-c user.*` a test's own commits pass, so the identity CI
-  // sets for the workflow's commits makes identity-asserting tests fail
-  // in the workspace while passing everywhere else.
   delete env['GIT_AUTHOR_NAME'];
   delete env['GIT_AUTHOR_EMAIL'];
   delete env['GIT_COMMITTER_NAME'];
   delete env['GIT_COMMITTER_EMAIL'];
-  // The maintenance run raises its own LOG_LEVEL for diagnosable CI
-  // logs; inherited into a workspace's test suite, every engine those
-  // tests spawn logs at info too, burying the suite's real failures
-  // under multi-KB JSON log lines. Deleting restores the logger default.
   delete env['LOG_LEVEL'];
-  // Engine tuning knobs: set for the maintenance run's own engine, they
-  // retune the engine the workspace suite tests — MAX_MEMORY_PROMPT_BYTES
-  // =204800 made the truncation tests' oversized inputs read as under-cap,
-  // failing the suite in the clone while it passed everywhere else. The
-  // list is imported from runtime-config itself, so a new knob is
-  // scrubbed the day it exists.
   for (const name of RUNTIME_CONFIG_ENV_VARS) delete env[name];
   return env;
 }
@@ -190,6 +220,15 @@ export const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 export const MANAGED_LABEL = 'maintenance-managed';
 
 /**
+ * The label that approves an issue or ticket for the automated fix
+ * queue. Applied by a human, or by the audit and upkeep workflows filing
+ * pre-approved with `--approve`; the issue-fix picker selects only issues
+ * that carry it. The `.github/workflows/*.yml` event filters gate on the
+ * same literal, so a rename must change both this and them together.
+ */
+export const APPROVED_LABEL = 'maintenance-approved';
+
+/**
  * The label a managed PR carries when the automated loop has given up
  * on it: review inconclusive after every retry, a review that could
  * not be submitted, or a failed revision run. Applied automatically at
@@ -217,14 +256,67 @@ export async function flagNeedsHuman(
   repoRoot: string,
   issueNumber: number,
   body: string,
-  options: { token?: string; ops?: FlagNeedsHumanOps } = {},
+  options: { token?: string; ops?: FlagNeedsHumanOps; label?: string } = {},
 ): Promise<{ flagged: boolean; detail: string }> {
   const ops = options.ops ?? { addLabel: addIssueLabel, comment: commentOnIssue };
   const auth = options.token !== undefined ? { token: options.token } : {};
-  const label = await ops.addLabel(repoRoot, issueNumber, NEEDS_HUMAN_LABEL, auth);
+  const label = await ops.addLabel(repoRoot, issueNumber, options.label ?? NEEDS_HUMAN_LABEL, auth);
   if (!label.ok) return { flagged: false, detail: `label failed: ${label.detail}` };
   const comment = await ops.comment(repoRoot, issueNumber, body, auth);
   return { flagged: true, detail: comment.detail };
+}
+
+/**
+ * The give-up node's action: flag the picked issue waiting on a human
+ * because the run ended without a pull request, naming which dead end
+ * (`cause`) sent it here so the comment is actionable. The result carries
+ * `flagged`, which `run.ts` reads into the run's `gave_up` field, so a
+ * tried-and-abandoned run reports distinctly from a nothing-to-do one.
+ */
+export async function giveUpNeedsHuman(
+  repoRoot: string,
+  issueNumber: number,
+  workflow: string,
+  cause: string,
+  needsHumanLabel: string,
+  options: { token?: string; ops?: FlagNeedsHumanOps } = {},
+): Promise<{ flagged: boolean; detail: string }> {
+  return flagNeedsHuman(repoRoot, issueNumber, [
+    `${workflow} ended without a pull request — ${cause} — so this issue now carries the \`${needsHumanLabel}\` label and the picker skips it.`,
+    'Remove the label to re-queue it, close the issue if it is already settled, or investigate.',
+  ].join('\n'), { label: needsHumanLabel, ...(options.token !== undefined ? { token: options.token } : {}), ...(options.ops !== undefined ? { ops: options.ops } : {}) });
+}
+
+/**
+ * An `onFatal` cleanup that flags the picked issue waiting on a human
+ * after an engine-level death (a budget breach) that bypasses the
+ * give-up node — without it, the issue stays approved-but-orphaned, its
+ * label event already spent, so nothing re-queues it. `getPicked` reads
+ * the issue held in the build's closure.
+ */
+export function fatalNeedsHuman(
+  repoRoot: string,
+  getPicked: () => number | undefined,
+  workflow: string,
+  needsHumanLabel: string,
+  token?: string,
+): (error: unknown) => Promise<string | undefined> {
+  return async (error) => {
+    const issue = getPicked();
+    if (issue === undefined) return undefined;
+    try {
+      const reason = error instanceof Error ? error.message : String(error);
+      const result = await flagNeedsHuman(repoRoot, issue, [
+        `${workflow} died before finishing (${reason}), so this issue now carries the \`${needsHumanLabel}\` label and the picker skips it.`,
+        'Remove the label to re-queue it, or dispatch the workflow naming this issue to override the skip.',
+      ].join('\n'), { label: needsHumanLabel, ...(token !== undefined ? { token } : {}) });
+      return result.flagged
+        ? `fatal-run cleanup: #${issue} flagged ${needsHumanLabel}`
+        : `fatal-run cleanup on #${issue}: ${result.detail}`;
+    } catch (cleanupError) {
+      return `fatal-run cleanup failed on #${issue}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
+    }
+  };
 }
 
 /**
@@ -240,12 +332,13 @@ export function stripMentions(text: string): string {
 }
 
 /**
- * The house coding standards, distilled for agent prompts. CLAUDE.md is
- * the authority; this brief carries the rules an editing or reviewing
- * agent most often breaks without it.
+ * The house coding standards, distilled for agent prompts: the rules an
+ * editing or reviewing agent most often breaks. The pointer to the
+ * repository's own convention document, when one exists, is added
+ * separately by `resolveStandardsBrief`, so this carries the rules alone.
  */
 export const STANDARDS_BRIEF = [
-  'House standards (.claude/CLAUDE.md in the repository is the full authority — read it when in doubt):',
+  'House coding standards for this repository:',
   'Comments are definitional: JSDoc on exports stating the contract, rare inline notes only for what the code cannot say (an invariant, a wire-format fact, a security rationale). Never development history, never narration of the line below.',
   'Tests use it() with present-tense behavior names (no "should"), arrange-act-assert, exact assertions (toBe/toEqual over toBeTruthy), NO inline comments inside test bodies, and no timers or network.',
   'ESM imports carry .js extensions; imports across packages use @cycgraph/* names, never relative paths.',

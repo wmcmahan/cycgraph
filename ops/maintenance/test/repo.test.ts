@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { RUNTIME_CONFIG_ENV_VARS } from '@cycgraph/orchestrator/internal';
-import { MAINTENANCE_SECRET_ENV_VARS, NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, flagNeedsHuman, maintenanceSecrets, repoMap, stripMentions } from '../src/shared/repo.js';
+import { MAINTENANCE_SECRET_ENV_VARS, NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, flagNeedsHuman, giveUpNeedsHuman, maintenanceRunEnv, maintenanceSecrets, repoMap, stripMentions } from '../src/shared/repo.js';
 
 const exec = promisify(execFile);
 
@@ -60,6 +60,32 @@ describe('repoMap', () => {
       '  src (4 ts files): core util',
       '  docs: README.md',
     ].join('\n'));
+  });
+
+  it('groups only the workspace roots it is given, ignoring the defaults', async () => {
+    const root = await seedRepo({
+      'services/api/package.json': JSON.stringify({ description: 'HTTP surface' }),
+      'services/api/src/index.ts': 'export const a = 1;\n',
+      'packages/alpha/src/index.ts': 'export const b = 2;\n',
+    });
+
+    const map = await repoMap(root, ['services']);
+
+    expect(map).toBe([
+      'Repository map (tracked files). Root docs: ',
+      'services/api — HTTP surface',
+      '  src (1 ts files): (flat)',
+    ].join('\n'));
+  });
+
+  it('ignores a directory outside the default workspace roots', async () => {
+    const root = await seedRepo({
+      'services/api/src/index.ts': 'export const a = 1;\n',
+    });
+
+    const map = await repoMap(root);
+
+    expect(map).toBe('Repository map (tracked files). Root docs: ');
   });
 
   it('ignores sources more than one directory below src', async () => {
@@ -206,12 +232,28 @@ describe('checksEnv', () => {
     expect(env['SUPABASE_DB_URL']).toBeUndefined();
   });
 
-  it('preserves unrelated variables', () => {
+  it('preserves the allow-listed variables a check needs to run', () => {
     vi.stubEnv('PATH', '/usr/bin');
+    vi.stubEnv('HOME', '/home/runner');
 
     const env = checksEnv();
 
     expect(env['PATH']).toBe('/usr/bin');
+    expect(env['HOME']).toBe('/home/runner');
+  });
+
+  it('drops variables outside the allow-list, including credentials a deployment sets', () => {
+    vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'aws-secret');
+    vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'oidc-token');
+    vi.stubEnv('PGPASSWORD', 'pg-secret');
+    vi.stubEnv('GEMINI_API_KEY', 'gemini-key');
+
+    const env = checksEnv();
+
+    expect(env['AWS_SECRET_ACCESS_KEY']).toBeUndefined();
+    expect(env['ACTIONS_ID_TOKEN_REQUEST_TOKEN']).toBeUndefined();
+    expect(env['PGPASSWORD']).toBeUndefined();
+    expect(env['GEMINI_API_KEY']).toBeUndefined();
   });
 
   it('drops the log level so spawned suites keep the logger default', () => {
@@ -254,6 +296,28 @@ describe('checksEnv', () => {
     const env = checksEnv();
 
     for (const name of MAINTENANCE_SECRET_ENV_VARS) expect(env[name]).toBeUndefined();
+  });
+});
+
+describe('maintenanceRunEnv', () => {
+  it('keeps the run configuration a trial subprocess needs', () => {
+    vi.stubEnv('CYCGRAPH_MODEL', 'claude-sonnet-4');
+    vi.stubEnv('OLLAMA_BASE_URL', 'http://localhost:11434');
+
+    const env = maintenanceRunEnv();
+
+    expect(env['CYCGRAPH_MODEL']).toBe('claude-sonnet-4');
+    expect(env['OLLAMA_BASE_URL']).toBe('http://localhost:11434');
+  });
+
+  it('drops the database URLs so a trial cannot touch the corpus', () => {
+    vi.stubEnv('DATABASE_URL', 'postgres://localhost:5432/app');
+    vi.stubEnv('GH_TOKEN', 'ghp_write_access');
+
+    const env = maintenanceRunEnv();
+
+    expect(env['DATABASE_URL']).toBeUndefined();
+    expect(env['GH_TOKEN']).toBeUndefined();
   });
 });
 
@@ -319,5 +383,23 @@ describe('flagNeedsHuman', () => {
 
     expect(result).toEqual({ flagged: false, detail: 'label failed: label denied' });
     expect(calls.comment).toEqual([]);
+  });
+
+  it('applies a caller-supplied label instead of the default', async () => {
+    const { ops, calls } = fakeOps(true);
+
+    await flagNeedsHuman('/repo', 7, 'blocked', { ops, label: 'blocked' });
+
+    expect(calls.label).toEqual(['blocked']);
+  });
+
+  it('giveUpNeedsHuman flags the issue with a cause-bearing give-up comment', async () => {
+    const { ops, calls } = fakeOps(true);
+
+    const result = await giveUpNeedsHuman('/repo', 7, 'implement-ticket', 'the reviewer never approved after 3 round(s)', 'needs-human', { ops });
+
+    expect(result.flagged).toBe(true);
+    expect(calls.label).toEqual(['needs-human']);
+    expect(calls.comment[0]).toContain('implement-ticket ended without a pull request — the reviewer never approved after 3 round(s)');
   });
 });

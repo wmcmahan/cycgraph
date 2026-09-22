@@ -19,7 +19,7 @@
 import { randomUUID } from 'node:crypto';
 import type { MemoryRetriever, MemoryWriter } from '@cycgraph/orchestrator';
 import type { RetentionReport } from '@cycgraph/memory';
-import { loadAuditSchedule, saveAuditSchedule, type AuditSchedule } from '../audit/schedule.js';
+import { loadAuditSchedule, saveAuditSchedule, type AuditSchedule } from '../repo-audit/schedule.js';
 
 /** Tag every maintenance lesson carries; workflows add `wf:<id>` beside it. */
 export const LESSON_TAG = 'lesson';

@@ -13,7 +13,8 @@
 import type { z } from 'zod';
 import type { EvalAssertion, Graph, GraphRunnerOptions } from '@cycgraph/orchestrator';
 import type { PublishConfig } from '@cycgraph/tools/git';
-import type { AuditSchedule } from './audit/schedule.js';
+import type { AuditSchedule } from './repo-audit/schedule.js';
+import type { MaintenanceContext } from './shared/context.js';
 
 /** The environment a maintenance workflow needs from whatever runs it. */
 export interface MaintenanceEnv {
@@ -34,6 +35,13 @@ export interface MaintenanceEnv {
    * diagonal — the same slice every run, rotated only by `skip`.
    */
   auditSchedule?: { load(): Promise<AuditSchedule | undefined> };
+  /**
+   * Repository-shaped settings the workflows read (labels, standards,
+   * layout). Absent means this repository's own defaults, resolved once
+   * through {@link contextOf}, so a run that supplies no context behaves
+   * exactly as before the seam existed.
+   */
+  context?: MaintenanceContext;
 }
 
 /** What a build hands the runner. */

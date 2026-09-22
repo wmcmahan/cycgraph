@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { scanCore, unfiledFindings, type CoreFinding } from '../src/core/scan.js';
+import { scanCore, unfiledFindings, type CoreFinding } from '../src/code-scan/scan.js';
 
 const exec = promisify(execFile);
 

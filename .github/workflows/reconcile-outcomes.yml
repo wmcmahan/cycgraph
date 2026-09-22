@@ -13,6 +13,10 @@
 name: Reconcile outcomes
 
 on:
+  # Daily, as the header describes: the run step falls back to a 14-day
+  # window when the cron fires with no inputs.
+  schedule:
+    - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
       sinceDays:

@@ -11,7 +11,7 @@
  */
 
 import { issueMarkers, type IssueRef } from '@cycgraph/tools/git';
-import type { CoreFinding } from '../core/scan.js';
+import type { CoreFinding } from '../code-scan/scan.js';
 
 /** The finding an issue was filed for, recovered from its body. */
 export interface IssueFinding {
@@ -43,8 +43,8 @@ export function findingFromKey(key: string): IssueFinding | undefined {
 }
 
 /** Recover the finding a filed issue carries, or `undefined` when it carries none. */
-export function parseIssueFinding(body: string): IssueFinding | undefined {
-  const keys = issueMarkers([{ number: 0, title: '', body, labels: [] } satisfies IssueRef]);
+export function parseIssueFinding(body: string, namespace?: string): IssueFinding | undefined {
+  const keys = issueMarkers([{ number: 0, title: '', body, labels: [] } satisfies IssueRef], namespace);
   const key = [...keys][0];
   if (key === undefined) return undefined;
   return findingFromKey(key);

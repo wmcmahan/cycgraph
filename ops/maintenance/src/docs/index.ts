@@ -2,95 +2,45 @@
  * docs-maintenance — a workflow that keeps this repository's docs honest.
  *
  * A workflow of ours, not a product feature: the detectors encode what
- * staleness means here. It speaks engine vocabulary only — the graph
- * from `@cycgraph/orchestrator`, jailed workspace tools and git delivery
- * helpers from `@cycgraph/tools` — so any harness can run it; the
- * playground registry wraps it into the studio's catalog contract.
+ * staleness means here. It speaks engine vocabulary only, so any harness
+ * can run it; the playground registry wraps it into the studio's catalog.
  *
- * The first of the maintenance workflows, and the pattern the others
- * copy. It takes up to `batch` mechanically-detected findings per run,
- * fixes each in a disposable clone, and proves every fix by re-scanning:
- * the targeted finding is gone, nothing new appeared, and the
- * repository's own checks still pass. Each verified fix is its own
- * commit on one branch; the run ends with one pull request, and the
- * human gate is the merge. `publish: false` restores the commit-and-stop
- * boundary. Findings in files an open `docs/*` PR already touches are
- * deferred rather than redone, and `since` narrows a run to findings a
- * recent change plausibly staled — the push-triggered diff mode.
+ * The first of the maintenance workflows, and the pattern the others copy.
+ * It takes up to `batch` mechanically-detected findings per run, fixes each
+ * in a disposable clone, and proves every fix by re-scanning: the targeted
+ * finding is gone, nothing new appeared, and the repository's own checks
+ * still pass. Each verified fix is its own commit on one branch; the run
+ * ends with one pull request, and the human gate is the merge.
  *
- * That verdict is what makes the workflow improvable. Its `evals` assert
- * the fix resolved, so the tune loop can vary the fixer's prompt, model,
- * or iteration cap and know whether the change helped, and the whole
- * thing can run unattended under `studio loop`.
+ * `docsMaintenance(options)` is one parameterized workflow; the two
+ * registered variants below are it with a scope. This file is the composer:
+ * `build` resolves the shared context, then assembles the tools, the
+ * agents, the delivery nodes, the graph-owned nodes, and the graph, each
+ * from its own file.
  *
- * @module maintenance/docs-workflow
+ * @module maintenance/docs
  */
 
-import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
-import { z } from 'zod';
-import { agent, graph, node, reflection, tool, verifier } from '@cycgraph/orchestrator';
-import {
-  diagnosticsTool,
-  editFileTool,
-  readFileTool,
-  searchTool,
-  createWorkspaceSession,
-} from '@cycgraph/tools/workspace';
-import { readFile } from 'node:fs/promises';
-import { findingKey, judgeFix, scanDocs, scopeFindings, type DocsFinding } from './scan.js';
-import { CANDIDATE_TAG, LESSON_TAG, MAINT_TAG } from '../shared/memory.js';
-import { checksEnv, resolveRepo } from '../shared/repo.js';
-import { deliveryNodes, openPrFiles } from '@cycgraph/tools/git';
-import { templateEvidence } from '../shared/pr-template.js';
-import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 import type { EvalAssertion } from '@cycgraph/orchestrator';
+import { deliveryNodes } from '@cycgraph/tools/git';
+import { templateEvidence } from '../shared/pr-template.js';
+import { buildDocsContext, params } from './context.js';
+import type { DocsMaintenanceOptions, Params } from './context.js';
+import { docsTools } from './tools/index.js';
+import { fixerAgent, distillerAgent } from './agents/index.js';
+import { docsNodes } from './nodes/index.js';
+import { docsGraph } from './graph.js';
+import type { MaintenanceEnv, MaintenanceWorkflow } from '../types.js';
 
-const params = z.object({
-  repoRoot: z.string().default('')
-    .describe('Repository whose documentation is maintained. Empty means the repository this runs inside'),
-  checks: z.array(z.string()).default([])
-    .describe('Commands that must pass before a fix may be committed, e.g. ["npm run lint"]'),
-  skip: z.number().int().min(0).default(0)
-    .describe('Findings to skip, so a second run can take the next one'),
-  commit: z.boolean().default(true)
-    .describe('Commit the verified fix to a branch. Off leaves the workspace for inspection'),
-  publish: z.boolean().default(true)
-    .describe('Push the committed branch to origin and open a pull request. Off leaves the prepared publish script in the commit result'),
-  prompt: z.string().default('')
-    .describe('Override the fixer agent\'s instructions. Empty uses the built-in prompt. A config knob so the tune loop can sweep it'),
-  attempts: z.number().int().min(1).max(6).default(3)
-    .describe('Fix attempts per finding before it is abandoned and the run moves to the next one'),
-  batch: z.number().int().min(1).max(10).default(1)
-    .describe('Findings to fix in one run: one branch, one commit per verified fix, one pull request'),
-  since: z.string().default('')
-    .describe('Diff mode: a git ref. Only findings a change since that ref plausibly staled are taken'),
-  budgetTokens: z.number().int().min(0).default(400000)
-    .describe('Hard token budget for the run; breach fails the run. Zero removes the cap'),
-});
-
-type Params = z.infer<typeof params>;
-
-/** Configuration that splits the docs family into thin scenarios. */
-export interface DocsMaintenanceOptions {
-  id?: string;
-  title?: string;
-  /** Scan only documents under these paths. Empty scans everywhere. */
-  roots?: string[];
-  /** Never scan documents under these paths. */
-  exclude?: string[];
-}
+export type { DocsMaintenanceOptions } from './context.js';
 
 /**
  * The docs-maintenance workflow.
  *
- * Exposed as a factory rather than a value because the workspace tools
- * are jailed to a clone path chosen per build, exactly as the improve
- * ladder's editor is. `repoDocsMaintenance` and `websiteDocsMaintenance`
- * are the two registered variants; each is this workflow with a scope.
+ * Exposed as a factory rather than a value because the workspace tools are
+ * jailed to a clone path chosen per build. `repoDocsMaintenance` and
+ * `websiteDocsMaintenance` are the two registered variants; each is this
+ * workflow with a scope.
  */
 export function docsMaintenance(options: DocsMaintenanceOptions = {}): MaintenanceWorkflow<typeof params> {
   const id = options.id ?? 'docs-maintenance';
@@ -101,332 +51,43 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
     params,
 
     build: async (p: Params, env: MaintenanceEnv) => {
-      const repoRoot = await resolveRepo(p.repoRoot);
-      const session = createWorkspaceSession();
-      // Chosen now, materialised by the `clone` node: the fixer's tools
-      // must be jailed to a path before the clone exists.
-      const workspaceAt = join(tmpdir(), `cycgraph-docs-${randomUUID()}`);
-      const branchName = `docs/${id}-${randomUUID().slice(0, 8)}`;
-
-      const hands = {
-        read: readFileTool({ root: workspaceAt, session }),
-        search: searchTool({ root: workspaceAt }),
-        edit: editFileTool({ root: workspaceAt, session }),
-      };
+      const c = await buildDocsContext(options, p, env);
+      const tools = docsTools(c);
+      const agents = { fixer: fixerAgent(c, tools), distiller: distillerAgent(c) };
 
       // The shared delivery tail: clone at the start, commit and publish
       // after the gate. The judge's verdict detail becomes the commit
       // message body and the PR evidence.
       const delivery = deliveryNodes({
-        repoRoot,
-        workspaceAt,
-        branch: branchName,
+        repoRoot: c.repoRoot,
+        workspaceAt: c.workspaceAt,
+        branch: c.branchName,
         title: p.batch > 1 ? 'docs: correct stale references' : 'docs: correct a stale reference',
         detailFrom: 'judge_result',
-        evidence: (details: string[], context: { diff: string }) => ({
+        evidence: (details: string[], ev: { diff: string }) => ({
           summary: details.length === 1
-            ? `Found and verified by the ${id} workflow. ${details[0]}`
-            : `Found and verified by the ${id} workflow: ${details.length} documentation fixes, one commit each.`,
+            ? `Found and verified by the ${c.id} workflow. ${details[0]}`
+            : `Found and verified by the ${c.id} workflow: ${details.length} documentation fixes, one commit each.`,
           ...(details.length > 0 ? { changes: details } : {}),
-          provenance: `${id}: each finding was detected mechanically, fixed by an agent in a jailed clone, and verified by re-scan and repository checks before its commit.`,
-          ...templateEvidence(context.diff, { checks: p.checks, details }),
+          provenance: `${c.id}: each finding was detected mechanically, fixed by an agent in a jailed clone, and verified by re-scan and repository checks before its commit.`,
+          ...templateEvidence(ev.diff, { checks: p.checks, details }),
         }),
         commit: p.commit,
         publish: p.publish,
         ...(env.publish !== undefined ? { config: env.publish } : {}),
       });
 
-      // Fetched once per run, not per cycle: the open-PR claim set and
-      // the diff-mode changed-path set do not move mid-run.
-      let deferredFetched = false;
-      let deferred: string[] | undefined;
-      let changed: string[] | undefined;
-
-      // Scan and judge must look through the same scope: an out-of-scope
-      // finding the scan never reported would otherwise be counted by the
-      // judge's re-scan as newly introduced.
-      const scopedScan = async () => scopeFindings(await scanDocs(workspaceAt), {
-        ...(options.roots !== undefined ? { roots: options.roots } : {}),
-        ...(options.exclude !== undefined ? { exclude: options.exclude } : {}),
-        ...(deferred !== undefined ? { deferredFiles: deferred } : {}),
-        ...(changed !== undefined ? { changedPaths: changed } : {}),
-      });
-
-      const scanTool = tool({
-        name: 'scan_docs',
-        description: 'Find what the documentation claims that the repository contradicts.',
-        parameters: z.object({
-          commit_result: z.unknown().optional(),
-          judge_result: z.unknown().optional(),
-        }),
-        execute: async ({ commit_result, judge_result }) => {
-          if (!deferredFetched) {
-            deferredFetched = true;
-            deferred = await openPrFiles(repoRoot, 'docs/');
-          }
-          if (p.since !== '' && changed === undefined) {
-            const { stdout } = await promisify(execFile)(
-              'git', ['diff', '--name-only', `${p.since}..HEAD`], { cwd: workspaceAt },
-            );
-            changed = stdout.split('\n').filter(Boolean);
-          }
-          const findings = await scopedScan();
-          // A finding with no candidates has no legitimate agent move: the
-          // referenced thing exists nowhere in the clone, correction is
-          // impossible and removal is what the judge refuses. Whether the
-          // reference or the absence is the mistake is a human question, so
-          // those findings are reported rather than burned against.
-          const abandoned = new Set(((judge_result as { abandoned_keys?: string[] } | undefined)?.abandoned_keys) ?? []);
-          const fixable = findings.filter((entry) => entry.candidates.length > 0 && !abandoned.has(findingKey(entry)));
-          const needsHuman = findings.filter((entry) => entry.candidates.length === 0);
-          const finding = fixable[p.skip];
-          const fixedSoFar = (commit_result as { count?: number } | undefined)?.count ?? 0;
-          const text = finding
-            ? await readFile(join(workspaceAt, finding.file), 'utf8').catch(() => '')
-            : '';
-          return {
-            total: findings.length,
-            has_finding: finding !== undefined,
-            any_fixed: fixedSoFar > 0,
-            needs_human: needsHuman.map((entry) => `${entry.file}: ${entry.detail.slice(0, 120)}`),
-            ...(abandoned.size > 0 ? { abandoned: [...abandoned] } : {}),
-            findings: findings.slice(0, 20),
-            // Complete, uncapped: the judge needs every before-key or
-            // findings past the display cap read as introduced.
-            finding_keys: findings.map(findingKey),
-            ...(finding ? { finding, text } : {}),
-            instruction: finding
-              ? [
-                `In ${finding.file}, line ${finding.line}: ${finding.detail}`,
-                `The document says '${finding.target}'.`,
-                finding.candidates.length > 0
-                  ? `The repository actually has: ${finding.candidates.join(' | ')}. Pick whichever the sentence means and edit the document to say that.`
-                  : 'Search the repository for where that thing lives now, and edit the document to match.',
-                'Replace the wrong reference with the right one. Do not delete the sentence, and do not replace an instruction with a comment.',
-                'Change nothing else.',
-              ].join('\n')
-              : 'Nothing to fix: the documentation matches the repository.',
-          };
-        },
-      });
-
-      const judgeTool = tool({
-        name: 'judge_fix',
-        description: 'Re-scan and decide whether the targeted finding is gone.',
-        parameters: z.object({
-          scan_result: z.unknown().optional(),
-          judge_result: z.unknown().optional(),
-        }),
-        // A tool node's read keys arrive as its arguments; tools get no
-        // ambient access to memory. Reading its own previous result is
-        // what lets the judge count attempts on a stuck finding and
-        // abandon it instead of grinding the run's whole iteration cap
-        // against it.
-        execute: async ({ scan_result, judge_result }) => {
-          const before = scan_result as
-            { finding?: DocsFinding; findings?: DocsFinding[]; finding_keys?: string[]; text?: string } | undefined;
-          const previous = judge_result as
-            { key?: string; resolved?: boolean; attempts?: number; abandoned_keys?: string[] } | undefined;
-          const targeted = before?.finding;
-          if (!targeted) return { resolved: false, weakened: false, detail: 'nothing was targeted' };
-          const after = await scopedScan();
-          const afterText = await readFile(join(workspaceAt, targeted.file), 'utf8').catch(() => '');
-          const verdict = judgeFix(targeted, before?.findings ?? [], after, {
-            before: before?.text ?? '',
-            after: afterText,
-          }, before?.finding_keys);
-          const key = findingKey(targeted);
-          const attempts = (previous?.key === key && previous.resolved !== true ? previous.attempts ?? 0 : 0) + 1;
-          const abandonedKeys = [...previous?.abandoned_keys ?? []];
-          const abandon = !verdict.resolved || verdict.weakened;
-          if (attempts >= p.attempts && abandon && !abandonedKeys.includes(key)) abandonedKeys.push(key);
-          return {
-            ...verdict,
-            key,
-            attempts,
-            subject: `docs: correct a stale reference in ${targeted.file}`,
-            gave_up: abandonedKeys.includes(key),
-            abandoned_keys: abandonedKeys,
-            ...(abandonedKeys.includes(key)
-              ? { detail: `${verdict.detail} — abandoned after ${attempts} attempt(s); a human should look` }
-              : {}),
-          };
-        },
-      });
-
-      const checksTool = diagnosticsTool({
-        name: 'repo_checks',
-        cwd: workspaceAt,
-        // A docs fix should not be able to break the build; when a project
-        // declares no checks this is a no-op that always passes.
-        command: p.checks.length > 0 ? 'sh' : 'true',
-        ...(p.checks.length > 0 ? { args: ['-c', p.checks.join(' && ')] } : { args: [] }),
-        timeoutMs: 600_000,
-        env: checksEnv(),
-      });
-
-      const fixer = agent({
-        id: 'docs-fixer',
-        name: 'Documentation fixer',
-        model: env.model,
-        provider: env.provider,
-        temperature: 0.1,
-        maxSteps: 16,
-        instructions: p.prompt !== '' ? p.prompt : [
-          'You correct one stale claim in a documentation file so it matches the repository.',
-          'The finding usually carries candidates: the repository\'s own scripts or files that likely replace the stale reference. Pick from them and confirm with read_file instead of searching broadly; search only when no candidate fits.',
-          'Use search to find where the referenced thing actually lives, read_file to confirm, and edit_file to correct the document.',
-          'The find text must be the file’s exact bytes as read_file shows them: never include line-number prefixes from search results, and never change indentation.',
-          'If edit_file refuses because the find text matches more than one place, do not retry the same find and never try a different path: read the file, then use a longer find that includes the whole line and enough neighbouring text to match exactly once.',
-          'Correct only the claim you were given. Do not rewrite prose, reformat, or fix anything else.',
-          'Correct the claim — do not delete it. Replace a wrong path, link, or command with the right one; only remove a claim when the thing it describes genuinely no longer exists anywhere, and never replace an instruction with a comment.',
-          'If your previous attempt is reported as removed rather than corrected, put a real reference back.',
-          'Never reply with nothing: when the edit is made, reply FIXED <file>; when you cannot make it, reply BLOCKED: <one line on what stopped you>.',
-          'End every reply with a NOTES: line — the file and finding you worked on and what you learned — so a retry starts oriented instead of re-searching.',
-        ].join(' '),
-        tools: [hands.search, hands.read, hands.edit],
-      });
-
-      const { clone, commit, publish } = delivery;
-      const scan = node({ id: 'scan', type: 'tool', toolId: 'scan_docs', tools: [scanTool], reads: ['commit_result', 'judge_result'] });
-      const fix = node({
-        id: 'fix',
-        agent: fixer,
-        failurePolicy: { timeoutMs: 600_000 },
-        // Reading its own previous report carries knowledge across
-        // attempts: a retry starts from the prior NOTES instead of
-        // re-searching the same candidates into a fresh transcript.
-        reads: [scan.result, 'judge_result', 'fix_report'],
-        writes: 'fix_report',
-        // Lessons distilled by earlier runs' reflection, eval-gated.
-        ...(env.memory ? { memoryQuery: { tags: [`wf:${id}`], maxFacts: 8 } } : {}),
-      });
-
-      // Cross-run learning tail: distill this run's fixer notes and judge
-      // verdicts into candidate lessons a later run retrieves. Only built
-      // when memory is wired — a reflection node with no writer fails the
-      // run at execution, not at build.
-      const distiller = agent({
-        id: `${id}-lesson-distiller`,
-        name: 'Lesson distiller',
-        model: env.model,
-        provider: env.provider,
-        temperature: 0.2,
-        maxSteps: 1,
-        instructions: [
-          'You distill a documentation-maintenance run\'s working notes and verdicts into transferable lessons.',
-          'A lesson is one present-tense sentence that would change how the NEXT run works: a tool behaviour, a repository convention, a failure pattern and its remedy.',
-          'Never include run-specific details (file names being fixed, finding text, dates). A lesson that only applies to this run is not a lesson — omit it.',
-          'Fewer, stronger lessons beat many weak ones. When nothing transferable happened, return no facts.',
-        ].join(' '),
-      });
-      const reflect = env.memory
-        ? reflection(['fix_report', 'judge_result'], {
-            id: 'reflect',
-            reads: ['fix_report', 'judge_result'],
-            failurePolicy: { maxRetries: 2 },
-            extractor: { type: 'llm', agentId: distiller, maxFacts: 4 },
-            tags: [LESSON_TAG, MAINT_TAG, `wf:${id}`, CANDIDATE_TAG],
-          })
-        : undefined;
-      const judge = node({ id: 'judge', type: 'tool', toolId: 'judge_fix', tools: [judgeTool], reads: [scan.result, 'judge_result'] });
-      const checks = node({ id: 'checks', type: 'tool', toolId: 'repo_checks', tools: [checksTool], reads: [] });
-      const gate = verifier.expression(
-        `memory.${judge.result}.resolved and not memory.${judge.result}.weakened`
-          + ` and memory.${judge.result}.introduced_count == 0 and memory.${checks.result}.clean`,
-        {
-          id: 'gate',
-          reads: [judge.result, checks.result],
-          description: 'The claim was corrected rather than deleted, nothing new broke, and the checks still pass',
-        },
-      );
-      const report = node({ id: 'report', type: 'router' });
-
-      return {
-        graph: graph({
-          name: id,
-          description: 'Fix mechanically-detected documentation staleness, and prove each fix.',
-          nodes: [clone, scan, fix, judge, checks, gate, commit, publish, ...(reflect ? [reflect] : []), report],
-          edges: [
-            { from: clone, to: scan },
-            { from: scan, to: fix, when: `memory.${scan.result}.has_finding` },
-            // Out of findings after fixing some: deliver what landed.
-            {
-              from: scan,
-              to: publish,
-              when: `not memory.${scan.result}.has_finding and memory.${scan.result}.any_fixed`,
-            },
-            // Nothing to fix at all is a clean outcome, not a failure.
-            {
-              from: scan,
-              to: report,
-              when: `not memory.${scan.result}.has_finding and not memory.${scan.result}.any_fixed`,
-            },
-            { from: fix, to: judge },
-            { from: judge, to: checks },
-            { from: checks, to: gate },
-            { from: gate, to: commit, when: 'memory.gate_verification_passed' },
-            // A fix that did not land goes back for another attempt, bounded
-            // by the run's iteration cap.
-            {
-              from: gate,
-              to: fix,
-              when: `not memory.gate_verification_passed and not memory.${judge.result}.gave_up`,
-            },
-            // A finding the judge has abandoned goes back to scan, which
-            // skips it and takes the next one instead of grinding the
-            // iteration cap against work the agent cannot do.
-            {
-              from: gate,
-              to: scan,
-              when: `not memory.gate_verification_passed and memory.${judge.result}.gave_up`,
-            },
-            // Batch: rescan for the next finding until the quota is met.
-            // The re-scan no longer reports what earlier cycles fixed, so
-            // the next finding is simply the first eligible one again.
-            {
-              from: commit,
-              to: scan,
-              when: `memory.${commit.result}.committed and memory.${commit.result}.count < ${p.batch}`,
-            },
-            {
-              from: commit,
-              to: publish,
-              when: `not memory.${commit.result}.committed or memory.${commit.result}.count >= ${p.batch}`,
-            },
-            // Learning tail: fixes delivered (or none found after fixing
-            // some) flow through reflection so the run's working notes
-            // become candidate lessons before the run ends.
-            ...(reflect
-              ? [{ from: publish, to: reflect }, { from: reflect, to: report }]
-              : [{ from: publish, to: report }]),
-          ],
-          startNode: clone,
-          endNodes: [report],
-        }),
-        input: {
-          ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
-          goal: p.batch > 1
-            ? `Correct up to ${p.batch} stale claims in the documentation.`
-            : 'Correct one stale claim in the documentation.',
-          maxIterations: 13 + p.batch * 10,
-        },
-        runner: {},
-      };
+      const nodes = docsNodes(c, tools, agents);
+      return docsGraph(c, nodes, delivery);
     },
 
     // The verdict is mechanical, so the workflow can be measured and tuned
-    // like any other. The assertion that matters is the objective one: the
-    // claim was corrected. Asserting only that the run completed would pass
-    // a run that gave up, and asserting the finding is merely gone would
-    // pass a deletion.
+    // like any other. The gate's own boolean is the objective signal: it
+    // passes only when the claim was corrected rather than deleted and the
+    // checks held.
     evals: (): EvalAssertion[] => [
       { type: 'status_equals', expected: 'completed' },
       { type: 'memory_contains', key: 'judge_result' },
-      // The gate's own boolean is the objective signal: it passes only when
-      // the claim was corrected rather than deleted and the checks held.
-      // `regex` mode compares strings, so asserting against the verdict
-      // object would silently never match however good the fix was.
       { type: 'memory_matches', key: 'gate_verification_passed', mode: 'exact', expected: true, pattern: '' },
     ],
   };
@@ -435,7 +96,7 @@ export function docsMaintenance(options: DocsMaintenanceOptions = {}): Maintenan
 /** The repository's own docs: READMEs, guides, everything outside the website. */
 export function repoDocsMaintenance(): MaintenanceWorkflow<typeof params> {
   return docsMaintenance({
-    id: 'repo-docs',
+    id: 'fix-repo-docs',
     title: 'Fix stale claims in the repository docs',
     exclude: ['apps/docs'],
   });
@@ -444,7 +105,7 @@ export function repoDocsMaintenance(): MaintenanceWorkflow<typeof params> {
 /** The documentation website under apps/docs. */
 export function websiteDocsMaintenance(): MaintenanceWorkflow<typeof params> {
   return docsMaintenance({
-    id: 'website-docs',
+    id: 'fix-website-docs',
     title: 'Fix stale claims in the website docs',
     roots: ['apps/docs'],
   });

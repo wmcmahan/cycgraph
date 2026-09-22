@@ -46,7 +46,7 @@ describe('parseTuneProposal', () => {
 });
 
 const TICKET_BODY = renderTuneTicket({
-  target: 'docs-maintenance',
+  target: 'fix-repo-docs',
   hypothesis: 'the writer omits a required section',
   trials: 3,
   trialDetail: 'variant wins',
@@ -55,7 +55,7 @@ const TICKET_BODY = renderTuneTicket({
   find: 'Write the section.',
   replace: 'Write the section, and never omit the summary.',
   costOnly: false,
-  marker: '<!-- cycgraph:finding=tune:docs-maintenance:abc123def456 -->',
+  marker: '<!-- cycgraph:finding=tune:fix-repo-docs:abc123def456 -->',
 });
 
 describe('parseTuneTicket', () => {
@@ -74,9 +74,9 @@ describe('parseTuneTicket', () => {
 
 describe('renderTuneTicket cost-win flag', () => {
   const base = {
-    target: 'docs-maintenance', hypothesis: 'h', trials: 3, trialDetail: 'd', trialTable: 't',
+    target: 'fix-repo-docs', hypothesis: 'h', trials: 3, trialDetail: 'd', trialTable: 't',
     file: 'ops/maintenance/src/docs-workflow.ts', find: 'a', replace: 'b',
-    marker: '<!-- cycgraph:finding=tune:docs-maintenance:abc123def456 -->',
+    marker: '<!-- cycgraph:finding=tune:fix-repo-docs:abc123def456 -->',
   };
 
   it('renders the verify-before-merging caveat only when costOnly is set', () => {
@@ -178,8 +178,8 @@ describe('tuneKey', () => {
   it('is stable for the same edit and distinct for different ones', () => {
     const edit = { file: 'a.ts', replace: 'x' };
 
-    expect(tuneKey('docs-maintenance', edit)).toBe(tuneKey('docs-maintenance', edit));
-    expect(tuneKey('docs-maintenance', edit)).not.toBe(tuneKey('docs-maintenance', { file: 'a.ts', replace: 'y' }));
-    expect(tuneKey('docs-maintenance', edit)).toMatch(/^tune:docs-maintenance:[0-9a-f]{12}$/);
+    expect(tuneKey('fix-repo-docs', edit)).toBe(tuneKey('fix-repo-docs', edit));
+    expect(tuneKey('fix-repo-docs', edit)).not.toBe(tuneKey('fix-repo-docs', { file: 'a.ts', replace: 'y' }));
+    expect(tuneKey('fix-repo-docs', edit)).toMatch(/^tune:fix-repo-docs:[0-9a-f]{12}$/);
   });
 });

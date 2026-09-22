@@ -1,13 +1,26 @@
-# CI outcomes on a maintenance PR, closed as a loop. Branch protection
-# already keeps a red PR from merging; without this, it just sits —
-# approved, failing, and silent. The first failure hands the PR to
-# pr-revise via the @cycgraph mention with the failing run linked; a
-# repeat failure stops the cycle and labels the PR needs-human, and a
-# PR already parked on needs-human gets no further comments. A green
-# run on a labeled PR clears the label — the heal path that makes the
-# comments' promise true. Only PRs carrying maintenance-managed and
-# heading from this repository are touched: your own PRs and fork
-# branches with colliding names stay untouched.
+# CI outcomes on a maintenance PR, closed as a loop, over whatever the
+# repository runs as its checks. This reacts to a check suite completing
+# and reads the PR's *aggregate* check state — every check run that
+# reports on the head commit, from GitHub Actions or any CI app — rather
+# than one named workflow, so it does not care what the repository calls
+# its CI. Branch protection already keeps a red PR from merging; without
+# this it just sits — approved, failing, and silent.
+#
+# On the PR's current commit: any failing check hands the PR to pr-revise
+# via the @cycgraph mention (once per commit, however many suites report
+# it); a failure on a later commit — the loop already tried once — stops
+# the cycle and labels the PR needs-human. A PR already parked on
+# needs-human gets no further comments. An all-green commit on a parked
+# PR clears the label, the heal path that makes the comments' promise
+# true. A suite for a commit the PR has moved past is ignored. Only PRs
+# carrying maintenance-managed and heading from this repository are
+# touched: your own PRs and fork branches with colliding names stay
+# untouched.
+#
+# Why the aggregate and not the suite's own conclusion: a repository can
+# have several reporting apps, and one suite finishing green while another
+# is still red is not a green PR. The suite completion is only the wake-up;
+# `gh pr checks` is the verdict.
 #
 # Secrets: MAINTENANCE_PAT — the mention only dispatches pr-revise when
 # the comment is posted by a PAT (the Actions token's comments fire no
@@ -16,34 +29,38 @@
 name: PR CI failure
 
 on:
-  workflow_run:
-    workflows: [CI]
+  check_suite:
     types: [completed]
 
 permissions:
   pull-requests: write
   issues: write
+  checks: read
+  statuses: read
 
-# Two CI runs finishing on one branch must not both read "no prior
-# failure" and dispatch pr-revise twice.
+# Suites finishing close together on one branch must not both read "no
+# prior failure" and dispatch pr-revise twice.
 concurrency:
-  group: pr-ci-failure-${{ github.event.workflow_run.head_branch }}
+  group: pr-ci-failure-${{ github.event.check_suite.head_branch }}
   cancel-in-progress: false
 
 jobs:
   react:
-    if: github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - name: React to the CI outcome
+      - name: React to the PR's aggregate check state
         env:
           GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          BRANCH: ${{ github.event.check_suite.head_branch }}
+          SUITE_SHA: ${{ github.event.check_suite.head_sha }}
           REPO: ${{ github.repository }}
           OWNER: ${{ github.repository_owner }}
         run: |
+          if [ -z "$BRANCH" ]; then
+            echo "check suite carries no head branch — nothing to do"
+            exit 0
+          fi
+
           pr=$(gh pr list -R "$REPO" --state open --head "$BRANCH" --label maintenance-managed \
             --json number,headRepositoryOwner \
             --jq "[.[] | select(.headRepositoryOwner.login == \"$OWNER\")][0].number // empty")
@@ -51,23 +68,72 @@ jobs:
             echo "no open maintenance-managed PR heading from $OWNER/$BRANCH — nothing to do"
             exit 0
           fi
+
+          # Only the current head's checks decide the PR's state; a suite
+          # for a commit the PR has moved past is stale.
+          head_sha=$(gh pr view -R "$REPO" "$pr" --json headRefOid --jq .headRefOid)
+          if [ "$SUITE_SHA" != "$head_sha" ]; then
+            echo "check suite is for superseded commit $SUITE_SHA (PR head is $head_sha) — ignoring"
+            exit 0
+          fi
+
+          # The aggregate rollup across every reporting app. `bucket`
+          # collapses each check to pass/fail/pending/skipping/cancel; the
+          # command exits non-zero when checks fail or are pending, so read
+          # its JSON and ignore the status.
+          checks=$(gh pr checks "$pr" -R "$REPO" --json bucket 2>/dev/null || true)
+          if [ -z "$checks" ]; then
+            echo "no checks reported yet on $SUITE_SHA — waiting"
+            exit 0
+          fi
+          total=$(echo "$checks" | jq 'length')
+          if [ "$total" -eq 0 ]; then
+            echo "no checks reported yet on $SUITE_SHA — waiting"
+            exit 0
+          fi
+          failing=$(echo "$checks" | jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length')
+          pending=$(echo "$checks" | jq '[.[] | select(.bucket == "pending")] | length')
+
           parked=$(gh pr view -R "$REPO" "$pr" --json labels --jq '[.labels[].name] | contains(["needs-human"])')
-          if [ "$CONCLUSION" = "success" ]; then
+          checks_url="https://github.com/$REPO/pull/$pr/checks"
+
+          if [ "$failing" -gt 0 ]; then
+            # One reaction per failing commit, however many suites report it.
+            done_this=$(gh pr view -R "$REPO" "$pr" --json comments \
+              --jq "[.comments[].body | select(contains(\"ci-gate:$SUITE_SHA\"))] | length")
+            if [ "$done_this" -gt 0 ]; then
+              echo "already reacted to the failure on $SUITE_SHA — another suite got there first"
+              exit 0
+            fi
             if [ "$parked" = "true" ]; then
-              gh pr edit -R "$REPO" "$pr" --remove-label needs-human || true
-              gh pr comment -R "$REPO" "$pr" --body "CI is green again on this PR: $RUN_URL — clearing the needs-human label."
+              echo "PR #$pr already waits on a human — no further comments"
+              exit 0
+            fi
+            # A prior gate comment means an earlier commit already failed:
+            # the loop has tried once, so this fresh failure escalates.
+            prior=$(gh pr view -R "$REPO" "$pr" --json comments \
+              --jq '[.comments[].body | select(contains("ci-gate:"))] | length')
+            if [ "$prior" -eq 0 ]; then
+              gh pr comment -R "$REPO" "$pr" --body "CI failed on this PR: $checks_url — @cycgraph please fix the failing checks. Reproduce the failure with run_check before pushing, and change nothing unrelated.
+
+          <!-- ci-gate:$SUITE_SHA -->"
+            else
+              gh label create needs-human -R "$REPO" 2>/dev/null || true
+              gh pr edit -R "$REPO" "$pr" --add-label needs-human || true
+              gh pr comment -R "$REPO" "$pr" --body "CI failed on this PR again: $checks_url. The loop already tried once, so this PR now carries the needs-human label and waits on you — a later green run, successful revision, or successful review clears it.
+
+          <!-- ci-gate:$SUITE_SHA -->"
             fi
             exit 0
           fi
-          if [ "$parked" = "true" ]; then
-            echo "PR #$pr already waits on a human — no further comments"
+
+          if [ "$pending" -gt 0 ]; then
+            echo "checks still pending on $SUITE_SHA — waiting for the rest"
             exit 0
           fi
-          prior=$(gh pr view -R "$REPO" "$pr" --json comments --jq '[.comments[].body | select(startswith("CI failed on this PR"))] | length')
-          if [ "$prior" -eq 0 ]; then
-            gh pr comment -R "$REPO" "$pr" --body "CI failed on this PR: $RUN_URL — @cycgraph please fix the failing checks. Reproduce the failure with run_check before pushing, and change nothing unrelated."
-          else
-            gh label create needs-human -R "$REPO" 2>/dev/null || true
-            gh pr edit -R "$REPO" "$pr" --add-label needs-human || true
-            gh pr comment -R "$REPO" "$pr" --body "CI failed on this PR again: $RUN_URL. The loop already tried once, so this PR now carries the needs-human label and waits on you — a later green run, successful revision, or successful review clears it."
+
+          # Nothing failing, nothing pending: the PR is green.
+          if [ "$parked" = "true" ]; then
+            gh pr edit -R "$REPO" "$pr" --remove-label needs-human || true
+            gh pr comment -R "$REPO" "$pr" --body "CI is green again on this PR: $checks_url — clearing the needs-human label."
           fi

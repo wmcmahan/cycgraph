@@ -63,6 +63,8 @@ export interface PrComment {
 /** A pull request's head branch and the human feedback on it. */
 export interface PrFeedback {
   headRefName: string;
+  /** True when the head branch lives in a fork, not this repository. */
+  isCrossRepository: boolean;
   title: string;
   /** The PR description: stated intent, provenance, and `Closes #N` linkage. */
   body: string;
@@ -136,9 +138,9 @@ export async function prFeedback(
   const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
   try {
     const { stdout } = await exec(
-      'gh', ['pr', 'view', String(prNumber), '--json', 'headRefName,title,body,labels,reviews,comments'], opts);
+      'gh', ['pr', 'view', String(prNumber), '--json', 'headRefName,isCrossRepository,title,body,labels,reviews,comments'], opts);
     const view = JSON.parse(stdout) as {
-      headRefName: string; title: string; body?: string;
+      headRefName: string; isCrossRepository?: boolean; title: string; body?: string;
       labels?: { name?: string }[];
       reviews?: { author?: { login?: string }; authorAssociation?: string; body?: string }[];
       comments?: { author?: { login?: string }; authorAssociation?: string; body?: string }[];
@@ -164,7 +166,7 @@ export async function prFeedback(
       })),
     ];
     const labels = (view.labels ?? []).map((label) => label.name ?? '').filter((name) => name !== '');
-    return { headRefName: view.headRefName, title: view.title, body: view.body ?? '', labels, comments };
+    return { headRefName: view.headRefName, isCrossRepository: view.isCrossRepository ?? true, title: view.title, body: view.body ?? '', labels, comments };
   } catch {
     return undefined;
   }

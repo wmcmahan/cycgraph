@@ -20,8 +20,8 @@ on:
         description: Workflow to tune
         required: true
         type: choice
-        options: [docs-maintenance, repo-docs, website-docs, repo-audit, feat-propose]
-        default: docs-maintenance
+        options: [fix-repo-docs, fix-website-docs, repo-audit, feature-propose]
+        default: fix-repo-docs
       trials:
         description: Dry runs per arm
         required: false

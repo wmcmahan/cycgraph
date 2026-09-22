@@ -23,13 +23,51 @@ import { dirname, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { DEFAULT_IDENTITY, type CommitIdentity, type PublishConfig } from './config.js';
 
-const exec = promisify(execFile);
+const rawExec = promisify(execFile);
+
+/**
+ * How long any git or gh call here may run before it is killed. A
+ * delivery step (clone, push, PR create) that hangs would otherwise wedge
+ * a run with no bound; `execFile`'s own timeout SIGTERMs the child, which
+ * the tool layer's `Promise.race` timeout cannot.
+ */
+const GIT_EXEC_TIMEOUT_MS = 300_000;
+
+/** `execFile` with a hard timeout applied to every delivery call. */
+const exec = (
+  file: string,
+  args: readonly string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; maxBuffer?: number; timeout?: number } = {},
+): Promise<{ stdout: string; stderr: string }> =>
+  rawExec(file, [...args], { timeout: GIT_EXEC_TIMEOUT_MS, ...options }) as Promise<{ stdout: string; stderr: string }>;
 
 function assertSafeGitArg(value: string, name: string): void {
   const trimmed = value.trim();
   if (trimmed === '' || trimmed.startsWith('-')) {
     throw new Error(`Invalid ${name}: ${value}`);
   }
+}
+
+/**
+ * Whether a ref name is safe to hand to git as a branch argument. A pull
+ * request's head branch name is chosen by whoever pushed the branch, so it
+ * is validated against git's ref-format rules before it reaches a fetch
+ * refspec or a checkout: a name beginning with a dash would be read as an
+ * option, and the metacharacters below could escape a refspec. Restricted
+ * to an allowlist so an unforeseen ref shape fails closed.
+ */
+export function isSafeGitRef(ref: string): boolean {
+  if (ref === '' || ref.length > 255) return false;
+  // Reject control characters and space by code point.
+  for (let i = 0; i < ref.length; i++) {
+    const code = ref.charCodeAt(i);
+    if (code <= 0x20 || code === 0x7f) return false;
+  }
+  // The git ref metacharacters ~ ^ : ? * [ \ cannot appear in a branch name.
+  if (/[~^:?*[\\]/.test(ref)) return false;
+  if (ref.startsWith('-') || ref.startsWith('/') || ref.startsWith('.')) return false;
+  if (ref.endsWith('/') || ref.endsWith('.') || ref.endsWith('.lock')) return false;
+  return !(ref.includes('..') || ref.includes('//') || ref.includes('@{'));
 }
 
 /** A disposable clone on its own branch. */
@@ -275,28 +313,30 @@ export async function publishBranch(
   config: PublishConfig = {},
 ): Promise<Published> {
   await pushBranch(ws, repoRoot);
+  const ghEnv = config.token !== undefined ? { env: { ...process.env, GH_TOKEN: config.token } } : {};
+  const labels = config.labels ?? [];
+  // Ensure each label exists (best-effort — an existing label or a
+  // read-only token just fails and is ignored) so that creating the PR
+  // already labeled cannot fail on a missing label. Creation and labeling
+  // are then one atomic step: a crash can no longer leave a managed PR
+  // without its label, invisible to the idle gate and the review loop.
+  for (const label of labels) {
+    try {
+      await exec('gh', ['label', 'create', label], { cwd: repoRoot, ...ghEnv });
+    } catch {
+      // Already present, or the token cannot create it; the create below
+      // still applies the label when it exists.
+    }
+  }
   try {
     const { stdout } = await exec(
       'gh',
-      ['pr', 'create', '--head', ws.branch, '--title', title, '--body', body],
-      {
-        cwd: repoRoot,
-        ...(config.token !== undefined ? { env: { ...process.env, GH_TOKEN: config.token } } : {}),
-      },
+      ['pr', 'create', '--head', ws.branch, '--title', title, '--body', body,
+        ...labels.flatMap((label) => ['--label', label])],
+      { cwd: repoRoot, ...ghEnv },
     );
     const prUrl = stdout.trim().split('\n').pop() ?? '';
-    let labelNote = '';
-    for (const label of config.labels ?? []) {
-      try {
-        await exec('gh', ['pr', 'edit', prUrl, '--add-label', label], {
-          cwd: repoRoot,
-          ...(config.token !== undefined ? { env: { ...process.env, GH_TOKEN: config.token } } : {}),
-        });
-      } catch {
-        labelNote = `; label '${label}' not applied (missing from the repository?)`;
-      }
-    }
-    return { pushed: true, prUrl, detail: `opened ${prUrl}${labelNote}` };
+    return { pushed: true, prUrl, detail: `opened ${prUrl}` };
   } catch (error) {
     const reason = (error as NodeJS.ErrnoException).code === 'ENOENT'
       ? 'gh is not installed'

@@ -19,6 +19,7 @@ export {
   pendingDiff,
   publishBranch,
   publishScript,
+  isSafeGitRef,
 } from './branch.js';
 export {
   commentOnPr,
@@ -33,7 +34,7 @@ export {
   submitPrReview,
 } from './pr.js';
 export type { PrComment, PrFeedback, ReviewInlineComment, ReviewSubmission, ReviewThread } from './pr.js';
-export { addIssueLabel, commentOnIssue, createIssue, findingMarker, issueMarkers, listOpenIssues, viewIssue } from './issues.js';
+export { addIssueLabel, commentOnIssue, createIssue, findingMarker, issueMarkers, listOpenIssues, viewIssue, DEFAULT_MARKER_NAMESPACE } from './issues.js';
 export type { IssueRef } from './issues.js';
 export type { Branch, Published } from './branch.js';
 export { DEFAULT_IDENTITY, publishConfigFromEnv } from './config.js';

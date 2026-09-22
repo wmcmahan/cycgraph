@@ -600,6 +600,50 @@ describe('issueMarkers', () => {
 
     expect(keys).toEqual(new Set(['todo:x.ts:fix-me', 'lint-warning:y.ts:rule']));
   });
+
+  it('round-trips a marker written and read under a custom namespace', async () => {
+    const { findingMarker, issueMarkers } = await import('../src/git/issues.js');
+    const issues = [{ number: 1, title: 'a', body: findingMarker('todo:x.ts:fix-me', 'acme:finding') }];
+
+    expect(issueMarkers(issues, 'acme:finding')).toEqual(new Set(['todo:x.ts:fix-me']));
+  });
+
+  it('does not recover a marker written under a different namespace', async () => {
+    const { findingMarker, issueMarkers } = await import('../src/git/issues.js');
+    const issues = [{ number: 1, title: 'a', body: findingMarker('todo:x.ts:fix-me', 'acme:finding') }];
+
+    expect(issueMarkers(issues)).toEqual(new Set());
+  });
+});
+
+describe('isSafeGitRef', () => {
+  it('accepts ordinary branch names', async () => {
+    const { isSafeGitRef } = await import('../src/git/branch.js');
+
+    for (const ref of ['main', 'feature/x', 'fix-123', 'a.b_c/d-e']) expect(isSafeGitRef(ref)).toBe(true);
+  });
+
+  it('rejects a name that could become a git option', async () => {
+    const { isSafeGitRef } = await import('../src/git/branch.js');
+
+    expect(isSafeGitRef('--upload-pack=x')).toBe(false);
+    expect(isSafeGitRef('-x')).toBe(false);
+  });
+
+  it('rejects ref-format violations and metacharacters', async () => {
+    const { isSafeGitRef } = await import('../src/git/branch.js');
+
+    for (const ref of ['a b', 'a..b', 'a~b', 'a^b', 'a:b', 'a?b', 'a*b', 'a//b', 'a/', '.hidden', 'a@{b', '', 'x'.repeat(256)]) {
+      expect(isSafeGitRef(ref)).toBe(false);
+    }
+  });
+
+  it('rejects a control character in the name', async () => {
+    const { isSafeGitRef } = await import('../src/git/branch.js');
+
+    expect(isSafeGitRef(`a${String.fromCharCode(0)}b`)).toBe(false);
+    expect(isSafeGitRef(`a${String.fromCharCode(9)}b`)).toBe(false);
+  });
 });
 
 describe('listOpenIssues', () => {
