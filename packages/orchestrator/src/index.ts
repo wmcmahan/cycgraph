@@ -140,7 +140,11 @@ export type { LanguageModelFactory, ProviderOptions } from './agents/providers/p
 export { UnsupportedProviderError } from './agents/factory/errors.js';
 export { registerOllamaProvider } from './agents/providers/ollama-provider.js';
 export type { OllamaModelFactory, OllamaProviderOptions } from './agents/providers/ollama-provider.js';
-export { OLLAMA_MODELS } from './agents/constants.js';
+export { registerOpenAICompatibleProviders, OPENAI_COMPATIBLE_PROVIDERS } from './agents/providers/openai-compatible.js';
+export type { OpenAICompatibleModelFactory, OpenAICompatibleProviderSpec, OpenAICompatibleProviderOptions } from './agents/providers/openai-compatible.js';
+export { registerGoogleProvider } from './agents/providers/google-provider.js';
+export type { GoogleModelFactory, GoogleProviderOptions } from './agents/providers/google-provider.js';
+export { OLLAMA_MODELS, GOOGLE_MODELS, GROQ_MODELS, DEEPSEEK_API_MODELS, XAI_MODELS, MISTRAL_MODELS, CEREBRAS_MODELS } from './agents/constants.js';
 
 // ─── Context Compression ───────────────────────────────────────────
 

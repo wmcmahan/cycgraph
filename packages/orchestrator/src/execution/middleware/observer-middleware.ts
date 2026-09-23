@@ -15,7 +15,7 @@
  *   middleware: [createObserverMiddleware({
  *     diagnosticAgent: {
  *       provider: 'anthropic',
- *       model: 'claude-sonnet-4-6',
+ *       model: 'claude-sonnet-5',
  *       onDiagnostic: (report) => console.log(report),
  *     },
  *   })],
@@ -85,7 +85,7 @@ export interface ObserverMiddlewareOptions {
 export interface DiagnosticAgentOptions {
   /** LLM provider name (e.g. `'anthropic'`, `'openai'`). */
   provider: string;
-  /** Model ID (e.g. `'claude-sonnet-4-6'`). */
+  /** Model ID (e.g. `'claude-sonnet-5'`). */
   model: string;
   /** Callback that receives the diagnostic report. */
   onDiagnostic: (report: string, findings: ObserverFinding[]) => void;

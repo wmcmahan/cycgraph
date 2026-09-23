@@ -21,7 +21,7 @@ export const AGENT_BRAND: unique symbol = Symbol('cycgraph.authoring.agent');
 
 /** What an agent IS — never where it runs. */
 export interface AgentSpec {
-  /** LLM model identifier (e.g. `'claude-sonnet-4-6'`). */
+  /** LLM model identifier (e.g. `'claude-sonnet-5'`). */
   model: string;
   /** System prompt. */
   instructions: string;

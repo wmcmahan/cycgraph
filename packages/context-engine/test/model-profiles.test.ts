@@ -15,8 +15,15 @@ describe('resolveModelProfile', () => {
     expect(profile?.supportsCaching).toBe(true);
   });
 
-  it('resolves a claude model string to the claude profile', () => {
-    const profile = resolveModelProfile('claude-sonnet-4-6');
+  it('resolves a 1M-context claude model to its specific profile', () => {
+    const profile = resolveModelProfile('claude-sonnet-5');
+
+    expect(profile?.family).toBe('claude');
+    expect(profile?.maxContextTokens).toBe(1_000_000);
+  });
+
+  it('resolves an older claude model to the generic 200K claude profile', () => {
+    const profile = resolveModelProfile('claude-haiku-4-5');
 
     expect(profile?.family).toBe('claude');
     expect(profile?.maxContextTokens).toBe(200_000);
@@ -50,12 +57,24 @@ describe('resolveModelProfile', () => {
 describe('MODEL_PROFILES', () => {
   it('includes every supported model family', () => {
     expect(Object.keys(MODEL_PROFILES)).toEqual([
+      'gpt-6',
+      'gpt-5',
       'gpt-4o',
       'gpt-4',
       'o1',
       'o3',
+      'claude-fable-5',
+      'claude-opus-5',
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+      'claude-opus-4-6',
+      'claude-sonnet-5',
+      'claude-sonnet-4-6',
       'claude',
       'llama',
+      'grok',
+      'deepseek-v4-pro',
+      'deepseek-flash',
       'deepseek',
       'qwen',
       'gemini',

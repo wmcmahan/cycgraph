@@ -20,6 +20,8 @@ import type { TokenCounter, CompressionProvider, EmbeddingProvider, Summarizatio
  */
 const MODEL_FAMILY_RATIOS: Record<string, number> = {
   // OpenAI cl100k_base / o200k_base family
+  'gpt-6': 3.5,
+  'gpt-5': 3.5,
   'gpt-4': 3.5,
   'gpt-4o': 3.5,
   'gpt-4-turbo': 3.5,
@@ -28,6 +30,7 @@ const MODEL_FAMILY_RATIOS: Record<string, number> = {
   'o3': 3.5,
   'claude': 3.8,
   'llama': 3.6,
+  'grok': 3.6,
   'deepseek': 3.6,
   'qwen': 3.6,
   'gemini': 3.7,
