@@ -33,6 +33,13 @@ export interface ModelPricing {
  */
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   // OpenAI
+  'gpt-6-astra': { inputPerMToken: 10.00, outputPerMToken: 50.00 },
+  'gpt-6-sol': { inputPerMToken: 2.00, outputPerMToken: 10.00 },
+  'gpt-6-luna': { inputPerMToken: 0.10, outputPerMToken: 0.50 },
+  'gpt-5.1': { inputPerMToken: 1.25, outputPerMToken: 10.00 },
+  'gpt-5': { inputPerMToken: 1.25, outputPerMToken: 10.00 },
+  'gpt-5-mini': { inputPerMToken: 0.25, outputPerMToken: 2.00 },
+  'gpt-5-nano': { inputPerMToken: 0.05, outputPerMToken: 0.40 },
   'gpt-4o': { inputPerMToken: 2.50, outputPerMToken: 10.00 },
   'gpt-4o-mini': { inputPerMToken: 0.15, outputPerMToken: 0.60 },
   'gpt-4-turbo': { inputPerMToken: 10.00, outputPerMToken: 30.00 },
@@ -44,17 +51,56 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   'o3-mini': { inputPerMToken: 1.10, outputPerMToken: 4.40 },
   'o4-mini': { inputPerMToken: 1.10, outputPerMToken: 4.40 },
   // Anthropic Claude
+  'claude-fable-5-1': { inputPerMToken: 10.00, outputPerMToken: 50.00 },
+  'claude-opus-5-5': { inputPerMToken: 4.00, outputPerMToken: 20.00 },
   'claude-fable-5': { inputPerMToken: 10.00, outputPerMToken: 50.00 },
   'claude-opus-5': { inputPerMToken: 5.00, outputPerMToken: 25.00 },
   'claude-sonnet-5': { inputPerMToken: 2.00, outputPerMToken: 10.00 },
   'claude-opus-4-8': { inputPerMToken: 5.00, outputPerMToken: 25.00 },
+  'claude-opus-4-7': { inputPerMToken: 5.00, outputPerMToken: 25.00 },
+  'claude-opus-4-6': { inputPerMToken: 5.00, outputPerMToken: 25.00 },
   'claude-opus-4-20250514': { inputPerMToken: 15.00, outputPerMToken: 75.00 },
   'claude-sonnet-4-20250514': { inputPerMToken: 3.00, outputPerMToken: 15.00 },
   'claude-sonnet-4-6': { inputPerMToken: 3.00, outputPerMToken: 15.00 },
+  'claude-haiku-4-5': { inputPerMToken: 1.00, outputPerMToken: 5.00 },
   'claude-haiku-4-5-20251001': { inputPerMToken: 1.00, outputPerMToken: 5.00 },
   'claude-3-5-sonnet-20241022': { inputPerMToken: 3.00, outputPerMToken: 15.00 },
   'claude-3-5-haiku-20241022': { inputPerMToken: 0.80, outputPerMToken: 4.00 },
   'claude-3-opus-20240229': { inputPerMToken: 15.00, outputPerMToken: 75.00 },
+  // Google Gemini (3.1 Pro: base tier, prompts under 200K tokens;
+  // 3.6–3.8 Flash rates are promotional through 2026-12-31, doubling after)
+  'gemini-3.8-flash': { inputPerMToken: 0.75, outputPerMToken: 3.75 },
+  'gemini-3.7-flash': { inputPerMToken: 0.75, outputPerMToken: 3.75 },
+  'gemini-3.6-flash': { inputPerMToken: 0.75, outputPerMToken: 3.75 },
+  'gemini-3.5-flash': { inputPerMToken: 1.50, outputPerMToken: 9.00 },
+  'gemini-3.5-flash-lite': { inputPerMToken: 0.30, outputPerMToken: 2.50 },
+  'gemini-3.1-pro-preview': { inputPerMToken: 2.00, outputPerMToken: 12.00 },
+  'gemini-2.5-flash-lite': { inputPerMToken: 0.10, outputPerMToken: 0.40 },
+  // xAI Grok (base tier: prompts under 200K tokens; longer prompts bill higher)
+  'grok-4.7': { inputPerMToken: 2.00, outputPerMToken: 6.00 },
+  'grok-4.6': { inputPerMToken: 2.00, outputPerMToken: 6.00 },
+  'grok-4.5': { inputPerMToken: 2.00, outputPerMToken: 6.00 },
+  'grok-4.3': { inputPerMToken: 1.25, outputPerMToken: 2.50 },
+  'grok-build-0.1': { inputPerMToken: 1.00, outputPerMToken: 2.00 },
+  // DeepSeek API (peak rates; off-peak windows bill half)
+  'deepseek-v4-pro': { inputPerMToken: 1.32, outputPerMToken: 3.96 },
+  'deepseek-flash': { inputPerMToken: 0.30, outputPerMToken: 1.20 },
+  // Mistral API (`-latest` aliases; cached input bills at 10% via CACHE_READ_INPUT_RATE)
+  'mistral-large-latest': { inputPerMToken: 0.50, outputPerMToken: 1.50 },
+  'mistral-medium-latest': { inputPerMToken: 1.50, outputPerMToken: 7.50 },
+  'mistral-small-latest': { inputPerMToken: 0.15, outputPerMToken: 0.60 },
+  'codestral-latest': { inputPerMToken: 0.30, outputPerMToken: 0.90 },
+  'ministral-8b-latest': { inputPerMToken: 0.15, outputPerMToken: 0.15 },
+  'ministral-3b-latest': { inputPerMToken: 0.10, outputPerMToken: 0.10 },
+  // Groq-hosted open models. The Llama rates are the last published ones:
+  // both moved to enterprise contact-sales pricing on 2026-08-26, so hosts
+  // with negotiated rates should override via setModelPricing/loadPricingTable.
+  'llama-3.3-70b-versatile': { inputPerMToken: 0.59, outputPerMToken: 0.79 },
+  'llama-3.1-8b-instant': { inputPerMToken: 0.05, outputPerMToken: 0.08 },
+  'openai/gpt-oss-120b': { inputPerMToken: 0.15, outputPerMToken: 0.60 },
+  'openai/gpt-oss-20b': { inputPerMToken: 0.075, outputPerMToken: 0.30 },
+  // Cerebras (qwen-3.8-27b has no public rate — dedicated-endpoint pricing only)
+  'gpt-oss-120b': { inputPerMToken: 0.35, outputPerMToken: 0.75 },
   // Ollama / local models (no API cost)
   'llama3.1': { inputPerMToken: 0, outputPerMToken: 0 },
   'llama3.1:8b': { inputPerMToken: 0, outputPerMToken: 0 },

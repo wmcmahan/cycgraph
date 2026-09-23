@@ -28,6 +28,20 @@ export interface ModelProfile {
  * Character-to-token ratios live in providers/defaults.ts (MODEL_FAMILY_RATIOS).
  */
 export const MODEL_PROFILES: Readonly<Record<string, ModelProfile>> = {
+  'gpt-6': {
+    family: 'gpt-6',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_050_000,
+    supportsCaching: true,
+  },
+  'gpt-5': {
+    family: 'gpt-5',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 400_000,
+    supportsCaching: true,
+  },
   'gpt-4o': {
     family: 'gpt-4o',
     supportsTabular: true,
@@ -56,6 +70,58 @@ export const MODEL_PROFILES: Readonly<Record<string, ModelProfile>> = {
     maxContextTokens: 200_000,
     supportsCaching: true,
   },
+  // 1M-context Claude models; listed before the generic 'claude' entry so
+  // prefix matching picks them up first. Older Claude models (Haiku 4.5,
+  // Claude 3.x, dated Opus/Sonnet 4 snapshots) fall through to 200K.
+  'claude-fable-5': {
+    family: 'claude',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
+  },
+  'claude-opus-5': {
+    family: 'claude',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
+  },
+  'claude-opus-4-8': {
+    family: 'claude',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
+  },
+  'claude-opus-4-7': {
+    family: 'claude',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
+  },
+  'claude-opus-4-6': {
+    family: 'claude',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
+  },
+  'claude-sonnet-5': {
+    family: 'claude',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
+  },
+  'claude-sonnet-4-6': {
+    family: 'claude',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
+  },
   'claude': {
     family: 'claude',
     supportsTabular: true,
@@ -69,6 +135,29 @@ export const MODEL_PROFILES: Readonly<Record<string, ModelProfile>> = {
     prefersJson: false,
     maxContextTokens: 128_000,
     supportsCaching: false,
+  },
+  'grok': {
+    family: 'grok',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 500_000,
+    supportsCaching: true,
+  },
+  // 1M-context DeepSeek API models; listed before the generic 'deepseek'
+  // entry (local distills at 128K) so prefix matching picks them up first.
+  'deepseek-v4-pro': {
+    family: 'deepseek',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
+  },
+  'deepseek-flash': {
+    family: 'deepseek',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
   },
   'deepseek': {
     family: 'deepseek',

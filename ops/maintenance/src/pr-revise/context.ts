@@ -17,6 +17,8 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { createWorkspaceSession } from '@cycgraph/tools/workspace';
 import type { WorkspaceSession } from '@cycgraph/tools/workspace';
+import { ghRunner } from '../shared/ci-logs.js';
+import type { CmdRunner } from '../shared/ci-logs.js';
 import { contextOf, resolveStandardsBrief } from '../shared/context.js';
 import type { MaintenanceContext } from '../shared/context.js';
 import { resolveRepo } from '../shared/repo.js';
@@ -25,8 +27,8 @@ import type { MaintenanceEnv } from '../types.js';
 export const params = z.object({
   repoRoot: z.string().default('')
     .describe('Repository the pull request belongs to. Empty means the repository this runs inside'),
-  pr: z.number().int().min(1)
-    .describe('The pull request whose review feedback is addressed'),
+  pr: z.number().int().min(0).default(0)
+    .describe('The pull request whose review feedback is addressed. Zero picks the open pull request of the checked-out branch'),
   checks: z.array(z.string()).default([])
     .describe('Commands that must pass before the revision is pushed, e.g. ["npm run lint:eslint"]'),
   attempts: z.number().int().min(1).max(4).default(2)
@@ -58,18 +60,41 @@ export interface ReviseContext {
   token: string | undefined;
 }
 
+/**
+ * Resolve the `pr: 0` sentinel to the open pull request of the branch
+ * checked out in `repoRoot`, as `gh pr view` sees it.
+ *
+ * @throws {Error} When gh is unavailable or the branch has no open PR —
+ *   there is nothing the run could safely act on.
+ */
+export async function resolveCurrentBranchPr(
+  repoRoot: string,
+  options: { token?: string; run?: CmdRunner } = {},
+): Promise<number> {
+  const run = options.run ?? ghRunner(repoRoot, options.token);
+  try {
+    const view = JSON.parse(await run(['pr', 'view', '--json', 'number'])) as { number?: number };
+    if (typeof view.number === 'number' && view.number >= 1) return view.number;
+  } catch { /* fall through to the uniform error below */ }
+  throw new Error('pr-revise: no pull request given and the checked-out branch has no open pull request gh can see');
+}
+
 /** Resolve everything the run's parts share, once, at the top of `build`. */
 export async function buildReviseContext(params: Params, env: MaintenanceEnv): Promise<ReviseContext> {
   const repoRoot = await resolveRepo(params.repoRoot);
   const maintenance = contextOf(env);
+  const token = env.publish?.token;
+  const pr = params.pr === 0
+    ? await resolveCurrentBranchPr(repoRoot, token !== undefined ? { token } : {})
+    : params.pr;
   return {
-    params,
+    params: { ...params, pr },
     env,
     repoRoot,
     maintenance,
     standardsBrief: await resolveStandardsBrief(repoRoot, maintenance),
     workspaceAt: join(tmpdir(), `cycgraph-pr-revise-${randomUUID()}`),
     session: createWorkspaceSession(),
-    token: env.publish?.token,
+    token,
   };
 }

@@ -53,7 +53,7 @@ export const AgentConfigSchema = z.object({
 
   // ── AI SDK Core Properties ──
 
-  /** Model identifier (e.g. `'claude-sonnet-4-6'`, `'gpt-4-turbo'`). */
+  /** Model identifier (e.g. `'claude-sonnet-5'`, `'gpt-5'`). */
   model: z.string(),
   /** LLM provider — determines which AI SDK factory is used. */
   provider: z.string(),
@@ -92,7 +92,7 @@ export const AgentConfigSchema = z.object({
    * ```json
    * {
    *   "anthropic": {
-   *     "thinking": { "type": "enabled", "budgetTokens": 12000 }
+   *     "thinking": { "type": "adaptive" }
    *   }
    * }
    * ```

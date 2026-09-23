@@ -510,7 +510,7 @@ Key behaviors:
 - **Open-ended providers opt out** via `allowUnknownModels: true` (Ollama, where model ids are arbitrary local tags) — unknown models pass through with a warning.
 - **Provider inference** (`inferProvider`) matches the model id against registered model lists exactly, falling back to `DEFAULT_AGENT_PROVIDER` with a warning. The old prefix heuristics are gone.
 
-`registerOllamaProvider()` ([providers/ollama-provider.ts](providers/ollama-provider.ts)) wires local Ollama models via factory injection with zero added dependencies.
+`registerOllamaProvider()` ([providers/ollama-provider.ts](providers/ollama-provider.ts)) wires local Ollama models via factory injection with zero added dependencies. `registerOpenAICompatibleProviders()` ([providers/openai-compatible.ts](providers/openai-compatible.ts)) does the same for the hosted OpenAI-compatible catalog — Groq, DeepSeek, xAI, OpenRouter, Mistral, Together, Fireworks, Cerebras — plus any `extra` endpoint the host supplies. `registerGoogleProvider()` ([providers/google-provider.ts](providers/google-provider.ts)) wires Gemini natively, since its thinking configs and cache-usage reporting do not survive the OpenAI-compatible surface.
 
 ### Budget-Aware Model Resolution ([models/model-resolver.ts](models/model-resolver.ts))
 
@@ -551,7 +551,7 @@ Domain constants live in [constants.ts](constants.ts) directly:
 
 | Constant | Value |
 |----------|-------|
-| `DEFAULT_AGENT_MODEL` | `claude-sonnet-4-6` |
+| `DEFAULT_AGENT_MODEL` | `claude-sonnet-5` |
 | `DEFAULT_AGENT_PROVIDER` | `anthropic` |
 | `DEFAULT_AGENT_TEMPERATURE` | `0.7` |
 | `DEFAULT_AGENT_MAX_STEPS` | `10` |
@@ -571,7 +571,7 @@ Zod-validated configuration schema (`AgentConfigSchema`). Agents are **pure conf
   id: string,
   name: string,
   description?: string,
-  model: string,                 // e.g. 'claude-sonnet-4-6'
+  model: string,                 // e.g. 'claude-sonnet-5'
   provider: string,              // any registered provider name
   system: string,                // system prompt
   temperature: number,           // 0–2 (Anthropic capped at 1 via cross-field check)

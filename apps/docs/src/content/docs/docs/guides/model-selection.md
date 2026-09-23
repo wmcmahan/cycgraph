@@ -142,7 +142,7 @@ The resolver estimates call cost before execution using conservative token budge
 | `medium` | 2,300 | 1,150 |
 | `low` | 1,150 | 575 |
 
-These include a ~15% headroom buffer. If the agent uses Anthropic extended thinking (`providerOptions.anthropic.thinking.budgetTokens`), those tokens are added to the input estimate.
+These include a ~15% headroom buffer. If the agent config sets a fixed Anthropic thinking budget via `providerOptions.anthropic.thinking.budgetTokens`, which only applies to models before Claude 4.6, those tokens are added to the input estimate. Current models use adaptive thinking and carry no fixed budget, so nothing is added for them.
 
 Unknown models are assigned a conservative fallback cost of $0.05 per call (fail-closed).
 

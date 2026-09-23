@@ -21,7 +21,7 @@ export {
 // ─── Default Agent Config ───────────────────────────────────────────────
 
 /** Default LLM model identifier when none is specified. */
-export const DEFAULT_AGENT_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_AGENT_MODEL = 'claude-sonnet-5';
 
 /** Default LLM provider. */
 export const DEFAULT_AGENT_PROVIDER = 'anthropic';
@@ -40,19 +40,62 @@ export const DEFAULT_AGENT_SYSTEM_PROMPT =
 
 /** Known OpenAI model identifiers for provider inference and validation. */
 export const OPENAI_MODELS = [
+  'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna',
+  'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
   'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4',
   'o1-preview', 'o1-mini', 'o3', 'o3-mini', 'o4-mini',
 ];
 
 /** Known Anthropic model identifiers for provider inference and validation. */
 export const ANTHROPIC_MODELS = [
+  'claude-fable-5-1', 'claude-opus-5-5',
   'claude-fable-5', 'claude-opus-5', 'claude-sonnet-5',
-  'claude-opus-4-8', 'claude-sonnet-4-6',
+  'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-haiku-4-5', 'claude-haiku-4-5-20251001',
   // Deprecated by Anthropic (retire 2026-06-15) — kept so existing configs still validate
   'claude-opus-4-20250514', 'claude-sonnet-4-20250514',
-  'claude-haiku-4-5-20251001',
   'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022',
   'claude-3-opus-20240229',
+];
+
+/** Known Google Gemini model identifiers for provider inference and validation. */
+export const GOOGLE_MODELS = [
+  'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash',
+  'gemini-3.5-flash', 'gemini-3.5-flash-lite',
+  'gemini-3.1-pro-preview',
+  'gemini-2.5-flash-lite',
+];
+
+/** Known Groq-hosted model identifiers for provider inference and validation. */
+export const GROQ_MODELS = [
+  'llama-3.3-70b-versatile', 'llama-3.1-8b-instant',
+  'openai/gpt-oss-120b', 'openai/gpt-oss-20b',
+];
+
+/** Known DeepSeek API model identifiers for provider inference and validation. */
+export const DEEPSEEK_API_MODELS = [
+  'deepseek-v4-pro', 'deepseek-flash',
+];
+
+/** Known xAI model identifiers for provider inference and validation. */
+export const XAI_MODELS = [
+  'grok-4.7', 'grok-4.6', 'grok-4.5', 'grok-4.3', 'grok-build-0.1',
+];
+
+/**
+ * Known Mistral API model identifiers for provider inference and validation.
+ * The `-latest` aliases track the newest version of each line; dated
+ * snapshots (e.g. `mistral-medium-2604`) pass through as unknown models.
+ */
+export const MISTRAL_MODELS = [
+  'mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest',
+  'codestral-latest', 'ministral-8b-latest', 'ministral-3b-latest',
+];
+
+/** Known Cerebras-hosted model identifiers for provider inference and validation. */
+export const CEREBRAS_MODELS = [
+  'gpt-oss-120b', 'qwen-3.8-27b',
 ];
 
 /** Known Ollama model identifiers for provider inference and validation. */
@@ -76,5 +119,11 @@ export const PROVIDERS_MODELS = {
   'openai': OPENAI_MODELS,
   'anthropic': ANTHROPIC_MODELS,
   'ollama': OLLAMA_MODELS,
+  'google': GOOGLE_MODELS,
+  'groq': GROQ_MODELS,
+  'deepseek': DEEPSEEK_API_MODELS,
+  'xai': XAI_MODELS,
+  'mistral': MISTRAL_MODELS,
+  'cerebras': CEREBRAS_MODELS,
 } as const;
 

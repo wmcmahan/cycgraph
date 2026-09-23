@@ -83,7 +83,8 @@ function tail(text: string, chars: number): string {
   return `… (earlier output truncated)\n${text.slice(-chars)}`.trimEnd();
 }
 
-function defaultRunner(repoRoot: string, token?: string): CmdRunner {
+/** A {@link CmdRunner} that invokes `gh` in `repoRoot`, authenticated when a token is given. */
+export function ghRunner(repoRoot: string, token?: string): CmdRunner {
   const env = token !== undefined ? { ...process.env, GH_TOKEN: token } : process.env;
   return async (args) => {
     const { stdout } = await exec('gh', [...args], { cwd: repoRoot, env, maxBuffer: 32 * 1024 * 1024 });
@@ -101,7 +102,7 @@ export async function fetchCiFailureLogs(
   ref: { branch: string; headSha: string },
   options: { token?: string; run?: CmdRunner } = {},
 ): Promise<string | undefined> {
-  const run = options.run ?? defaultRunner(repoRoot, options.token);
+  const run = options.run ?? ghRunner(repoRoot, options.token);
 
   let rows: RunRow[];
   try {
