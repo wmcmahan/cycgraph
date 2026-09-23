@@ -1,6 +1,6 @@
 {
   "name": "@cycgraph/context-engine",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Prompt compression engine with composable pipeline that makes every token count.",
   "keywords": [
     "context-compression",

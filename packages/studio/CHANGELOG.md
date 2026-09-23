@@ -1,5 +1,26 @@
 # @cycgraph/studio
 
+## 0.2.2
+
+### Patch Changes
+
+- 3efdd17: `applyProposal` now reports the real fixture flag instead of always `false`: it accepts the resolved repository from `resolveApplyRepo` (a bare path still means the real repo) and carries `fixture` into its outcome. The unattended `loop --autonomy apply` path now warns again when the committed branch lives in a throwaway fixture clone with no remote.
+- 043cebb: The improve ladder's built-in apply stage now briefs the editor on, edits, typechecks, and verifies the workflow's own declared source file instead of assuming this repository's `packages/playground` layout, so `play improve` works on a host repository's workflows.
+- 605a27b: Fix the Logs page dropping rows when runs overlap in time: the cross-run scan now compares each run's recorded end against the page's true oldest kept row instead of the last row appended before sorting, so concurrent runs no longer cut the merged stream short.
+- dad91e1: The playground's scenario MCP server is now registered with a 35s connection timeout instead of 30s, strictly above the `slow` tool's 30s sleep cap. A scenario calling `slow(ms: 30000)` now reliably trips the engine's per-tool timeout instead of racing a transport-level connection abort.
+- b35f7b0: The CLI usage text now renders the host's own banner and invocation instead of a hardcoded `cycgraph playground` / `npm run play -- ` prefix, so an unrecognized `cycgraph-studio` subcommand prints examples as `npm run studio -- ...` as the README documents. The `watch` follow-up hint and the empty-ledger `proposals` hint are spelled from the same resolved invocation. Hosts embedding the CLI can name their own invocation through the new `usage` field on `CliHarness`, which commands now read from `CliContext.usage`.
+- Updated dependencies [b47bd71]
+- Updated dependencies [791a1ca]
+- Updated dependencies [9b24d23]
+- Updated dependencies [7081052]
+- Updated dependencies [e14c00f]
+- Updated dependencies [8ea63ea]
+- Updated dependencies [f29ecf9]
+  - @cycgraph/orchestrator@1.5.0
+  - @cycgraph/a2a@1.1.8
+  - @cycgraph/tools@1.5.2
+  - @cycgraph/orchestrator-postgres@4.1.4
+
 ## 0.2.1
 
 ### Patch Changes
