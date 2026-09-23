@@ -1,5 +1,12 @@
 # @cycgraph/tools
 
+## 1.5.2
+
+### Patch Changes
+
+- 7081052: The workspace jail now resolves paths through `realpath` (or the deepest existing ancestor, for new files) and refuses any path whose real target leaves the root. A symlink planted inside a workspace — such as a linked `node_modules` — can no longer be used by `read_file`, `edit_file`, or `create_file` to read or write outside the sandbox.
+- f29ecf9: `web_fetch` and `http_request` now re-check `allowedHosts` on every redirect hop and drop operator `defaultHeaders` (plus `authorization`, `cookie`, and `proxy-authorization`) once a hop changes origin, so an allowed host can no longer 302 configured credentials to another host. Requests that redirect off the allowlist fail with `HostNotAllowedError` instead of being followed.
+
 ## 1.5.1
 
 ### Patch Changes

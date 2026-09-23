@@ -1,5 +1,16 @@
 # @cycgraph/orchestrator
 
+## 1.5.0
+
+### Minor Changes
+
+- 8ea63ea: Two new zero-dependency provider helpers expand the built-in surface. `registerOpenAICompatibleProviders` registers a catalog of eight OpenAI-compatible hosts (Groq, DeepSeek, xAI, OpenRouter, Mistral, Together, Fireworks, Cerebras) from one injected factory, with `providers` to select a subset and `extra` to add endpoints such as a corporate gateway; `registerGoogleProvider` wires Gemini natively so its thinking configs and cache-usage reporting survive. The known-model lists and pricing table are refreshed to the current frontier lineups (Claude Opus 5.5 / Fable 5.1, the GPT-6 and GPT-5 families, Gemini 3.x, Grok 4.x, DeepSeek V4, Mistral aliases), and `DEFAULT_AGENT_MODEL` moves from `claude-sonnet-4-6` to `claude-sonnet-5`.
+
+### Patch Changes
+
+- b47bd71: A2A artifacts named `__proto__`, `constructor`, or `prototype` are no longer used as result keys, and the delegation boundary now resolves output mappings with own-property semantics. A remote agent can no longer smuggle values into workflow memory through the prototype chain, where they would land untainted.
+- 9b24d23: The SSRF host guard now canonicalizes IPv6 literals (expanding `::`, dropping zone ids, folding IPv4-mapped/translated/compatible and NAT64 forms) before range-checking, and fails closed on any IPv6 literal it cannot canonicalize. Non-canonical spellings of loopback such as `[0:0:0:0:0:0:0:1]` or `[0:0:0:0:0:ffff:7f00:1]` are no longer accepted as public hosts by MCP transport URLs, A2A agent card URLs, or web tool fetches.
+
 ## 1.4.0
 
 ### Minor Changes
