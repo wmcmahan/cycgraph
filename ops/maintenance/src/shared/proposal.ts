@@ -99,6 +99,11 @@ export function pathTokens(text: string): string[] {
  * runnable criterion must invoke the repository's own scripts and
  * checkers, never arbitrary programs or arguments. What these reject is
  * still a criterion; it just waits for the human PR review instead.
+ *
+ * These are this repository's own Node shapes. The allowlist is not a
+ * product concern: the product treats the repository's CI as the
+ * authoritative gate and runs no tree code locally, so this gates only
+ * customer-zero's local checks, which run against this Node repository.
  */
 const SAFE_COMMANDS = [
   /^npm test$/,
@@ -112,6 +117,38 @@ export function safeAcceptanceCommand(bullet: string): string | undefined {
   const backticked = bullet.match(/`([^`]+)`/)?.[1] ?? bullet;
   const command = backticked.trim();
   return SAFE_COMMANDS.some((shape) => shape.test(command)) ? command : undefined;
+}
+
+/**
+ * Run a ticket's acceptance commands, returning those that failed. Each
+ * command is re-validated through {@link safeAcceptanceCommand} at the
+ * point of execution: the list reaches here as a model-relayed tool
+ * argument, so a command that does not match an allowed repository-script
+ * shape is refused and counted as a failure rather than run. The `run`
+ * callback executes one validated command and throws on non-zero exit.
+ */
+export async function runAcceptanceCommands(
+  commands: readonly string[],
+  run: (safeCommand: string) => Promise<void>,
+): Promise<{ command: string; output: string }[]> {
+  const failed: { command: string; output: string }[] = [];
+  for (const command of commands) {
+    const safe = safeAcceptanceCommand(command);
+    if (safe === undefined) {
+      failed.push({ command, output: `refused: '${command}' is not an allowed repository check shape` });
+      continue;
+    }
+    try {
+      await run(safe);
+    } catch (error) {
+      failed.push({
+        command,
+        output: String((error as { stdout?: string; stderr?: string }).stdout
+          ?? (error as { stderr?: string }).stderr ?? (error as Error).message).slice(-2_000),
+      });
+    }
+  }
+  return failed;
 }
 
 /** The verified diff an optimization ticket carries in its fenced block. */

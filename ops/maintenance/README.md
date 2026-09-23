@@ -13,25 +13,61 @@ headless runner here is what CI uses.
 
 ## Workflows
 
+The pipeline is **find → approve → apply → review**, and every workflow plays
+one of four roles. That is the map to "which one do I run": a finder turns the
+codebase into approved issues, an applier turns one approved issue into a PR,
+and the PR loop and backstops carry it from there.
+
+### 1. Finders — turn the codebase into approved issues
+
+These file GitHub issues (pre-approved with `--approve`, or labelled
+`maintenance-approved` by hand). They never open a PR themselves.
+
+| Id | When to use it |
+|----|----------------|
+| `repo-audit` | The **deep** pass: LLM auditors fan out over the repo and each verified finding becomes a ticket. Judgment-heavy and expensive — surfaces design, quality, and security issues a scan cannot. |
+| `code-scan` | The **mechanical** pass: scans for TODOs, skipped tests, and lint warnings, filed as deduped issues. No model, nothing edited — sweeps owed cleanup that is trivial to detect. |
+| `feature-propose` | Studies the code read-only and files one well-formed feature ticket (motivation, design, evidence, mechanical acceptance criteria). |
+| `optimization-propose` | Benchmarks, makes one optimization, re-benchmarks; a measured win becomes a ticket carrying the table and a verified diff. |
+| `tune` | Proposes a measured edit to a *maintenance workflow's own source* — the self-improvement loop. Its ticket is applied by `implement-ticket`. |
+
+### 2. Appliers — turn one approved issue into a PR
+
+Each picks the oldest approved issue of its kind, works in a jailed clone, and
+opens a `maintenance-managed` PR. One fix is in flight at a time.
+
+| Id | Consumes | What it does |
+|----|----------|--------------|
+| `issue-fix` | an approved **finding** (from `repo-audit` or `code-scan`) | Re-locates the finding, fixes it, judges against the anti-gaming guard, reviews the diff, opens the PR. |
+| `implement-ticket` | an approved **`feature:`** ticket (from `feature-propose`) **or** a **`tune:`** ticket (from `tune`) | Implements the feature against its acceptance criteria, or lands a tune ticket's exact measured edit — both are approved tickets that say what source to change. |
+| `optimization-apply` | an approved **`optimization:`** ticket (from `optimization-propose`) | Re-applies the verified diff, re-benchmarks, and PRs only if the win still holds. No model. |
+
+### 3. Docs — self-contained scan-and-fix
+
+`docs-maintenance` is a generic factory with two registered targets; run the
+targets, not the generic.
+
 | Id | Scope |
 |----|-------|
-| `repo-docs` | READMEs, guides, everything outside the website |
-| `website-docs` | The documentation site under `apps/docs` |
-| `docs-maintenance` | Both at once — the unsplit original |
-| `core-upkeep` | Owed upkeep (TODOs, skipped tests, lint warnings) filed as deduped GitHub issues; no model, nothing edited |
-| `issue-fix` | Fixes one approved upkeep issue: re-locates the finding, fixes, judges against the class's anti-gaming guard, then a reviewer pass over the diff before the PR |
-| `opt-propose` | Benchmarks, makes one optimization, re-benchmarks; a verified improvement becomes a ticket carrying the measured table and diff — never a PR |
-| `feat-propose` | Studies the codebase read-only and files one well-formed feature ticket: motivation, design, evidence naming real files, mechanical acceptance criteria |
-| `opt-apply` | Implements one approved optimization ticket: re-applies its verified diff, re-benchmarks, PRs only if the improvement still holds; no model |
-| `feat-implement` | Implements one approved `feature:` ticket against its own acceptance criteria (runnable criteria execute as the judge, the rest wait for PR review), and applies one approved `tune:` ticket by landing its exact measured edit — judged by that replacement being present, the repository checks gating both |
-| `pr-revise` | Addresses human review feedback on a maintenance PR: reads the comments, revises the same branch so the PR updates in place, and replies with what changed |
+| `fix-repo-docs` | The repository's own docs — READMEs, guides, everything outside the website. |
+| `fix-website-docs` | The documentation site under `apps/docs`. |
+
+### 4. PR loop and backstops
+
+| Id | Role |
+|----|------|
+| `pr-review` | Reviews a maintenance PR; APPROVE arms auto-merge, REVISE dispatches `pr-revise`. |
+| `pr-revise` | Addresses review or CI feedback on a PR, revising the same branch in place. |
+| `pr-ci-failure` | Reacts to a PR's CI outcome: a failure hands it to `pr-revise`; a repeat failure or a stall parks it `needs-human`. |
+| `reconcile-pipeline` | Hourly backstop: wakes the queue when the gate is idle with work waiting, and flags a wedged PR `needs-human`. |
+| `reconcile-outcomes` | Daily: scores what became of each delivered PR (merged or closed) into the lesson ledger. |
 
 ## Running
 
 Headless, from the repository root (CI uses exactly this):
 
 ```bash
-npm run maintain --workspace=ops/maintenance -- repo-docs --batch 3
+npm run maintain --workspace=ops/maintenance -- fix-repo-docs --batch 3
 ```
 
 The runner fetches first and refuses to run against a repository that
@@ -45,7 +81,7 @@ commit each, one PR), `--since <ref>` (diff mode: only findings a change
 since that ref plausibly staled), `--skip n`, `--commit false` (inspect
 without committing), `--publish false` (commit but leave the prepared
 publish script), `--checks "npm run build:libs,npm run lint:eslint,npm test"`
-(comma-separated; a command containing a comma cannot be passed). For `core-upkeep`:
+(comma-separated; a command containing a comma cannot be passed). For `code-scan`:
 `--maxIssues n`, `--lint false` (grep classes only), `--file false`
 (report what would be filed, touch nothing). Each filed issue carries a
 stable finding marker, dedupe runs against every open issue's markers,
@@ -57,14 +93,14 @@ named finding without reading or closing any issue — how the cycle runs
 without GitHub). An `audit:` key names a finding whose whole
 specification is its issue text, so detached mode also needs
 `--ticketFile <path>` carrying that body; without it the run refuses
-rather than briefing the fixer with an empty spec. For `opt-propose`: `--target <bench filter>`,
+rather than briefing the fixer with an empty spec. For `optimization-propose`: `--target <bench filter>`,
 `--minImprovement n` (percent a proposal must measure, beyond the two
 runs' combined error margins), `--scope <dir>` (changes outside it are
-refused), `--attempts n`. For `feat-propose`: `--focus <area>` steers
+refused), `--attempts n`. For `feature-propose`: `--focus <area>` steers
 the proposal; the gate is structural, and the quality gate is you —
 approve a ticket only when its evidence and acceptance criteria hold
 up. For `pr-revise`: `--pr n` names the pull request whose feedback is
-addressed. For `opt-apply` and `feat-implement`: `--issueNumber n` targets a
+addressed. For `optimization-apply` and `implement-ticket`: `--issueNumber n` targets a
 specific ticket, and `--ticketFile <path>` runs the same cycle from a
 saved ticket body without reading or closing anything on GitHub — how
 both are testable locally. Acceptance criteria only execute when they
@@ -104,7 +140,7 @@ loop proposes, the human disposes.
 Interactively, through the playground catalog:
 
 ```bash
-npm run play -- run repo-docs --batch 2 --publish false
+npm run play -- run fix-repo-docs --batch 2 --publish false
 ```
 
 ## Environment
@@ -121,7 +157,7 @@ npm run play -- run repo-docs --batch 2 --publish false
 
 ## CI
 
-`.github/workflows/core-upkeep.yml` runs the upkeep sense on manual dispatch with
+`.github/workflows/code-scan.yml` runs the upkeep sense on manual dispatch with
 the built-in token (issues write is all it needs).
 `.github/workflows/issue-fix.yml` is the queue dispatcher described
 under "The automated pipeline" below: it fires on the approval label

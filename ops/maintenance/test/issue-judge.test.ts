@@ -43,6 +43,13 @@ describe('parseIssueFinding', () => {
   it('rejects a bare audit namespace with no slug', () => {
     expect(parseIssueFinding(findingMarker('audit:'))).toBeUndefined();
   });
+
+  it('recovers a finding only under the namespace its marker was written with', () => {
+    const body = findingMarker('todo:a.ts:fix-me', 'acme:finding');
+
+    expect(parseIssueFinding(body, 'acme:finding')).toEqual({ key: 'todo:a.ts:fix-me', kind: 'todo', file: 'a.ts' });
+    expect(parseIssueFinding(body)).toBeUndefined();
+  });
 });
 
 describe('judgeAuditFix', () => {

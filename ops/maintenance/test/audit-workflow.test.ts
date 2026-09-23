@@ -10,7 +10,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { changedScopesSince } from '../src/audit/index.js';
+import { changedScopesSince } from '../src/repo-audit/index.js';
 
 const exec = promisify(execFile);
 

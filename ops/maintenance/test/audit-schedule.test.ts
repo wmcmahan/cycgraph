@@ -11,7 +11,7 @@ import {
   pairKey,
   saveAuditSchedule,
   scheduleCharters,
-} from '../src/audit/schedule.js';
+} from '../src/repo-audit/schedule.js';
 
 const PAIRS = [
   { lens: 'a', scope: 'packages/x' },

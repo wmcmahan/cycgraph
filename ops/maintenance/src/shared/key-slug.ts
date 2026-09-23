@@ -6,7 +6,7 @@
  * distinct findings must never share one. Those pull against each
  * other, and this module is where the tension is resolved once for
  * every text-derived keying function in the workflow set — the audit,
- * core-upkeep, feature-proposal, and optimization keys all slug their
+ * code-scan, feature-proposal, and optimization keys all slug their
  * text here; `tuneKey` keys off a digest of its own.
  *
  * Keys written before slugs carried a digest are still on the ledger,

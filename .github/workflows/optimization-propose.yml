@@ -1,0 +1,60 @@
+# Optimization proposals: benchmark, make one optimization, re-benchmark.
+# A verified improvement — beyond the floor and the noise, nothing
+# regressed, scope respected, the orchestrator's test suite green —
+# becomes a ticket carrying the measured table and the diff, never a PR.
+# A human approves the ticket; the fix cycle applies it.
+#
+# Manual dispatch only: a proposal run spends real model and bench time
+# and routinely (honestly) produces nothing. Promote to a schedule once
+# a few dispatched runs have earned it.
+
+name: Optimization proposals
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Vitest bench file filter (empty benches everything)'
+        default: 'reducer'
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: optimization-propose
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build --workspace=packages/orchestrator --workspace=packages/memory --workspace=packages/tools --workspace=packages/orchestrator-postgres
+
+      - name: Propose one measured optimization
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GH_TOKEN: ${{ github.token }}
+          CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
+        # The benchmark cannot tell faster from doing less; the test
+        # suite is the correctness guard, so it gates the ticket. The
+        # gate is lighter than the PR-producing workflows' on purpose:
+        # this files a ticket, never a PR, and optimization-apply re-verifies the
+        # diff under the full build/lint/test trio before anything
+        # publishes.
+        run: >
+          npm run maintain --workspace=ops/maintenance -- optimization-propose
+          --target "${{ inputs.target }}"
+          --checks "npm run test --workspace=packages/orchestrator"

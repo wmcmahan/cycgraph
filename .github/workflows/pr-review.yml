@@ -22,6 +22,14 @@
 
 name: PR review
 
+# SECURITY: this MUST stay `pull_request`, never `pull_request_target`.
+# The workflow runs on every opened PR including forks, with no label or
+# association gate, and it checks out and builds the PR's code. Under
+# `pull_request` a fork PR runs with a read-only token and NO secrets, so
+# fork-controlled code cannot reach ANTHROPIC_API_KEY / MAINTENANCE_PAT /
+# DATABASE_URL — that isolation is the load-bearing guard here. Switching
+# to `pull_request_target` would hand every fork PR the repository's
+# secrets. Do not change it.
 on:
   pull_request:
     types: [opened, ready_for_review, synchronize]

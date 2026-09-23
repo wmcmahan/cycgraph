@@ -100,18 +100,26 @@ export async function createIssue(
   }
 }
 
-const MARKER = /<!--\s*cycgraph:finding=([^\s>]+)\s*-->/g;
+/**
+ * The default marker namespace. This is a wire format on live issue
+ * bodies: changing it orphans every marker already filed, so it is a
+ * one-time choice per repository, not a per-run knob. A caller that
+ * namespaces its markers passes the same value to both functions.
+ */
+export const DEFAULT_MARKER_NAMESPACE = 'cycgraph:finding';
 
 /** Render the marker `issueMarkers` recovers, for an issue body. */
-export function findingMarker(key: string): string {
-  return `<!-- cycgraph:finding=${key} -->`;
+export function findingMarker(key: string, namespace: string = DEFAULT_MARKER_NAMESPACE): string {
+  return `<!-- ${namespace}=${key} -->`;
 }
 
-/** Every finding key marked in the given issue bodies. */
-export function issueMarkers(issues: readonly IssueRef[]): Set<string> {
+/** Every finding key marked in the given issue bodies, under the namespace they were written with. */
+export function issueMarkers(issues: readonly IssueRef[], namespace: string = DEFAULT_MARKER_NAMESPACE): Set<string> {
+  const escaped = namespace.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const marker = new RegExp(`<!--\\s*${escaped}=([^\\s>]+)\\s*-->`, 'g');
   const keys = new Set<string>();
   for (const issue of issues) {
-    for (const match of issue.body.matchAll(MARKER)) keys.add(match[1]!);
+    for (const match of issue.body.matchAll(marker)) keys.add(match[1]!);
   }
   return keys;
 }

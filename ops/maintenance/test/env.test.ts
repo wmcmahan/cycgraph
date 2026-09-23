@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { inferProvider, maintenanceEnvFromProcess } from '../src/shared/env.js';
+import { defaultMaintenanceContext, type MaintenanceContext } from '../src/shared/context.js';
 
 describe('inferProvider', () => {
   it('maps model prefixes to their providers', () => {
@@ -44,5 +45,35 @@ describe('maintenanceEnvFromProcess', () => {
     expect(env.model).toBe('qwen2.5:7b');
     expect(env.provider).toBe('ollama');
     expect(env.publish).toEqual({ labels: ['maintenance-managed'] });
+  });
+
+  it('carries this repository\'s default context', () => {
+    const env = maintenanceEnvFromProcess({});
+
+    expect(env.context).toEqual(defaultMaintenanceContext());
+  });
+
+  it('carries a supplied context in place of the default', () => {
+    const context: MaintenanceContext = { ...defaultMaintenanceContext(), branchPrefix: 'bot/' };
+
+    const env = maintenanceEnvFromProcess({}, context);
+
+    expect(env.context).toBe(context);
+  });
+
+  it('falls back to the context identity when the environment supplies none', () => {
+    const context: MaintenanceContext = { ...defaultMaintenanceContext(), identity: { name: 'Upkeep Bot', email: 'bot@x.test' } };
+
+    const env = maintenanceEnvFromProcess({}, context);
+
+    expect(env.publish?.identity).toEqual({ name: 'Upkeep Bot', email: 'bot@x.test' });
+  });
+
+  it('prefers the environment identity over the context identity', () => {
+    const context: MaintenanceContext = { ...defaultMaintenanceContext(), identity: { name: 'Context Bot', email: 'ctx@x.test' } };
+
+    const env = maintenanceEnvFromProcess({ GIT_AUTHOR_NAME: 'Env Bot', GIT_AUTHOR_EMAIL: 'env@x.test' }, context);
+
+    expect(env.publish?.identity).toEqual({ name: 'Env Bot', email: 'env@x.test' });
   });
 });

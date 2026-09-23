@@ -125,7 +125,7 @@ describe('scanDocs', () => {
       workspaces: ['packages/*', 'ops/*'],
     }));
     await write('ops/thing/package.json', JSON.stringify({ name: 'thing', scripts: { maintain: 'x' } }));
-    await write('docs/guide.md', '```bash\nnpm run maintain --workspace=ops/thing -- repo-docs\n```\n');
+    await write('docs/guide.md', '```bash\nnpm run maintain --workspace=ops/thing -- fix-repo-docs\n```\n');
 
     expect(await scanDocs(root)).toEqual([]);
   });

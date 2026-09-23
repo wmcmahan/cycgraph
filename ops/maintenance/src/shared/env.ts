@@ -12,7 +12,8 @@
  */
 
 import { publishConfigFromEnv } from '@cycgraph/tools/git';
-import { MANAGED_LABEL } from './repo.js';
+import { defaultMaintenanceContext } from './context.js';
+import type { MaintenanceContext } from './context.js';
 import type { MaintenanceEnv } from '../types.js';
 
 /** Provider inferred from a model id: hosted prefixes, else local Ollama. */
@@ -22,14 +23,27 @@ export function inferProvider(model: string): string {
   return 'ollama';
 }
 
-/** Resolve a `MaintenanceEnv` from environment variables. */
+/**
+ * Resolve a `MaintenanceEnv` from environment variables, carrying the
+ * given context (this repository's default unless overridden). The
+ * context's `identity` is the commit identity when the environment
+ * supplies none.
+ */
 export function maintenanceEnvFromProcess(
   env: Record<string, string | undefined> = process.env,
+  context: MaintenanceContext = defaultMaintenanceContext(),
 ): MaintenanceEnv {
   const model = env['CYCGRAPH_MODEL'] ?? 'qwen2.5:7b';
+  const fromEnv = publishConfigFromEnv(env);
+  const identity = fromEnv.identity ?? context.identity;
   return {
     model,
     provider: env['CYCGRAPH_PROVIDER'] ?? inferProvider(model),
-    publish: { ...publishConfigFromEnv(env), labels: [MANAGED_LABEL] },
+    publish: {
+      ...fromEnv,
+      ...(identity !== undefined ? { identity } : {}),
+      labels: [context.labels.managed],
+    },
+    context,
   };
 }
