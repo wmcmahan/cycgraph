@@ -78,6 +78,8 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  * The function applies the supplied `agentRegistry` and `providerRegistry`
  * to the process-global agent factory before running. Callers must
  * serialize concurrent invocations to avoid registry contamination.
+ * A run that exceeds `timeoutMs` is cancelled, and the promise resolves
+ * only once the runner has settled, so no work outlives the call.
  */
 export async function runOrchestratorSut(
   opts: RunOrchestratorSutOptions,
@@ -112,13 +114,19 @@ export async function runOrchestratorSut(
   let errorMessage: string | undefined;
   let finalState: WorkflowState = opts.initialState;
 
+  const runPromise = runner.run();
+
   try {
-    finalState = await withTimeout(runner.run(), timeoutMs);
+    finalState = await withTimeout(runPromise, timeoutMs);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message === '__sut_timeout__') {
       status = 'timeout';
       errorMessage = `SUT exceeded ${timeoutMs}ms`;
+      // The next run reconfigures the process-global agent factory and
+      // provider registry, so this run must be stopped and settled first.
+      runner.cancel();
+      await runPromise.catch(() => undefined);
     } else {
       status = 'failed';
       errorMessage = message;

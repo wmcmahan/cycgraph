@@ -31,7 +31,9 @@ function textStreamChunks(text: string) {
 }
 
 /** A provider registry whose `anthropic` model streams a fixed doStream. */
-function registryFor(doStream: () => Promise<{ stream: ReadableStream }>): ProviderRegistry {
+function registryFor(
+  doStream: (options: { abortSignal?: AbortSignal }) => Promise<{ stream: ReadableStream }>,
+): ProviderRegistry {
   const registry = new ProviderRegistry();
   registry.register('anthropic', () => new MockLanguageModelV3({ doStream }), {
     models: [SUT_MODEL],
@@ -261,18 +263,48 @@ describe('runOrchestratorSut', () => {
 
   it('marks a run that exceeds its timeout as timeout', async () => {
     const artifacts = buildSingleAgentGraph({ input: 'Never resolves.' });
+    const registry = registryFor(
+      (options) =>
+        new Promise((_resolve, reject) => {
+          options.abortSignal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+    );
 
     const result = await runOrchestratorSut({
       graph: artifacts.graph,
       initialState: artifacts.initialState,
       agentRegistry: artifacts.agentRegistry,
-      providerRegistry: registryFor(() => new Promise(() => {})),
+      providerRegistry: registry,
       outputKey: artifacts.outputKey,
       timeoutMs: 20,
     });
 
     expect(result.status).toBe('timeout');
     expect(result.error).toContain('20ms');
+  });
+
+  it('cancels a run that exceeds its timeout before returning', async () => {
+    const artifacts = buildSingleAgentGraph({ input: 'Hangs until aborted.' });
+    const signals: AbortSignal[] = [];
+    const registry = registryFor((options) => {
+      if (options.abortSignal) signals.push(options.abortSignal);
+      return new Promise((_resolve, reject) => {
+        options.abortSignal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    });
+
+    const result = await runOrchestratorSut({
+      graph: artifacts.graph,
+      initialState: artifacts.initialState,
+      agentRegistry: artifacts.agentRegistry,
+      providerRegistry: registry,
+      outputKey: artifacts.outputKey,
+      timeoutMs: 20,
+    });
+
+    expect(result.status).toBe('timeout');
+    expect(signals.length).toBe(1);
+    expect(signals[0].aborted).toBe(true);
   });
 
   it('reports failed status when the run rejects', async () => {
