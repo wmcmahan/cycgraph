@@ -23,6 +23,7 @@ export function reviserAgent(c: ReviseContext, tools: ReviseTools) {
     name: 'PR reviser',
     model: modelFor(env, 'high'),
     modelPreference: 'high',
+    effort: 'high',
     provider: env.provider,
     temperature: 0.2,
     maxSteps: 32,
