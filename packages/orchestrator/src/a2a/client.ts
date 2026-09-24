@@ -81,6 +81,14 @@ export interface A2ATaskRequest {
    * carry this server's credential to whichever endpoint it connects to.
    */
   allowedEndpointHosts?: readonly string[];
+  /**
+   * How many times to retry a failed connection (Agent Card resolution and
+   * client construction) before giving up, from the registry entry's
+   * `max_retries`. Retries stay inside `timeoutMs` and stop on abort. The
+   * message send itself is never retried: it is not idempotent, and a
+   * resend could start the remote task twice. Omitted means no retries.
+   */
+  maxRetries?: number;
 }
 
 /**
@@ -128,4 +136,9 @@ export interface A2AResumeRequest {
    * {@link A2ATaskRequest.allowedEndpointHosts}.
    */
   allowedEndpointHosts?: readonly string[];
+  /**
+   * Connection retries from the registry entry's `max_retries`. Same
+   * contract as {@link A2ATaskRequest.maxRetries}.
+   */
+  maxRetries?: number;
 }

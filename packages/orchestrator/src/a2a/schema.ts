@@ -130,7 +130,12 @@ export const A2AServerEntrySchema = z.object({
    * map or voting node cannot overwhelm one remote agent.
    */
   max_concurrent_tasks: z.number().int().positive().optional(),
-  /** Maximum connection retries before giving up. */
+  /**
+   * Maximum connection retries before giving up: a failed Agent Card
+   * resolution or client construction is retried with exponential backoff,
+   * within the task timeout. The message send is never retried, because a
+   * resend could start the remote task twice.
+   */
   max_retries: z.number().int().min(0).max(10).default(2),
   /**
    * Send W3C `traceparent` so this server's work joins our trace.

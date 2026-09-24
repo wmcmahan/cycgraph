@@ -177,6 +177,23 @@ describe('executeA2ANode', () => {
     expect(capture.request.allowedEndpointHosts).toEqual(['rpc.example.com']);
   });
 
+  it('forwards the entry connection retries to the client', async () => {
+    const capture: { request?: any } = {};
+    const registry = await registryWith({ maxRetries: 5 });
+
+    await executeA2ANode(node(), stateView(), 1, await ctxWith(fakeClient({}, capture), registry));
+
+    expect(capture.request.maxRetries).toBe(5);
+  });
+
+  it('forwards the default connection retries when the entry sets none', async () => {
+    const capture: { request?: any } = {};
+
+    await executeA2ANode(node(), stateView(), 1, await ctxWith(fakeClient({}, capture)));
+
+    expect(capture.request.maxRetries).toBe(2);
+  });
+
   it('sends no allowed endpoint hosts when the entry lists none', async () => {
     const capture: { request?: any } = {};
 
@@ -503,6 +520,19 @@ describe('executeA2ANode — pausing for human input', () => {
     await executeA2ANode(node(), stateView(), 1, ctx);
 
     expect(capture.resume.allowedEndpointHosts).toEqual(['rpc.example.com']);
+  });
+
+  it('forwards the entry connection retries when resuming a stashed task', async () => {
+    const capture: { request?: any; resume?: any } = {};
+    const registry = await registryWith({ maxRetries: 4 });
+    const ctx = await ctxWith(fakeClient({}, capture), registry, {
+      subgraph_checkpoints: { research: { task_id: 'task-7' } },
+      memory: { human_response: 'EMEA' },
+    });
+
+    await executeA2ANode(node(), stateView(), 1, ctx);
+
+    expect(capture.resume.maxRetries).toBe(4);
   });
 
   it('forwards the human answer to the remote agent', async () => {

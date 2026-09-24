@@ -27,9 +27,31 @@ export interface A2AClientOptions {
  * fetch and every await is raced against it), not just checked between
  * polls: a remote that accepts the connection and stalls inside
  * `message/send` would otherwise hang the node forever.
+ *
+ * A failed client construction is retried up to the request's
+ * `maxRetries` times with exponential backoff (1s, 2s, 4s…, capped at
+ * 10s), inside the same budget. `message/send` is never retried.
  */
 export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
   const create = options.createClient ?? sdkClientFactory();
+
+  async function connect(
+    agentCardUrl: string,
+    headers: Record<string, string>,
+    signal: AbortSignal,
+    maxRetries: number,
+    allowedEndpointHosts?: readonly string[],
+  ): Promise<SdkClient> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await raceDeliveryBound(
+          () => create(agentCardUrl, headers, signal, allowedEndpointHosts), signal);
+      } catch (error) {
+        if (signal.aborted || attempt >= maxRetries) throw error;
+        await backoff(Math.min(1_000 * 2 ** attempt, MAX_CONNECT_BACKOFF_MS), signal);
+      }
+    }
+  }
 
   async function deliver(
     agentCardUrl: string,
@@ -38,6 +60,7 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
     timeoutMs: number,
     abortSignal?: AbortSignal,
     allowedEndpointHosts?: readonly string[],
+    maxRetries = 0,
   ): Promise<A2ATaskResult> {
     const deadline = Date.now() + timeoutMs;
     const timeout = new AbortController();
@@ -45,8 +68,7 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
     const signal = abortSignal ? AbortSignal.any([timeout.signal, abortSignal]) : timeout.signal;
 
     try {
-      const client = await raceDeliveryBound(
-        () => create(agentCardUrl, headers, signal, allowedEndpointHosts), signal);
+      const client = await connect(agentCardUrl, headers, signal, maxRetries, allowedEndpointHosts);
       // Cast: the generated request type demands fields the server defaults.
       const task = await raceDeliveryBound(() => client.sendMessage({ message } as never), signal);
       return toResult(await settle(client, task, deadline, signal));
@@ -76,6 +98,7 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
         request.timeoutMs,
         request.abortSignal,
         request.allowedEndpointHosts,
+        request.maxRetries,
       ),
 
     /** See {@link A2AClient.resumeTask} */
@@ -87,8 +110,30 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
         request.timeoutMs,
         request.abortSignal,
         request.allowedEndpointHosts,
+        request.maxRetries,
       ),
   };
+}
+
+/** Ceiling on one backoff between connection attempts. */
+const MAX_CONNECT_BACKOFF_MS = 10_000;
+
+/**
+ * Wait `ms` before the next connection attempt, rejecting as soon as the
+ * delivery signal aborts so a backoff never outlives the budget.
+ */
+function backoff(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /**

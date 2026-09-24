@@ -150,6 +150,7 @@ export async function executeA2ANode(
           taskId: resumingTaskId,
           response: ctx.state.memory.human_response,
           timeoutMs,
+          maxRetries: server.max_retries,
           ...endpointHosts,
           ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
         })
@@ -159,6 +160,7 @@ export async function executeA2ANode(
           input,
           ...(config.skill_id ? { skillId: config.skill_id } : {}),
           timeoutMs,
+          maxRetries: server.max_retries,
           ...endpointHosts,
           ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
         });
