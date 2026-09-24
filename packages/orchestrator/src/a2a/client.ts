@@ -89,6 +89,15 @@ export interface A2ATaskRequest {
    * resend could start the remote task twice. Omitted means no retries.
    */
   maxRetries?: number;
+  /**
+   * Bound on EACH request of the delivery — every connection attempt
+   * (Agent Card resolution and client construction), the message send, and
+   * every status poll — from the registry entry's `timeout_ms`. A request
+   * that outruns it fails as a transport error, so a remote that stalls one
+   * call fails fast instead of holding the node for all of `timeoutMs`.
+   * Omitted means only `timeoutMs` bounds the requests.
+   */
+  requestTimeoutMs?: number;
 }
 
 /**
@@ -141,4 +150,9 @@ export interface A2AResumeRequest {
    * contract as {@link A2ATaskRequest.maxRetries}.
    */
   maxRetries?: number;
+  /**
+   * Per-request bound from the registry entry's `timeout_ms`. Same
+   * contract as {@link A2ATaskRequest.requestTimeoutMs}.
+   */
+  requestTimeoutMs?: number;
 }
