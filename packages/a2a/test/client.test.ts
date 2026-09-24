@@ -333,6 +333,36 @@ describe('createA2AClient', () => {
     }
   });
 
+  it('doubles the poll interval from 100ms and caps it at 2000ms', async () => {
+    vi.useFakeTimers();
+    try {
+      const pollOffsets: number[] = [];
+      const start = Date.now();
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: async () => ({ id: 't3', status: { state: 'TASK_STATE_WORKING' } }),
+          getTask: async () => {
+            pollOffsets.push(Date.now() - start);
+            return pollOffsets.length < 8
+              ? { id: 't3', status: { state: 'TASK_STATE_WORKING' } }
+              : { id: 't3', status: { state: 'TASK_STATE_COMPLETED' }, artifacts: [] };
+          },
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 60_000,
+      });
+      await vi.advanceTimersByTimeAsync(9_100);
+      const result = await pending;
+
+      expect(pollOffsets).toEqual([100, 300, 700, 1_500, 3_100, 5_100, 7_100, 9_100]);
+      expect(result.state).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('gives up on a pending task that carries no id instead of polling blind', async () => {
     vi.useFakeTimers();
     try {
