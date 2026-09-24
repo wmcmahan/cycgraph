@@ -9,7 +9,7 @@ import { agents } from './schema.js';
 import { eq, and, desc, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { withTenant, type Tx, type TenantContext } from './tenancy.js';
-import { camelToSnakeDeep, normalizeToolSources, EffortLevelSchema } from '@cycgraph/orchestrator';
+import { camelToSnakeDeep, normalizeToolSources, EffortLevelSchema, createLogger } from '@cycgraph/orchestrator';
 import type {
   AgentRegistry,
   AgentRegistryEntry,
@@ -18,14 +18,26 @@ import type {
   EffortLevel,
 } from '@cycgraph/orchestrator';
 
+const logger = createLogger('postgres.agent-registry');
+
 /**
  * A stored effort reaches the entry only while it is still a valid level.
  * The column is unconstrained text, so a stray row value must fall back to
  * "no effort" rather than flow into the provider translation as a level.
+ * A non-null value that fails the parse is a corrupt row, so it is logged
+ * at warn rather than dropped silently.
  */
-function storedEffort(value: string | null): { effort: EffortLevel } | Record<string, never> {
+function storedEffort(
+  value: string | null,
+  agentId: string,
+): { effort: EffortLevel } | Record<string, never> {
+  if (value === null) return {};
   const parsed = EffortLevelSchema.safeParse(value);
-  return parsed.success ? { effort: parsed.data } : {};
+  if (!parsed.success) {
+    logger.warn('invalid_stored_effort', { agent_id: agentId, effort: value });
+    return {};
+  }
+  return { effort: parsed.data };
 }
 
 /** Canonical UUID shape guard for the uuid-typed `agents.id` column. */
@@ -92,7 +104,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
       permissions: row.permissions,
       ...(row.provider_options ? { provider_options: row.provider_options } : {}),
       ...(row.model_preference ? { model_preference: row.model_preference as 'high' | 'medium' | 'low' } : {}),
-      ...storedEffort(row.effort),
+      ...storedEffort(row.effort, row.id),
     };
   }
 
@@ -163,6 +175,8 @@ export class DrizzleAgentRegistry implements AgentRegistry {
     if (wire.permissions !== undefined) set.permissions = wire.permissions;
     if (wire.provider_options !== undefined) set.provider_options = wire.provider_options;
     if (wire.model_preference !== undefined) set.model_preference = wire.model_preference;
+    // An explicit null clears the stored level back to the provider default
+    // (same shape as provider_options); undefined leaves the column alone.
     if (wire.effort !== undefined) set.effort = wire.effort;
 
     await this.read((q) => q.update(agents).set(set).where(and(eq(agents.id, id), this.tenantEq(agents.tenant_id))));
@@ -192,7 +206,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
       permissions: row.permissions,
       ...(row.provider_options ? { provider_options: row.provider_options } : {}),
       ...(row.model_preference ? { model_preference: row.model_preference as 'high' | 'medium' | 'low' } : {}),
-      ...storedEffort(row.effort),
+      ...storedEffort(row.effort, row.id),
     }));
   }
 

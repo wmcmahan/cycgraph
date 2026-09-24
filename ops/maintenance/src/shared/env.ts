@@ -36,8 +36,7 @@ export function maintenanceEnvFromProcess(
   context: MaintenanceContext = defaultMaintenanceContext(),
 ): MaintenanceEnv {
   const model = env['CYCGRAPH_MODEL'] ?? 'qwen2.5:7b';
-  // CI passes unset repo variables through as empty strings; an empty
-  // tier must mean "fall back to the base model", never a model named ''.
+  // CI passes unset repository variables through as empty strings.
   const tierVar = (name: string): string | undefined => {
     const value = env[name];
     return value !== undefined && value !== '' ? value : undefined;

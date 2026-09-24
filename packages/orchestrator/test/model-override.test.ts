@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { resolveEffectiveModelConfig } from '../src/agents/models/model-override.js';
+import { effectiveProviderOptions } from '../src/agents/executors/effort.js';
 import type { AgentConfig } from '../src/agents/types.js';
 
 vi.mock('../src/observability/logger.js', () => ({
@@ -45,6 +46,35 @@ describe('resolveEffectiveModelConfig', () => {
     expect(result.system).toBe('custom prompt');
     expect(result.temperature).toBe(0.3);
     expect(result.provider).toBe('anthropic');
+  });
+
+  it('preserves providerOptions and provider so effort translation is unaffected', () => {
+    const config = makeConfig({
+      effort: 'low',
+      providerOptions: { anthropic: { thinking: { type: 'adaptive' } } },
+    });
+
+    const result = resolveEffectiveModelConfig(config, 'claude-opus-4-8', { agentId: 'agent-1' });
+
+    expect(result.provider).toBe('anthropic');
+    expect(result.effort).toBe('low');
+    expect(result.providerOptions).toEqual({ anthropic: { thinking: { type: 'adaptive' } } });
+  });
+
+  it('translates effort with the resolved config after a model override', () => {
+    const config = makeConfig({
+      effort: 'medium',
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    });
+
+    const result = effectiveProviderOptions(
+      resolveEffectiveModelConfig(config, 'claude-opus-4-8', { agentId: 'agent-1' }),
+    );
+
+    expect(result).toEqual({
+      anthropic: { effort: 'medium' },
+      openai: { reasoningEffort: 'high' },
+    });
   });
 
   it('returns the original config unchanged when no override is provided', () => {

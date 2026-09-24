@@ -69,7 +69,7 @@ describe('maintenanceEnvFromProcess', () => {
     expect(env.models).toBeUndefined();
   });
 
-  it('treats an empty tier variable as unset (CI passes unset vars as empty strings)', () => {
+  it('treats an empty tier variable as unset', () => {
     const env = maintenanceEnvFromProcess({
       CYCGRAPH_MODEL: 'claude-sonnet-5',
       CYCGRAPH_MODEL_HIGH: '',

@@ -298,8 +298,11 @@ export interface AgentRegistryEntry {
   /**
    * Provider-neutral reasoning-effort level, translated to the provider's
    * own option at call time. Providers without an effort control ignore it.
+   *
+   * Absent means the provider's default. An explicit `null` in an update
+   * clears a stored level back to that default, as with `provider_options`.
    */
-  effort?: EffortLevel;
+  effort?: EffortLevel | null;
   /**
    * Capability tier preference for budget-aware model resolution.
    *
