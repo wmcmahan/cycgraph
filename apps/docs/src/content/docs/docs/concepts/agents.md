@@ -111,6 +111,7 @@ The shape accepted by [`agent()`](#agent) — capability fields only; placement 
 | `temperature` | `number` | `0.7` | Sampling temperature. |
 | `maxSteps` | `number` | `10` | Safety limit on multi-step tool loops. |
 | `modelPreference` | [`ModelTier`](#modeltier) | — | Capability tier for [budget-aware selection](/docs/guides/model-selection/). |
+| `effort` | [`EffortLevel`](#effortlevel) | provider default | Provider-neutral reasoning-effort level, translated to the provider's own option at call time. |
 | `description` | `string` | — | Human-readable description, stored on the registry entry. |
 | `providerOptions` | `Record<string, Record<string, JsonValue>>` | — | Provider-specific options, namespaced by provider name. |
 
@@ -130,6 +131,7 @@ The authoring shape accepted by [`register`](#inmemoryagentregistry). An [`agent
 | `maxSteps` | `number` | `10` | Safety limit on multi-step tool-execution loops. |
 | `tools` | [`ToolSourceConfig[]`](/docs/concepts/tools-and-mcp/) | `[]` | Tool sources available to the agent. |
 | `modelPreference` | [`ModelTier`](#modeltier) | — | Capability tier for [budget-aware model selection](/docs/guides/model-selection/). When set and a resolver is configured, overrides `model` at runtime. |
+| `effort` | [`EffortLevel`](#effortlevel) | provider default | Provider-neutral reasoning-effort level, translated to the provider's own option at call time. |
 | `providerOptions` | `Record<string, Record<string, JsonValue>>` | — | Provider-specific options, namespaced by provider name. |
 | `permissions` | `object` | — | Optional permission ceiling. See [Permissions](#permissions). Fields: `readKeys`, `writeKeys`, optional `sandbox`, optional `budgetUsd`. |
 
@@ -146,6 +148,22 @@ The capability tier a `modelPreference` can name, resolved to a concrete model a
 | `'high'` | Complex reasoning, planning, code generation. |
 | `'medium'` | General-purpose tasks, summarization. |
 | `'low'` | Simple formatting, extraction, classification. |
+
+### EffortLevel
+
+The reasoning-effort level an agent's `effort` can name. The executor translates it to the provider's own option when the call is made: `effort` on Anthropic and `reasoningEffort` on OpenAI. Providers without an effort control ignore the field, and an explicit value for the same option inside `providerOptions` wins over it, so raw provider options remain the escape hatch.
+
+| Value | Use for |
+|-------|---------|
+| `'low'` | Mechanical steps and high-volume calls where speed and cost dominate. |
+| `'medium'` | Routine work that needs a balance of cost and quality. |
+| `'high'` | Complex reasoning and coding. This is the default on most current models. |
+| `'xhigh'` | Long-horizon agentic work, on models that support it. |
+| `'max'` | Correctness over cost, with no constraint on token spending. |
+
+Support varies by model rather than by provider. Anthropic accepts `xhigh` from Claude Opus 4.7 and Claude Sonnet 5 onward but not on Claude Sonnet 4.6, and Haiku models have no effort control at all; OpenAI support similarly differs across the GPT-5 and GPT-6 lines. The engine passes the level through and an unsupported combination is rejected by the provider API at call time, so keep to `low` through `high` for agents that may run on older or smaller models.
+
+`modelPreference` and `effort` are complementary levers: the tier picks which model runs, effort picks how hard it thinks. On current frontier models a high-tier model at low effort often beats a lower-tier model at high effort on both cost and quality for mechanical work, so try that combination before reaching for a smaller model.
 
 ## Next steps
 

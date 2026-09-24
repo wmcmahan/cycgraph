@@ -136,6 +136,26 @@ describe('bundle', () => {
     expect(b.agents[0].id).toBe(g.nodes[0].agent_id);
   });
 
+  it('carries effort and max output tokens through the bundle', () => {
+    const worker = node({
+      id: 'worker',
+      agent: agent({
+        model: 'claude-sonnet-5',
+        instructions: WORKER_INSTRUCTIONS,
+        effort: 'low',
+        maxOutputTokens: 2048,
+      }),
+      reads: ['goal_in'],
+      writes: 'out',
+    });
+    const g = graph({ name: 'effort-block', nodes: [worker], edges: [] });
+
+    const b = bundle(g, { version: '0.1.0' });
+
+    expect(b.agents[0].effort).toBe('low');
+    expect(b.agents[0].max_output_tokens).toBe(2048);
+  });
+
   it('embeds the transitive child-graph closure', () => {
     const grandchild = researchGraph();
     const middle = graph({

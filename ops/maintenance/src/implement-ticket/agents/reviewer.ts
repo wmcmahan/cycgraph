@@ -10,6 +10,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { ImplementContext } from '../context.js';
 
 /** Build the toolless implementation reviewer. */
@@ -18,7 +19,9 @@ export function reviewerAgent(c: ImplementContext) {
   return agent({
     id: 'implementation-reviewer',
     name: 'Implementation reviewer',
-    model: env.model,
+    model: modelFor(env, 'medium'),
+    modelPreference: 'medium',
+    effort: 'medium',
     provider: env.provider,
     temperature: 0.2,
     maxSteps: 2,

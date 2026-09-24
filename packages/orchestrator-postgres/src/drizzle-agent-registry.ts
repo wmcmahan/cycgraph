@@ -15,6 +15,7 @@ import type {
   AgentRegistryEntry,
   AgentRegistryInput,
   AgentRegistryConfig,
+  EffortLevel,
 } from '@cycgraph/orchestrator';
 
 /** Canonical UUID shape guard for the uuid-typed `agents.id` column. */
@@ -81,6 +82,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
       permissions: row.permissions,
       ...(row.provider_options ? { provider_options: row.provider_options } : {}),
       ...(row.model_preference ? { model_preference: row.model_preference as 'high' | 'medium' | 'low' } : {}),
+      ...(row.effort ? { effort: row.effort as EffortLevel } : {}),
     };
   }
 
@@ -125,6 +127,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
         },
         ...(wire.provider_options ? { provider_options: wire.provider_options } : {}),
         ...(wire.model_preference ? { model_preference: wire.model_preference } : {}),
+        ...(wire.effort ? { effort: wire.effort } : {}),
       })
       .returning({ id: agents.id }));
 
@@ -150,6 +153,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
     if (wire.permissions !== undefined) set.permissions = wire.permissions;
     if (wire.provider_options !== undefined) set.provider_options = wire.provider_options;
     if (wire.model_preference !== undefined) set.model_preference = wire.model_preference;
+    if (wire.effort !== undefined) set.effort = wire.effort;
 
     await this.read((q) => q.update(agents).set(set).where(and(eq(agents.id, id), this.tenantEq(agents.tenant_id))));
   }
@@ -178,6 +182,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
       permissions: row.permissions,
       ...(row.provider_options ? { provider_options: row.provider_options } : {}),
       ...(row.model_preference ? { model_preference: row.model_preference as 'high' | 'medium' | 'low' } : {}),
+      ...(row.effort ? { effort: row.effort as EffortLevel } : {}),
     }));
   }
 

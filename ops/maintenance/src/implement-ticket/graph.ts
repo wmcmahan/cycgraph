@@ -12,6 +12,7 @@
  */
 
 import { graph } from '@cycgraph/orchestrator';
+import { tierResolver } from '../shared/models.js';
 import type { deliveryNodes } from '@cycgraph/tools/git';
 import type { ImplementContext } from './context.js';
 import type { ImplementNodes } from './nodes/index.js';
@@ -68,6 +69,6 @@ export function implementGraph(
       ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
       maxIterations: 10 + p.attempts * 9,
     },
-    runner: {},
+    runner: { modelResolver: tierResolver(c.env) },
   };
 }

@@ -58,6 +58,12 @@ export interface AgentSpec {
   description?: string;
   /** Capability-tier preference for budget-aware model resolution. */
   modelPreference?: AgentRegistryConfig['modelPreference'];
+  /**
+   * Provider-neutral reasoning-effort level (`'low'` … `'max'`), translated
+   * to the provider's own option at call time. Providers without an effort
+   * control ignore it.
+   */
+  effort?: AgentRegistryConfig['effort'];
   /** Provider-specific options, namespaced by provider name. */
   providerOptions?: AgentRegistryConfig['providerOptions'];
 }
@@ -161,6 +167,7 @@ export function toRegistryConfig(
     ...(spec.maxSteps !== undefined ? { maxSteps: spec.maxSteps } : {}),
     ...(spec.maxOutputTokens !== undefined ? { maxOutputTokens: spec.maxOutputTokens } : {}),
     ...(spec.modelPreference ? { modelPreference: spec.modelPreference } : {}),
+    ...(spec.effort ? { effort: spec.effort } : {}),
     ...(spec.providerOptions ? { providerOptions: spec.providerOptions } : {}),
   } as AgentRegistryConfig & { id: string };
 }

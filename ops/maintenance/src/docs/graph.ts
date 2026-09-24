@@ -12,6 +12,7 @@
  */
 
 import { graph } from '@cycgraph/orchestrator';
+import { tierResolver } from '../shared/models.js';
 import type { deliveryNodes } from '@cycgraph/tools/git';
 import type { DocsContext } from './context.js';
 import type { DocsNodes } from './nodes/index.js';
@@ -92,6 +93,6 @@ export function docsGraph(
         : 'Correct one stale claim in the documentation.',
       maxIterations: 13 + p.batch * 10,
     },
-    runner: {},
+    runner: { modelResolver: tierResolver(c.env) },
   };
 }

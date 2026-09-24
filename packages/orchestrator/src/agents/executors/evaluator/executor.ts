@@ -15,6 +15,7 @@ import { agentFactory, AgentFactory } from '../../factory/index.js';
 import { AgentExecutionError } from '../agent/errors.js';
 import { classifyRetryable } from '../agent/error-classification.js';
 import { createEvaluatorPrompt, createEvaluatorSystemPrompt } from './prompts.js';
+import { effectiveProviderOptions } from '../effort.js';
 import { createLogger } from '../../../observability/logger.js';
 import { getTracer, withSpan } from '../../../observability/tracing.js';
 
@@ -73,6 +74,7 @@ export async function evaluateQualityExecutor(
     logger.info('evaluating', { evaluator_agent_id: evaluatorAgentId, goal_length: goal.length });
 
     let evaluation: z.infer<typeof EvaluationSchema>;
+    const providerOptions = effectiveProviderOptions(agentConfig);
     let usage: { totalTokens?: number } | undefined;
     try {
       const result = await generateText({
@@ -82,7 +84,7 @@ export async function evaluateQualityExecutor(
         output: Output.object({ schema: EvaluationSchema }),
         ...(agentConfig.maxOutputTokens !== undefined ? { maxOutputTokens: agentConfig.maxOutputTokens } : {}),
         ...(agentConfig.temperature !== undefined ? { temperature: agentConfig.temperature } : {}),
-        ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
+        ...(providerOptions ? { providerOptions } : {}),
       });
       evaluation = result.output;
       usage = result.usage;

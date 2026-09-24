@@ -13,6 +13,7 @@
  */
 
 import { graph } from '@cycgraph/orchestrator';
+import { tierResolver } from '../shared/models.js';
 import type { ReviseContext } from './context.js';
 import type { ReviseNodes } from './nodes/index.js';
 
@@ -43,6 +44,6 @@ export function reviseGraph(c: ReviseContext, nodes: ReviseNodes) {
       maxIterations: 4 + p.attempts * 3,
       ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
     },
-    runner: {},
+    runner: { modelResolver: tierResolver(c.env) },
   };
 }
