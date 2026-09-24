@@ -15,6 +15,7 @@ import type { EvalAssertion, Graph, GraphRunnerOptions } from '@cycgraph/orchest
 import type { PublishConfig } from '@cycgraph/tools/git';
 import type { AuditSchedule } from './repo-audit/schedule.js';
 import type { MaintenanceContext } from './shared/context.js';
+import type { RunProvenance } from './shared/provenance.js';
 
 /** The environment a maintenance workflow needs from whatever runs it. */
 export interface MaintenanceEnv {
@@ -48,6 +49,12 @@ export interface MaintenanceEnv {
    * exactly as before the seam existed.
    */
   context?: MaintenanceContext;
+  /**
+   * The run this build executes as, fixed before the graph runs so the
+   * comments a workflow posts can name it. Absent for a build made
+   * outside the harness.
+   */
+  provenance?: RunProvenance;
 }
 
 /** What a build hands the runner. */

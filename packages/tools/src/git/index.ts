@@ -23,6 +23,7 @@ export {
 } from './branch.js';
 export {
   commentOnPr,
+  commentOnPrFile,
   commentableDiffLines,
   enableAutoMerge,
   listReviewThreads,
@@ -33,7 +34,7 @@ export {
   setPrLabels,
   submitPrReview,
 } from './pr.js';
-export type { PrComment, PrFeedback, ReviewInlineComment, ReviewSubmission, ReviewThread } from './pr.js';
+export type { PrComment, PrFeedback, ReviewInlineComment, ReviewSubmission, ReviewThread, ReviewThreadComment } from './pr.js';
 export { addIssueLabel, commentOnIssue, createIssue, findingMarker, issueMarkers, listOpenIssues, viewIssue, DEFAULT_MARKER_NAMESPACE } from './issues.js';
 export type { IssueRef } from './issues.js';
 export type { Branch, Published } from './branch.js';

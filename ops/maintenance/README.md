@@ -181,9 +181,14 @@ ledger there is nothing to record — and a token that can read PR states.
 `.github/workflows/pr-revise.yml` closes the human-in-the-loop review
 cycle: a changes-requested review on a maintenance branch, or a review
 or PR comment mentioning `@cycgraph`, dispatches a run that reads the
-feedback, revises the same branch so the pull request updates in place,
-and replies with what changed. The human verdict still ends every
-thread; the run never merges.
+open feedback, revises the same branch so the pull request updates in place,
+and replies with what changed. The reviser reads each unresolved review
+thread as one item, with the code it sits on and its whole conversation,
+plus any top-level feedback posted since its last revision. It answers each
+thread inside that thread and the top-level items in its summary comment.
+The next review judges each thread, replies there, and resolves the ones it
+finds addressed, so every finding keeps its history in one place. The human
+verdict still ends every thread; the run never merges.
 
 ## The automated pipeline
 
@@ -253,15 +258,17 @@ the runner refuses a repository that is behind its origin. Leave
 shared corpus.
 
 ```bash
-# Review a PR without touching GitHub: full gather, review, verdict,
-# inline-anchor computation — the review text prints instead of posting.
+# Review a PR without touching GitHub: full gather, review, and verdict,
+# then everything it would post prints instead: each line and file
+# comment, the review body with its footer, and each thread reply.
 npm run maintain --workspace=ops/maintenance -- pr-review --pr 256 --comment false
 
 # Post for real from your machine (your gh token, not the CI secret):
 npm run maintain --workspace=ops/maintenance -- pr-review --pr 256
 
 # Revise a PR without pushing: edits land in a workspace under /tmp for
-# inspection, and the run prints its path and diff.
+# inspection, and the run prints its path, its diff, each thread reply,
+# and the summary comment it would post.
 npm run maintain --workspace=ops/maintenance -- pr-revise --pr 256 --push false --checks "npm run lint:eslint"
 
 # Fix an approved issue end-to-end without publishing:

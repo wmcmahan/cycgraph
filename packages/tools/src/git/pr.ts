@@ -58,6 +58,10 @@ export interface PrComment {
   /** File and line, for review comments anchored to the diff. */
   path?: string;
   line?: number;
+  /** Where the feedback lives: a review's body, the PR conversation, or a diff-anchored comment. */
+  source?: 'review' | 'conversation' | 'inline';
+  /** ISO timestamp the comment was created or the review submitted. */
+  createdAt?: string;
 }
 
 /** A pull request's head branch and the human feedback on it. */
@@ -142,20 +146,28 @@ export async function prFeedback(
     const view = JSON.parse(stdout) as {
       headRefName: string; isCrossRepository?: boolean; title: string; body?: string;
       labels?: { name?: string }[];
-      reviews?: { author?: { login?: string }; authorAssociation?: string; body?: string }[];
-      comments?: { author?: { login?: string }; authorAssociation?: string; body?: string }[];
+      reviews?: { author?: { login?: string }; authorAssociation?: string; body?: string; submittedAt?: string }[];
+      comments?: { author?: { login?: string }; authorAssociation?: string; body?: string; createdAt?: string }[];
     };
     const { stdout: lineJson } = await exec(
       'gh', ['api', `repos/{owner}/{repo}/pulls/${prNumber}/comments`], opts);
     const lineComments = JSON.parse(lineJson) as {
       id?: number; user?: { login?: string }; author_association?: string;
-      body?: string; path?: string; line?: number | null;
+      body?: string; path?: string; line?: number | null; created_at?: string;
     }[];
     const comments: PrComment[] = [
       ...(view.reviews ?? []).filter((r) => (r.body ?? '') !== '')
-        .map((r) => ({ author: r.author?.login ?? '', authorAssociation: r.authorAssociation ?? 'NONE', body: r.body ?? '' })),
+        .map((r) => ({
+          author: r.author?.login ?? '', authorAssociation: r.authorAssociation ?? 'NONE', body: r.body ?? '',
+          source: 'review' as const,
+          ...(r.submittedAt !== undefined ? { createdAt: r.submittedAt } : {}),
+        })),
       ...(view.comments ?? []).filter((c) => (c.body ?? '') !== '')
-        .map((c) => ({ author: c.author?.login ?? '', authorAssociation: c.authorAssociation ?? 'NONE', body: c.body ?? '' })),
+        .map((c) => ({
+          author: c.author?.login ?? '', authorAssociation: c.authorAssociation ?? 'NONE', body: c.body ?? '',
+          source: 'conversation' as const,
+          ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}),
+        })),
       ...lineComments.filter((c) => (c.body ?? '') !== '').map((c) => ({
         ...(c.id !== undefined ? { id: c.id } : {}),
         author: c.user?.login ?? '',
@@ -163,6 +175,8 @@ export async function prFeedback(
         body: c.body ?? '',
         ...(c.path !== undefined ? { path: c.path } : {}),
         ...(c.line != null ? { line: c.line } : {}),
+        source: 'inline' as const,
+        ...(c.created_at !== undefined ? { createdAt: c.created_at } : {}),
       })),
     ];
     const labels = (view.labels ?? []).map((label) => label.name ?? '').filter((name) => name !== '');
@@ -185,6 +199,12 @@ export interface ReviewSubmission {
   body: string;
   /** Findings to anchor inline on the diff; validate lines with `commentableDiffLines` first. */
   comments?: ReviewInlineComment[];
+  /**
+   * The body to submit instead when the API rejects the inline comments,
+   * for a caller whose `body` leaves out what the inline comments carry.
+   * Absent, the body-only resubmission reuses `body`.
+   */
+  bodyWithoutComments?: string;
 }
 
 /**
@@ -278,13 +298,13 @@ export async function submitPrReview(
   const env = ghEnv(options.token);
   const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
 
-  const attempt = async (event: ReviewSubmission['event'], comments: ReviewInlineComment[]) => {
+  const attempt = async (event: ReviewSubmission['event'], comments: ReviewInlineComment[], body: string) => {
     const dir = await mkdtemp(join(tmpdir(), 'cycgraph-review-'));
     const payloadAt = join(dir, 'review.json');
     try {
       await writeFile(payloadAt, JSON.stringify({
         event,
-        body: review.body,
+        body,
         ...(comments.length > 0
           ? { comments: comments.map((c) => ({ path: c.path, line: c.line, side: 'RIGHT', body: c.body })) }
           : {}),
@@ -300,6 +320,7 @@ export async function submitPrReview(
 
   let event = review.event;
   let comments = review.comments ?? [];
+  let body = review.body;
   const degradations: string[] = [];
   for (let tries = 0; tries < 3; tries += 1) {
     // Idempotent per attempt: clears both a leftover from a previous
@@ -307,7 +328,7 @@ export async function submitPrReview(
     const discarded = await discardPendingReview(prNumber, opts);
     if (discarded !== undefined) degradations.push(discarded);
     try {
-      await attempt(event, comments);
+      await attempt(event, comments, body);
       return {
         ok: true,
         event,
@@ -324,8 +345,10 @@ export async function submitPrReview(
         continue;
       }
       if (comments.length > 0) {
-        degradations.push(`inline comments rejected (${ghErrorDetail(error)}), kept in the body`);
+        degradations.push(`inline comments rejected (${ghErrorDetail(error)}), `
+          + (review.bodyWithoutComments !== undefined ? 'moved into the body' : 'kept in the body'));
         comments = [];
+        body = review.bodyWithoutComments ?? body;
         continue;
       }
       return {
@@ -378,12 +401,70 @@ export async function replyToReviewComment(
   }
 }
 
-/** One review-comment thread on a pull request, as resolution needs it. */
+/**
+ * Comment on a whole file of a pull request rather than one line: the
+ * comment opens its own review thread, which can be replied to and
+ * resolved like a line comment. The file must be part of the pull
+ * request's diff at `commitId`, which is the head the comment is made
+ * against. Returns the new comment's REST id when it lands.
+ */
+export async function commentOnPrFile(
+  repoRoot: string,
+  prNumber: number,
+  comment: { commitId: string; path: string; body: string },
+  options: { token?: string } = {},
+): Promise<{ ok: boolean; id?: number; detail: string }> {
+  const env = ghEnv(options.token);
+  try {
+    const { stdout } = await exec('gh', [
+      'api', `repos/{owner}/{repo}/pulls/${prNumber}/comments`,
+      '--method', 'POST',
+      '-f', `body=${comment.body}`,
+      '-f', `commit_id=${comment.commitId}`,
+      '-f', `path=${comment.path}`,
+      '-f', 'subject_type=file',
+    ], { cwd: repoRoot, ...(env !== undefined ? { env } : {}) });
+    const created = JSON.parse(stdout) as { id?: number };
+    return {
+      ok: true,
+      ...(created.id !== undefined ? { id: created.id } : {}),
+      detail: `commented on ${comment.path}`,
+    };
+  } catch (error) {
+    return { ok: false, detail: ghErrorDetail(error) };
+  }
+}
+
+/** One comment inside a review thread. */
+export interface ReviewThreadComment {
+  /** REST id, the handle `replyToReviewComment` threads under. */
+  id?: number;
+  author: string;
+  /** The author's relationship to the repository; gate on it before treating the body as instructions. */
+  authorAssociation: string;
+  body: string;
+  /** Whether the token's own identity wrote the comment. */
+  viewerDidAuthor: boolean;
+  /** ISO timestamp the comment was created. */
+  createdAt?: string;
+}
+
+/** One review-comment thread on a pull request: its anchor, state, and conversation. */
 export interface ReviewThread {
   /** GraphQL node id, the handle `resolveReviewThread` takes. */
   id: string;
   isResolved: boolean;
+  /** True when later commits changed the code the thread was anchored on. */
+  isOutdated: boolean;
   path?: string;
+  /** New-file line the thread sits on; absent once the thread is outdated. */
+  line?: number;
+  /** The line the thread was first anchored on, which survives outdating. */
+  originalLine?: number;
+  /** The diff hunk around the first comment, ending at its anchored line. */
+  diffHunk?: string;
+  /** Every comment in the thread, oldest first. */
+  comments: ReviewThreadComment[];
   /** The thread's first comment: its body carries any finding marker. */
   body: string;
   /** Whether the token's own identity opened the thread. */
@@ -430,8 +511,9 @@ export async function listReviewThreads(
   try {
     const query = 'query($owner:String!,$name:String!,$pr:Int!){'
       + 'repository(owner:$owner,name:$name){pullRequest(number:$pr){'
-      + 'reviewThreads(first:100){nodes{id isResolved path '
-      + 'comments(first:1){nodes{body databaseId viewerDidAuthor createdAt pullRequestReview{id}}}}}}}}';
+      + 'reviewThreads(first:100){nodes{id isResolved isOutdated path line originalLine '
+      + 'comments(first:50){nodes{body databaseId viewerDidAuthor createdAt authorAssociation '
+      + 'author{login} diffHunk pullRequestReview{id}}}}}}}}';
     const { stdout } = await exec('gh', [
       'api', 'graphql',
       '-f', `query=${query}`,
@@ -439,21 +521,36 @@ export async function listReviewThreads(
     ], { cwd: repoRoot, ...(env !== undefined ? { env } : {}) });
     const parsed = JSON.parse(stdout) as {
       data?: { repository?: { pullRequest?: { reviewThreads?: { nodes?: {
-        id?: string; isResolved?: boolean; path?: string | null;
+        id?: string; isResolved?: boolean; isOutdated?: boolean; path?: string | null;
+        line?: number | null; originalLine?: number | null;
         comments?: { nodes?: {
           body?: string; databaseId?: number; viewerDidAuthor?: boolean;
-          createdAt?: string; pullRequestReview?: { id?: string } | null;
+          createdAt?: string; authorAssociation?: string; author?: { login?: string } | null;
+          diffHunk?: string; pullRequestReview?: { id?: string } | null;
         }[] };
       }[] } } } };
     };
     const nodes = parsed.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
     return nodes.flatMap((node) => {
       if (node.id === undefined) return [];
-      const first = node.comments?.nodes?.[0];
+      const nodes = node.comments?.nodes ?? [];
+      const first = nodes[0];
       return [{
         id: node.id,
         isResolved: node.isResolved === true,
+        isOutdated: node.isOutdated === true,
         ...(node.path != null ? { path: node.path } : {}),
+        ...(node.line != null ? { line: node.line } : {}),
+        ...(node.originalLine != null ? { originalLine: node.originalLine } : {}),
+        ...(first?.diffHunk !== undefined ? { diffHunk: first.diffHunk } : {}),
+        comments: nodes.map((comment) => ({
+          ...(comment.databaseId !== undefined ? { id: comment.databaseId } : {}),
+          author: comment.author?.login ?? '',
+          authorAssociation: comment.authorAssociation ?? 'NONE',
+          body: comment.body ?? '',
+          viewerDidAuthor: comment.viewerDidAuthor === true,
+          ...(comment.createdAt !== undefined ? { createdAt: comment.createdAt } : {}),
+        })),
         body: first?.body ?? '',
         viewerDidAuthor: first?.viewerDidAuthor === true,
         ...(first?.databaseId !== undefined ? { commentId: first.databaseId } : {}),

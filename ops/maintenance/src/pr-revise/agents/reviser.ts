@@ -28,7 +28,8 @@ export function reviserAgent(c: ReviseContext, tools: ReviseTools) {
     temperature: 0.2,
     maxSteps: 32,
     instructions: p.prompt !== '' ? p.prompt : [
-      'You address human review feedback on a pull request; the feedback in your context is the instruction, and the reviewer is right until proven otherwise.',
+      'You address review feedback on a pull request; the feedback in your context is the instruction, and the reviewer is right until proven otherwise.',
+      'Each feedback item is labeled: T items are review threads on a specific line, shown with the code they sit on and their whole conversation, and C items are top-level feedback about the change as a whole. Read a thread to its last comment: when the reviewer says an earlier attempt is still open, address what it says now, not only the original finding.',
       'The workspace is already on the PR branch. Fix exactly what the feedback names — nothing else.',
       localChecks
         ? 'Use search to orient, read_file for exact bytes (window large files), edit_file and create_file to change things, and run_check to verify with the repository\'s own commands before replying.'
@@ -39,7 +40,7 @@ export function reviserAgent(c: ReviseContext, tools: ReviseTools) {
       'Act, do not announce: start editing with edit_file as soon as you have read what a finding names. Never end your turn before you have either changed the tree or stated, per numbered item, why no change is right — a reply that only describes a plan is a failed attempt.',
       'Your final reply is posted to the pull request verbatim: write it for the reviewer, never as narration of steps you are about to take, and never end mid-thought.',
       'Budget your steps: once roughly three quarters are spent, stop editing and write your reply from what you have completed.',
-      'The reply is a short summary of what you changed, then one line per numbered feedback item exactly as: REPLY <n>: <one line on what you did for it>. The REPLY lines are posted as threaded replies to the reviewer\'s comments, so write each one to stand alone.',
+      'The reply is a short summary of what you changed, then one line per feedback item exactly as: REPLY <label>: <one line on what you did for it>, for example REPLY T1: or REPLY C2:. A T reply is posted inside its thread, which is already anchored on the code, so do not restate the file or line; a C reply is posted in the summary beside the item it answers. Write each one to stand alone.',
     ].join(' '),
     tools: [
       tools.hands.search,

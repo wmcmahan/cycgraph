@@ -1,8 +1,8 @@
 /**
  * gather_feedback — read the review, check out the branch.
  *
- * The run's first step and its gatekeeper: it reads the PR's trusted
- * review feedback, refuses fork PRs and unsafe branch names, clones the
+ * The run's first step and its gatekeeper: it reads the PR's open,
+ * trusted review feedback, refuses fork PRs and unsafe branch names, clones the
  * repository fresh, checks out the PR head, links node_modules for the
  * checks, and folds any failing-CI logs into the instruction. It returns
  * `has_work: false` with a reason whenever there is nothing safe to do.
@@ -17,9 +17,9 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { tool } from '@cycgraph/orchestrator';
-import { isSafeGitRef, linkNestedModules, prFeedback } from '@cycgraph/tools/git';
-import { TRUSTED_ASSOCIATIONS } from '../../shared/repo.js';
+import { isSafeGitRef, linkNestedModules, listReviewThreads, prFeedback } from '@cycgraph/tools/git';
 import { fetchCiFailureLogs } from '../../shared/ci-logs.js';
+import { excerptOf, renderRevisionFeedback, revisionFeedback } from '../../shared/review-threads.js';
 import type { ReviseContext } from '../context.js';
 
 const exec = promisify(execFile);
@@ -82,14 +82,16 @@ export function gatherFeedbackTool(c: ReviseContext) {
       if (!isSafeGitRef(feedback.headRefName)) {
         return { has_work: false, detail: `PR #${p.pr} has an unsafe head branch name; refusing` };
       }
-      // Only maintainers' text may steer an agent that pushes code.
-      // Commenting needs no permission, so on a public repository every
-      // other association is an arbitrary account — and CI bots'
-      // deployment tables are noise besides.
-      const comments = feedback.comments.filter((comment) =>
-        TRUSTED_ASSOCIATIONS.has(comment.authorAssociation) && !comment.author.endsWith('[bot]'));
-      if (comments.length === 0) {
-        return { has_work: false, detail: `PR #${p.pr} carries no review feedback to address` };
+      // Only maintainers' text may steer an agent that pushes code, and
+      // only what is still open: resolved threads and feedback an earlier
+      // revision already answered are history, not instructions.
+      const threads = await listReviewThreads(repoRoot, p.pr, auth);
+      if (threads === undefined) {
+        return { has_work: false, detail: `cannot read the review threads on PR #${p.pr}` };
+      }
+      const open = revisionFeedback(threads, feedback.comments);
+      if (open.threads.length === 0 && open.topLevel.length === 0) {
+        return { has_work: false, detail: `PR #${p.pr} carries no open review feedback to address` };
       }
 
       // 2. Rebuild the workspace on the PR head.
@@ -101,22 +103,26 @@ export function gatherFeedbackTool(c: ReviseContext) {
       // with no local checks still learns what broke.
       const ciLogs = await fetchCiFailureLogs(repoRoot, { branch: head, headSha }, auth);
 
-      // 4. Hand the reviser the feedback and where to reply.
+      // 4. Hand the reviser the feedback and where each reply goes: a
+      // thread label replies inside that thread; a top-level label has no
+      // thread, so its reply rides the summary comment beside an excerpt.
       return {
         has_work: true,
         head,
         title: feedback.title,
-        comment_count: comments.length,
-        // Feedback items that live in diff threads, by their number in the
-        // instruction below: the delivery replies inside those threads so
-        // the response sits beside the finding.
-        reply_targets: comments.flatMap((comment, index) =>
-          comment.id !== undefined ? [{ index: index + 1, id: comment.id }] : []),
+        thread_count: open.threads.length,
+        top_level_count: open.topLevel.length,
+        reply_targets: open.threads.flatMap(({ label, thread }) =>
+          thread.commentId !== undefined ? [{ label, id: thread.commentId }] : []),
+        top_level_items: open.topLevel.map(({ label, comment }) => ({
+          label,
+          excerpt: excerptOf(comment.body),
+        })),
         instruction: [
           `Address the review feedback on pull request #${p.pr} ("${feedback.title}").`,
-          'The feedback, verbatim:',
-          ...comments.map((comment: { author: string; body: string; path?: string; line?: number }, index: number) =>
-            `${index + 1}. [${comment.author}${comment.path !== undefined ? ` on ${comment.path}${comment.line !== undefined ? `:${comment.line}` : ''}` : ''}] ${comment.body}`),
+          'Every item below is open feedback from a trusted maintainer or the pr-review workflow, verbatim. Items labeled T are review threads on a specific line; items labeled C are top-level feedback.',
+          '',
+          renderRevisionFeedback(open),
           ...(ciLogs !== undefined ? ['', ciLogs] : []),
         ].join('\n'),
       };
