@@ -260,6 +260,25 @@ function targetUrl(input: RequestInfo | URL): string {
 }
 
 /**
+ * Headers for every hop of one request, lowest precedence first: a
+ * `Request` input's own headers, then `init.headers`, then `headers`.
+ * They are folded into one set because fetch discards a `Request`'s own
+ * header list whenever `init.headers` is present.
+ */
+function hopHeaders(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  headers: Record<string, string>,
+): Record<string, string> {
+  const merged = new Headers(typeof input === 'string' || input instanceof URL ? undefined : input.headers);
+  new Headers(init?.headers).forEach((value, name) => merged.set(name, value));
+  for (const [name, value] of Object.entries(headers)) merged.set(name, value);
+  const record: Record<string, string> = {};
+  merged.forEach((value, name) => { record[name] = value; });
+  return record;
+}
+
+/**
  * Init for a redirect hop. A `Request` input carries the method and body
  * that `init` does not, and its URL cannot be swapped for the hop's, so
  * both are lifted out of a clone taken before the first hop consumed it;
@@ -302,7 +321,7 @@ export function requestFetch(
   return async (input, init) => {
     const hopInit: RequestInit = {
       ...init,
-      headers: { ...(init?.headers as Record<string, string>), ...headers },
+      headers: hopHeaders(input, init, headers),
       ...(signal !== undefined
         ? { signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal }
         : {}),

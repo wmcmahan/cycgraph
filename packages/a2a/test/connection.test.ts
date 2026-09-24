@@ -769,4 +769,53 @@ describe('requestFetch', () => {
     expect(hop.method).toBe('POST');
     expect(new TextDecoder().decode(hop.body as ArrayBuffer)).toBe('{"id":1}');
   });
+
+  it('sends the own headers of a request input on the first hop', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const request = new Request(`${CARD_URL}/rpc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json', authorization: 'Bearer stale' },
+      body: '{"id":1}',
+    });
+
+    await requestFetch({ authorization: 'Bearer sesame' }, PINNED)(request);
+
+    expect(fetchMock.mock.calls[0]![1]!.headers).toEqual({
+      accept: 'application/json',
+      authorization: 'Bearer sesame',
+      'content-type': 'application/json',
+    });
+  });
+
+  it('replays the own headers of a request input on a redirect hop', async () => {
+    const fetchMock = redirectThenOk('http://other.example/rpc');
+    vi.stubGlobal('fetch', fetchMock);
+    const request = new Request(`${CARD_URL}/rpc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: '{"id":1}',
+    });
+
+    await requestFetch({ authorization: 'Bearer sesame' }, PINNED)(request);
+
+    expect((fetchMock.mock.calls[1]![1] as RequestInit).headers).toEqual({
+      accept: 'application/json',
+      authorization: 'Bearer sesame',
+      'content-type': 'application/json',
+    });
+  });
+
+  it('applies init headers over the own headers of a request input', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const request = new Request(`${CARD_URL}/rpc`, { headers: { accept: 'text/plain', 'x-trace': 'abc' } });
+
+    await requestFetch({}, PINNED)(request, { headers: { accept: 'application/json' } });
+
+    expect(fetchMock.mock.calls[0]![1]!.headers).toEqual({
+      accept: 'application/json',
+      'x-trace': 'abc',
+    });
+  });
 });
