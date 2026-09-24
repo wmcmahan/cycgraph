@@ -117,7 +117,12 @@ export const A2AServerEntrySchema = z.object({
   auth: A2AAuthSchema.default({ type: 'none' }),
   /** Agent IDs allowed to use this server. Omit for unrestricted access. */
   allowed_agents: z.array(z.string()).optional(),
-  /** Connection timeout in milliseconds. */
+  /**
+   * Per-request timeout in milliseconds: bounds each connection attempt
+   * (Agent Card resolution and client construction) and each status poll
+   * on its own, within `task_timeout_ms`. The message send is exempt, since
+   * it may block until the remote task finishes.
+   */
   timeout_ms: z.number().int().positive().max(3_600_000).default(30_000),
   /**
    * How long to wait for a task to reach a terminal or interrupted state.
