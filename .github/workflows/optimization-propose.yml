@@ -48,6 +48,9 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GH_TOKEN: ${{ github.token }}
           CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
+          CYCGRAPH_MODEL_HIGH: ${{ vars.CYCGRAPH_MODEL_HIGH }}
+          CYCGRAPH_MODEL_MEDIUM: ${{ vars.CYCGRAPH_MODEL_MEDIUM }}
+          CYCGRAPH_MODEL_LOW: ${{ vars.CYCGRAPH_MODEL_LOW }}
         # The benchmark cannot tell faster from doing less; the test
         # suite is the correctness guard, so it gates the ticket. The
         # gate is lighter than the PR-producing workflows' on purpose:

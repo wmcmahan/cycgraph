@@ -148,6 +148,7 @@ npm run play -- run fix-repo-docs --batch 2 --publish false
 | Variable | Purpose |
 |----------|---------|
 | `CYCGRAPH_MODEL` | Fixer model (default `qwen2.5:7b` via local Ollama) |
+| `CYCGRAPH_MODEL_HIGH` / `CYCGRAPH_MODEL_MEDIUM` / `CYCGRAPH_MODEL_LOW` | Per-tier model overrides. High runs the code-editing and judging agents, medium the reviewers and synthesizers, low the distillers. Each tier falls back to `CYCGRAPH_MODEL`, and every tier model must belong to the same provider |
 | `CYCGRAPH_PROVIDER` | Override the provider inferred from the model id |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Hosted-model credentials |
 | `OLLAMA_BASE_URL` | Local model server (default `http://localhost:11434`) |

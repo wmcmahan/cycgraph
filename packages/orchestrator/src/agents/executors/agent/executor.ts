@@ -34,6 +34,7 @@ import { propagateDerivedTaint, valueBytes } from '../../../security/taint.js';
 import { LESSON_PROVENANCE_KEY, mintLessonProvenance } from '../../../memory/lesson-provenance.js';
 import { retrieveForPrompt } from '../../../memory/retrieve-for-prompt.js';
 import { resolveEffectiveModelConfig } from '../../models/model-override.js';
+import { effectiveProviderOptions } from '../effort.js';
 import { buildSystemPrompt, buildTaskPrompt } from './prompts.js';
 import { DEFAULT_AGENT_TIMEOUT_MS } from '../../constants.js';
 import { extractMemoryUpdates } from './memory.js';
@@ -405,6 +406,8 @@ export async function executeAgent(
       ? AbortSignal.any([controller.signal, options.abortSignal])
       : controller.signal;
 
+    const providerOptions = effectiveProviderOptions(effectiveConfig);
+
     // Every field both the primary call and the empty-final continuation
     // must agree on. Held in one object so an option added later cannot
     // reach only one of them — the continuation runs the same model with
@@ -421,7 +424,7 @@ export async function executeAgent(
       ...(effectiveTemperature !== undefined
         ? { temperature: clampTemperature(effectiveTemperature, effectiveConfig.provider, agentId) }
         : {}),
-      ...(config.providerOptions ? { providerOptions: config.providerOptions } : {}),
+      ...(providerOptions ? { providerOptions } : {}),
       ...(options?.onToolCall ? {
         onToolExecutionStart: (event: ToolExecutionStartEvent) => {
           try {

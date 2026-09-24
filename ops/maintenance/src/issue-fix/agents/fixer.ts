@@ -9,6 +9,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { IssueFixContext } from '../context.js';
 import type { IssueFixTools } from '../tools/index.js';
 
@@ -18,7 +19,8 @@ export function fixerAgent(c: IssueFixContext, tools: IssueFixTools) {
   return agent({
     id: 'upkeep-fixer',
     name: 'Upkeep fixer',
-    model: env.model,
+    model: modelFor(env, 'high'),
+    modelPreference: 'high',
     provider: env.provider,
     temperature: 0.1,
     maxSteps: 20, // Sized for edit rounds plus the probe-and-fix cycles the workspace_check instruction asks for.

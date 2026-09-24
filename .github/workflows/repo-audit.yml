@@ -58,6 +58,9 @@ jobs:
           GH_TOKEN: ${{ secrets.MAINTENANCE_PAT || github.token }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
+          CYCGRAPH_MODEL_HIGH: ${{ vars.CYCGRAPH_MODEL_HIGH }}
+          CYCGRAPH_MODEL_MEDIUM: ${{ vars.CYCGRAPH_MODEL_MEDIUM }}
+          CYCGRAPH_MODEL_LOW: ${{ vars.CYCGRAPH_MODEL_LOW }}
           GIT_AUTHOR_NAME: cycgraph-maintenance
           GIT_AUTHOR_EMAIL: maintenance@cycgraph.local
         run: >

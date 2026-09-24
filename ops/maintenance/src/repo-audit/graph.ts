@@ -14,6 +14,7 @@
  */
 
 import { graph } from '@cycgraph/orchestrator';
+import { tierResolver } from '../shared/models.js';
 import type { RepoAuditContext } from './context.js';
 import type { RepoAuditNodes } from './nodes/index.js';
 
@@ -57,6 +58,6 @@ export function repoAuditGraph(c: RepoAuditContext, nodes: RepoAuditNodes) {
       ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
       maxIterations: 9,
     },
-    runner: {},
+    runner: { modelResolver: tierResolver(c.env) },
   };
 }

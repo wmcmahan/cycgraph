@@ -12,6 +12,7 @@
  */
 
 import { graph } from '@cycgraph/orchestrator';
+import { tierResolver } from '../shared/models.js';
 import type { FeatProposeContext } from './context.js';
 import type { FeatProposeNodes } from './nodes/index.js';
 
@@ -51,6 +52,6 @@ export function featProposeGraph(c: FeatProposeContext, nodes: FeatProposeNodes)
       maxIterations: 4 + p.attempts * 3,
       ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
     },
-    runner: {},
+    runner: { modelResolver: tierResolver(c.env) },
   };
 }

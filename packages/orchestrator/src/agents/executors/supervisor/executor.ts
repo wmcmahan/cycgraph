@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { agentFactory, AgentFactory } from '../../factory/index.js';
 import type { GraphNode } from '../../../graph/graph.js';
 import type { StateView, Action, WorkflowState, LessonProvenanceRegistry } from '../../../state/state.js';
+import { effectiveProviderOptions } from '../effort.js';
 import { createLogger } from '../../../observability/logger.js';
 import { getTracer, withSpan } from '../../../observability/tracing.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -166,6 +167,7 @@ export async function executeSupervisor(
     let decision: SupervisorDecision;
     let usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined;
     try {
+      const providerOptions = effectiveProviderOptions(agentConfig);
       const result = await generateText({
         model,
         output: Output.object({ schema: SupervisorDecisionSchema }),
@@ -174,7 +176,7 @@ export async function executeSupervisor(
         ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
         ...(agentConfig.maxOutputTokens !== undefined ? { maxOutputTokens: agentConfig.maxOutputTokens } : {}),
         ...(agentConfig.temperature !== undefined ? { temperature: agentConfig.temperature } : {}),
-        ...(agentConfig.providerOptions ? { providerOptions: agentConfig.providerOptions } : {}),
+        ...(providerOptions ? { providerOptions } : {}),
       });
       decision = result.output;
       usage = result.usage;

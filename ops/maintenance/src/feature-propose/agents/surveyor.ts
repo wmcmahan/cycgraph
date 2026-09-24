@@ -11,6 +11,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { FeatProposeContext } from '../context.js';
 import type { FeatProposeTools } from '../tools/index.js';
 
@@ -20,7 +21,9 @@ export function surveyorAgent(c: FeatProposeContext, tools: FeatProposeTools) {
   return agent({
     id: 'feature-surveyor',
     name: 'Feature surveyor',
-    model: env.model,
+    model: modelFor(env, 'low'),
+    modelPreference: 'low',
+    effort: 'low',
     provider: env.provider,
     temperature: 0.4,
     maxSteps: 24,

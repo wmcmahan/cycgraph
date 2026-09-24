@@ -9,6 +9,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { DocsContext } from '../context.js';
 import type { DocsTools } from '../tools/index.js';
 
@@ -18,7 +19,9 @@ export function fixerAgent(c: DocsContext, tools: DocsTools) {
   return agent({
     id: 'docs-fixer',
     name: 'Documentation fixer',
-    model: env.model,
+    model: modelFor(env, 'medium'),
+    modelPreference: 'medium',
+    effort: 'medium',
     provider: env.provider,
     temperature: 0.1,
     maxSteps: 16,
