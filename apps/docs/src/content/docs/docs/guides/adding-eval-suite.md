@@ -189,7 +189,7 @@ Run the seed script:
 npx tsx packages/evals/scripts/seed-golden-v2.ts
 ```
 
-This creates `golden/data/your-suite-v1.sqlite.gz` and updates the manifest.
+This creates `golden/data/your-suite-v3.sqlite.gz` — the filename carries the MAJOR number of the schema version you passed (`'3.0.0'` → `-v3`) — and updates the manifest.
 
 ## Step 6: extend the recording planner
 
