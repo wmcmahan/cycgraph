@@ -328,6 +328,21 @@ describe('retrieveMemory', () => {
       expect(result.facts.map((f) => f.id)).toEqual([poisoned.id]);
     });
 
+    it('returns quarantined facts from embedding-based retrieval when auditing the tag', async () => {
+      await putFact({ content: 'clean', embedding: [1, 0, 0] });
+      const poisoned = makeFact({ content: 'poisoned', embedding: [1, 0, 0], tags: ['quarantined'] });
+      await store.putFact(poisoned);
+      await index.rebuild(store);
+
+      const result = await retrieveMemory(store, index, {
+        ...DEFAULTS,
+        embedding: [1, 0, 0],
+        tags: ['quarantined'],
+      });
+
+      expect(result.facts.map((f) => f.id)).toEqual([poisoned.id]);
+    });
+
     it('returns quarantined facts from entity-based retrieval when auditing the tag', async () => {
       const entity = makeEntity({ name: 'Alice' });
       await store.putEntity(entity);
