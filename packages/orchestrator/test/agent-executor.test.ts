@@ -1211,6 +1211,18 @@ describe('executeAgent — model override and provider options', () => {
       anthropic: { thinking: { type: 'enabled', budgetTokens: 3000 } },
     });
   });
+
+  it('translates config effort into the provider options sent to streamText', async () => {
+    (agentFactory.loadAgent as any).mockResolvedValue(
+      makeAgentConfig({ provider: 'anthropic', effort: 'low' }),
+    );
+
+    await executeAgent('test-agent', makeStateView(), {}, 1);
+
+    expect((streamText as any).mock.calls[0][0].providerOptions).toEqual({
+      anthropic: { effort: 'low' },
+    });
+  });
 });
 
 describe('executeAgent — step aggregation', () => {

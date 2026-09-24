@@ -9,6 +9,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { ImplementContext } from '../context.js';
 import type { ImplementTools } from '../tools/index.js';
 
@@ -19,7 +20,8 @@ export function implementerAgent(c: ImplementContext, tools: ImplementTools) {
   return agent({
     id: 'feature-implementer',
     name: 'Feature implementer',
-    model: env.model,
+    model: modelFor(env, 'high'),
+    modelPreference: 'high',
     provider: env.provider,
     temperature: 0.2,
     maxSteps: 40,

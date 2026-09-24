@@ -16,6 +16,7 @@
  */
 
 import { graph } from '@cycgraph/orchestrator';
+import { tierResolver } from '../shared/models.js';
 import type { ReviewContext } from './context.js';
 import type { ReviewNodes } from './nodes/index.js';
 
@@ -48,6 +49,6 @@ export function reviewGraph(c: ReviewContext, nodes: ReviewNodes) {
       maxIterations: 12,
       ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
     },
-    runner: {},
+    runner: { modelResolver: tierResolver(c.env) },
   };
 }

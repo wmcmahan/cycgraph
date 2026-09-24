@@ -17,6 +17,7 @@
 import { z } from 'zod';
 import { GraphSchema, GraphInputDeclSchema, GraphOutputDeclSchema } from '../graph/graph.js';
 import { ToolSourceSchema } from '../tools/schema.js';
+import { EffortLevelSchema } from '../agents/types.js';
 
 /** Caps mirror GraphSchema's structural caps: bound untrusted artifacts. */
 const MAX_BUNDLE_AGENTS = 10_000;
@@ -61,8 +62,10 @@ export const BundledAgentSchema = z.object({
   temperature: z.number().min(0).max(1).optional(),
   max_steps: z.number().int().min(1).optional(),
   tools: z.array(ToolSourceSchema).max(1000).default([]),
+  max_output_tokens: z.number().int().positive().optional(),
   provider_options: z.record(z.string(), z.record(z.string(), z.unknown())).nullable().optional(),
   model_preference: z.string().optional(),
+  effort: EffortLevelSchema.optional(),
   permissions: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 

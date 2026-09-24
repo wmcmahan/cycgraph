@@ -48,6 +48,7 @@ describe('InMemoryAgentRegistry camelCase authoring', () => {
       systemPrompt: 'You are helpful.',
       maxSteps: 7,
       modelPreference: 'high',
+      effort: 'low',
       tools: [{ type: 'mcp', serverId: 'web', toolNames: ['search'] }],
       providerOptions: { anthropic: { thinking: { budgetTokens: 1024 } } },
       permissions: { readKeys: ['goal'], writeKeys: ['draft'] },
@@ -57,6 +58,7 @@ describe('InMemoryAgentRegistry camelCase authoring', () => {
     expect(entry?.system_prompt).toBe('You are helpful.');
     expect(entry?.max_steps).toBe(7);
     expect(entry?.model_preference).toBe('high');
+    expect(entry?.effort).toBe('low');
     expect(entry?.permissions).toMatchObject({ read_keys: ['goal'], write_keys: ['draft'] });
     expect(entry?.tools).toEqual([{ type: 'mcp', server_id: 'web', tool_names: ['search'] }]);
     expect(entry?.provider_options).toEqual({ anthropic: { thinking: { budgetTokens: 1024 } } });

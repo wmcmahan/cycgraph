@@ -9,6 +9,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { TuneContext } from '../context.js';
 import type { TuneTools } from '../tools/index.js';
 
@@ -18,7 +19,9 @@ export function analystAgent(c: TuneContext, tools: TuneTools) {
   return agent({
     id: 'tune-analyst',
     name: 'Tune analyst',
-    model: env.model,
+    model: modelFor(env, 'medium'),
+    modelPreference: 'medium',
+    effort: 'medium',
     provider: env.provider,
     temperature: 0.3,
     maxSteps: 20,

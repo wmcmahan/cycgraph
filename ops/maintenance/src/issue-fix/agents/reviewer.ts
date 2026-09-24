@@ -11,6 +11,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { IssueFixContext } from '../context.js';
 
 /** Build the toolless advisory reviewer. */
@@ -19,7 +20,9 @@ export function reviewerAgent(c: IssueFixContext) {
   return agent({
     id: 'upkeep-reviewer',
     name: 'Upkeep reviewer',
-    model: env.model,
+    model: modelFor(env, 'medium'),
+    modelPreference: 'medium',
+    effort: 'medium',
     provider: env.provider,
     temperature: 0.2,
     maxSteps: 2,

@@ -13,6 +13,7 @@
  */
 
 import { graph } from '@cycgraph/orchestrator';
+import { tierResolver } from '../shared/models.js';
 import type { TuneContext } from './context.js';
 import type { TuneNodes } from './nodes/index.js';
 
@@ -57,6 +58,6 @@ export function tuneGraph(c: TuneContext, nodes: TuneNodes) {
       maxIterations: 6 + p.attempts * 3,
       ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
     },
-    runner: {},
+    runner: { modelResolver: tierResolver(c.env) },
   };
 }
