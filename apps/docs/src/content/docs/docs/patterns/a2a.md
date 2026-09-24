@@ -26,6 +26,7 @@ flowchart LR
 |---|---|
 | **Taint** | Everything the remote agent returns is recorded as external data. Downstream taint gates see it. |
 | **Budget** | Not enforced. A remote agent reports no tokens or cost, so a per-node cap could never fire. `maxWaitMs` and the failure policy are the bounds that apply. |
+| **Concurrency** | Capped per remote agent when the registry entry sets `maxConcurrentTasks` (`max_concurrent_tasks` on the wire). Each task holds a slot for its whole remote exchange, and the cap is shared process-wide by every run that resolves to the same server id and `agentCardUrl`, so `map`, voting, and parallel-branch fan-out queues against that agent instead of firing every branch at once. Expect added latency and serialized ordering under fan-out. Omit the field to leave the server uncapped. |
 | **Retries** | A task that ends `rejected` or `auth-required` is not retried. The agent decided, or the credential cannot change mid-run. |
 | **Pauses** | A task that stops at `input-required` pauses the workflow through the same human-in-the-loop machinery an approval node uses, and the answer resumes the same remote task. |
 
