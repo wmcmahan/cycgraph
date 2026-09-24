@@ -447,7 +447,7 @@ const store = new DrizzleMemoryStore();
 const index = new DrizzleMemoryIndex();
 ```
 
-The in-memory index is an O(n) brute-force scan. It is adequate below roughly 10K entries and emits a one-shot warning when rebuilt past that threshold. Construct it with `expectedDimensions`, wired from your `EmbeddingProvider.dimensions`, so a dimension mismatch throws immediately instead of silently producing wrong similarity scores.
+The in-memory index is an O(n) brute-force scan capped at 10,000 records per type (entities, facts, and episodes). Records past that cap are left out of search entirely, so retrieval silently returns incomplete results rather than just slowing down; a one-shot console warning is the only signal. See [`InMemoryMemoryIndex`](#inmemorymemoryindex) for the full behavior, and switch to the pgvector-backed adapter before a store reaches that size. Construct it with `expectedDimensions`, wired from your `EmbeddingProvider.dimensions`, so a dimension mismatch throws immediately instead of silently producing wrong similarity scores.
 
 ## Orchestrator integration
 
