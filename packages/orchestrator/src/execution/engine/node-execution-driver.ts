@@ -325,6 +325,11 @@ export class NodeExecutionDriver {
           break;
         }
 
+        // A cancelled or timed-out workflow must not start another attempt:
+        // a retry would issue fresh LLM calls after cancel() returned.
+        const workflowSignal = this.deps.getWorkflowAbortController().signal;
+        if (workflowSignal.aborted) break;
+
         const isLastAttempt = attempt === maxAttempts;
         if (isLastAttempt) break;
 
