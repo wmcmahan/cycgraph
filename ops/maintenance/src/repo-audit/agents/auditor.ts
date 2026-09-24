@@ -11,6 +11,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { RepoAuditContext } from '../context.js';
 import type { RepoAuditTools } from '../tools/index.js';
 
@@ -20,7 +21,8 @@ export function auditorAgent(c: RepoAuditContext, tools: RepoAuditTools) {
   return agent({
     id: 'repo-auditor',
     name: 'Repository auditor',
-    model: env.model,
+    model: modelFor(env, 'high'),
+    modelPreference: 'high',
     provider: env.provider,
     temperature: 0.3,
     maxSteps: p.steps,

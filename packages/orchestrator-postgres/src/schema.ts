@@ -303,6 +303,7 @@ export const agents = pgTable('agents', {
   }>(),
   provider_options: jsonb('provider_options').$type<Record<string, Record<string, import('@cycgraph/orchestrator').JsonValue>>>(),
   model_preference: text('model_preference'),
+  effort: text('effort'),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [

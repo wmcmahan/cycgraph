@@ -38,6 +38,19 @@ const jsonValueSchema: z.ZodType<JSONValue> = z.lazy(() =>
 const jsonObjectSchema = z.record(z.string(), jsonValueSchema);
 
 /**
+ * Provider-neutral reasoning-effort levels.
+ *
+ * Declares how hard a model should think, independent of which provider
+ * runs it; the executor translates the level to the provider's own option
+ * at call time. The vocabulary is the union both major providers accept,
+ * but support varies by MODEL, not just provider (e.g. Anthropic's
+ * `xhigh` needs Opus 4.7+ / Sonnet 5, and Haiku has no effort control) —
+ * an unsupported combination is rejected by the provider API at call time.
+ */
+export const EffortLevelSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+export type EffortLevel = z.infer<typeof EffortLevelSchema>;
+
+/**
  * Zod schema for agent configuration records.
  *
  * Validated by the {@link AgentFactory} on every load via `AgentConfigSchema.parse()`.
@@ -98,6 +111,14 @@ export const AgentConfigSchema = z.object({
    * ```
    */
   providerOptions: z.record(z.string(), jsonObjectSchema).optional(),
+
+  /**
+   * Provider-neutral reasoning-effort level, translated to the provider's
+   * own option at call time: Anthropic `effort`, OpenAI `reasoningEffort`.
+   * Providers without an effort control ignore it, and an explicit value
+   * for the same option inside `providerOptions` wins over this field.
+   */
+  effort: EffortLevelSchema.optional(),
 
   // ── Budget-Aware Model Resolution ──
 

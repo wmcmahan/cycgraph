@@ -4,7 +4,9 @@
  * the same knobs the same way.
  *
  * Variables: `CYCGRAPH_MODEL` and optionally `CYCGRAPH_PROVIDER` (else
- * inferred from the model id), plus the publish variables
+ * inferred from the model id), the per-tier overrides
+ * `CYCGRAPH_MODEL_HIGH` / `CYCGRAPH_MODEL_MEDIUM` / `CYCGRAPH_MODEL_LOW`
+ * (each falls back to `CYCGRAPH_MODEL`), plus the publish variables
  * `publishConfigFromEnv` reads (`GH_TOKEN`/`GITHUB_TOKEN`,
  * `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`).
  *
@@ -34,10 +36,16 @@ export function maintenanceEnvFromProcess(
   context: MaintenanceContext = defaultMaintenanceContext(),
 ): MaintenanceEnv {
   const model = env['CYCGRAPH_MODEL'] ?? 'qwen2.5:7b';
+  const tiers = {
+    ...(env['CYCGRAPH_MODEL_HIGH'] !== undefined ? { high: env['CYCGRAPH_MODEL_HIGH'] } : {}),
+    ...(env['CYCGRAPH_MODEL_MEDIUM'] !== undefined ? { medium: env['CYCGRAPH_MODEL_MEDIUM'] } : {}),
+    ...(env['CYCGRAPH_MODEL_LOW'] !== undefined ? { low: env['CYCGRAPH_MODEL_LOW'] } : {}),
+  };
   const fromEnv = publishConfigFromEnv(env);
   const identity = fromEnv.identity ?? context.identity;
   return {
     model,
+    ...(Object.keys(tiers).length > 0 ? { models: tiers } : {}),
     provider: env['CYCGRAPH_PROVIDER'] ?? inferProvider(model),
     publish: {
       ...fromEnv,

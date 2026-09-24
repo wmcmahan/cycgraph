@@ -13,6 +13,7 @@ import type { WorkflowState } from '../state/state.js';
 import type { MCPServerEntry, MCPServerConfig, ToolSource, ToolSourceInput } from '../tools/schema.js';
 import type { Camelize } from '../utils/case-mapping.js';
 import type { ModelTier } from '../agents/models/model-resolver.js';
+import type { EffortLevel } from '../agents/types.js';
 
 /** JSON-serializable value. */
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -294,6 +295,11 @@ export interface AgentRegistryEntry {
   tools: ToolSource[];
   /** Provider-specific options, namespaced by provider name. */
   provider_options?: Record<string, Record<string, JsonValue>> | null;
+  /**
+   * Provider-neutral reasoning-effort level, translated to the provider's
+   * own option at call time. Providers without an effort control ignore it.
+   */
+  effort?: EffortLevel;
   /**
    * Capability tier preference for budget-aware model resolution.
    *

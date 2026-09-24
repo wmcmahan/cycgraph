@@ -578,6 +578,7 @@ Zod-validated configuration schema (`AgentConfigSchema`). Agents are **pure conf
   maxSteps: number,              // 1–50, default 10
   maxOutputTokens?: number,      // generation cap, passed to the provider; no default
   providerOptions?: Record<string, JSONObject>,  // e.g. anthropic thinking budget
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max',  // provider-neutral reasoning effort
   model_preference?: 'high' | 'medium' | 'low',  // budget-aware tier
   tools: ToolSourceInput[],      // built-in / custom / MCP references
   read_keys?: string[],          // optional read CEILING (ADR 001)
