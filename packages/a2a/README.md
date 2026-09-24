@@ -71,8 +71,13 @@ response cannot leak one.
 
 ## Agent Card caching
 
-A client resolves each Agent Card once per `agentCardUrl` and keeps it for
-the lifetime of that `createA2AClient()` instance. There is no TTL and no
+A client caches each resolved Agent Card under the `agentCardUrl` **and**
+the credential headers it was fetched with, and keeps it for the lifetime
+of that `createA2AClient()` instance. Two registry entries that share one
+`agentCardUrl` but differ in `auth` therefore each resolve the card with
+their own credentials — one fetch per distinct URL-and-header pair, not
+one per URL — so a card fetched for one entry is never served to the
+other. Trace headers are excluded from the key. There is no TTL and no
 invalidation on success; only a failed resolution is evicted, so a
 transient fetch fault never outlives the request that hit it.
 
