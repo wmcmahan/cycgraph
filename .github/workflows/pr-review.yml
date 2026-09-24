@@ -2,8 +2,11 @@
 #
 # The reviewer reads the branch diff beside a checkout of the PR branch,
 # verifies findings against the tree (duplication, convention drift,
-# hollow tests), and submits one real review: findings anchored inline
-# on the diff, APPROVE when clean (degraded to a comment-state review on
+# hollow tests), and submits one real review: each finding is a comment
+# on its line, or on its whole file when it has no line, with its evidence
+# folded beneath it. The review body keeps the verdict, the summary, and
+# an unnumbered list of points about the change as a whole, and APPROVE
+# when clean (degraded to a comment-state review on
 # the token's own PRs, which GitHub forbids it approving). On a REVISE
 # verdict against a PR carrying the maintenance-managed label (bot PRs
 # are labeled at creation; label your own to opt in), the review body
@@ -12,8 +15,9 @@
 # reviews fire no workflows). Unlabeled PRs get findings only. The
 # human merge stays the gate.
 # A push to a LABELED PR re-runs the review as a verification pass: the
-# reviewer checks each prior finding (ADDRESSED/UNRESOLVED) before
-# judging what changed, bounded at three reviews per PR. Unlabeled PRs
+# reviewer judges each open finding thread and prior top-level finding
+# (ADDRESSED/UNRESOLVED) before judging what changed, replies inside each
+# thread, and resolves the addressed ones, bounded at three reviews per PR. Unlabeled PRs
 # are reviewed once on open; dispatch manually for a re-review.
 #
 # Secrets and variables: as the other maintenance workflows
@@ -105,4 +109,4 @@ jobs:
           pr=${{ github.event.pull_request.number || inputs.pr }}
           gh label create needs-human 2>/dev/null || true
           gh pr edit "$pr" --add-label needs-human || true
-          gh pr comment "$pr" --body "pr-review ran but failed before posting a review — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for the log. This PR now carries the needs-human label; a later successful review clears it."
+          gh pr comment "$pr" --body "<!-- cycgraph:pr-notice -->pr-review ran but failed before posting a review — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for the log. This PR now carries the needs-human label; a later successful review clears it."

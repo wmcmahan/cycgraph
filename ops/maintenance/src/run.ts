@@ -15,7 +15,7 @@
  * @module maintenance/run
  */
 
-import { createProviderRegistry, registerOllamaProvider, runRecorded } from '@cycgraph/orchestrator';
+import { createProviderRegistry, createWorkflowState, registerOllamaProvider, runRecorded } from '@cycgraph/orchestrator';
 import type { EventLogWriter, GraphRunnerMiddleware, PersistenceProvider, ProviderRegistry } from '@cycgraph/orchestrator';
 import { createOpenAI } from '@ai-sdk/openai';
 import { coreUpkeep } from './code-scan/index.js';
@@ -32,11 +32,13 @@ import { optApply } from './optimization-apply/index.js';
 import { prRevise } from './pr-revise/index.js';
 import { prReview } from './pr-review/index.js';
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { getInjectedFactIds } from '@cycgraph/orchestrator';
 import type { AuditSchedule } from './repo-audit/schedule.js';
 import { maintenanceEnvFromProcess } from './shared/env.js';
 import { modelFor } from './shared/models.js';
+import { actionsRunUrl } from './shared/provenance.js';
 import { contextOf } from './shared/context.js';
 import { memoryFromEnv } from './shared/memory.js';
 import { resolveRepo } from './shared/repo.js';
@@ -289,12 +291,16 @@ async function executeGraph(
   env: MaintenanceEnv,
   durability: Durability,
   lessonMemory: LessonMemory | undefined,
+  runId: string,
 ): Promise<Recorded> {
   const progress: GraphRunnerMiddleware = {
     afterNodeExecute: async (ctx) => { say(`  ✓ ${ctx.node.id}`); },
   };
   try {
-    return await runRecorded(build.graph, build.input, {
+    // The run id is the one the build was handed, so what the workflow
+    // posts names the recorded run it belongs to.
+    const state = createWorkflowState({ workflowId: build.graph.id, runId, ...build.input });
+    return await runRecorded(build.graph, state, {
       ...(durability.persistence !== undefined ? { persistence: durability.persistence } : {}),
       providers: providersFor(env),
       runner: {
@@ -475,10 +481,15 @@ function printReport(recorded: Recorded): void {
 
   const deliver = memory['deliver_result'];
   sayDetail('deliver', deliver);
-  // A review that was not posted (comment off, or submission failed)
-  // prints here instead, so a local run is a complete dry run.
+  // A dry run prints everything it would have posted, exactly as it would
+  // have posted it. A review that was written but not submitted prints
+  // its raw text instead, so nothing the reviewer wrote is lost.
+  const preview = deliver?.['preview'];
   const reviewText = memory['review'] as unknown;
-  if (typeof reviewText === 'string' && deliver !== undefined && deliver['posted'] !== true) {
+  if (typeof preview === 'string') {
+    say('would post (dry run):');
+    say(preview.slice(0, 20_000));
+  } else if (typeof reviewText === 'string' && deliver !== undefined && deliver['posted'] !== true) {
     say('review text (not posted):');
     say(reviewText.slice(0, 4_000));
   }
@@ -583,14 +594,16 @@ async function runWorkflow(id: string, make: () => MaintenanceWorkflow, rest: st
     say(`warning: ${stale} — proceeding because --allowStale was given`);
   }
 
-  const build = await workflow.build(params, env);
+  const runUrl = actionsRunUrl();
+  const provenance = { runId: randomUUID(), ...(runUrl !== undefined ? { runUrl } : {}) };
+  const build = await workflow.build(params, { ...env, provenance });
   const durability = await durabilityFromEnv();
-  say(`recording: ${durability.kind === 'postgres' ? 'postgres (joins the shared corpus)' : 'in-memory (gone with the process)'}`);
+  say(`recording: run ${provenance.runId} · ${durability.kind === 'postgres' ? 'postgres (joins the shared corpus)' : 'in-memory (gone with the process)'}`);
 
   // Everything that uses the run's result sits inside the try so the
   // database is closed on any exit, including an engine-level throw.
   try {
-    const recorded = await executeGraph(build, env, durability, lessonMemory);
+    const recorded = await executeGraph(build, env, durability, lessonMemory, provenance.runId);
     await recordRunOutcomes(recorded, build, lessonMemory);
     await writeResultJson(recorded);
     printReport(recorded);

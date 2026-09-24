@@ -50,6 +50,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 const {
+  commentOnPrFile,
   enableAutoMerge,
   listReviewThreads,
   resolveReviewThread,
@@ -165,6 +166,29 @@ describe('submitPrReview', () => {
         + ' (inline comments rejected (line must be part of the diff), kept in the body)',
     });
     expect(commentCounts).toEqual([1, 0]);
+  });
+
+  it('resubmits with the fallback body when inline comments are rejected', async () => {
+    const bodies: string[] = [];
+    handler = async (call) => {
+      if (!isReviewPost(call)) return { stdout: '[]' };
+      const payload = await reviewPayload(call);
+      bodies.push(payload.body);
+      return payload.comments === undefined
+        ? { stdout: '{}' }
+        : { throws: apiError('line must be part of the diff') };
+    };
+
+    const result = await submitPrReview('/repo', PR, {
+      event: 'COMMENT',
+      body: 'summary only',
+      comments: [{ path: 'a.ts', line: 99, body: 'out of diff' }],
+      bodyWithoutComments: 'summary plus a.ts:99 out of diff',
+    });
+
+    expect(result.detail).toBe('submitted COMMENT review with 0 inline comment(s)'
+      + ' (inline comments rejected (line must be part of the diff), moved into the body)');
+    expect(bodies).toEqual(['summary only', 'summary plus a.ts:99 out of diff']);
   });
 
   it('discards a leftover pending review before submitting', async () => {
@@ -324,20 +348,38 @@ describe('listReviewThreads', () => {
             nodes: [{
               id: 'PRRT_1',
               isResolved: false,
+              isOutdated: false,
               path: 'src/a.ts',
+              line: 12,
+              originalLine: 12,
               comments: {
                 nodes: [{
                   body: 'finding one',
                   databaseId: 501,
                   viewerDidAuthor: true,
                   createdAt: '2026-01-02T03:04:05Z',
+                  authorAssociation: 'MEMBER',
+                  author: { login: 'reviewer' },
+                  diffHunk: '@@ -10,2 +10,3 @@\n context\n+added',
                   pullRequestReview: { id: 'PRR_9' },
+                }, {
+                  body: 'fixed it',
+                  databaseId: 502,
+                  viewerDidAuthor: false,
+                  createdAt: '2026-01-03T03:04:05Z',
+                  authorAssociation: 'OWNER',
+                  author: { login: 'maintainer' },
+                  diffHunk: '@@ -10,2 +10,3 @@\n context\n+added',
+                  pullRequestReview: { id: 'PRR_10' },
                 }],
               },
             }, {
               id: 'PRRT_2',
               isResolved: true,
+              isOutdated: true,
               path: null,
+              line: null,
+              originalLine: 4,
               comments: { nodes: [] },
             }],
           },
@@ -346,7 +388,7 @@ describe('listReviewThreads', () => {
     },
   };
 
-  it('maps each thread with its resolution state and first comment', async () => {
+  it('maps each thread with its anchor, state, and whole conversation', async () => {
     handler = (call) => ({
       stdout: call.args[0] === 'repo'
         ? JSON.stringify({ owner: { login: 'acme' }, name: 'widgets' })
@@ -358,7 +400,26 @@ describe('listReviewThreads', () => {
     expect(threads).toEqual([{
       id: 'PRRT_1',
       isResolved: false,
+      isOutdated: false,
       path: 'src/a.ts',
+      line: 12,
+      originalLine: 12,
+      diffHunk: '@@ -10,2 +10,3 @@\n context\n+added',
+      comments: [{
+        id: 501,
+        author: 'reviewer',
+        authorAssociation: 'MEMBER',
+        body: 'finding one',
+        viewerDidAuthor: true,
+        createdAt: '2026-01-02T03:04:05Z',
+      }, {
+        id: 502,
+        author: 'maintainer',
+        authorAssociation: 'OWNER',
+        body: 'fixed it',
+        viewerDidAuthor: false,
+        createdAt: '2026-01-03T03:04:05Z',
+      }],
       body: 'finding one',
       viewerDidAuthor: true,
       commentId: 501,
@@ -367,6 +428,9 @@ describe('listReviewThreads', () => {
     }, {
       id: 'PRRT_2',
       isResolved: true,
+      isOutdated: true,
+      originalLine: 4,
+      comments: [],
       body: '',
       viewerDidAuthor: false,
     }]);
@@ -379,6 +443,30 @@ describe('listReviewThreads', () => {
 
     expect(threads).toBeUndefined();
     expect(argsOf()).toEqual([['repo', 'view', '--json', 'owner,name']]);
+  });
+});
+
+describe('commentOnPrFile', () => {
+  const COMMENT = { commitId: 'abc123', path: 'src/a.ts', body: 'split this module' };
+
+  it('posts a file-level comment against the head commit and returns its id', async () => {
+    handler = () => ({ stdout: JSON.stringify({ id: 901 }) });
+
+    const result = await commentOnPrFile('/repo', PR, COMMENT);
+
+    expect(result).toEqual({ ok: true, id: 901, detail: 'commented on src/a.ts' });
+    expect(argsOf()).toEqual([[
+      'api', `repos/{owner}/{repo}/pulls/${PR}/comments`, '--method', 'POST',
+      '-f', 'body=split this module', '-f', 'commit_id=abc123', '-f', 'path=src/a.ts', '-f', 'subject_type=file',
+    ]]);
+  });
+
+  it('reports the API reason when the file is not in the diff', async () => {
+    handler = () => ({ throws: apiError('path could not be resolved') });
+
+    const result = await commentOnPrFile('/repo', PR, COMMENT);
+
+    expect(result).toEqual({ ok: false, detail: 'path could not be resolved' });
   });
 });
 
