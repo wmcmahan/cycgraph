@@ -215,6 +215,38 @@ describe('NodeExecutionDriver', () => {
       expect(h.execute).toHaveBeenCalledTimes(1);
       expect(h.emit.mock.calls.map(c => c[0])).not.toContain('node:retry');
     });
+
+    it('does not retry after the workflow is aborted', async () => {
+      const h = makeHarness();
+      h.execute.mockImplementation(async () => {
+        h.abortController.abort();
+        throw new Error('boom');
+      });
+      const node = makeToolNode({
+        failure_policy: { max_retries: 3, backoff_strategy: 'fixed', initial_backoff_ms: 1, max_backoff_ms: 1 },
+      });
+
+      await expect(h.driver.executeWithTimeout(node)).rejects.toThrow('boom');
+
+      expect(h.execute).toHaveBeenCalledTimes(1);
+      expect(h.emit.mock.calls.map(c => c[0])).not.toContain('node:retry');
+    });
+
+    it('does not start another attempt when the workflow is aborted during the backoff', async () => {
+      const h = makeHarness();
+      h.execute.mockRejectedValue(new Error('boom'));
+      h.emit.mockImplementation((event: string) => {
+        if (event === 'node:retry') h.abortController.abort();
+      });
+      const node = makeToolNode({
+        failure_policy: { max_retries: 3, backoff_strategy: 'fixed', initial_backoff_ms: 1, max_backoff_ms: 1 },
+      });
+
+      await expect(h.driver.executeWithTimeout(node)).rejects.toThrow('boom');
+
+      expect(h.execute).toHaveBeenCalledTimes(1);
+      expect(h.emit.mock.calls.filter(c => c[0] === 'node:retry').length).toBe(1);
+    });
   });
 
   describe('failed-attempt usage accounting', () => {

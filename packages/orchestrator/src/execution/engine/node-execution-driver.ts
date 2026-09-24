@@ -354,6 +354,7 @@ export class NodeExecutionDriver {
         logger.warn('node_retry', { node_id: node.id, attempt, backoff_ms: backoffMs, error: lastError?.message });
 
         await sleep(backoffMs);
+        if (workflowSignal.aborted) break;
       }
     }
 
