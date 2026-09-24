@@ -1,45 +1,20 @@
 import { defineConfig } from 'astro/config';
 import { fileURLToPath } from 'node:url';
-import { readdirSync } from 'node:fs';
-import { join, relative } from 'node:path';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
 import mdx from '@astrojs/mdx';
 import vercel from '@astrojs/vercel';
 import tailwindcss from '@tailwindcss/vite';
+import { buildDocsRedirects, listDocsFiles } from './src/docs-redirects.mjs';
 
-
-function buildDocsRedirects() {
-  const docsRoot = fileURLToPath(new URL('./src/content/docs/docs', import.meta.url));
-  const redirects = {};
-  const walk = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (/\.mdx?$/.test(entry.name)) {
-        const slug = relative(docsRoot, full)
-          .replace(/\\/g, '/')
-          .replace(/\.mdx?$/, '')
-          .replace(/\/index$/, '');
-        if (slug === 'index' || slug === '') continue;
-        redirects[`/${slug}`] = `/docs/${slug}/`;
-      }
-    }
-  };
-  walk(docsRoot);
-
-  redirects['/docs'] = '/docs/getting-started/introduction/';
-
-  return redirects;
-}
+const docsRoot = fileURLToPath(new URL('./src/content/docs/docs', import.meta.url));
 
 export default defineConfig({
   site: 'https://flattop.io/',
   adapter: vercel(),
   output: 'static',
 
-  redirects: buildDocsRedirects(),
+  redirects: buildDocsRedirects(listDocsFiles(docsRoot)),
 
   integrations: [
     mermaid({ autoTheme: true }),
