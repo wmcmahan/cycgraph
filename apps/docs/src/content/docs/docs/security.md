@@ -223,7 +223,8 @@ When `allowed_agents` is set, the `MCPConnectionManager` validates the requestin
 
 ### Transport restrictions
 
-- **stdio.** Only allowlisted commands (`npx`, `node`, `python3`, `python`, `uvx`). No arbitrary shell execution.
+- **stdio.** Only allowlisted commands (`npx`, `node`, `python3`, `python`, `uvx`); no shell string is ever evaluated. The allowlist restricts the *binary*, not what it does — `npx`/`uvx` can fetch and run an arbitrary published package, and `node -e` / `python -c` run arbitrary code. Registry-supplied `env` is scrubbed of code-injection variables (`NODE_OPTIONS`, `LD_PRELOAD`, `PYTHONSTARTUP`, `DYLD_*`, …) as defense in depth, but a stdio entry is still as trusted as the process it spawns.
+- **stdio lockdown.** Set `MCP_STDIO_DISABLED=true` on any hosted or multi-tenant deployment. There, a tenant-registered stdio server spawns a process on a shared worker — code execution across tenants — and this flag is what closes that path: both registry validation and connect-time transport construction refuse stdio entries, leaving the SSRF-guarded http/sse transports. It defaults to `false` for single-tenant and self-hosted setups, where the stdio server runs on the user's own machine.
 - **http/sse.** URLs stored in the registry, never in agent configs. Secrets stay server-side.
 - **SSRF guard.** http/sse URLs are blocked from resolving to private, loopback, link-local, or cloud-metadata addresses (`169.254.169.254`, `127.0.0.1`, RFC1918, `[::1]`, `fc00::/7`, …). Set `CYCGRAPH_ALLOW_PRIVATE_MCP_URLS=true` to allow them for local development.
 
