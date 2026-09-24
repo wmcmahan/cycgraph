@@ -116,7 +116,7 @@ Source: `@cycgraph/memory`.
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `expectedDimensions` | unset | Strict dimension check: every embedding indexed or queried must match. Mismatch throws `EmbeddingDimensionMismatchError`. Wire from `EmbeddingProvider.dimensions`. |
-| `silenceScaleWarning` | `false` | Suppress the one-shot console warning when the brute-force index crosses 10K entries. Set `true` only for stress tests. |
+| `silenceScaleWarning` | `false` | Suppress the one-shot console warnings when the brute-force index crosses 10K entries. Past 10,000 records of a type (entities, facts, or episodes), `rebuild()` leaves the extra records out of the index, so search never returns them. The warning is the only signal that retrieval is incomplete, and silencing it does not lift the cap. Set `true` only for stress tests. Use the pgvector-backed adapter for larger stores. |
 
 ## Validation behavior
 
