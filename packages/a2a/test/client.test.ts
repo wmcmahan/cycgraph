@@ -565,6 +565,141 @@ describe('createA2AClient', () => {
     })).rejects.toBe(transportError);
   });
 
+  it('retries a failed client construction with backoff until it connects', async () => {
+    vi.useFakeTimers();
+    try {
+      const attemptOffsets: number[] = [];
+      const start = Date.now();
+      const client = createA2AClient({
+        createClient: async () => {
+          attemptOffsets.push(Date.now() - start);
+          if (attemptOffsets.length < 3) throw new Error('ECONNREFUSED');
+          return { sendMessage: async () => ({ id: 't', status: { state: 'completed' }, artifacts: [] }) } as never;
+        },
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 60_000, maxRetries: 2,
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+      const result = await pending;
+
+      expect(attemptOffsets).toEqual([0, 1_000, 3_000]);
+      expect(result.state).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries a failed client construction when resuming a task', async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      const client = createA2AClient({
+        createClient: async () => {
+          attempts += 1;
+          if (attempts < 2) throw new Error('ECONNREFUSED');
+          return {
+            sendMessage: async () => ({ id: 'task-7', status: { state: 'completed' }, artifacts: [] }),
+          } as never;
+        },
+      });
+
+      const pending = client.resumeTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, taskId: 'task-7', response: 'EMEA',
+        timeoutMs: 60_000, maxRetries: 1,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await pending;
+
+      expect(attempts).toBe(2);
+      expect(result.taskId).toBe('task-7');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('passes the last connection failure through once retries are exhausted', async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      const client = createA2AClient({
+        createClient: async () => {
+          attempts += 1;
+          throw new Error(`ECONNREFUSED ${attempts}`);
+        },
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 60_000, maxRetries: 2,
+      });
+      const outcome = expect(pending).rejects.toThrow('ECONNREFUSED 3');
+      await vi.advanceTimersByTimeAsync(3_000);
+      await outcome;
+
+      expect(attempts).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('makes one connection attempt when the request sets no retries', async () => {
+    let attempts = 0;
+    const client = createA2AClient({
+      createClient: async () => {
+        attempts += 1;
+        throw new Error('ECONNREFUSED');
+      },
+    });
+
+    await expect(client.runTask({
+      agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 5_000,
+    })).rejects.toThrow('ECONNREFUSED');
+    expect(attempts).toBe(1);
+  });
+
+  it('stops retrying a connection when the budget runs out during backoff', async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      const client = createA2AClient({
+        createClient: async () => {
+          attempts += 1;
+          throw new Error('ECONNREFUSED');
+        },
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 500, maxRetries: 5,
+      });
+      const outcome = expect(pending).rejects.toThrow('did not complete within the 500ms budget');
+      await vi.advanceTimersByTimeAsync(500);
+      await outcome;
+
+      expect(attempts).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never resends message/send when retries are configured', async () => {
+    let sends = 0;
+    const transportError = new Error('ECONNRESET');
+    const client = createA2AClient({
+      createClient: async () => ({
+        sendMessage: async () => {
+          sends += 1;
+          throw transportError;
+        },
+      }) as never,
+    });
+
+    await expect(client.runTask({
+      agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 5_000, maxRetries: 3,
+    })).rejects.toBe(transportError);
+    expect(sends).toBe(1);
+  });
+
   it('passes a transport failure mid-poll through unchanged', async () => {
     vi.useFakeTimers();
     try {
