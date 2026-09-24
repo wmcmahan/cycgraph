@@ -50,6 +50,12 @@ export interface PipelineState {
   perSegmentOutputs: Map<string, PromptSegment>;
   /** Segment ID -> hash of per-segment output (for detecting actual output changes). */
   perSegmentOutputHashes: Map<string, number>;
+  /**
+   * IDs of input segments a per-segment stage removed on the previous turn.
+   * An unchanged segment listed here stays removed without re-running the
+   * per-segment stages. Absent on state from older versions.
+   */
+  droppedSegmentIds?: Set<string>;
   /** Aggregate metrics from the previous turn. */
   lastMetrics: PipelineMetrics;
   /** Turn counter (starts at 1). */
@@ -121,6 +127,39 @@ function hashSegment(seg: PromptSegment): number {
   return fnv1a(
     JSON.stringify([seg.content, seg.priority ?? 1, seg.locked ?? false, seg.metadata ?? null]),
   );
+}
+
+/** IDs of input segments with no per-segment output (removed by a per-segment stage). */
+function collectDroppedIds(
+  segments: PromptSegment[],
+  perSegmentOutputs: Map<string, PromptSegment>,
+): Set<string> {
+  const dropped = new Set<string>();
+  for (const seg of segments) {
+    if (!perSegmentOutputs.has(seg.id)) dropped.add(seg.id);
+  }
+  return dropped;
+}
+
+/**
+ * Per-segment outputs in input order, skipping segments a stage removed and
+ * appending segments a stage introduced (ids absent from the input).
+ */
+function orderPerSegmentOutputs(
+  segments: PromptSegment[],
+  perSegmentOutputs: Map<string, PromptSegment>,
+): PromptSegment[] {
+  const ordered: PromptSegment[] = [];
+  const inputIds = new Set<string>();
+  for (const seg of segments) {
+    inputIds.add(seg.id);
+    const out = perSegmentOutputs.get(seg.id);
+    if (out) ordered.push(out);
+  }
+  for (const [id, seg] of perSegmentOutputs) {
+    if (!inputIds.has(id)) ordered.push(seg);
+  }
+  return ordered;
 }
 
 /** Identity source-map entry for a segment no stage has touched yet. */
@@ -359,6 +398,7 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
           compressedSegments,
           perSegmentOutputs,
           perSegmentOutputHashes,
+          droppedSegmentIds: collectDroppedIds(input.segments, perSegmentOutputs),
           lastMetrics: metrics,
           turnNumber: (previousState?.turnNumber ?? 0) + 1,
           configFingerprint,
@@ -396,7 +436,8 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
         if (
           previousHash !== undefined &&
           previousHash === currentHash &&
-          previousState.perSegmentOutputs.has(seg.id)
+          (previousState.perSegmentOutputs.has(seg.id) ||
+            previousState.droppedSegmentIds?.has(seg.id) === true)
         ) {
           cachedIds.add(seg.id);
         } else {
@@ -411,10 +452,12 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
       let freshSourceMapRaw: SourceMapEntry[] | undefined;
 
       if (perSegmentStages.length > 0) {
-        // Reuse cached per-segment outputs for unchanged segments
+        // Reuse cached per-segment outputs for unchanged segments; an
+        // unchanged segment with no cached output stays removed
         for (const seg of input.segments) {
           if (cachedIds.has(seg.id)) {
-            perSegmentOutputs.set(seg.id, previousState.perSegmentOutputs.get(seg.id)!);
+            const cachedOut = previousState.perSegmentOutputs.get(seg.id);
+            if (cachedOut) perSegmentOutputs.set(seg.id, cachedOut);
           }
         }
 
@@ -456,13 +499,10 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
           } else {
             // State predates debug mode — synthesize an entry from the cached
             // output; stage attribution for this segment is unknown.
-            const out = perSegmentOutputs.get(seg.id)!;
-            perSegSM.set(seg.id, {
-              segmentId: seg.id,
-              original: seg.content,
-              compressed: out.content,
-              changedBy: [],
-            });
+            const out = perSegmentOutputs.get(seg.id);
+            perSegSM.set(seg.id, out
+              ? { segmentId: seg.id, original: seg.content, compressed: out.content, changedBy: [] }
+              : { segmentId: seg.id, original: seg.content, compressed: '', changedBy: [], removed: true });
           }
         }
         if (freshSourceMapRaw) {
@@ -474,8 +514,7 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
         }
       }
 
-      // Assemble per-segment outputs in original order
-      const perSegmentOrdered = input.segments.map(s => perSegmentOutputs.get(s.id)!);
+      const perSegmentOrdered = orderPerSegmentOutputs(input.segments, perSegmentOutputs);
 
       // --- Cross-segment phase ---
       // A shrunk segment set is a change even when every surviving output
@@ -610,6 +649,7 @@ export function createIncrementalPipeline(config: IncrementalPipelineConfig) {
         compressedSegments,
         perSegmentOutputs,
         perSegmentOutputHashes,
+        droppedSegmentIds: collectDroppedIds(input.segments, perSegmentOutputs),
         lastMetrics: metrics,
         turnNumber: previousState.turnNumber + 1,
         configFingerprint,

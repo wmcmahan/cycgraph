@@ -30,6 +30,16 @@ function createUppercaser(): CompressionStage {
   };
 }
 
+function createEmptyDropper(): CompressionStage {
+  return {
+    name: 'empty-dropper',
+    scope: 'per-segment',
+    execute(segments: PromptSegment[]) {
+      return { segments: segments.filter(s => s.content.length > 0) };
+    },
+  };
+}
+
 function createCrossSuffixer(): CompressionStage {
   return {
     name: 'suffixer',
@@ -299,6 +309,40 @@ describe('createIncrementalPipeline', () => {
 
     const b = turn2.result.sourceMap!.find(e => e.segmentId === 'b')!;
     expect(b).toMatchObject({ removed: true, removedBy: 'cross-dropper' });
+  });
+
+  it('serves a segment removed by a per-segment stage from cache on the second turn', () => {
+    const pipeline = createIncrementalPipeline({ stages: [createEmptyDropper()] });
+    const budget = makeBudget();
+    const segments = [seg('a', 'keep'), seg('x', '')];
+
+    const turn1 = pipeline.compress({ segments, budget });
+    const turn2 = pipeline.compress({ segments, budget }, turn1.state);
+
+    expect(turn1.result.segments.map(s => s.id)).toEqual(['a']);
+    expect(turn2.result.segments.map(s => s.id)).toEqual(['a']);
+    expect(turn2.cachedSegmentCount).toBe(2);
+    expect(turn2.freshSegmentCount).toBe(0);
+  });
+
+  it('excludes a segment removed by a per-segment stage from cross-segment input on later turns', () => {
+    const pipeline = createIncrementalPipeline({
+      stages: [createEmptyDropper(), createCrossSuffixer()],
+      debug: true,
+    });
+    const budget = makeBudget();
+
+    const turn1 = pipeline.compress({ segments: [seg('a', 'keep'), seg('x', '')], budget });
+    const turn2 = pipeline.compress(
+      { segments: [seg('a', 'changed'), seg('x', '')], budget },
+      turn1.state,
+    );
+
+    expect(turn2.result.segments.map(s => s.content)).toEqual(['changed!']);
+    expect(turn2.cachedSegmentCount).toBe(1);
+    expect(turn2.freshSegmentCount).toBe(1);
+    const x = turn2.result.sourceMap!.find(e => e.segmentId === 'x')!;
+    expect(x).toMatchObject({ removed: true, removedBy: 'empty-dropper', fromCache: true });
   });
 
   it('re-compresses only the changed segment and keeps the cached one identical', () => {
