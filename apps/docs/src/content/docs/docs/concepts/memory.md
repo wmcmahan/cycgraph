@@ -655,7 +655,7 @@ InMemoryMemoryStore()
 
 ### `InMemoryMemoryIndex`
 
-Brute-force cosine similarity search over stored embeddings, O(n) per query. It emits a one-shot console warning when rebuilt past `IN_MEMORY_INDEX_WARN_THRESHOLD`, which is 10,000 entries. Switch to the pgvector-backed adapter past that scale.
+Brute-force cosine similarity search over stored embeddings, O(n) per query. The index is capped at `IN_MEMORY_INDEX_WARN_THRESHOLD`, which is 10,000 records per type (entities, facts, and episodes). When the store holds more than that, `rebuild()` leaves the extra records out of the index entirely. `searchEntities`, `searchFacts`, and `searchEpisodes` never return them, however relevant they are, until the store shrinks below the cap or you swap the index. This is a gap in results, not only a slowdown. A one-shot console warning reports the truncation; it is the only signal that retrieval is incomplete. Switch to the pgvector-backed adapter before a store reaches that size.
 
 ```typescript
 InMemoryMemoryIndex(options?: InMemoryMemoryIndexOptions)
@@ -666,7 +666,7 @@ InMemoryMemoryIndex(options?: InMemoryMemoryIndexOptions)
 | Parameter | Type | Default | Description |
 |--------|------|---------|-------------|
 | `expectedDimensions` | `number` | `undefined` | Expected embedding dimensionality. When set, any mismatched embedding throws `EmbeddingDimensionMismatchError` immediately, since cosine similarity over mixed-dimension vectors produces silently incorrect scores. Wire it from `EmbeddingProvider.dimensions`. |
-| `silenceScaleWarning` | `boolean` | `false` | Suppress the 10K-entry scaling warning (e.g. for a stress test deliberately exercising the scan path). |
+| `silenceScaleWarning` | `boolean` | `false` | Suppress the one-shot 10K-entry warnings, including the one that reports records dropped from the index. Silencing the warning does not lift the cap: records past 10,000 per type are still left out of search results. Set `true` only for a stress test that deliberately exercises the scan path. |
 
 ### `batchGetFallback`
 
