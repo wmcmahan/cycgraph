@@ -138,6 +138,8 @@ const deepThinker = agent({
 
 Older Anthropic models before Claude 4.6 use a fixed thinking budget instead: `thinking: { type: 'enabled', budgetTokens: 12000 }`. Current models reject `budgetTokens`, so use `adaptive` unless you are pinned to an older model.
 
+To control reasoning depth, prefer the first-class `effort` field over hand-written provider options: `agent({ effort: 'low' })` is provider-neutral, and the engine translates it to the right option for whichever provider runs the agent. See [EffortLevel](/docs/concepts/agents/#effortlevel). Reach for raw `providerOptions` when you need something `effort` does not cover.
+
 ## Provider inference
 
 There are two layers of inference, and they behave differently.

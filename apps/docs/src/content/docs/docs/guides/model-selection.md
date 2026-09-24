@@ -60,6 +60,17 @@ const formatter = agent({
 });
 ```
 
+The tier is one of two complementary levers. `modelPreference` picks which model runs; the [`effort` field](/docs/concepts/agents/#effortlevel) picks how hard it thinks. For mechanical steps, a high-tier model at `effort: 'low'` is often cheaper and better than a low-tier model at full effort, so tune the two together:
+
+```typescript
+const distiller = agent({
+  model: 'claude-sonnet-5',
+  modelPreference: 'medium',
+  effort: 'low',
+  instructions: 'You distill findings into a structured summary...',
+});
+```
+
 ## Wiring the resolver
 
 With the facade, pass `modelResolver` through `RunOptions.runner`, which forwards extra `GraphRunnerOptions` to the runner `run()` creates:

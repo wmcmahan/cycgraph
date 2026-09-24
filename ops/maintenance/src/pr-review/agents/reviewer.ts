@@ -9,6 +9,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { ReviewContext } from '../context.js';
 import type { ReviewTools } from '../tools/index.js';
 
@@ -18,7 +19,8 @@ export function reviewerAgent(c: ReviewContext, tools: ReviewTools) {
   return agent({
     id: 'pr-reviewer',
     name: 'PR reviewer',
-    model: env.model,
+    model: modelFor(env, 'high'),
+    modelPreference: 'high',
     provider: env.provider,
     temperature: 0.2,
     maxSteps: 24,

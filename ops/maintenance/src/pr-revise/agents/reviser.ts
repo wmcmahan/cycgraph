@@ -10,6 +10,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { ReviseContext } from '../context.js';
 import type { ReviseTools } from '../tools/index.js';
 
@@ -20,7 +21,8 @@ export function reviserAgent(c: ReviseContext, tools: ReviseTools) {
   return agent({
     id: 'pr-reviser',
     name: 'PR reviser',
-    model: env.model,
+    model: modelFor(env, 'high'),
+    modelPreference: 'high',
     provider: env.provider,
     temperature: 0.2,
     maxSteps: 32,

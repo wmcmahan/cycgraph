@@ -20,6 +20,12 @@ import type { MaintenanceContext } from './shared/context.js';
 export interface MaintenanceEnv {
   model: string;
   provider: string;
+  /**
+   * Per-tier model overrides. Agents resolve their capability tier through
+   * `modelFor`, which falls back to `model` for any missing tier, so a
+   * single-model environment runs everything on `model` unchanged.
+   */
+  models?: { high?: string; medium?: string; low?: string };
   /** Credentials and commit identity for the delivery tail. */
   publish?: PublishConfig;
   /**

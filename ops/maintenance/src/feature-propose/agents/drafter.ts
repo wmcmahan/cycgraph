@@ -9,6 +9,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { FeatProposeContext } from '../context.js';
 
 /** Build the toolless drafter agent. */
@@ -17,7 +18,9 @@ export function drafterAgent(c: FeatProposeContext) {
   return agent({
     id: 'feature-drafter',
     name: 'Feature drafter',
-    model: env.model,
+    model: modelFor(env, 'medium'),
+    modelPreference: 'medium',
+    effort: 'medium',
     provider: env.provider,
     temperature: 0.2,
     maxSteps: 2,

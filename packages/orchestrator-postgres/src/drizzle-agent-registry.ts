@@ -9,13 +9,26 @@ import { agents } from './schema.js';
 import { eq, and, desc, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { withTenant, type Tx, type TenantContext } from './tenancy.js';
-import { camelToSnakeDeep, normalizeToolSources } from '@cycgraph/orchestrator';
+import { camelToSnakeDeep, normalizeToolSources, EffortLevelSchema } from '@cycgraph/orchestrator';
 import type {
   AgentRegistry,
   AgentRegistryEntry,
   AgentRegistryInput,
   AgentRegistryConfig,
+  EffortLevel,
 } from '@cycgraph/orchestrator';
+
+/**
+ * A stored effort reaches the entry only while it is still a valid level.
+ * The column's CHECK constraint keeps new writes valid; this parse covers
+ * rows written before migration 0021 ran and writes that bypass the
+ * constraint, which fall back to "no effort" rather than flow into the
+ * provider translation as a level.
+ */
+function storedEffort(value: string | null): { effort: EffortLevel } | Record<string, never> {
+  const parsed = EffortLevelSchema.safeParse(value);
+  return parsed.success ? { effort: parsed.data } : {};
+}
 
 /** Canonical UUID shape guard for the uuid-typed `agents.id` column. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -81,6 +94,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
       permissions: row.permissions,
       ...(row.provider_options ? { provider_options: row.provider_options } : {}),
       ...(row.model_preference ? { model_preference: row.model_preference as 'high' | 'medium' | 'low' } : {}),
+      ...storedEffort(row.effort),
     };
   }
 
@@ -125,6 +139,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
         },
         ...(wire.provider_options ? { provider_options: wire.provider_options } : {}),
         ...(wire.model_preference ? { model_preference: wire.model_preference } : {}),
+        ...(wire.effort ? { effort: wire.effort } : {}),
       })
       .returning({ id: agents.id }));
 
@@ -149,7 +164,11 @@ export class DrizzleAgentRegistry implements AgentRegistry {
     if (wire.tools !== undefined) set.tools = normalizeToolSources(wire.tools);
     if (wire.permissions !== undefined) set.permissions = wire.permissions;
     if (wire.provider_options !== undefined) set.provider_options = wire.provider_options;
+    // model_preference and effort cannot be cleared back to NULL through an
+    // update: both are optional but not nullable on the wire, so `undefined`
+    // means "leave unchanged" and no value expresses "clear".
     if (wire.model_preference !== undefined) set.model_preference = wire.model_preference;
+    if (wire.effort !== undefined) set.effort = wire.effort;
 
     await this.read((q) => q.update(agents).set(set).where(and(eq(agents.id, id), this.tenantEq(agents.tenant_id))));
   }
@@ -178,6 +197,7 @@ export class DrizzleAgentRegistry implements AgentRegistry {
       permissions: row.permissions,
       ...(row.provider_options ? { provider_options: row.provider_options } : {}),
       ...(row.model_preference ? { model_preference: row.model_preference as 'high' | 'medium' | 'low' } : {}),
+      ...storedEffort(row.effort),
     }));
   }
 

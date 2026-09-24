@@ -23,6 +23,7 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  check,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { SEED_TENANT_ID } from './constants.js';
@@ -303,12 +304,14 @@ export const agents = pgTable('agents', {
   }>(),
   provider_options: jsonb('provider_options').$type<Record<string, Record<string, import('@cycgraph/orchestrator').JsonValue>>>(),
   model_preference: text('model_preference'),
+  effort: text('effort'),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   // Agent names are unique *per tenant*, not globally — two tenants may both
   // have a "Research Agent". A global UNIQUE on `name` would break that.
   uniqueIndex('uq_agents_tenant_name').on(table.tenant_id, table.name),
+  check('agents_effort_check', sql`${table.effort} IS NULL OR ${table.effort} IN ('low', 'medium', 'high', 'xhigh', 'max')`),
 ]);
 
 export const mcp_servers = pgTable('mcp_servers', {

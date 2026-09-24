@@ -17,6 +17,7 @@
  */
 
 import { graph } from '@cycgraph/orchestrator';
+import { tierResolver } from '../shared/models.js';
 import type { deliveryNodes } from '@cycgraph/tools/git';
 import type { IssueFixContext } from './context.js';
 import type { IssueFixNodes } from './nodes/index.js';
@@ -92,6 +93,6 @@ export function issueFixGraph(
       maxIterations: 40,
       ...(p.budgetTokens > 0 ? { maxTokenBudget: p.budgetTokens } : {}),
     },
-    runner: {},
+    runner: { modelResolver: tierResolver(c.env) },
   };
 }

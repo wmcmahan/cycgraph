@@ -116,8 +116,8 @@ export { agentFactory, AgentFactory, AgentNotFoundError, AgentLoadError, configu
 export { executeAgent } from './agents/executors/agent/executor.js';
 export { PermissionDeniedError, AgentTimeoutError, AgentExecutionError } from './agents/executors/agent/errors.js';
 export type { TokenUsage } from './agents/executors/agent/executor.js';
-export { AgentConfigSchema } from './agents/types.js';
-export type { AgentConfig, AgentExecutionMetadata } from './agents/types.js';
+export { AgentConfigSchema, EffortLevelSchema } from './agents/types.js';
+export type { AgentConfig, AgentExecutionMetadata, EffortLevel } from './agents/types.js';
 
 // ─── Budget-Aware Model Resolution ────────────────────────────────
 

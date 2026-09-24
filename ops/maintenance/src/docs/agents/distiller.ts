@@ -9,6 +9,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { DocsContext } from '../context.js';
 
 /** Build the docs lesson-distiller agent (no tools; used by `reflect`). */
@@ -17,7 +18,9 @@ export function distillerAgent(c: DocsContext) {
   return agent({
     id: `${id}-lesson-distiller`,
     name: 'Lesson distiller',
-    model: env.model,
+    model: modelFor(env, 'low'),
+    modelPreference: 'low',
+    effort: 'low',
     provider: env.provider,
     temperature: 0.2,
     maxSteps: 1,

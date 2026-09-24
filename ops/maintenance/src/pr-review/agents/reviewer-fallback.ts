@@ -12,6 +12,7 @@
  */
 
 import { agent } from '@cycgraph/orchestrator';
+import { modelFor } from '../../shared/models.js';
 import type { ReviewContext } from '../context.js';
 
 /** Build the toolless diff-only fallback reviewer. */
@@ -20,7 +21,8 @@ export function reviewerFallbackAgent(c: ReviewContext) {
   return agent({
     id: 'pr-reviewer-fallback',
     name: 'PR reviewer (diff-only fallback)',
-    model: env.model,
+    model: modelFor(env, 'high'),
+    modelPreference: 'high',
     provider: env.provider,
     temperature: 0.4,
     maxSteps: 2,
