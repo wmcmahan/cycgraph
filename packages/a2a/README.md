@@ -68,6 +68,14 @@ response cannot leak one.
   when the `a2a` node sits inside a subgraph.
 - Budget and capability ceilings stop at the network. Remote spend is
   unmetered, bounded only by timeouts and the failure policy.
+- Concurrency is capped per remote agent when the registry entry sets
+  `maxConcurrentTasks` (`max_concurrent_tasks` on the wire). Each task holds
+  a slot for its whole remote exchange, so a `map`, voting, or
+  parallel-branch graph queues against that agent instead of firing every
+  branch at once. The cap is shared process-wide by every run that resolves
+  to the same server id and `agentCardUrl`, so queuing shows up as added
+  latency and serialized ordering under fan-out, not as a network fault.
+  Omit the field to leave the server uncapped.
 
 ## Agent Card caching
 
