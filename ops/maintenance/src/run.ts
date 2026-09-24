@@ -36,6 +36,7 @@ import { promisify } from 'node:util';
 import { getInjectedFactIds } from '@cycgraph/orchestrator';
 import type { AuditSchedule } from './repo-audit/schedule.js';
 import { maintenanceEnvFromProcess } from './shared/env.js';
+import { modelFor } from './shared/models.js';
 import { contextOf } from './shared/context.js';
 import { memoryFromEnv } from './shared/memory.js';
 import { resolveRepo } from './shared/repo.js';
@@ -564,7 +565,10 @@ async function runWorkflow(id: string, make: () => MaintenanceWorkflow, rest: st
   const params = workflow.params.parse(raw);
   const { env, lessonMemory } = await environmentFor();
 
-  say(`${workflow.id} — model ${env.model} (${env.provider})${env.memory ? ' · lessons: on' : ''}`);
+  const tiers = env.models === undefined
+    ? ''
+    : ` · tiers ${(['high', 'medium', 'low'] as const).map((t) => `${t}=${modelFor(env, t)}`).join(' ')}`;
+  say(`${workflow.id} — model ${env.model} (${env.provider})${tiers}${env.memory ? ' · lessons: on' : ''}`);
   if (id === 'repo-audit') say(await patrolStatus(env));
 
   const repoRoot = await resolveRepo((params as { repoRoot?: string }).repoRoot ?? '');

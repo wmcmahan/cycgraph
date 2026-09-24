@@ -22,6 +22,7 @@ export function implementerAgent(c: ImplementContext, tools: ImplementTools) {
     name: 'Feature implementer',
     model: modelFor(env, 'high'),
     modelPreference: 'high',
+    effort: 'high',
     provider: env.provider,
     temperature: 0.2,
     maxSteps: 40,

@@ -23,6 +23,7 @@ export function auditorAgent(c: RepoAuditContext, tools: RepoAuditTools) {
     name: 'Repository auditor',
     model: modelFor(env, 'high'),
     modelPreference: 'high',
+    effort: 'high',
     provider: env.provider,
     temperature: 0.3,
     maxSteps: p.steps,

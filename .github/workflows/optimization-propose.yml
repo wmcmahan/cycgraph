@@ -47,10 +47,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GH_TOKEN: ${{ github.token }}
-          CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5' }}
+          CYCGRAPH_MODEL: ${{ vars.CYCGRAPH_MODEL || 'claude-opus-5-5' }}
+          # Medium and low default to Sonnet only under the default base model;
+          # overriding CYCGRAPH_MODEL means owning the tiers (all one provider).
           CYCGRAPH_MODEL_HIGH: ${{ vars.CYCGRAPH_MODEL_HIGH }}
-          CYCGRAPH_MODEL_MEDIUM: ${{ vars.CYCGRAPH_MODEL_MEDIUM }}
-          CYCGRAPH_MODEL_LOW: ${{ vars.CYCGRAPH_MODEL_LOW }}
+          CYCGRAPH_MODEL_MEDIUM: ${{ vars.CYCGRAPH_MODEL_MEDIUM || (!vars.CYCGRAPH_MODEL && 'claude-sonnet-5') || '' }}
+          CYCGRAPH_MODEL_LOW: ${{ vars.CYCGRAPH_MODEL_LOW || (!vars.CYCGRAPH_MODEL && 'claude-sonnet-5') || '' }}
         # The benchmark cannot tell faster from doing less; the test
         # suite is the correctness guard, so it gates the ticket. The
         # gate is lighter than the PR-producing workflows' on purpose:

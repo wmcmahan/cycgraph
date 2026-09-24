@@ -21,6 +21,7 @@ export function fixerAgent(c: IssueFixContext, tools: IssueFixTools) {
     name: 'Upkeep fixer',
     model: modelFor(env, 'high'),
     modelPreference: 'high',
+    effort: 'high',
     provider: env.provider,
     temperature: 0.1,
     maxSteps: 20, // Sized for edit rounds plus the probe-and-fix cycles the workspace_check instruction asks for.

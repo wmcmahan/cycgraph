@@ -23,6 +23,7 @@ export function reviewerFallbackAgent(c: ReviewContext) {
     name: 'PR reviewer (diff-only fallback)',
     model: modelFor(env, 'high'),
     modelPreference: 'high',
+    effort: 'high',
     provider: env.provider,
     temperature: 0.4,
     maxSteps: 2,

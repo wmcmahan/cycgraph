@@ -687,6 +687,7 @@ export async function executeAgent(
     // the prompt cache is hitting rather than writing on every step.
     logger.info('token_usage', {
       agent_id: agentId,
+      model: effectiveConfig.model,
       input_tokens: tokenUsage.inputTokens,
       output_tokens: tokenUsage.outputTokens,
       cache_read_tokens: usage?.inputTokenDetails?.cacheReadTokens ?? 0,

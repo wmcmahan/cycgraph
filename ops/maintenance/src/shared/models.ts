@@ -12,9 +12,9 @@
  * when the provider is inferred; an explicit `CYCGRAPH_PROVIDER` is the
  * operator's assertion and skips the check.
  *
- * High-tier agents declare `modelPreference` but no `effort` because
- * `high` is the provider default on current models; medium and low
- * agents set both.
+ * Every agent sets both `modelPreference` and `effort` explicitly. The
+ * provider's default effort differs between model generations, so a
+ * high-tier agent names `high` rather than inheriting it.
  *
  * @module maintenance/shared/models
  */
