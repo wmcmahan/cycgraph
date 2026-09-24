@@ -30,11 +30,12 @@ export interface A2AClientOptions {
  *
  * The request's `requestTimeoutMs`, when set, additionally bounds EACH
  * request on its own — every connection attempt (Agent Card resolution
- * and client construction), the `message/send`, and every status poll —
- * so a remote that stalls one call fails fast instead of holding the node
- * for the whole `timeoutMs`. A request that outruns it rejects with a
- * transport error; a timed-out connection attempt counts as a failed
- * attempt and is retried like any other.
+ * and client construction) and every status poll — so a remote that
+ * stalls one call fails fast instead of holding the node for the whole
+ * `timeoutMs`. A request that outruns it rejects with a transport error;
+ * a timed-out connection attempt counts as a failed attempt and is
+ * retried like any other. The `message/send` is exempt: it may block
+ * until the remote task finishes, so only `timeoutMs` bounds it.
  *
  * A failed client construction is retried up to the request's
  * `maxRetries` times with exponential backoff (1s, 2s, 4s…, capped at
@@ -81,8 +82,7 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
       const client = await connect(
         agentCardUrl, headers, signal, maxRetries, requestTimeoutMs, allowedEndpointHosts);
       // Cast: the generated request type demands fields the server defaults.
-      const task = await raceRequestBound(
-        () => client.sendMessage({ message } as never), signal, requestTimeoutMs);
+      const task = await raceDeliveryBound(() => client.sendMessage({ message } as never), signal);
       return toResult(await settle(client, task, deadline, signal, requestTimeoutMs));
     } catch (error) {
       // A rejection here means no task was ever observed (settle absorbs

@@ -658,12 +658,35 @@ describe('createA2AClient', () => {
     expect(attempts).toBe(1);
   });
 
-  it('fails a stalled message/send at the request timeout rather than the task budget', async () => {
+  it('lets a blocking message/send outlive the request timeout within the task budget', async () => {
     vi.useFakeTimers();
     try {
       const client = createA2AClient({
         createClient: async () => ({
-          sendMessage: () => new Promise(() => {}),
+          sendMessage: () => new Promise((resolve) =>
+            setTimeout(() => resolve({ id: 't', status: { state: 'completed' }, artifacts: [] }), 60_000)),
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 600_000, requestTimeoutMs: 5_000,
+      });
+      await vi.advanceTimersByTimeAsync(60_000);
+      const result = await pending;
+
+      expect(result.state).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails a stalled status poll at the request timeout rather than the task budget', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: async () => ({ id: 't', status: { state: 'working' } }),
+          getTask: () => new Promise(() => {}),
         }) as never,
       });
 
@@ -671,7 +694,7 @@ describe('createA2AClient', () => {
         agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 600_000, requestTimeoutMs: 5_000,
       });
       const outcome = expect(pending).rejects.toThrow('did not respond within the 5000ms request timeout');
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5_100);
 
       await outcome;
     } finally {

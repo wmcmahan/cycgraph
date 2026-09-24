@@ -194,6 +194,23 @@ describe('executeA2ANode', () => {
     expect(capture.request.maxRetries).toBe(2);
   });
 
+  it('forwards the entry request timeout to the client', async () => {
+    const capture: { request?: any } = {};
+    const registry = await registryWith({ timeoutMs: 5_000 });
+
+    await executeA2ANode(node(), stateView(), 1, await ctxWith(fakeClient({}, capture), registry));
+
+    expect(capture.request.requestTimeoutMs).toBe(5_000);
+  });
+
+  it('forwards the default request timeout when the entry sets none', async () => {
+    const capture: { request?: any } = {};
+
+    await executeA2ANode(node(), stateView(), 1, await ctxWith(fakeClient({}, capture)));
+
+    expect(capture.request.requestTimeoutMs).toBe(30_000);
+  });
+
   it('sends no allowed endpoint hosts when the entry lists none', async () => {
     const capture: { request?: any } = {};
 
