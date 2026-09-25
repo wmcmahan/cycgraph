@@ -1,5 +1,19 @@
 # @cycgraph/orchestrator
 
+## 1.6.0
+
+### Minor Changes
+
+- 75642e7: Agent configs gain a provider-neutral `effort` field (`'low'` | `'medium'` | `'high'` | `'xhigh'` | `'max'`). The executor translates it to the provider's own option at call time — Anthropic `effort`, OpenAI `reasoningEffort` — for agent, supervisor, evaluator, and extractor calls alike; providers without an effort control ignore it, and an explicit value inside `providerOptions` still wins. The field threads through the authoring facade (`agent({ effort })`), both registries, graph bundles, and a new nullable `effort` column on the Postgres `agents` table (migration 0021). Bundling also stops dropping `max_output_tokens` from embedded agents, which `BundledAgentSchema` had been silently stripping.
+
+### Patch Changes
+
+- 042d9b2: Honor the A2A registry entry's `max_retries`: the `a2a` node now forwards it to the client, and `@cycgraph/a2a` retries a failed connection (Agent Card resolution and client construction) with exponential backoff within the task timeout. `message/send` is never retried, because a resend could start the remote task twice.
+- 4ac1d2b: An `a2a` node whose remote task is still running when its wait bound fires now logs `a2a_task_pending` with the `task_id` instead of `a2a_transport_failed`, so logs no longer report a live remote task as a transport failure.
+- c42b3d6: The A2A registry entry's `timeout_ms` is now enforced: the `a2a` node passes it as `requestTimeoutMs`, and `@cycgraph/a2a` applies it to each connection attempt and status poll on its own. A remote that stalls one of those calls now fails fast instead of holding the node for the full `task_timeout_ms`; the blocking `message/send` stays bounded by `task_timeout_ms` only, so long-running remote tasks are unaffected.
+- 8cbfbce: Stop retrying a failed node once the workflow has been cancelled or has timed out. Before this fix, `GraphRunner.cancel()` could be followed by fresh LLM calls from backoff retries, so `run()` kept going long after cancellation.
+- c43e1fa: The agent executor's `token_usage` log line now carries `model`, the concrete model the call ran on after tier resolution, so per-model spend is readable from a run log.
+
 ## 1.5.0
 
 ### Minor Changes

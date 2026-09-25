@@ -1,5 +1,20 @@
 # @cycgraph/evals
 
+## 0.3.4
+
+### Patch Changes
+
+- 8cbfbce: `runOrchestratorSut` now cancels a run that exceeds `timeoutMs` and waits for it to settle before returning. A timed-out trajectory can no longer keep making LLM and tool calls in the background while the next test reconfigures the process-global agent factory and provider registry.
+- Updated dependencies [042d9b2]
+- Updated dependencies [4ac1d2b]
+- Updated dependencies [c42b3d6]
+- Updated dependencies [75642e7]
+- Updated dependencies [63297fa]
+- Updated dependencies [8cbfbce]
+- Updated dependencies [c43e1fa]
+  - @cycgraph/orchestrator@1.6.0
+  - @cycgraph/context-engine@0.7.6
+
 ## 0.3.3
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @cycgraph/a2a
 
+## 1.1.9
+
+### Patch Changes
+
+- 042d9b2: Honor the A2A registry entry's `max_retries`: the `a2a` node now forwards it to the client, and `@cycgraph/a2a` retries a failed connection (Agent Card resolution and client construction) with exponential backoff within the task timeout. `message/send` is never retried, because a resend could start the remote task twice.
+- 4ac1d2b: A remote task still `submitted`/`working` when `max_wait_ms` runs out or the run is aborted is no longer reported as `failed`; the delivery now rejects with a non-retryable `A2ATaskPendingError` carrying the task id, so the node's failure policy no longer starts a duplicate remote task while the first keeps running.
+- d2aeb73: Keep a `Request` input's own headers (such as `Content-Type` and `Accept`) on every A2A request hop, including redirect replays. Before this fix, fetch dropped them because the per-server headers were always passed through `init.headers`. The merge order is now the `Request`'s headers, then the SDK's `init.headers`, then the per-server headers.
+- c42b3d6: The A2A registry entry's `timeout_ms` is now enforced: the `a2a` node passes it as `requestTimeoutMs`, and `@cycgraph/a2a` applies it to each connection attempt and status poll on its own. A remote that stalls one of those calls now fails fast instead of holding the node for the full `task_timeout_ms`; the blocking `message/send` stays bounded by `task_timeout_ms` only, so long-running remote tasks are unaffected.
+
 ## 1.1.8
 
 ### Patch Changes
