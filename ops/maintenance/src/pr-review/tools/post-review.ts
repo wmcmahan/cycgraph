@@ -288,10 +288,12 @@ export function postReviewTool(c: ReviewContext) {
       // 4. Reconcile the needs-human label with the outcome. A failed
       // submission leaves the same visible trace, best effort — the comment
       // rides a different endpoint, so one failing does not imply the other.
+      // The failure detail stays in the tool result: GitHub's error text
+      // is not fit for a public PR.
       if (!submission.ok) {
         await setPrLabels(repoRoot, p.pr, { add: [ctx.labels.needsHuman] }, auth);
         await commentOnPr(repoRoot, p.pr,
-          `${reviewMarker('notice', provenance)}\nThe review was written but could not be submitted (${submission.detail}); this PR now carries the \`needs-human\` label. Re-run the PR review workflow, or review by hand — a later successful review clears the label.`,
+          `${reviewMarker('notice', provenance)}\nSomething went wrong while submitting the automated review, so this PR now carries the \`needs-human\` label. Re-run the PR review workflow, or review by hand — a later successful review clears the label.`,
           auth);
       } else if (capReached) {
         await setPrLabels(repoRoot, p.pr, { add: [ctx.labels.needsHuman] }, auth);

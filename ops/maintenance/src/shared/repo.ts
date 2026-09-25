@@ -267,9 +267,23 @@ export async function flagNeedsHuman(
 }
 
 /**
+ * The comment a flagged issue receives. It is deliberately generic: a
+ * give-up cause, check output, or error message can carry paths, tokens,
+ * or environment details, so the specifics stay in the run's own log and
+ * never reach the public issue.
+ */
+export function needsHumanNotice(workflow: string, needsHumanLabel: string): string {
+  return [
+    `I ran into a problem while working on this issue.`,
+    `I've added the \`${needsHumanLabel}\` label for your attention.`,
+  ].join('\n');
+}
+
+/**
  * The give-up node's action: flag the picked issue waiting on a human
- * because the run ended without a pull request, naming which dead end
- * (`cause`) sent it here so the comment is actionable. The result carries
+ * because the run ended without a pull request. The posted comment is
+ * {@link needsHumanNotice}; `cause` names which dead end sent the run
+ * here and is reported only in the returned `detail`. The result carries
  * `flagged`, which `run.ts` reads into the run's `gave_up` field, so a
  * tried-and-abandoned run reports distinctly from a nothing-to-do one.
  */
@@ -280,11 +294,17 @@ export async function giveUpNeedsHuman(
   cause: string,
   needsHumanLabel: string,
   options: { token?: string; ops?: FlagNeedsHumanOps } = {},
-): Promise<{ flagged: boolean; detail: string }> {
-  return flagNeedsHuman(repoRoot, issueNumber, [
-    `${workflow} ended without a pull request — ${cause} — so this issue now carries the \`${needsHumanLabel}\` label and the picker skips it.`,
-    'Remove the label to re-queue it, close the issue if it is already settled, or investigate.',
-  ].join('\n'), { label: needsHumanLabel, ...(options.token !== undefined ? { token: options.token } : {}), ...(options.ops !== undefined ? { ops: options.ops } : {}) });
+): Promise<{ flagged: boolean; issue_number: number; detail: string }> {
+  const result = await flagNeedsHuman(repoRoot, issueNumber, needsHumanNotice(workflow, needsHumanLabel), {
+    label: needsHumanLabel,
+    ...(options.token !== undefined ? { token: options.token } : {}),
+    ...(options.ops !== undefined ? { ops: options.ops } : {}),
+  });
+  return {
+    flagged: result.flagged,
+    issue_number: issueNumber,
+    detail: result.flagged ? `flagged #${issueNumber} (${cause}); ${result.detail}` : `${cause}; ${result.detail}`,
+  };
 }
 
 /**
@@ -292,7 +312,8 @@ export async function giveUpNeedsHuman(
  * after an engine-level death (a budget breach) that bypasses the
  * give-up node — without it, the issue stays approved-but-orphaned, its
  * label event already spent, so nothing re-queues it. `getPicked` reads
- * the issue held in the build's closure.
+ * the issue held in the build's closure. The error is reported in the
+ * returned line only; the issue gets {@link needsHumanNotice}.
  */
 export function fatalNeedsHuman(
   repoRoot: string,
@@ -300,18 +321,20 @@ export function fatalNeedsHuman(
   workflow: string,
   needsHumanLabel: string,
   token?: string,
+  ops?: FlagNeedsHumanOps,
 ): (error: unknown) => Promise<string | undefined> {
   return async (error) => {
     const issue = getPicked();
     if (issue === undefined) return undefined;
+    const reason = error instanceof Error ? error.message : String(error);
     try {
-      const reason = error instanceof Error ? error.message : String(error);
-      const result = await flagNeedsHuman(repoRoot, issue, [
-        `${workflow} died before finishing (${reason}), so this issue now carries the \`${needsHumanLabel}\` label and the picker skips it.`,
-        'Remove the label to re-queue it, or dispatch the workflow naming this issue to override the skip.',
-      ].join('\n'), { label: needsHumanLabel, ...(token !== undefined ? { token } : {}) });
+      const result = await flagNeedsHuman(repoRoot, issue, needsHumanNotice(workflow, needsHumanLabel), {
+        label: needsHumanLabel,
+        ...(token !== undefined ? { token } : {}),
+        ...(ops !== undefined ? { ops } : {}),
+      });
       return result.flagged
-        ? `fatal-run cleanup: #${issue} flagged ${needsHumanLabel}`
+        ? `fatal-run cleanup: #${issue} flagged ${needsHumanLabel} after: ${reason}`
         : `fatal-run cleanup on #${issue}: ${result.detail}`;
     } catch (cleanupError) {
       return `fatal-run cleanup failed on #${issue}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;

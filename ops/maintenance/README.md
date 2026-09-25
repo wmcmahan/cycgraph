@@ -233,17 +233,22 @@ labels the PR `needs-human` instead of cycling, and a green run on a
 labeled PR clears the label.
 
 An issue whose fix spends its whole retry budget without green checks
-is labeled `needs-human` too, with the failing output in a comment; the
-picker skips labeled issues, and removing the label re-queues one.
+is labeled `needs-human` too; the picker skips labeled issues, and
+removing the label re-queues one.
 
 When the loop gives up on a PR — a review inconclusive
 after its diff-only fallback, a review that could not be submitted, a
 failed revision run, or an exhausted rounds cap — the PR is labeled
-`needs-human` with a comment saying why, so limbo is never silent: the
+`needs-human` with a short comment, so limbo is never silent: the
 PR list shows exactly which PRs wait on a decision, the dispatcher's
 idle-gate notice names them, and a later successful review or revision
 clears the label on its own. That label, unlabeling an issue, disabling
-auto-merge, and closing a PR are where the human hand remains. Enable "Allow
+auto-merge, and closing a PR are where the human hand remains.
+
+Failure comments are deliberately generic. They say something went
+wrong and name the label, never the cause: error messages, check output,
+and GitHub API errors can carry paths, tokens, or environment details,
+so those stay in the workflow run's log. Enable "Allow
 auto-merge" in the repository settings; without it the merge step falls
 back to a direct merge, which only succeeds when the checks are already
 green.

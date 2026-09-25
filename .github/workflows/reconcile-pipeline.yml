@@ -81,5 +81,5 @@ jobs:
             echo "PR #$pr has had no activity since before $stale_before — flagging needs-human"
             gh label create needs-human -R "$REPO" 2>/dev/null || true
             gh pr edit -R "$REPO" "$pr" --add-label needs-human || true
-            gh pr comment -R "$REPO" "$pr" --body "This maintenance PR has had no activity for over four hours and is not making progress — its checks may be stuck, auto-merge may be unable to complete, or it may be waiting on a decision. The reconciler flags it \`needs-human\` so it is visible and the one-fix-in-flight slot is freed. Review, merge, or close it; or remove the label to let the loop retry."
+            gh pr comment -R "$REPO" "$pr" --body "Something went wrong and this maintenance PR has stopped making progress, so it now carries the \`needs-human\` label. Review, merge, or close it, or remove the label to let the loop retry."
           done

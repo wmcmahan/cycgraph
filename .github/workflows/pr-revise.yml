@@ -101,8 +101,8 @@ jobs:
           --pr ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
           --checks "npm run build:libs,npm run lint:eslint,npm test"
 
-      # A failed run must not be silent on the PR it was working: the
-      # comment names the run so the log is one click away.
+      # A failed run must not be silent on the PR it was working. The
+      # comment stays generic; the details live in the run log.
       - name: Leave a failure trace on the PR
         if: failure()
         env:
@@ -111,4 +111,4 @@ jobs:
           pr=${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
           gh label create needs-human 2>/dev/null || true
           gh pr edit "$pr" --add-label needs-human || true
-          gh pr comment "$pr" --body "<!-- cycgraph:pr-notice -->pr-revise ran but failed before delivering a revision — see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for the log. This PR now carries the needs-human label; the findings above still stand, and a later successful revision clears it."
+          gh pr comment "$pr" --body "<!-- cycgraph:pr-notice -->Something went wrong during the automated revision, so this PR now carries the needs-human label. The findings above still stand, and a later successful revision clears it."

@@ -27,7 +27,7 @@
 
 import type { EvalAssertion } from '@cycgraph/orchestrator';
 import { deliveryNodes } from '@cycgraph/tools/git';
-import { flagNeedsHuman } from '../shared/repo.js';
+import { fatalNeedsHuman } from '../shared/repo.js';
 import { stripCloses, templateEvidence } from '../shared/pr-template.js';
 import { buildIssueFixContext, params } from './context.js';
 import type { Params } from './context.js';
@@ -78,22 +78,7 @@ export function issueFix(): MaintenanceWorkflow<typeof params> {
         // An engine-level death (budget breach) bypasses the giveup node,
         // which would leave the picked issue approved-but-orphaned: its
         // label event already fired, so nothing re-queues it.
-        onFatal: async (error: unknown) => {
-          const issue = c.picked.issue;
-          if (issue === undefined) return undefined;
-          try {
-            const reason = error instanceof Error ? error.message : String(error);
-            const result = await flagNeedsHuman(c.repoRoot, issue, [
-              `issue-fix died before finishing (${reason}), so this issue now carries the \`${c.maintenance.labels.needsHuman}\` label and the picker skips it.`,
-              'Remove the label to re-queue it, or dispatch issue-fix naming this issue to override the skip.',
-            ].join('\n'), { label: c.maintenance.labels.needsHuman, ...(c.token !== undefined ? { token: c.token } : {}) });
-            return result.flagged
-              ? `fatal-run cleanup: #${issue} flagged ${c.maintenance.labels.needsHuman}`
-              : `fatal-run cleanup on #${issue}: ${result.detail}`;
-          } catch (cleanupError) {
-            return `fatal-run cleanup failed on #${issue}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
-          }
-        },
+        onFatal: fatalNeedsHuman(c.repoRoot, () => c.picked.issue, 'issue-fix', c.maintenance.labels.needsHuman, c.token),
       };
     },
 
