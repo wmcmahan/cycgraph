@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { RUNTIME_CONFIG_ENV_VARS } from '@cycgraph/orchestrator/internal';
-import { MAINTENANCE_SECRET_ENV_VARS, NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, flagNeedsHuman, giveUpNeedsHuman, maintenanceRunEnv, maintenanceSecrets, repoMap, stripMentions } from '../src/shared/repo.js';
+import { MAINTENANCE_SECRET_ENV_VARS, NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, fatalNeedsHuman, flagNeedsHuman, giveUpNeedsHuman, maintenanceRunEnv, maintenanceSecrets, needsHumanNotice, repoMap, stripMentions } from '../src/shared/repo.js';
 
 const exec = promisify(execFile);
 
@@ -393,13 +393,36 @@ describe('flagNeedsHuman', () => {
     expect(calls.label).toEqual(['blocked']);
   });
 
-  it('giveUpNeedsHuman flags the issue with a cause-bearing give-up comment', async () => {
+  it('giveUpNeedsHuman comments a generic notice and keeps the cause out of it', async () => {
+    const { ops, calls } = fakeOps(true);
+    const CAUSE = 'the reviewer never approved after 3 round(s)';
+
+    const result = await giveUpNeedsHuman('/repo', 7, 'implement-ticket', CAUSE, 'needs-human', { ops });
+
+    expect(calls.label).toEqual(['needs-human']);
+    expect(calls.comment).toEqual([needsHumanNotice('implement-ticket', 'needs-human')]);
+    expect(calls.comment[0]).not.toContain(CAUSE);
+    expect(result).toEqual({ flagged: true, issue_number: 7, detail: `flagged #7 (${CAUSE}); commented` });
+  });
+
+  it('fatalNeedsHuman comments a generic notice and reports the error only in its result', async () => {
+    const { ops, calls } = fakeOps(true);
+    const SECRET_ERROR = new Error('token ghp_abc123 rejected at /home/runner/work/repo');
+
+    const line = await fatalNeedsHuman('/repo', () => 7, 'issue-fix', 'needs-human', undefined, ops)(SECRET_ERROR);
+
+    expect(calls.comment).toEqual([needsHumanNotice('issue-fix', 'needs-human')]);
+    expect(calls.comment[0]).not.toContain('ghp_abc123');
+    expect(line).toBe(`fatal-run cleanup: #7 flagged needs-human after: ${SECRET_ERROR.message}`);
+  });
+
+  it('fatalNeedsHuman does nothing when no issue was picked', async () => {
     const { ops, calls } = fakeOps(true);
 
-    const result = await giveUpNeedsHuman('/repo', 7, 'implement-ticket', 'the reviewer never approved after 3 round(s)', 'needs-human', { ops });
+    const line = await fatalNeedsHuman('/repo', () => undefined, 'issue-fix', 'needs-human', undefined, ops)(new Error('boom'));
 
-    expect(result.flagged).toBe(true);
-    expect(calls.label).toEqual(['needs-human']);
-    expect(calls.comment[0]).toContain('implement-ticket ended without a pull request — the reviewer never approved after 3 round(s)');
+    expect(line).toBeUndefined();
+    expect(calls.label).toEqual([]);
+    expect(calls.comment).toEqual([]);
   });
 });

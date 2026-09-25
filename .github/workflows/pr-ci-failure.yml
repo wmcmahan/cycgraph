@@ -120,7 +120,7 @@ jobs:
             else
               gh label create needs-human -R "$REPO" 2>/dev/null || true
               gh pr edit -R "$REPO" "$pr" --add-label needs-human || true
-              gh pr comment -R "$REPO" "$pr" --body "CI failed on this PR again: $checks_url. The loop already tried once, so this PR now carries the needs-human label and waits on you — a later green run, successful revision, or successful review clears it.
+              gh pr comment -R "$REPO" "$pr" --body "Something went wrong and CI is still failing after an automated fix attempt, so this PR now carries the needs-human label. A later green run, successful revision, or successful review clears it.
 
           <!-- ci-gate:$SUITE_SHA -->"
             fi
