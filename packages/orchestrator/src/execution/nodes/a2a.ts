@@ -178,7 +178,8 @@ export async function executeA2ANode(
     // uncapped server calls straight through.
     result = await withA2AServerConcurrency(server, runRemoteTask);
   } catch (error) {
-    // A throw is a transport failure; a task that ran and ended badly returns as a state.
+    // A throw is a transport failure or a task still running at the bound;
+    // a task that ran and ended badly returns as a state.
     logger.error('a2a_transport_failed', error as Error, {
       node_id: node.id,
       server_id: config.server_id,

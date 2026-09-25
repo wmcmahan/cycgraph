@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { createA2AClient, normalizeState, partsToValue, toResult } from '../src/index.js';
+import { A2ATaskPendingError, createA2AClient, normalizeState, partsToValue, toResult } from '../src/index.js';
 
 const textPart = (value: string) => ({ content: { $case: 'text', value } });
 const dataPart = (value: unknown) => ({ content: { $case: 'data', value } });
@@ -286,12 +286,14 @@ describe('createA2AClient', () => {
       const pending = client.runTask({
         agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 100,
       });
+      const outcome = pending.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(100);
-      const result = await pending;
+      const error = await outcome;
 
       expect(polls).toBe(0);
-      expect(result.taskId).toBe('t1');
-      expect(result.state).toBe('failed');
+      expect(error).toBeInstanceOf(A2ATaskPendingError);
+      expect((error as A2ATaskPendingError).taskId).toBe('t1');
+      expect((error as A2ATaskPendingError).reason).toBe('timeout');
     } finally {
       vi.useRealTimers();
     }
@@ -399,11 +401,72 @@ describe('createA2AClient', () => {
       const pending = client.runTask({
         agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 3_000,
       });
+      const outcome = pending.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(3_000);
-      const result = await pending;
+      const error = await outcome;
 
-      expect(result.taskId).toBe('t1');
-      expect(result.state).toBe('failed');
+      expect(error).toBeInstanceOf(A2ATaskPendingError);
+      expect((error as A2ATaskPendingError).taskId).toBe('t1');
+      expect((error as A2ATaskPendingError).reason).toBe('timeout');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports a task still working at the deadline as pending and non-retryable', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: async () => ({ id: 't4', status: { state: 'TASK_STATE_WORKING' } }),
+          getTask: async () => ({ id: 't4', status: { state: 'TASK_STATE_WORKING' } }),
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 1_000,
+      });
+      const outcome = pending.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const error = await outcome;
+
+      expect(error).toBeInstanceOf(A2ATaskPendingError);
+      expect((error as A2ATaskPendingError).reason).toBe('timeout');
+      expect((error as A2ATaskPendingError).retryable).toBe(false);
+      expect((error as Error).message).toBe(
+        'A2A task t4 was still running on the remote when the 1000ms budget ran out');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports a caller abort after the task exists as an abort of that task', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const client = createA2AClient({
+        createClient: async () => ({
+          sendMessage: async () => ({ id: 't6', status: { state: 'TASK_STATE_SUBMITTED' } }),
+          getTask: async () => {
+            controller.abort();
+            return { id: 't6', status: { state: 'TASK_STATE_WORKING' } };
+          },
+        }) as never,
+      });
+
+      const pending = client.runTask({
+        agentCardUrl: 'https://x/card.json', headers: {}, input: {}, timeoutMs: 60_000,
+        abortSignal: controller.signal,
+      });
+      const outcome = pending.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const error = await outcome;
+
+      expect(error).toBeInstanceOf(A2ATaskPendingError);
+      expect((error as A2ATaskPendingError).taskId).toBe('t6');
+      expect((error as A2ATaskPendingError).reason).toBe('aborted');
+      expect((error as Error).message).toBe(
+        'A2A delivery aborted by the caller while task t6 was still running on the remote');
     } finally {
       vi.useRealTimers();
     }
