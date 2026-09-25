@@ -59,6 +59,16 @@ function taintAll(artifacts: A2AArtifact[], serverId: string, nodeId: string): T
 }
 
 /**
+ * Task id of a remote task still running when the delivery's bound fired,
+ * or `undefined` when the error is anything else (a transport failure).
+ */
+function pendingA2ATaskId(error: unknown): string | undefined {
+  if (!(error instanceof Error) || error.name !== 'A2ATaskPendingError') return undefined;
+  const taskId = (error as { taskId?: unknown }).taskId;
+  return typeof taskId === 'string' ? taskId : undefined;
+}
+
+/**
  * Execute an `a2a` node.
  *
  * @throws {NodeConfigError} When config, registry, client, or server is missing.
@@ -178,11 +188,24 @@ export async function executeA2ANode(
     // uncapped server calls straight through.
     result = await withA2AServerConcurrency(server, runRemoteTask);
   } catch (error) {
-    // A throw is a transport failure; a task that ran and ended badly returns as a state.
-    logger.error('a2a_transport_failed', error as Error, {
-      node_id: node.id,
-      server_id: config.server_id,
-    });
+    // A throw is a transport failure or a task still running at the bound;
+    // a task that ran and ended badly returns as a state. The pending case is
+    // matched by name because @cycgraph/a2a depends on this package, so its
+    // A2ATaskPendingError class cannot be imported here.
+    const pendingTaskId = pendingA2ATaskId(error);
+    if (pendingTaskId !== undefined) {
+      logger.warn('a2a_task_pending', {
+        node_id: node.id,
+        server_id: config.server_id,
+        task_id: pendingTaskId,
+        error: (error as Error).message,
+      });
+    } else {
+      logger.error('a2a_transport_failed', error as Error, {
+        node_id: node.id,
+        server_id: config.server_id,
+      });
+    }
     throw error;
   }
 

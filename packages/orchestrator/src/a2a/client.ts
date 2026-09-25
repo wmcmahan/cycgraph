@@ -110,7 +110,11 @@ export interface A2ATaskRequest {
  * interrupted task: those are outcomes the executor maps to node behaviour,
  * and turning them into exceptions would erase the distinction between a
  * refusal and a transport error. Throw only when the task could not be run
- * at all.
+ * at all, or when `timeoutMs` or `abortSignal` ends the wait while the task
+ * is still running: an unfinished task has no terminal state to report, so
+ * it MUST NOT be returned as `failed`, and the error SHOULD carry
+ * `retryable: false` — a retry issues a new remote task while the first
+ * one keeps running.
  */
 export interface A2AClient {
   runTask(request: A2ATaskRequest): Promise<A2ATaskResult>;

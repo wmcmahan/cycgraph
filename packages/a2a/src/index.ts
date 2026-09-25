@@ -10,5 +10,6 @@
 export { createA2AClient } from './client.js';
 export type { A2AClientOptions } from './client.js';
 export type { CreateSdkClient } from './connection.js';
+export { A2ATaskPendingError } from './errors.js';
 export { normalizeState } from './task-state.js';
 export { partsToValue, toResult } from './translate.js';

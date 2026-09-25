@@ -7,6 +7,7 @@
 import type { Client as SdkClient } from '@a2a-js/sdk/client';
 import type { A2AClient, A2ATaskResult } from '@cycgraph/orchestrator';
 import { sdkClientFactory, type CreateSdkClient } from './connection.js';
+import { A2ATaskPendingError } from './errors.js';
 import { raceAbort } from './race.js';
 import { isPending } from './task-state.js';
 import { toResult } from './translate.js';
@@ -40,6 +41,11 @@ export interface A2AClientOptions {
  * A failed client construction is retried up to the request's
  * `maxRetries` times with exponential backoff (1s, 2s, 4s…, capped at
  * 10s), inside the same budget. `message/send` is never retried.
+ *
+ * A remote task still `submitted` or `working` when the budget runs out
+ * or the caller aborts has not ended, so it is never reported as a task
+ * state: the delivery rejects with a non-retryable
+ * {@link A2ATaskPendingError} carrying the task id.
  */
 export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
   const create = options.createClient ?? sdkClientFactory();
@@ -83,9 +89,15 @@ export function createA2AClient(options: A2AClientOptions = {}): A2AClient {
         agentCardUrl, headers, signal, maxRetries, requestTimeoutMs, allowedEndpointHosts);
       // Cast: the generated request type demands fields the server defaults.
       const task = await raceDeliveryBound(() => client.sendMessage({ message } as never), signal);
-      return toResult(await settle(client, task, deadline, signal, requestTimeoutMs));
+      const settled = await settle(client, task, deadline, signal, requestTimeoutMs);
+      const pendingId = pendingTaskId(settled);
+      if (pendingId !== undefined) {
+        throw new A2ATaskPendingError(pendingId, abortSignal?.aborted ? 'aborted' : 'timeout', timeoutMs);
+      }
+      return toResult(settled);
     } catch (error) {
-      // A rejection here means no task was ever observed (settle absorbs
+      if (error instanceof A2ATaskPendingError) throw error;
+      // Any other rejection means no task was ever observed (settle absorbs
       // the bound once one exists), so the bound itself is the outcome.
       // A non-abort rejection is a real transport error, passed through.
       if (abortSignal?.aborted) {
@@ -198,15 +210,25 @@ function userMessage(value: unknown, taskId?: string) {
 }
 
 /**
+ * The id of a settled task that is still running, or `undefined` when the
+ * task reached an outcome or carries no id to name it by.
+ */
+function pendingTaskId(settled: unknown): string | undefined {
+  const task = settled as { id?: string; status?: { state?: unknown } } | null | undefined;
+  return task?.id && isPending(task.status?.state) ? task.id : undefined;
+}
+
+/**
  * Poll until the task leaves a running state.
  *
  * `sendMessage` may return as soon as the task is accepted, so a
  * `submitted` or `working` response means the work is still in flight —
  * treating it as an outcome would report every slow agent as failed.
  *
- * Gives up at the deadline or on abort, returning the last observed task
- * so the caller reports a real state rather than a transport error — a
- * poll request cut off mid-flight by the bound resolves the same way.
+ * Gives up at the deadline or on abort, returning the last observed task —
+ * still pending — so the caller reports the bound against that task id
+ * rather than a transport error; a poll request cut off mid-flight by the
+ * bound resolves the same way.
  */
 async function settle(
   client: SdkClient,
