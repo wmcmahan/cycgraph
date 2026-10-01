@@ -172,8 +172,8 @@ These models are pre-registered and available out of the box:
 
 | Provider | Models |
 |----------|--------|
-| `openai` | `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, and the GPT-4/o-series |
-| `anthropic` | `claude-fable-5-1`, `claude-opus-5-5`, `claude-sonnet-5`, `claude-haiku-4-5`, and the Claude 4.x/5 legacy line |
+| `openai` | `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, and the GPT-4/o-series |
+| `anthropic` | `claude-fable-5-1`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, and the Claude 4.x/5 legacy line, `claude-sonnet-5` included |
 | `google` | `gemini-3.8-flash` through `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-2.5-flash-lite` |
 | `groq` | `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, plus pass-through |
 | `deepseek` | `deepseek-v4-pro`, `deepseek-flash` |

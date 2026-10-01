@@ -23,36 +23,45 @@ export interface ModelPricing {
   inputPerMToken: number;
   /** Cost per 1 M output (completion) tokens. */
   outputPerMToken: number;
+  /**
+   * Cost per 1 M input tokens served from the prompt cache, as the
+   * provider publishes it. Absent, cache reads bill at
+   * {@link CACHE_READ_INPUT_RATE} of `inputPerMToken`.
+   */
+  cachedInputPerMToken?: number;
 }
 
 /**
  * Known model pricing table.
  *
  * Add new entries here when onboarding additional models.
- * Prices are sourced from provider pricing pages.
+ * Prices are sourced from provider pricing pages. `cachedInputPerMToken`
+ * is set only where the provider's cached-input price is not 10% of input.
  */
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   // OpenAI
   'gpt-6-astra': { inputPerMToken: 10.00, outputPerMToken: 50.00 },
+  'gpt-6.1-sol': { inputPerMToken: 2.00, outputPerMToken: 10.00, cachedInputPerMToken: 0.10 },
   'gpt-6-sol': { inputPerMToken: 2.00, outputPerMToken: 10.00 },
   'gpt-6-luna': { inputPerMToken: 0.10, outputPerMToken: 0.50 },
   'gpt-5.1': { inputPerMToken: 1.25, outputPerMToken: 10.00 },
   'gpt-5': { inputPerMToken: 1.25, outputPerMToken: 10.00 },
   'gpt-5-mini': { inputPerMToken: 0.25, outputPerMToken: 2.00 },
   'gpt-5-nano': { inputPerMToken: 0.05, outputPerMToken: 0.40 },
-  'gpt-4o': { inputPerMToken: 2.50, outputPerMToken: 10.00 },
-  'gpt-4o-mini': { inputPerMToken: 0.15, outputPerMToken: 0.60 },
+  'gpt-4o': { inputPerMToken: 2.50, outputPerMToken: 10.00, cachedInputPerMToken: 1.25 },
+  'gpt-4o-mini': { inputPerMToken: 0.15, outputPerMToken: 0.60, cachedInputPerMToken: 0.075 },
   'gpt-4-turbo': { inputPerMToken: 10.00, outputPerMToken: 30.00 },
   'gpt-4': { inputPerMToken: 30.00, outputPerMToken: 60.00 },
-  'o1': { inputPerMToken: 15.00, outputPerMToken: 60.00 },
+  'o1': { inputPerMToken: 15.00, outputPerMToken: 60.00, cachedInputPerMToken: 7.50 },
   'o1-preview': { inputPerMToken: 15.00, outputPerMToken: 60.00 },
   'o1-mini': { inputPerMToken: 1.10, outputPerMToken: 4.40 },
-  'o3': { inputPerMToken: 2.00, outputPerMToken: 8.00 },
-  'o3-mini': { inputPerMToken: 1.10, outputPerMToken: 4.40 },
-  'o4-mini': { inputPerMToken: 1.10, outputPerMToken: 4.40 },
+  'o3': { inputPerMToken: 2.00, outputPerMToken: 8.00, cachedInputPerMToken: 0.50 },
+  'o3-mini': { inputPerMToken: 1.10, outputPerMToken: 4.40, cachedInputPerMToken: 0.55 },
+  'o4-mini': { inputPerMToken: 1.10, outputPerMToken: 4.40, cachedInputPerMToken: 0.275 },
   // Anthropic Claude
-  'claude-fable-5-1': { inputPerMToken: 10.00, outputPerMToken: 50.00 },
-  'claude-opus-5-5': { inputPerMToken: 4.00, outputPerMToken: 20.00 },
+  'claude-fable-5-1': { inputPerMToken: 10.00, outputPerMToken: 50.00, cachedInputPerMToken: 0.25 },
+  'claude-opus-5-5': { inputPerMToken: 4.00, outputPerMToken: 20.00, cachedInputPerMToken: 0.20 },
+  'claude-sonnet-5-5': { inputPerMToken: 2.00, outputPerMToken: 10.00 },
   'claude-fable-5': { inputPerMToken: 10.00, outputPerMToken: 50.00 },
   'claude-opus-5': { inputPerMToken: 5.00, outputPerMToken: 25.00 },
   'claude-sonnet-5': { inputPerMToken: 2.00, outputPerMToken: 10.00 },
@@ -77,14 +86,14 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   'gemini-3.1-pro-preview': { inputPerMToken: 2.00, outputPerMToken: 12.00 },
   'gemini-2.5-flash-lite': { inputPerMToken: 0.10, outputPerMToken: 0.40 },
   // xAI Grok (base tier: prompts under 200K tokens; longer prompts bill higher)
-  'grok-4.7': { inputPerMToken: 2.00, outputPerMToken: 6.00 },
-  'grok-4.6': { inputPerMToken: 2.00, outputPerMToken: 6.00 },
-  'grok-4.5': { inputPerMToken: 2.00, outputPerMToken: 6.00 },
-  'grok-4.3': { inputPerMToken: 1.25, outputPerMToken: 2.50 },
-  'grok-build-0.1': { inputPerMToken: 1.00, outputPerMToken: 2.00 },
+  'grok-4.7': { inputPerMToken: 2.00, outputPerMToken: 6.00, cachedInputPerMToken: 0.50 },
+  'grok-4.6': { inputPerMToken: 2.00, outputPerMToken: 6.00, cachedInputPerMToken: 0.50 },
+  'grok-4.5': { inputPerMToken: 2.00, outputPerMToken: 6.00, cachedInputPerMToken: 0.30 },
+  'grok-4.3': { inputPerMToken: 1.25, outputPerMToken: 2.50, cachedInputPerMToken: 0.20 },
+  'grok-build-0.1': { inputPerMToken: 1.00, outputPerMToken: 2.00, cachedInputPerMToken: 0.20 },
   // DeepSeek API (peak rates; off-peak windows bill half)
-  'deepseek-v4-pro': { inputPerMToken: 1.32, outputPerMToken: 3.96 },
-  'deepseek-flash': { inputPerMToken: 0.30, outputPerMToken: 1.20 },
+  'deepseek-v4-pro': { inputPerMToken: 1.32, outputPerMToken: 3.96, cachedInputPerMToken: 0.044 },
+  'deepseek-flash': { inputPerMToken: 0.30, outputPerMToken: 1.20, cachedInputPerMToken: 0.006 },
   // Mistral API (`-latest` aliases; cached input bills at 10% via CACHE_READ_INPUT_RATE)
   'mistral-large-latest': { inputPerMToken: 0.50, outputPerMToken: 1.50 },
   'mistral-medium-latest': { inputPerMToken: 1.50, outputPerMToken: 7.50 },
@@ -139,7 +148,7 @@ const pricingOverrides = new Map<string, ModelPricing>();
  * disable the USD budget check.
  */
 function assertValidPricing(model: string, pricing: ModelPricing): void {
-  const { inputPerMToken, outputPerMToken } = pricing;
+  const { inputPerMToken, outputPerMToken, cachedInputPerMToken } = pricing;
   if (
     !Number.isFinite(inputPerMToken) || inputPerMToken < 0 ||
     !Number.isFinite(outputPerMToken) || outputPerMToken < 0
@@ -147,6 +156,11 @@ function assertValidPricing(model: string, pricing: ModelPricing): void {
     throw new Error(
       `Invalid pricing for model "${model}": inputPerMToken=${inputPerMToken}, ` +
       `outputPerMToken=${outputPerMToken} (both must be finite and >= 0)`,
+    );
+  }
+  if (cachedInputPerMToken !== undefined && (!Number.isFinite(cachedInputPerMToken) || cachedInputPerMToken < 0)) {
+    throw new Error(
+      `Invalid pricing for model "${model}": cachedInputPerMToken=${cachedInputPerMToken} (must be finite and >= 0)`,
     );
   }
 }
@@ -203,7 +217,10 @@ function sanitizeTokens(n: number): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-/** Prompt-cache read tokens bill at this fraction of the input rate. */
+/**
+ * Prompt-cache read tokens bill at this fraction of the input rate when the
+ * model's pricing sets no `cachedInputPerMToken`.
+ */
 export const CACHE_READ_INPUT_RATE = 0.1;
 
 /** Prompt-cache write tokens bill at this multiple of the input rate. */
@@ -211,7 +228,7 @@ export const CACHE_WRITE_INPUT_RATE = 1.25;
 
 /** Prompt-cache token counts for cache-aware cost calculation. */
 export interface CacheTokens {
-  /** Input tokens served from the prompt cache (billed at ~10%). */
+  /** Input tokens served from the prompt cache (billed at the model's cached-input rate). */
   readTokens?: number;
   /** Input tokens written to the prompt cache (billed at ~125%). */
   writeTokens?: number;
@@ -228,8 +245,9 @@ export interface CacheTokens {
  * ever enforcing again.
  *
  * When `cache` is provided, input is priced at cache-aware rates: reads at
- * {@link CACHE_READ_INPUT_RATE} and writes at {@link CACHE_WRITE_INPUT_RATE}
- * of the input rate, with the remainder at full price. Providers report
+ * the model's `cachedInputPerMToken` (or {@link CACHE_READ_INPUT_RATE} of the
+ * input rate when it has none), writes at {@link CACHE_WRITE_INPUT_RATE} of
+ * the input rate, and the remainder at full price. Providers report
  * cached tokens inside `inputTokens` at full count, so pricing the raw
  * number flat overstates a well-cached agentic run several-fold — and a
  * `max_cost_usd` budget fed that number trips long before real spend
@@ -263,12 +281,11 @@ export function calculateCost(
   const cacheRead = Math.min(sanitizeTokens(cache?.readTokens ?? 0), input);
   const cacheWrite = Math.min(sanitizeTokens(cache?.writeTokens ?? 0), input - cacheRead);
   const noCache = input - cacheRead - cacheWrite;
-  const inputEquivalent = noCache
-    + cacheRead * CACHE_READ_INPUT_RATE
-    + cacheWrite * CACHE_WRITE_INPUT_RATE;
+  const cachedInputPerMToken = pricing.cachedInputPerMToken ?? pricing.inputPerMToken * CACHE_READ_INPUT_RATE;
 
   return (
-    (inputEquivalent * pricing.inputPerMToken) / 1_000_000 +
+    ((noCache + cacheWrite * CACHE_WRITE_INPUT_RATE) * pricing.inputPerMToken) / 1_000_000 +
+    (cacheRead * cachedInputPerMToken) / 1_000_000 +
     (output * pricing.outputPerMToken) / 1_000_000
   );
 }

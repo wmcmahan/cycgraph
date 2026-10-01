@@ -21,7 +21,7 @@
  */
 
 import { streamText, tool, isStepCount, jsonSchema } from 'ai';
-import { classifyRetryable } from './error-classification.js';
+import { classifyRetryable, describeError } from './error-classification.js';
 import type { ToolSet } from 'ai';
 import { agentFactory, AgentFactory } from '../../factory/index.js';
 import type { StateView, Action } from '../../../state/state.js';
@@ -603,11 +603,38 @@ export async function executeAgent(
       // A turn that ends without a usable answer gets one bounded
       // continuation: an empty final step, or a final answer the agent's
       // declared check rejects (narration of what it is about to do, a
-      // reply missing the required structure).
-      const problem = text.trim() === '' ? undefined : finalAnswerProblem(options?.finalAnswer, text, agentId);
-      const continuationKind: 'empty' | 'invalid' | undefined = steps.length === 0
-        ? undefined
-        : text.trim() === '' ? 'empty' : problem !== undefined ? 'invalid' : undefined;
+      // reply missing the required structure). The turn's last spoken text
+      // is the fallback answer; when the agent declares a check, that
+      // fallback is checked before any continuation, so narration left over
+      // from mid-loop never passes as the answer unexamined.
+      // The user's check runs once per distinct text, so a throwing check
+      // logs once and repeated reads of the same answer cost nothing.
+      let checked: { text: string; problem: string | undefined } | undefined;
+      const checkAnswer = (candidate: string): string | undefined => {
+        if (checked?.text !== candidate) {
+          checked = { text: candidate, problem: finalAnswerProblem(options?.finalAnswer, candidate, agentId) };
+        }
+        return checked.problem;
+      };
+      const lastSpoken = (): string | undefined => [...steps].reverse()
+        .find((step) => typeof step.text === 'string' && step.text.trim() !== '')?.text;
+      const reachedStepLimit = steps.length >= config.maxSteps;
+
+      let continuationKind: 'empty' | 'invalid' | undefined;
+      let problem: string | undefined;
+      if (steps.length > 0 && text.trim() === '') {
+        const fallback = options?.finalAnswer !== undefined ? lastSpoken() : undefined;
+        if (fallback === undefined) {
+          continuationKind = 'empty';
+        } else {
+          text = fallback;
+          problem = checkAnswer(fallback);
+          if (problem !== undefined) continuationKind = 'invalid';
+        }
+      } else if (steps.length > 0) {
+        problem = checkAnswer(text);
+        if (problem !== undefined) continuationKind = 'invalid';
+      }
 
       // A continuation is another model step, so it never starts once a
       // cost limit is reached.
@@ -625,6 +652,12 @@ export async function executeAgent(
           1,
           Math.min(MAX_CONTINUATION_STEPS, config.maxSteps - steps.length),
         );
+        // With one step, or none left in the turn, a tool call would spend
+        // the only chance to answer, so the continuation offers no tools.
+        const toolless = reachedStepLimit || continuationSteps <= 1;
+        const answerNow = toolless
+          ? 'You have no tool calls left. Answer now from what you have already found: write your final reply, complete per your instructions.'
+          : undefined;
         let continuation: Awaited<ReturnType<typeof streamText>> | undefined;
         let continuationError: unknown;
         try {
@@ -636,10 +669,13 @@ export async function executeAgent(
               {
                 role: 'user' as const,
                 content: continuationKind === 'empty'
-                  ? 'Your previous message was empty. Write your final reply now, complete per your instructions; use another tool first only if you must.'
-                  : `Your reply is not a complete answer: ${problem}. Write your final reply now, complete per your instructions.`,
+                  ? `Your previous message was empty. ${answerNow ?? 'Write your final reply now, complete per your instructions; use another tool first only if you must.'}`
+                  : `Your reply is not a complete answer: ${problem}. ${answerNow ?? 'Write your final reply now, complete per your instructions.'}`,
               },
             ],
+            // Tools stay declared, because the transcript holds tool calls
+            // that some providers refuse without them; `none` forbids new ones.
+            ...(toolless ? { toolChoice: 'none' as const } : {}),
             stopWhen: stopWithin(continuationSteps, usage),
             // Deliberately NO cache-mark rewriting here: this is the
             // recovery path for a turn that already went silent, and it
@@ -675,10 +711,11 @@ export async function executeAgent(
             agent_id: agentId,
             recovered: continuationKind === 'empty'
               ? spoke
-              : spoke && finalAnswerProblem(options?.finalAnswer, continuationText, agentId) === undefined,
+              : spoke && checkAnswer(continuationText) === undefined,
             ...(continuationKind === 'invalid' ? { problem } : {}),
             continuation_steps: recoveredSteps.length,
             step_budget: continuationSteps,
+            toolless,
           });
         } catch (error) {
           // The continuation is best-effort; the fallback below still
@@ -689,7 +726,7 @@ export async function executeAgent(
           if (partialUsage) usage = sumStepUsage([{ usage }, { usage: partialUsage }]);
           logger.warn(`${continuationKind}_final_continuation_failed`, {
             agent_id: agentId,
-            error: cause instanceof Error ? cause.message : String(cause),
+            ...describeError(cause),
             partial_usage: partialUsage !== undefined,
           });
         }
@@ -700,9 +737,15 @@ export async function executeAgent(
       // discarded — and downstream, an empty response writes no memory
       // at all. Fall back to the last step that said anything.
       if (text.trim() === '') {
-        const lastSpoken = [...steps].reverse()
-          .find((step) => typeof step.text === 'string' && step.text.trim() !== '');
-        if (lastSpoken?.text !== undefined) text = lastSpoken.text;
+        const fallback = lastSpoken();
+        if (fallback !== undefined) text = fallback;
+      }
+
+      // No continuation is left, so an answer that still fails the check
+      // is kept but reported.
+      const unresolved = text.trim() === '' ? undefined : checkAnswer(text);
+      if (unresolved !== undefined) {
+        logger.warn('final_answer_unresolved', { agent_id: agentId, problem: unresolved });
       }
     } catch (error) {
       // Best-effort: a failed/aborted attempt may still have spent tokens.
@@ -735,6 +778,7 @@ export async function executeAgent(
         model: config.model,
         attempt,
         duration_ms: duration,
+        ...describeError(rootError),
       });
       span.setAttribute('agent.error', rootError instanceof Error ? rootError.message : String(rootError));
       throw new AgentExecutionError(agentId, rootError, partialUsage, classifyRetryable(rootError));

@@ -40,7 +40,7 @@ export const DEFAULT_AGENT_SYSTEM_PROMPT =
 
 /** Known OpenAI model identifiers for provider inference and validation. */
 export const OPENAI_MODELS = [
-  'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna',
+  'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna',
   'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
   'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4',
   'o1-preview', 'o1-mini', 'o3', 'o3-mini', 'o4-mini',
@@ -48,7 +48,7 @@ export const OPENAI_MODELS = [
 
 /** Known Anthropic model identifiers for provider inference and validation. */
 export const ANTHROPIC_MODELS = [
-  'claude-fable-5-1', 'claude-opus-5-5',
+  'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5',
   'claude-fable-5', 'claude-opus-5', 'claude-sonnet-5',
   'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6',
   'claude-sonnet-4-6',

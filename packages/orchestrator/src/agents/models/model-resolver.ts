@@ -55,7 +55,7 @@ export type ModelResolutionReason = z.infer<typeof ModelResolutionReasonSchema>;
  * ```typescript
  * const tierMap: ModelTierMap = {
  *   high:   { anthropic: 'claude-opus-5-5', openai: 'gpt-6-astra' },
- *   medium: { anthropic: 'claude-sonnet-5', openai: 'gpt-6-sol' },
+ *   medium: { anthropic: 'claude-sonnet-5-5', openai: 'gpt-6.1-sol' },
  *   low:    { anthropic: 'claude-haiku-4-5', openai: 'gpt-6-luna' },
  * };
  * ```

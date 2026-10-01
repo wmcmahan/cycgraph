@@ -208,6 +208,7 @@ Per-model pricing in USD per one million tokens.
 |-------|------|-------------|
 | `inputPerMToken` | `number` | Cost per 1M input (prompt) tokens. |
 | `outputPerMToken` | `number` | Cost per 1M output (completion) tokens. |
+| `cachedInputPerMToken` | `number` (optional) | Cost per 1M input tokens served from the prompt cache, as the provider publishes it. When absent, cache reads cost 10% of `inputPerMToken`. Set it for models whose provider charges a different cached rate, such as OpenAI's `gpt-4o` at 50% or DeepSeek at about 3%. |
 
 ### Cross-referenced types
 

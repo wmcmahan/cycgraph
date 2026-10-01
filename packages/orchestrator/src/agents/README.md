@@ -694,7 +694,7 @@ graph TD
 | `SupervisorConfigError` | Supervisor | No — config error | Missing `supervisor_config` or agent id |
 | `SupervisorRoutingError` | Supervisor | No — LLM error | LLM chose a node outside `managed_nodes` |
 
-Retryable classification comes from `classifyRetryable()` ([executors/agent/error-classification.ts](executors/agent/error-classification.ts)), which honors the AI SDK `APICallError.isRetryable` flag (checking a wrapped `cause` too) and returns `undefined` for unknown errors so the retry loop keeps its default.
+Retryable classification comes from `classifyRetryable()` ([executors/agent/error-classification.ts](executors/agent/error-classification.ts)), which honors the AI SDK `APICallError.isRetryable` flag (checking a wrapped `cause` too) and returns `undefined` for unknown errors so the retry loop keeps its default. An error with a 2xx status is the one exception: the provider answered but the response could not be read, so it is retryable whatever the flag says.
 
 ---
 
