@@ -74,6 +74,32 @@ function textStep(text: string) {
   };
 }
 
+function narratedToolStep(callId: string, narration: string) {
+  return {
+    stream: convertArrayToReadableStream([
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'text-start' as const, id: 't' },
+      { type: 'text-delta' as const, id: 't', delta: narration },
+      { type: 'text-end' as const, id: 't' },
+      { type: 'tool-call' as const, toolCallId: callId, toolName: 'probe', input: '{}' },
+      { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: undefined }, usage: usage(STEP_INPUT_TOKENS) },
+    ]),
+  };
+}
+
+/** A model that keeps calling tools while it may, and answers once it is offered none. */
+function answersWithoutTools(answer: string): MockLanguageModelV4 {
+  let calls = 0;
+  return new MockLanguageModelV4({
+    provider: 'scripted',
+    modelId: MODEL,
+    doStream: async (options) => {
+      calls += 1;
+      return options.toolChoice?.type === 'none' ? textStep(answer) : toolStep(`call-${calls}`);
+    },
+  });
+}
+
 function scripted(steps: ReturnType<typeof toolStep>[]): MockLanguageModelV4 {
   return new MockLanguageModelV4({ provider: 'scripted', modelId: MODEL, doStream: steps });
 }
@@ -99,9 +125,9 @@ const VIEW: StateView = {
   memory: {},
 };
 
-function run(model: MockLanguageModelV4, options: Parameters<typeof executeAgent>[4] = {}) {
+function run(model: MockLanguageModelV4, options: Parameters<typeof executeAgent>[4] = {}, maxSteps = 10) {
   return executeAgent('auditor', VIEW, { probe: PROBE_TOOL }, 1, {
-    agentFactory: factoryFor(model),
+    agentFactory: factoryFor(model, maxSteps),
     nodeId: 'audit',
     ...options,
   });
@@ -247,6 +273,80 @@ describe('executeAgent', () => {
       const action = await run(model, { finalAnswer: needsJson });
 
       expect(action.payload.updates).toMatchObject({ audit_output: NARRATION });
+    });
+
+    it('answers without tools once the turn reaches its step limit', async () => {
+      const MAX_STEPS = 3;
+      const model = answersWithoutTools(ANSWER);
+
+      const action = await run(model, { finalAnswer: needsJson }, MAX_STEPS);
+
+      expect(action.payload.updates).toMatchObject({ audit_output: ANSWER });
+      expect(model.doStreamCalls).toHaveLength(MAX_STEPS + 1);
+      expect(model.doStreamCalls[MAX_STEPS]!.toolChoice).toEqual({ type: 'none' });
+    });
+
+    it('tells a toolless continuation to answer from what it found', async () => {
+      const MAX_STEPS = 3;
+      const model = answersWithoutTools(ANSWER);
+
+      await run(model, { finalAnswer: needsJson }, MAX_STEPS);
+
+      expect(lastUserText(model, MAX_STEPS)).toContain('You have no tool calls left. Answer now from what you have already found');
+    });
+
+    it('answers without tools at the step limit without a check', async () => {
+      const MAX_STEPS = 3;
+      const model = answersWithoutTools(ANSWER);
+
+      const action = await run(model, {}, MAX_STEPS);
+
+      expect(action.payload.updates).toMatchObject({ audit_output: ANSWER });
+      expect(model.doStreamCalls[MAX_STEPS]!.toolChoice).toEqual({ type: 'none' });
+    });
+
+    it('keeps tools for a continuation with steps to spare', async () => {
+      const model = scripted([toolStep('a'), textStep(NARRATION), textStep(ANSWER)]);
+
+      await run(model, { finalAnswer: needsJson });
+
+      expect(model.doStreamCalls[2]!.toolChoice).not.toEqual({ type: 'none' });
+    });
+
+    it('continues when the fallback narration fails the check', async () => {
+      const model = scripted([narratedToolStep('a', NARRATION), textStep(''), textStep(ANSWER)]);
+
+      const action = await run(model, { finalAnswer: needsJson });
+
+      expect(action.payload.updates).toMatchObject({ audit_output: ANSWER });
+      expect(lastUserText(model, 2)).toContain(`Your reply is not a complete answer: ${NO_JSON}.`);
+    });
+
+    it('accepts a fallback answer that passes the check without continuing', async () => {
+      const model = scripted([narratedToolStep('a', ANSWER), textStep('')]);
+
+      const action = await run(model, { finalAnswer: needsJson });
+
+      expect(action.payload.updates).toMatchObject({ audit_output: ANSWER });
+      expect(model.doStreamCalls).toHaveLength(2);
+    });
+
+    it('checks a passing answer once', async () => {
+      const model = scripted([toolStep('a'), textStep(ANSWER)]);
+      const seen: string[] = [];
+
+      await run(model, { finalAnswer: (text) => { seen.push(text); return needsJson(text); } });
+
+      expect(seen).toEqual([ANSWER]);
+    });
+
+    it('checks each distinct answer once across a continuation', async () => {
+      const model = scripted([toolStep('a'), textStep(NARRATION), textStep(ANSWER)]);
+      const seen: string[] = [];
+
+      await run(model, { finalAnswer: (text) => { seen.push(text); return needsJson(text); } });
+
+      expect(seen).toEqual([NARRATION, ANSWER]);
     });
 
     it('treats a check that throws as passing', async () => {

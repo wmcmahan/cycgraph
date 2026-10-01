@@ -58,6 +58,35 @@ describe('calculateCost', () => {
     expect(cached).toBeCloseTo((100_000 + 80_000 + 125_000) * 5 / 1_000_000);
   });
 
+  describe('cached-input rates', () => {
+    const ONE_MILLION = 1_000_000;
+
+    it('prices cache reads at the model\'s published cached-input rate', () => {
+      expect(calculateCost('claude-opus-5-5', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.20, 10);
+    });
+
+    it('prices cache reads above a tenth where the provider charges more', () => {
+      expect(calculateCost('gpt-4o', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(1.25, 10);
+    });
+
+    it('falls back to a tenth of the input rate for a model without a cached rate', () => {
+      expect(calculateCost('claude-sonnet-5-5', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.20, 10);
+      expect(calculateCost('claude-opus-5', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.50, 10);
+    });
+
+    it('keeps cache writes at a quarter premium of the input rate', () => {
+      expect(calculateCost('claude-fable-5-1', ONE_MILLION, 0, { writeTokens: ONE_MILLION })).toBeCloseTo(12.50, 10);
+    });
+
+    it('sets a cached rate no higher than the input rate', () => {
+      const overpriced = Object.entries(MODEL_PRICING)
+        .filter(([, pricing]) => pricing.cachedInputPerMToken !== undefined && pricing.cachedInputPerMToken > pricing.inputPerMToken)
+        .map(([model]) => model);
+
+      expect(overpriced).toEqual([]);
+    });
+  });
+
   it('prices flat when no cache detail is given', () => {
     expect(calculateCost('claude-opus-5', 1_000_000, 0, {})).toBeCloseTo(5.0);
   });
@@ -146,7 +175,7 @@ describe('runtime pricing overrides', () => {
     setModelPricing('gpt-4o', { inputPerMToken: 1, outputPerMToken: 2 });
     expect(calculateCost('gpt-4o', 1_000_000, 1_000_000)).toBeCloseTo(3);
     expect(getModelPricing('gpt-4o')).toEqual({ inputPerMToken: 1, outputPerMToken: 2 });
-    expect(MODEL_PRICING['gpt-4o']).toEqual({ inputPerMToken: 2.5, outputPerMToken: 10 });
+    expect(MODEL_PRICING['gpt-4o']).toEqual({ inputPerMToken: 2.5, outputPerMToken: 10, cachedInputPerMToken: 1.25 });
   });
 
   it('clearPricingOverrides removes all runtime overrides', () => {
@@ -154,7 +183,7 @@ describe('runtime pricing overrides', () => {
 
     clearPricingOverrides();
 
-    expect(getModelPricing('gpt-4o')).toEqual({ inputPerMToken: 2.5, outputPerMToken: 10 });
+    expect(getModelPricing('gpt-4o')).toEqual({ inputPerMToken: 2.5, outputPerMToken: 10, cachedInputPerMToken: 1.25 });
     expect(getModelPricing('my-custom-model')).toBeUndefined();
   });
 
@@ -171,6 +200,19 @@ describe('runtime pricing overrides', () => {
     expect(() => setModelPricing('bad', { inputPerMToken: NaN, outputPerMToken: 1 })).toThrow(/finite/);
     expect(() => setModelPricing('bad', { inputPerMToken: 1, outputPerMToken: -5 })).toThrow(/finite/);
     expect(() => setModelPricing('bad', { inputPerMToken: Infinity, outputPerMToken: 1 })).toThrow(/finite/);
+  });
+
+  it('rejects a non-finite or negative cached-input price', () => {
+    expect(() => setModelPricing('bad', { inputPerMToken: 1, outputPerMToken: 1, cachedInputPerMToken: NaN }))
+      .toThrow('cachedInputPerMToken=NaN (must be finite and >= 0)');
+    expect(() => setModelPricing('bad', { inputPerMToken: 1, outputPerMToken: 1, cachedInputPerMToken: -0.1 }))
+      .toThrow('cachedInputPerMToken=-0.1 (must be finite and >= 0)');
+  });
+
+  it('prices cache reads at an override\'s cached-input rate', () => {
+    setModelPricing('my-cached-model', { inputPerMToken: 4, outputPerMToken: 0, cachedInputPerMToken: 0.5 });
+
+    expect(calculateCost('my-cached-model', 1_000_000, 0, { readTokens: 1_000_000 })).toBeCloseTo(0.5, 10);
   });
 
   it('loadPricingTable rejects atomically — a bad entry applies nothing', () => {
