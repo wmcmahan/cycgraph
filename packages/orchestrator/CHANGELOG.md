@@ -1,5 +1,18 @@
 # @cycgraph/orchestrator
 
+## 1.7.1
+
+### Patch Changes
+
+- 351f714: Agents that run out of steps now still answer, a declared `finalAnswer` check covers fallback text, and a response the AI SDK cannot read is retried and logged with its cause.
+
+  - **Continuations offer no tools when the turn is out of steps.** When an agent's turn reached `maxSteps`, or its continuation had only one step left, the continuation still offered tools. The model often spent that step on another tool call and wrote no text, so the agent ended with its earlier narration or nothing. The continuation now runs with `toolChoice: 'none'` and asks the agent to answer from what it has already found. A continuation with steps to spare still offers tools.
+  - **`finalAnswer` checks the fallback text.** When a turn ends on an empty step, the agent's last spoken text is the fallback answer. For an agent with a `finalAnswer` check, that fallback is now checked first: if it passes it is the answer, and if it fails the agent gets the invalid-answer continuation. An answer that still fails after the one continuation is kept and logged as `final_answer_unresolved`. Agents without a check, and agents that end with an answer, behave as before.
+  - **"Failed to process successful response" is retried and diagnosable.** The AI SDK raises this when a provider returns HTTP 200 but the response cannot be read, such as an empty body, and marks it non-retryable because of the 200 status. The retry policy now treats such 2xx failures as retryable within the node's existing `failure_policy`. Failed agent calls and failed continuations now log the error's name, its cause chain, the status code, the provider's request id, and a truncated response body.
+
+- 351f714: Add Claude Sonnet 5.5 (`claude-sonnet-5-5`) and GPT-6.1 Sol (`gpt-6.1-sol`) to the built-in model lists and pricing table, both at $2 input / $10 output per million tokens. The built-in Anthropic and OpenAI providers rejected both IDs as unknown models; they now load, and their spend counts toward USD budgets.
+- 351f714: Price prompt-cache reads at each model's published cached-input rate. `ModelPricing` gains an optional `cachedInputPerMToken`; models without one keep the previous rule of 10% of the input price. The built-in table now sets it for the 16 models whose providers charge a different rate. Cost and USD budgets previously undercounted cache-heavy runs on models that charge more (`gpt-4o`, `gpt-4o-mini`, `o1` and `o3-mini` at 50%, `o3` and `o4-mini` at 25%, Grok 4.3 to 4.7 at 15% to 25%) and overcounted them on models that charge less (Claude Opus 5.5 at 5%, Claude Fable 5.1 at 2.5%, GPT-6.1 Sol at 5%, DeepSeek V4 Pro and Flash at about 3% and 2%). Rate cards loaded with `setModelPricing` or `loadPricingTable` accept the field and reject a non-finite or negative value.
+
 ## 1.7.0
 
 ### Minor Changes
