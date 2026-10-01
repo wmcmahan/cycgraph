@@ -1,5 +1,16 @@
 # @cycgraph/orchestrator
 
+## 1.7.0
+
+### Minor Changes
+
+- 6902280: Agent tool loops now respect cost budgets between steps, keep their output intact, and can be continued when a final answer fails a declared check.
+
+  - **Cost budgets are enforced between an agent's model steps.** Previously `budgetUsd` was checked only after a node finished, so a long agent overshot the budget by the cost of its whole tool loop. An agent node now starts no further model step once the run's accounted cost plus its in-flight spend, priced cache-aware like `calculateCost`, reaches `budgetUsd`. The run then ends with `BudgetExceededError` as before, and `total_cost_usd` and the error include the steps that ran. A node's own `budget.maxCostUsd` is applied the same way and throws `NodeBudgetExceededError`. Runs without a budget are unchanged. `executeAgent` takes the limits as `costLimits` (type `AgentCostLimits`).
+  - **Budget errors report cost in dollars.** `BudgetExceededError` gains a `unit` field (`'tokens'` or `'usd'`). A cost breach now reads "Cost budget exceeded: $0.1464 used, budget was $0.0500" instead of reporting dollars as tokens. Both budget errors are now marked `retryable: false` and can carry the `partialUsage` of an agent stopped mid-loop (type `BudgetStopUsage`).
+  - **Agent output is stored as written.** The prompt sanitizer used to run on an agent's text before it was stored, deleting tag-shaped content such as Python's `<class 'int'>`, and demoting headings and normalizing Unicode in the result. Output now reaches memory and the run result unchanged. Sanitization still runs wherever text is rendered into a prompt, and tag-shaped text there is now escaped (`<` becomes `&lt;`) instead of deleted, so `</data>` and `<system>` still cannot open or close a prompt boundary.
+  - **Final-answer checks.** A new `finalAnswer` check on `agent({...})` (type `FinalAnswerCheck`) returns a short problem description, or `undefined` when the answer is acceptable. When an agent's final answer fails its check, for example narration with no required JSON, the agent gets one bounded continuation naming the problem, under the same step budget as the existing empty-answer continuation. Its reply replaces the original when it is not empty. The run logs `invalid_final_continuation` with `recovered`. Agents without a check behave as before. Checks are runtime functions and are never stored in agent configs. `run()` and `runRecorded()` pass them to the runner, including to agents inside subgraphs. Registry-based setups pass them as `GraphRunnerOptions.finalAnswerChecks`, keyed by agent id, and `fork()` callers pass them in runner options, as with `tools`.
+
 ## 1.6.0
 
 ### Minor Changes
