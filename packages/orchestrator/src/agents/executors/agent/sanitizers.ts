@@ -15,11 +15,17 @@ const MAX_SANITIZE_DEPTH = 10;
 /**
  * Sanitize a string to prevent prompt injection.
  *
- * Strips patterns that could escape data boundaries or override instructions:
+ * Neutralizes patterns that could escape data boundaries or override
+ * instructions:
  * - Markdown headers that could inject new prompt sections
- * - XML-style tags used as data boundaries (`<data>`, `<system>`, etc.)
+ * - XML-style tags such as `<data>` or `<system>`: the opening `<` is
+ *   escaped to `&lt;`, so the tag cannot open or close a boundary while
+ *   the text around it, such as Python's `<class 'int'>`, stays readable
  * - Common instruction-override phrases ("IGNORE PREVIOUS INSTRUCTIONS")
  * - Unicode control characters used to hide content
+ *
+ * Applied where text is rendered into a prompt, never to an agent's
+ * output as it is stored.
  *
  * @param input - The string to sanitize.
  * @returns The sanitized string, or empty string if input is falsy.
@@ -39,8 +45,8 @@ export function sanitizeString(input: string): string {
       // Prevent markdown header injection — catch both mid-string and start-of-string
       .replace(/^## /gm, '### ')
       .replace(/^# /gm, '### ')
-      // Strip all XML/HTML-style tags that could escape <data> boundaries
-      .replace(/<\/?[a-zA-Z][a-zA-Z0-9]*(?:\s[^>]*)?\/?>/g, '')
+      // Escape the `<` of anything tag-shaped so it cannot open or close a <data> boundary
+      .replace(/<(?=\/?[a-zA-Z][a-zA-Z0-9]*(?:\s[^>]*)?\/?>)/g, '&lt;')
       // Strip common instruction-override phrases
       .replace(/IGNORE\s+(ALL\s+)?PREVIOUS\s+(INSTRUCTIONS?|PROMPTS?)/gi, '[filtered]')
       .replace(/DISREGARD\s+(ALL\s+)?PREVIOUS/gi, '[filtered]')

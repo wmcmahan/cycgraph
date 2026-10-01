@@ -29,7 +29,8 @@ import type { Provenance } from '../../shared/review-findings.js';
 import { modelFor } from '../../shared/models.js';
 import { dryRunPreview, provenanceFooter } from '../../shared/provenance.js';
 import { REVISION_PREFIX } from '../../shared/review-threads.js';
-import { stripMentions } from '../../shared/repo.js';
+import { stripMentions } from '../../shared/pr-wire.js';
+import type { PrWire } from '../../shared/pr-wire.js';
 import type { ReviseContext } from '../context.js';
 
 const exec = promisify(execFile);
@@ -48,11 +49,12 @@ function threadReplies(
   replies: ReadonlyMap<string, string>,
   targets: readonly ReplyTarget[],
   provenance: Provenance,
+  wire: PrWire,
 ): ThreadReply[] {
   return targets.flatMap((target) => {
     const text = replies.get(target.label);
     return text !== undefined
-      ? [{ label: target.label, id: target.id, body: `${reviewMarker('reply', provenance)}\n${text.slice(0, 2_000)}` }]
+      ? [{ label: target.label, id: target.id, body: `${reviewMarker('reply', provenance, wire)}\n${text.slice(0, 2_000)}` }]
       : [];
   });
 }
@@ -84,7 +86,7 @@ export function revisionSummary(
   replies: ReadonlyMap<string, string>,
   items: readonly TopLevelItem[],
   filesChanged: readonly string[],
-  stamp: { provenance?: Provenance; footer?: string } = {},
+  stamp: { provenance?: Provenance; footer?: string; wire?: PrWire } = {},
 ): string {
   // An empty or absent summary still gets a concrete comment: the
   // changed files are the floor the model cannot undercut.
@@ -95,7 +97,7 @@ export function revisionSummary(
     return text !== undefined ? [`- **Re: ${item.excerpt}** ${text.slice(0, 1_000)}`] : [];
   });
   return [
-    reviewMarker('revision', stamp.provenance),
+    reviewMarker('revision', stamp.provenance, stamp.wire),
     REVISION_PREFIX,
     '',
     summary,
@@ -132,7 +134,7 @@ export function pushRevisionTool(c: ReviseContext) {
         return { pushed: false, detail: 'nothing was changed' };
       }
       const diff = await pendingDiff(workspaceAt);
-      const report = stripMentions(String(revise_report ?? ''));
+      const report = stripMentions(String(revise_report ?? ''), ctx.prWire);
       const replies = parseReplies(report);
       const model = modelFor(env, 'high');
 
@@ -150,8 +152,8 @@ export function pushRevisionTool(c: ReviseContext) {
           ...(env.provenance?.runUrl !== undefined ? { runUrl: env.provenance.runUrl } : {}),
         });
         return {
-          threaded: threadReplies(replies, gathered?.reply_targets ?? [], provenance),
-          summary: revisionSummary(report, replies, gathered?.top_level_items ?? [], filesChanged, { provenance, footer }),
+          threaded: threadReplies(replies, gathered?.reply_targets ?? [], provenance, ctx.prWire),
+          summary: revisionSummary(report, replies, gathered?.top_level_items ?? [], filesChanged, { provenance, footer, wire: ctx.prWire }),
         };
       };
 

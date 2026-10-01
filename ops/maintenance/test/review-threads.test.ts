@@ -16,9 +16,11 @@ import {
   renderRevisionFeedback,
   renderThread,
   revisionFeedback,
+  topLevelText,
   verificationBrief,
   verificationThreads,
 } from '../src/shared/review-threads.js';
+import type { PrWire } from '../src/shared/pr-wire.js';
 import { revisionSummary } from '../src/pr-revise/tools/push-revision.js';
 
 function note(body: string, overrides: Partial<ReviewThreadComment> = {}): ReviewThreadComment {
@@ -57,6 +59,13 @@ function occurrences(haystack: string, needle: string): number {
 }
 
 const FINDING = `${reviewMarker('finding')}\nduplicates ghEnv — reuse it`;
+
+const KEELWISE: PrWire = {
+  markerNamespace: 'keelwise',
+  legacyMarkerNamespaces: ['cycgraph'],
+  mention: '@keelwise',
+  legacyMentions: ['@cycgraph'],
+};
 
 describe('revisionFeedback', () => {
   it('keeps open threads a trusted author opened', () => {
@@ -115,6 +124,15 @@ describe('revisionFeedback', () => {
     expect(revisionFeedback([], [older, withFindings]).topLevel.map((item) => item.comment)).toEqual([withFindings]);
     expect(revisionFeedback([], [older, inlineOnly]).topLevel).toEqual([]);
   });
+
+  it('honors a revision summary marked under a legacy namespace', () => {
+    const feedback = revisionFeedback([], [
+      topLevel('old request', { createdAt: '2026-09-01T00:00:00Z' }),
+      topLevel('<!-- cycgraph:pr-revision -->\nDone.', { createdAt: '2026-09-02T00:00:00Z' }),
+    ], KEELWISE);
+
+    expect(feedback.topLevel).toEqual([]);
+  });
 });
 
 describe('priorAdvisoryReviews', () => {
@@ -130,6 +148,21 @@ describe('priorAdvisoryReviews', () => {
     const quoted = topLevel(`see this ${reviewMarker('review')} marker`, { author: 'stranger', authorAssociation: 'CONTRIBUTOR' });
 
     expect(priorAdvisoryReviews([quoted])).toEqual([]);
+  });
+
+  it('recognizes a review marked under the wire format\'s namespace', () => {
+    const review = topLevel(`${reviewMarker('review', {}, KEELWISE)}\nVERDICT: REVISE`, { author: 'reviewer-bot', authorAssociation: 'MEMBER' });
+
+    expect(priorAdvisoryReviews([review], KEELWISE)).toEqual([review]);
+    expect(priorAdvisoryReviews([review])).toEqual([]);
+  });
+});
+
+describe('topLevelText', () => {
+  it('drops handoff lines carrying the current or a legacy mention', () => {
+    const body = `${reviewMarker('review', {}, KEELWISE)}\nSummary.\n@keelwise please address the findings.\n@cycgraph please address the findings.`;
+
+    expect(topLevelText(body, KEELWISE)).toBe('Summary.');
   });
 });
 
@@ -158,6 +191,12 @@ describe('verificationThreads', () => {
     ]);
 
     expect(labeled.map((item) => [item.label, item.thread.id])).toEqual([['T1', 'marked'], ['T2', 'legacy']]);
+  });
+
+  it('counts a finding thread opened under the wire format\'s namespace', () => {
+    const opened = thread([note(`${reviewMarker('finding', {}, KEELWISE)}\noff by one`)]);
+
+    expect(verificationThreads([opened], KEELWISE).map((item) => item.label)).toEqual(['T1']);
   });
 });
 

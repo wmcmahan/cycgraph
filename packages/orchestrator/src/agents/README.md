@@ -299,13 +299,15 @@ Assembles the system prompt from these sections:
 
 All external data injected into prompts passes through `sanitizeForPrompt()` → `sanitizeValue()` (recursive, depth-capped at 10) → `sanitizeString()` for strings. `_`-prefixed keys are dropped entirely — internal bookkeeping never reaches the model context.
 
+Sanitization happens where text is rendered into a prompt, never where it is stored. An agent's own output reaches memory and the run result exactly as written, so a finding that quotes `<class 'int'>` stays intact; the same text is escaped when a later agent's prompt renders it.
+
 `sanitizeString` strips or neutralizes:
 
 | Pattern | Threat |
 |---------|--------|
 | NFKC normalization | Unicode homograph smuggling |
 | `^## `, `^# ` → `### ` | Markdown header injection (fake prompt sections) |
-| All XML/HTML-style tags | Escaping `<data>` / `<memory>` boundaries, fake `<system>` sections |
+| XML/HTML-style tags: the opening `<` becomes `&lt;` | Escaping `<data>` / `<memory>` boundaries, fake `<system>` sections |
 | `IGNORE PREVIOUS INSTRUCTIONS`, `DISREGARD ALL PREVIOUS` → `[filtered]` | Instruction override, also detected inside base64-encoded runs |
 | Directional overrides (U+202A–E, U+2066–69), null and zero-width chars | Hiding injected text |
 | `\r`, 3+ consecutive newlines | Structure noise |

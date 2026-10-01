@@ -119,7 +119,7 @@ export class BudgetMonitor {
         if (threshold >= 1.0) {
           const errorMsg = `Cost budget exceeded: $${total_cost_usd.toFixed(4)} used, budget was $${budget_usd.toFixed(4)}`;
           this.callbacks.dispatch('_budget_exceeded', { last_error: errorMsg });
-          throw new BudgetExceededError(total_cost_usd, budget_usd);
+          throw new BudgetExceededError(total_cost_usd, budget_usd, { unit: 'usd' });
         }
       }
     }

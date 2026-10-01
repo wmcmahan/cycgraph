@@ -32,7 +32,7 @@ export const params = z.object({
   comment: z.boolean().default(true)
     .describe('Post the review as a PR comment. Off prints it to the run state only'),
   revise: z.boolean().default(true)
-    .describe('On a REVISE verdict against a PR carrying the maintenance-managed label, end the comment with an @cycgraph trigger so pr-revise addresses the findings. Unlabeled PRs get findings only. Needs the comment posted via a PAT — the Actions token\'s comments fire no workflows'),
+    .describe('On a REVISE verdict against a PR carrying the maintenance-managed label, end the comment with the workflow mention (prWire.mention) so pr-revise addresses the findings. Unlabeled PRs get findings only. Needs the comment posted via a PAT — the Actions token\'s comments fire no workflows'),
   merge: z.boolean().default(false)
     .describe('On an APPROVE verdict against a PR carrying the maintenance-managed label, enable auto-merge (squash, branch deleted) so the PR merges once its checks pass. The human gate becomes stopping it: disable auto-merge, unlabel, or close the PR'),
   prompt: z.string().default('')

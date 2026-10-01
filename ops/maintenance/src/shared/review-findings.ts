@@ -10,6 +10,9 @@
  * @module maintenance/review-findings
  */
 
+import { DEFAULT_PR_WIRE, markerNamespacePattern } from './pr-wire.js';
+import type { PrWire } from './pr-wire.js';
+
 /** One numbered finding lifted from a review's text. */
 export interface ReviewFinding {
   ordinal: number;
@@ -108,32 +111,36 @@ export interface Provenance {
 
 /** Characters a provenance value may hold: enough for ids, shas, and model names, never a marker terminator. */
 const PROVENANCE_VALUE = /^[A-Za-z0-9._:/@-]+$/;
-const MARKER = /<!-- cycgraph:pr-(review|finding|verify|reply|revision|notice)((?: [a-z]+=[^\s>]+)*) -->/;
+
+/** The marker a reader recognizes: any of the wire's namespaces, one known kind, optional provenance fields. */
+function markerPattern(wire: PrWire): RegExp {
+  return new RegExp(`<!-- (?:${markerNamespacePattern(wire)}):pr-(review|finding|verify|reply|revision|notice)((?: [a-z]+=[^\\s>]+)*) -->`);
+}
 
 /**
  * The hidden marker a workflow stamps on what it posts. It renders as
  * nothing on GitHub and identifies the comment's role, and optionally its
  * provenance, to later runs. A provenance value that could break out of
- * the comment is left out. The namespace is distinct from the issue
- * pipeline's `cycgraph:finding=` markers, which other jobs search for.
+ * the comment is left out. The marker's `:pr-` suffix keeps it distinct
+ * from the issue pipeline's finding markers, which other jobs search for.
  */
-export function reviewMarker(kind: ReviewMarkerKind, provenance: Provenance = {}): string {
+export function reviewMarker(kind: ReviewMarkerKind, provenance: Provenance = {}, wire: PrWire = DEFAULT_PR_WIRE): string {
   const fields = (['run', 'commit', 'model'] as const).flatMap((key) => {
     const value = provenance[key];
     return value !== undefined && PROVENANCE_VALUE.test(value) ? [` ${key}=${value}`] : [];
   });
-  return `<!-- cycgraph:pr-${kind}${fields.join('')} -->`;
+  return `<!-- ${wire.markerNamespace}:pr-${kind}${fields.join('')} -->`;
 }
 
 /** The marker kind a comment carries, if any. */
-export function markerKindOf(body: string): ReviewMarkerKind | undefined {
-  const match = body.match(MARKER);
+export function markerKindOf(body: string, wire: PrWire = DEFAULT_PR_WIRE): ReviewMarkerKind | undefined {
+  const match = body.match(markerPattern(wire));
   return match ? (match[1] as ReviewMarkerKind) : undefined;
 }
 
 /** The provenance a comment's marker carries, if it has a marker. */
-export function markerProvenance(body: string): Provenance | undefined {
-  const match = body.match(MARKER);
+export function markerProvenance(body: string, wire: PrWire = DEFAULT_PR_WIRE): Provenance | undefined {
+  const match = body.match(markerPattern(wire));
   if (!match) return undefined;
   const provenance: Provenance = {};
   for (const field of match[2]!.trim().split(' ').filter((part) => part !== '')) {
@@ -144,8 +151,9 @@ export function markerProvenance(body: string): Provenance | undefined {
 }
 
 /** A body with any workflow marker removed, for showing it to an agent. */
-export function withoutMarkers(body: string): string {
-  return body.replace(/<!-- cycgraph:pr-[a-z]+(?: [a-z]+=[^\s>]+)* -->\n?/g, '').trim();
+export function withoutMarkers(body: string, wire: PrWire = DEFAULT_PR_WIRE): string {
+  const marker = new RegExp(`<!-- (?:${markerNamespacePattern(wire)}):pr-[a-z]+(?: [a-z]+=[^\\s>]+)* -->\\n?`, 'g');
+  return body.replace(marker, '').trim();
 }
 
 /**
@@ -153,8 +161,8 @@ export function withoutMarkers(body: string): string {
  * opened before the hidden marker existed carry a visible bold
  * `**Finding N**` prefix instead, and still count.
  */
-export function isFindingThread(openingBody: string): boolean {
-  return markerKindOf(openingBody) === 'finding' || /^\*\*Finding \d+\*\*/.test(openingBody);
+export function isFindingThread(openingBody: string, wire: PrWire = DEFAULT_PR_WIRE): boolean {
+  return markerKindOf(openingBody, wire) === 'finding' || /^\*\*Finding \d+\*\*/.test(openingBody);
 }
 
 /**
@@ -164,12 +172,12 @@ export function isFindingThread(openingBody: string): boolean {
  * whole file names the finding's line in its text, since nothing else
  * shows it.
  */
-export function inlineFindingBody(finding: ReviewFinding, options: { onFile?: boolean; provenance?: Provenance } = {}): string {
+export function inlineFindingBody(finding: ReviewFinding, options: { onFile?: boolean; provenance?: Provenance; wire?: PrWire } = {}): string {
   const text = options.onFile === true && finding.line !== undefined ? `Line ${finding.line}: ${finding.text}` : finding.text;
   const evidence = finding.evidence.length > 0
     ? `\n\n<details><summary>Evidence</summary>\n\n${finding.evidence.join('\n')}\n\n</details>`
     : '';
-  return `${reviewMarker('finding', options.provenance)}\n${text}${evidence}`;
+  return `${reviewMarker('finding', options.provenance, options.wire)}\n${text}${evidence}`;
 }
 
 /** An earlier overall point a verification pass judges, by its `P<n>` label. */

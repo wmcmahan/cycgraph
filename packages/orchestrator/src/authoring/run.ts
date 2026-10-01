@@ -155,6 +155,13 @@ function buildRunner(
     ...(runnerOverride.capabilityCeilings ?? {}),
   };
 
+  // finalAnswer checks ride with facade agents; a caller-supplied check for
+  // the same agent id wins.
+  const mergedAnswerChecks = {
+    ...closure.answerChecks,
+    ...(runnerOverride.finalAnswerChecks ?? {}),
+  };
+
   const workflowState = isWorkflowState(input)
     ? input
     : createWorkflowState({ workflowId: g.id, ...input });
@@ -170,6 +177,7 @@ function buildRunner(
     ...(mergedTools.length > 0 ? { tools: mergedTools } : {}),
     ...(loadGraph ? { loadGraph } : {}),
     ...(Object.keys(mergedCeilings).length > 0 ? { capabilityCeilings: mergedCeilings } : {}),
+    ...(Object.keys(mergedAnswerChecks).length > 0 ? { finalAnswerChecks: mergedAnswerChecks } : {}),
     ...extra,
     persistState: (s) => persistence.saveWorkflowSnapshot(s),
   });

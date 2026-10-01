@@ -74,7 +74,7 @@ async function fetchLinkedIssues(
 
 /** The PR-reading, branch-checkout tool, bound to the clone. */
 export function gatherPrTool(c: ReviewContext) {
-  const { workspaceAt, repoRoot, token, params: p } = c;
+  const { workspaceAt, repoRoot, token, params: p, maintenance: ctx } = c;
   const auth = token !== undefined ? { token } : {};
   return tool({
     name: 'gather_pr',
@@ -110,14 +110,14 @@ export function gatherPrTool(c: ReviewContext) {
       // reviewer judges each open finding thread and prior top-level
       // finding before judging what changed, and their count is the
       // cycle's bound.
-      const priorReviews = priorAdvisoryReviews(feedback.comments);
+      const priorReviews = priorAdvisoryReviews(feedback.comments, ctx.prWire);
       const latestPriorBody = priorReviews[priorReviews.length - 1]?.body ?? '';
       // An unreadable thread list is unknown, never empty: treating it as
       // empty would tell the reviewer every earlier finding was resolved.
       const threads = priorReviews.length > 0 ? await listReviewThreads(repoRoot, p.pr, auth) : [];
       const threadsUnreadable = threads === undefined;
-      const openThreads = verificationThreads(threads ?? []);
-      const priorFindings = priorReviews.length > 0 ? priorTopLevelFindings(latestPriorBody) : [];
+      const openThreads = verificationThreads(threads ?? [], ctx.prWire);
+      const priorFindings = priorReviews.length > 0 ? priorTopLevelFindings(latestPriorBody, ctx.prWire) : [];
 
       // 4. Intent context: the PR description and the issues it closes,
       // both evidence the reviewer judges the diff against.
@@ -161,7 +161,7 @@ export function gatherPrTool(c: ReviewContext) {
           ...(unreadableIssues.length > 0
             ? [`The PR also declares it closes ${unreadableIssues.map((n) => `#${n}`).join(', ')}, which could not be read — the review proceeds without ${unreadableIssues.length > 1 ? 'them' : 'it'}.`]
             : []),
-          ...(priorReviews.length > 0 ? verificationBrief(openThreads, priorFindings, { threadsUnreadable }) : []),
+          ...(priorReviews.length > 0 ? verificationBrief(openThreads, priorFindings, { threadsUnreadable, wire: ctx.prWire }) : []),
           'The full diff:',
           '```diff',
           diff.length > DIFF_CAP ? `${diff.slice(0, DIFF_CAP)}\n… (truncated at ${DIFF_CAP} bytes)` : diff,

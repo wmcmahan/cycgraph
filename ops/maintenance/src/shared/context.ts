@@ -15,6 +15,8 @@
 import { access } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { DEFAULT_MARKER_NAMESPACE } from '@cycgraph/tools/git';
+import { DEFAULT_PR_WIRE, assertPrWire } from './pr-wire.js';
+import type { PrWire } from './pr-wire.js';
 import { APPROVED_LABEL, CHANGESET_INSTRUCTION, DEFAULT_BASE_BRANCH, DEFAULT_WORKSPACE_ROOTS, MANAGED_LABEL, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF } from './repo.js';
 
 /** The issue and PR labels the maintenance loop reads, writes, and filters on. */
@@ -89,6 +91,15 @@ export interface MaintenanceContext {
    */
   markerNamespace: string;
   /**
+   * The marker namespace on the loop's pull-request comments and the
+   * mention that dispatches pr-revise. Both are read back from live pull
+   * requests, so a repository fixes them once; a rename lists the old
+   * values under the `legacy*` fields so earlier comments keep parsing.
+   * The mention and the notice marker are mirrored in the
+   * `.github/workflows/*.yml` files, which this context cannot reach.
+   */
+  prWire: PrWire;
+  /**
    * Whether the workflows run the target repository's checks locally in
    * the workspace — the agent's `run_check`, the `repo_checks` gate's
    * commands, and an implemented ticket's runnable acceptance criteria.
@@ -126,6 +137,7 @@ export function defaultMaintenanceContext(): MaintenanceContext {
     branchPrefix: '',
     defaultBranch: DEFAULT_BASE_BRANCH,
     markerNamespace: DEFAULT_MARKER_NAMESPACE,
+    prWire: DEFAULT_PR_WIRE,
     runLocalChecks: true,
   };
 }
@@ -133,10 +145,13 @@ export function defaultMaintenanceContext(): MaintenanceContext {
 /**
  * The context a run carries, or this repository's default when it carries
  * none. The one place a build resolves its context, so every consumer
- * reads the same resolved value.
+ * reads the same resolved value. Throws on a PR wire format that could
+ * corrupt the comments the run writes.
  */
 export function contextOf(env: { context?: MaintenanceContext }): MaintenanceContext {
-  return env.context ?? defaultMaintenanceContext();
+  if (env.context === undefined) return defaultMaintenanceContext();
+  assertPrWire(env.context.prWire);
+  return env.context;
 }
 
 /**

@@ -41,11 +41,19 @@ import { extractMemoryUpdates } from './memory.js';
 import { validateMemoryUpdatePermissions } from './validation.js';
 import { intersectWriteGrant } from '../../../security/effective-permissions.js';
 import { AgentTimeoutError, AgentExecutionError, type PartialUsage } from './errors.js';
+import { calculateCost } from '../../../cost/pricing.js';
+import { BudgetExceededError, NodeBudgetExceededError } from '../../../execution/errors.js';
 
 const logger = createLogger('agent.executor');
 const tracer = getTracer('orchestrator.agent');
 
-/** Ceiling on the steps an empty-final continuation may spend. */
+/**
+ * Checks an agent's final answer. Returns a short description of what is
+ * wrong with it, or `undefined` when the answer is acceptable.
+ */
+export type FinalAnswerCheck = (text: string) => string | undefined;
+
+/** Ceiling on the steps a final-answer continuation may spend. */
 const MAX_CONTINUATION_STEPS = 3;
 
 /**
@@ -199,6 +207,22 @@ export function sumStepUsage(
   };
 }
 
+/**
+ * Cost limits an agent enforces between its own model steps, so a long
+ * tool loop cannot overshoot a budget by the cost of the whole node.
+ */
+export interface AgentCostLimits {
+  /** The run's cost budget and what remains of it, read before each step. */
+  workflow?: { budgetUsd: number; remainingUsd: () => number | undefined };
+  /** The node's own `budget.max_cost_usd`. */
+  nodeMaxCostUsd?: number;
+}
+
+/** Which cost limit stopped an agent, with the figures its error reports. */
+type BudgetStop =
+  | { kind: 'workflow'; budgetUsd: number; accountedUsd: number }
+  | { kind: 'node'; capUsd: number };
+
 /** Token usage from a single agent execution. */
 export interface TokenUsage {
   /** The number of input tokens consumed. */
@@ -322,6 +346,21 @@ export async function executeAgent(
       /** Retrieved content is untrusted → taint the agent's outputs. */
       untrusted?: boolean;
     };
+    /**
+     * Cost limits checked before every model step after the first. Once
+     * the agent's in-flight spend reaches one, no further step starts and
+     * the call throws {@link BudgetExceededError} or
+     * {@link NodeBudgetExceededError} carrying that spend as `partialUsage`.
+     * Absent, the agent runs exactly as without a budget.
+     */
+    costLimits?: AgentCostLimits;
+    /**
+     * Checks the final answer. When it reports a problem, the agent gets one
+     * bounded continuation naming the problem, under the same step budget
+     * as the continuation an empty answer gets. Absent, any non-empty
+     * answer is accepted as before.
+     */
+    finalAnswer?: FinalAnswerCheck;
   }
 ): Promise<Action> {
   return withSpan(tracer, 'agent.execute', async (span) => {
@@ -408,6 +447,45 @@ export async function executeAgent(
 
     const providerOptions = effectiveProviderOptions(effectiveConfig);
 
+    // In-flight spend is priced exactly as the runner prices the finished
+    // action, cache detail included, so the stop point and the accounted
+    // cost agree.
+    const costLimits = options?.costLimits;
+    const enforcesCost = costLimits?.workflow !== undefined || costLimits?.nodeMaxCostUsd !== undefined;
+    const spentUsd = (reported: ReportedUsage | undefined): number => {
+      const details = reported?.inputTokenDetails;
+      return calculateCost(effectiveConfig.model, reported?.inputTokens ?? 0, reported?.outputTokens ?? 0, {
+        ...(details?.cacheReadTokens !== undefined ? { readTokens: details.cacheReadTokens } : {}),
+        ...(details?.cacheWriteTokens !== undefined ? { writeTokens: details.cacheWriteTokens } : {}),
+      });
+    };
+    const breachAt = (spent: number): BudgetStop | undefined => {
+      const workflow = costLimits?.workflow;
+      const remaining = workflow?.remainingUsd();
+      if (workflow !== undefined && remaining !== undefined && spent >= remaining) {
+        return { kind: 'workflow', budgetUsd: workflow.budgetUsd, accountedUsd: workflow.budgetUsd - remaining };
+      }
+      const cap = costLimits?.nodeMaxCostUsd;
+      if (cap !== undefined && spent >= cap) return { kind: 'node', capUsd: cap };
+      return undefined;
+    };
+    let budgetStop: BudgetStop | undefined;
+    // The step cap, plus the cost limits when any are set. The cost
+    // condition runs only when the loop would otherwise take another step,
+    // so a turn that finishes on its own is never cut short here.
+    const stopWithin = (stepLimit: number, prior?: ReportedUsage) => {
+      const stepCap = isStepCount(stepLimit);
+      if (!enforcesCost) return stepCap;
+      return [
+        stepCap,
+        ({ steps: taken }: { steps: ReadonlyArray<{ usage?: ReportedUsage }> }) => {
+          const breach = breachAt(spentUsd(sumStepUsage([...(prior !== undefined ? [{ usage: prior }] : []), ...taken])));
+          if (breach !== undefined) budgetStop = breach;
+          return breach !== undefined;
+        },
+      ];
+    };
+
     // Every field both the primary call and the empty-final continuation
     // must agree on. Held in one object so an option added later cannot
     // reach only one of them — the continuation runs the same model with
@@ -471,7 +549,7 @@ export async function executeAgent(
       result = await streamText({
         ...sharedStreamOptions,
         prompt: taskPrompt,
-        stopWhen: isStepCount(config.maxSteps),
+        stopWhen: stopWithin(config.maxSteps),
         // Multi-step Anthropic agents re-send the whole growing transcript
         // on every step at full price without cache markers; advancing a
         // breakpoint to the end of each step's prefix turns every re-read
@@ -522,7 +600,22 @@ export async function executeAgent(
       // without this, the fallback below promotes the turn's opening
       // narration ("I'll start by reading…") to the final answer, which
       // downstream consumers then treat as the agent's whole output.
-      if (text.trim() === '' && steps.length > 0) {
+      // A turn that ends without a usable answer gets one bounded
+      // continuation: an empty final step, or a final answer the agent's
+      // declared check rejects (narration of what it is about to do, a
+      // reply missing the required structure).
+      const problem = text.trim() === '' ? undefined : finalAnswerProblem(options?.finalAnswer, text, agentId);
+      const continuationKind: 'empty' | 'invalid' | undefined = steps.length === 0
+        ? undefined
+        : text.trim() === '' ? 'empty' : problem !== undefined ? 'invalid' : undefined;
+
+      // A continuation is another model step, so it never starts once a
+      // cost limit is reached.
+      if (continuationKind !== undefined && enforcesCost && budgetStop === undefined) {
+        budgetStop = breachAt(spentUsd(usage));
+      }
+
+      if (continuationKind !== undefined && budgetStop === undefined) {
         // The continuation spends what is left of the agent's declared
         // `maxSteps`, never a budget of its own, capped so a nearly unused
         // budget cannot turn recovery into a second full agent loop. One
@@ -542,10 +635,12 @@ export async function executeAgent(
               ...(await result.response).messages,
               {
                 role: 'user' as const,
-                content: 'Your previous message was empty. Write your final reply now, complete per your instructions; use another tool first only if you must.',
+                content: continuationKind === 'empty'
+                  ? 'Your previous message was empty. Write your final reply now, complete per your instructions; use another tool first only if you must.'
+                  : `Your reply is not a complete answer: ${problem}. Write your final reply now, complete per your instructions.`,
               },
             ],
-            stopWhen: isStepCount(continuationSteps),
+            stopWhen: stopWithin(continuationSteps, usage),
             // Deliberately NO cache-mark rewriting here: this is the
             // recovery path for a turn that already went silent, and it
             // must hand the model the transcript exactly as the SDK
@@ -571,10 +666,17 @@ export async function executeAgent(
           const recoveredSteps = ((await continuation.steps) ?? []) as AgentStep[];
           steps = [...steps, ...recoveredSteps];
           usage = sumStepUsage([{ usage }, { usage: await continuation.totalUsage }]);
-          if (continuationText.trim() !== '') text = continuationText;
-          logger.info('empty_final_continuation', {
+          // A non-empty continuation replaces the original even when it
+          // still fails the check: it answered the nudge, which the
+          // original by definition did not.
+          const spoke = continuationText.trim() !== '';
+          if (spoke) text = continuationText;
+          logger.info(`${continuationKind}_final_continuation`, {
             agent_id: agentId,
-            recovered: continuationText.trim() !== '',
+            recovered: continuationKind === 'empty'
+              ? spoke
+              : spoke && finalAnswerProblem(options?.finalAnswer, continuationText, agentId) === undefined,
+            ...(continuationKind === 'invalid' ? { problem } : {}),
             continuation_steps: recoveredSteps.length,
             step_budget: continuationSteps,
           });
@@ -585,7 +687,7 @@ export async function executeAgent(
           const cause = continuationError ?? error;
           const partialUsage = await capturePartialUsage(continuation, config.model);
           if (partialUsage) usage = sumStepUsage([{ usage }, { usage: partialUsage }]);
-          logger.warn('empty_final_continuation_failed', {
+          logger.warn(`${continuationKind}_final_continuation_failed`, {
             agent_id: agentId,
             error: cause instanceof Error ? cause.message : String(cause),
             partial_usage: partialUsage !== undefined,
@@ -683,6 +785,13 @@ export async function executeAgent(
           }
         : {}),
     };
+
+    if (budgetStop !== undefined) {
+      throw budgetStopError(budgetStop, spentUsd(usage), { ...tokenUsage, model: effectiveConfig.model }, {
+        agentId,
+        nodeId: options?.nodeId ?? agentId,
+      });
+    }
     // Cache reads bill at ~10%; surfacing them is how a run's log proves
     // the prompt cache is hitting rather than writing on every step.
     logger.info('token_usage', {
@@ -876,6 +985,47 @@ export async function executeAgent(
 
     return action;
   });
+}
+
+/**
+ * The problem a final-answer check reports, or `undefined` when there is
+ * no check or the answer passes. A check that throws is treated as
+ * passing, so a faulty check can never cost an agent its answer.
+ */
+function finalAnswerProblem(check: FinalAnswerCheck | undefined, text: string, agentId: string): string | undefined {
+  if (check === undefined) return undefined;
+  try {
+    const problem = check(text);
+    return problem !== undefined && problem.trim() !== '' ? problem.trim() : undefined;
+  } catch (error) {
+    logger.warn('final_answer_check_failed', {
+      agent_id: agentId,
+      error: String(error),
+    });
+    return undefined;
+  }
+}
+
+/**
+ * The error that ends an agent stopped for budget. The spend it carries is
+ * not yet accounted, so the runner adds it before the run ends; the
+ * reported totals already include it.
+ */
+function budgetStopError(
+  stop: BudgetStop,
+  spent: number,
+  partialUsage: TokenUsage & { model: string },
+  context: { agentId: string; nodeId: string },
+): BudgetExceededError | NodeBudgetExceededError {
+  logger.warn('agent_budget_stop', {
+    agent_id: context.agentId,
+    node_id: context.nodeId,
+    limit: stop.kind,
+    in_flight_cost_usd: spent,
+  });
+  return stop.kind === 'workflow'
+    ? new BudgetExceededError(stop.accountedUsd + spent, stop.budgetUsd, { unit: 'usd', partialUsage })
+    : new NodeBudgetExceededError(context.nodeId, 'max_cost_usd', spent, stop.capUsd, { partialUsage });
 }
 
 /**

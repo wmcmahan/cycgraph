@@ -93,6 +93,6 @@
     "@cycgraph/orchestrator": "^1.6.0",
     "@cycgraph/memory": "^0.8.0",
     "typescript": "7.0.2",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.11"
   }
 }

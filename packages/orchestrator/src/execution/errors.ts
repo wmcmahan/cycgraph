@@ -10,17 +10,43 @@
 import { CycgraphError } from '../errors.js';
 
 /**
- * Thrown when a workflow exceeds its configured token budget.
+ * Usage spent by a call that was stopped for budget, carried so the runner
+ * can account it. Cache detail, when present, prices input at cache rates.
+ */
+export interface BudgetStopUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  model?: string;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+}
+
+/**
+ * Thrown when a workflow exceeds its configured token or cost budget.
+ * Never retried: a retry would only compound the spend.
  */
 export class BudgetExceededError extends CycgraphError {
+  /** Budget errors are final; the retry loop stops on them. */
+  readonly retryable = false as const;
+  /** Usage of an agent stopped mid-loop, not yet accounted when thrown. */
+  readonly partialUsage?: BudgetStopUsage;
+  /** What `tokensUsed` and `budget` count. */
+  readonly unit: 'tokens' | 'usd';
+
   constructor(
-    /** Tokens consumed at the time of breach. */
+    /** Tokens, or USD when `unit` is `'usd'`, consumed at the time of breach. */
     public readonly tokensUsed: number,
-    /** The configured budget limit. */
+    /** The configured budget limit, in the same unit. */
     public readonly budget: number,
+    options: { unit?: 'tokens' | 'usd'; partialUsage?: BudgetStopUsage } = {},
   ) {
-    super(`Token budget exceeded: ${tokensUsed} tokens used, budget was ${budget}`);
+    super(options.unit === 'usd'
+      ? `Cost budget exceeded: $${tokensUsed.toFixed(4)} used, budget was $${budget.toFixed(4)}`
+      : `Token budget exceeded: ${tokensUsed} tokens used, budget was ${budget}`);
     this.name = 'BudgetExceededError';
+    this.unit = options.unit ?? 'tokens';
+    if (options.partialUsage !== undefined) this.partialUsage = options.partialUsage;
   }
 }
 
@@ -31,6 +57,11 @@ export class BudgetExceededError extends CycgraphError {
  * would just compound the spend.
  */
 export class NodeBudgetExceededError extends CycgraphError {
+  /** Budget errors are final; the retry loop stops on them. */
+  readonly retryable = false as const;
+  /** Usage of an agent stopped mid-loop, not yet accounted when thrown. */
+  readonly partialUsage?: BudgetStopUsage;
+
   constructor(
     /** Node identifier that exceeded its budget. */
     public readonly nodeId: string,
@@ -40,12 +71,14 @@ export class NodeBudgetExceededError extends CycgraphError {
     public readonly used: number,
     /** Configured cap on the node. */
     public readonly cap: number,
+    options: { partialUsage?: BudgetStopUsage } = {},
   ) {
     const unit = limit === 'max_tokens' ? 'tokens' : 'USD';
     super(
       `Node "${nodeId}" exceeded ${limit}: used ${used} ${unit}, cap was ${cap} ${unit}`,
     );
     this.name = 'NodeBudgetExceededError';
+    if (options.partialUsage !== undefined) this.partialUsage = options.partialUsage;
   }
 }
 

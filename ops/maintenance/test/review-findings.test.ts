@@ -21,6 +21,14 @@ import {
   withoutMarkers,
   withoutReplies,
 } from '../src/shared/review-findings.js';
+import type { PrWire } from '../src/shared/pr-wire.js';
+
+const KEELWISE: PrWire = {
+  markerNamespace: 'keelwise',
+  legacyMarkerNamespaces: ['cycgraph'],
+  mention: '@keelwise',
+  legacyMentions: ['@cycgraph'],
+};
 
 describe('parseReviewFindings', () => {
   it('lifts path and line from an anchored finding', () => {
@@ -106,6 +114,10 @@ describe('reviewMarker', () => {
   it('stays outside the issue pipeline marker namespace', () => {
     expect(reviewMarker('finding')).not.toContain('cycgraph:finding=');
   });
+
+  it('writes under the wire format\'s namespace', () => {
+    expect(reviewMarker('notice', {}, KEELWISE)).toBe('<!-- keelwise:pr-notice -->');
+  });
 });
 
 describe('markerKindOf', () => {
@@ -115,6 +127,14 @@ describe('markerKindOf', () => {
 
   it('finds a marker placed mid-body', () => {
     expect(markerKindOf('pr-review ran but failed <!-- cycgraph:pr-notice -->')).toBe('notice');
+  });
+
+  it('reads a legacy namespace listed on the wire format', () => {
+    expect(markerKindOf('<!-- cycgraph:pr-review -->', KEELWISE)).toBe('review');
+  });
+
+  it('ignores a namespace the wire format does not list', () => {
+    expect(markerKindOf('<!-- keelwise:pr-review -->')).toBeUndefined();
   });
 });
 
@@ -132,6 +152,10 @@ describe('markerProvenance', () => {
   it('returns undefined for an unmarked body', () => {
     expect(markerProvenance('a human comment')).toBeUndefined();
   });
+
+  it('reads provenance from a marker under a custom namespace', () => {
+    expect(markerProvenance(reviewMarker('reply', { commit: 'abc1234' }, KEELWISE), KEELWISE)).toEqual({ commit: 'abc1234' });
+  });
 });
 
 describe('withoutMarkers', () => {
@@ -141,6 +165,12 @@ describe('withoutMarkers', () => {
 
   it('removes a marker that carries provenance', () => {
     expect(withoutMarkers(`${reviewMarker('reply', { run: 'r-1', commit: 'abc1234' })}\nRenamed.`)).toBe('Renamed.');
+  });
+
+  it('removes current and legacy markers alike', () => {
+    const body = '<!-- keelwise:pr-reply -->\nFirst.\n<!-- cycgraph:pr-reply -->\nSecond.';
+
+    expect(withoutMarkers(body, KEELWISE)).toBe('First.\nSecond.');
   });
 });
 
@@ -189,6 +219,12 @@ describe('inlineFindingBody', () => {
       '',
       '</details>',
     ].join('\n'));
+  });
+
+  it('stamps the finding under the wire format\'s namespace', () => {
+    const [finding] = parseReviewFindings('1. src/a.ts:3 — off by one');
+
+    expect(inlineFindingBody(finding!, { wire: KEELWISE })).toBe('<!-- keelwise:pr-finding -->\noff by one');
   });
 });
 
