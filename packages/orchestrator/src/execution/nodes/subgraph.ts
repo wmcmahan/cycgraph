@@ -253,6 +253,7 @@ export async function executeSubgraphNode(
     a2aRegistry: ctx.a2aRegistry,
     a2aClient: ctx.a2aClient,
     factSanitizer: ctx.factSanitizer,
+    ...(ctx.finalAnswerChecks ? { finalAnswerChecks: ctx.finalAnswerChecks } : {}),
     fitnessFunction: ctx.fitnessFunction,
     ...(ctx.rateLimiter ? { rateLimiter: ctx.rateLimiter } : {}),
     // Child log lines carry child-local node ids; the prefix keeps them

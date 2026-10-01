@@ -343,18 +343,6 @@ export function fatalNeedsHuman(
 }
 
 /**
- * The mention that dispatches maintenance workflows from PR comments.
- * Emitted deliberately by pr-review's handoff; relayed text must pass
- * through {@link stripMentions} so arbitrary prose never carries it.
- */
-export const WORKFLOW_MENTION = '@cycgraph';
-
-/** Neutralize workflow-dispatching mentions inside relayed text. */
-export function stripMentions(text: string): string {
-  return text.replace(/@cycgraph/gi, 'cycgraph');
-}
-
-/**
  * The house coding standards, distilled for agent prompts: the rules an
  * editing or reviewing agent most often breaks. The pointer to the
  * repository's own convention document, when one exists, is added

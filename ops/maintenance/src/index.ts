@@ -36,6 +36,8 @@ export { fetchCiFailureLogs, formatCiFailures, selectFailedRuns } from './shared
 export type { CmdRunner, FailedRun, RunRow } from './shared/ci-logs.js';
 export { contextOf, defaultMaintenanceContext, maintenanceBranch, resolveStandardsBrief, DEFAULT_STANDARDS_DOCS } from './shared/context.js';
 export type { MaintenanceContext, MaintenanceIdentity, MaintenanceLabels } from './shared/context.js';
+export { DEFAULT_PR_WIRE, stripMentions } from './shared/pr-wire.js';
+export type { PrWire } from './shared/pr-wire.js';
 export type { MaintenanceBuild, MaintenanceEnv, MaintenanceWorkflow } from './types.js';
 export { inferProvider, maintenanceEnvFromProcess } from './shared/env.js';
 

@@ -10,7 +10,6 @@
  */
 
 import { createLogger } from '../../../observability/logger.js';
-import { sanitizeString } from './sanitizers.js';
 
 const logger = createLogger('agent.executor.memory');
 
@@ -100,7 +99,8 @@ export function extractMemoryUpdates(
     }
 
     if (allowedKeys.includes('*') || allowedKeys.includes(targetKey)) {
-      updates[targetKey] = sanitizeString(agentResponse);
+      // Stored as written: prompt rendering sanitizes it wherever it is read.
+      updates[targetKey] = agentResponse.trim();
     }
   }
 

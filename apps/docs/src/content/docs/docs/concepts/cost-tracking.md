@@ -46,7 +46,7 @@ state({
 
 ### Cost budget (USD)
 
-Set `budgetUsd` on the initial workflow state. The runner enforces this with threshold alerts and a hard stop at 100%:
+Set `budgetUsd` on the initial workflow state. The runner enforces this with threshold alerts and a hard stop at 100%. An agent node also checks the budget between its own model steps: once the run's accounted cost plus the agent's in-flight spend reaches `budgetUsd`, the agent starts no further step and the run stops with `BudgetExceededError`. The steps that already ran are counted in `total_cost_usd`, so a long tool loop cannot overshoot the budget by the cost of a whole node:
 
 ```typescript
 state({
@@ -70,7 +70,7 @@ agent({
 
 ### Per-node budget
 
-Any node can carry its own budget. The runner enforces it after the node completes, and breaching either cap throws `NodeBudgetExceededError` with no retry.
+Any node can carry its own budget. The runner enforces it after the node completes, and breaching either cap throws `NodeBudgetExceededError` with no retry. An agent node also applies `maxCostUsd` between its model steps, stopping before the step that would spend past it.
 
 For composite nodes that loop internally (evolution generations, annealing iterations), the post-completion check alone would let the whole population times generations spend happen before the cap is consulted. These nodes also run an incremental budget guard between iterations: once accumulated token or cost spend crosses the node's budget or the remaining workflow budget, the loop stops early instead of running every remaining generation. Evolution surfaces a `{nodeId}_budget_stopped` flag in its output envelope. The runner's hard `NodeBudgetExceededError` still fires if the aggregate exceeded the cap, so the guard bounds the overspend rather than suppressing the error.
 

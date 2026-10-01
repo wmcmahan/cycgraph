@@ -66,6 +66,7 @@ import type { MemoryWriter } from '../../memory/memory-writer.js';
 import type { A2AServerRegistry } from '../../a2a/schema.js';
 import type { A2AClient } from '../../a2a/client.js';
 import type { FactSanitizer } from '../../security/fact-sanitizer.js';
+import type { FinalAnswerCheck } from '../../agents/executors/agent/executor.js';
 import type { FitnessFunction } from '../nodes/fitness-function.js';
 import type { RateLimiter } from '../../agents/rate-limiter.js';
 import { PermissionDeniedError } from '../../agents/executors/agent/errors.js';
@@ -328,6 +329,15 @@ export interface GraphRunnerOptions {
    */
   factSanitizerFailMode?: 'drop' | 'pass';
   /**
+   * Final-answer checks keyed by agent id. When an agent's final answer
+   * fails its check, it gets one bounded continuation naming the problem
+   * (see {@link FinalAnswerCheck}). Functions cannot live in a stored agent
+   * config, so they are supplied here; `agent({ finalAnswer })` in the
+   * authoring facade fills this in for `run()` and `runRecorded()`. Pass it
+   * again in `fork` runner options, as with `tools`.
+   */
+  finalAnswerChecks?: Readonly<Record<string, FinalAnswerCheck>>;
+  /**
    * Optional deterministic fitness evaluator for `evolution` nodes. When
    * provided, the evolution executor uses it instead of the LLM-as-judge
    * `evaluator_agent_id`. Use for tasks with verifiable answers — regex,
@@ -517,6 +527,9 @@ export class GraphRunner extends EventEmitter {
   // Behavior when factSanitizer throws: 'drop' (fail closed, default) or 'pass'
   private readonly factSanitizerFailMode: 'drop' | 'pass';
 
+  // Final-answer checks keyed by agent id
+  private readonly finalAnswerChecks?: Readonly<Record<string, FinalAnswerCheck>>;
+
   // Optional deterministic fitness evaluator for evolution nodes
   private readonly fitnessFunction?: FitnessFunction;
 
@@ -613,6 +626,7 @@ export class GraphRunner extends EventEmitter {
     this.a2aClient = options?.a2aClient;
     this.factSanitizer = options?.factSanitizer;
     this.factSanitizerFailMode = options?.factSanitizerFailMode ?? 'drop';
+    this.finalAnswerChecks = options?.finalAnswerChecks;
     this.fitnessFunction = options?.fitnessFunction;
     this.rateLimiter = options?.rateLimiter;
     this.logSink = options?.logger;
@@ -672,6 +686,7 @@ export class GraphRunner extends EventEmitter {
       dispatchInternal: (type, payload) => this.dispatchInternal(type, payload),
       emit: (event, payload) => this.emit(event, payload),
       pushPending: (event) => this.channel.pushPending(event),
+      enforceCostBudget: () => this.budget.checkThresholds(this.state),
     });
   }
 
@@ -765,6 +780,7 @@ export class GraphRunner extends EventEmitter {
       get a2aClient() { return self.a2aClient; },
       get factSanitizer() { return self.factSanitizer; },
       get factSanitizerFailMode() { return self.factSanitizerFailMode; },
+      get finalAnswerChecks() { return self.finalAnswerChecks; },
       get fitnessFunction() { return self.fitnessFunction; },
       get rateLimiter() { return self.rateLimiter; },
       get logSink() { return self.logSink; },

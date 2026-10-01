@@ -10,6 +10,7 @@ import { afterEach, describe, it, expect } from 'vitest';
 import { contextOf, defaultMaintenanceContext, maintenanceBranch, resolveStandardsBrief, type MaintenanceContext } from '../src/shared/context.js';
 import { APPROVED_LABEL, CHANGESET_INSTRUCTION, DEFAULT_BASE_BRANCH, DEFAULT_WORKSPACE_ROOTS, MANAGED_LABEL, NEEDS_HUMAN_LABEL, STANDARDS_BRIEF } from '../src/shared/repo.js';
 import { DEFAULT_MARKER_NAMESPACE } from '@cycgraph/tools/git';
+import { DEFAULT_PR_WIRE } from '../src/shared/pr-wire.js';
 
 const roots: string[] = [];
 
@@ -40,6 +41,7 @@ describe('defaultMaintenanceContext', () => {
       branchPrefix: '',
       defaultBranch: DEFAULT_BASE_BRANCH,
       markerNamespace: DEFAULT_MARKER_NAMESPACE,
+      prWire: DEFAULT_PR_WIRE,
       runLocalChecks: true,
     });
   });
@@ -55,10 +57,20 @@ describe('contextOf', () => {
       branchPrefix: 'bot/',
       defaultBranch: 'trunk',
       markerNamespace: 'acme:finding',
+      prWire: { markerNamespace: 'acme', legacyMarkerNamespaces: [], mention: '@acme-bot', legacyMentions: [] },
       runLocalChecks: false,
     };
 
     expect(contextOf({ context: supplied })).toBe(supplied);
+  });
+
+  it('refuses a context whose PR wire format could corrupt its comments', () => {
+    const context: MaintenanceContext = {
+      ...defaultMaintenanceContext(),
+      prWire: { ...DEFAULT_PR_WIRE, markerNamespace: 'x -->' },
+    };
+
+    expect(() => contextOf({ context })).toThrow('invalid PR marker namespace: "x -->"');
   });
 
   it('falls back to this repository\'s default when a run carries none', () => {

@@ -58,7 +58,7 @@ async function checkoutPrBranch(repoRoot: string, workspaceAt: string, head: str
 
 /** The feedback-reading, branch-checkout tool, bound to the clone. */
 export function gatherFeedbackTool(c: ReviseContext) {
-  const { workspaceAt, repoRoot, token, params: p } = c;
+  const { workspaceAt, repoRoot, token, params: p, maintenance: ctx } = c;
   const auth = token !== undefined ? { token } : {};
   return tool({
     name: 'gather_feedback',
@@ -89,7 +89,7 @@ export function gatherFeedbackTool(c: ReviseContext) {
       if (threads === undefined) {
         return { has_work: false, detail: `cannot read the review threads on PR #${p.pr}` };
       }
-      const open = revisionFeedback(threads, feedback.comments);
+      const open = revisionFeedback(threads, feedback.comments, ctx.prWire);
       if (open.threads.length === 0 && open.topLevel.length === 0) {
         return { has_work: false, detail: `PR #${p.pr} carries no open review feedback to address` };
       }
@@ -116,13 +116,13 @@ export function gatherFeedbackTool(c: ReviseContext) {
           thread.commentId !== undefined ? [{ label, id: thread.commentId }] : []),
         top_level_items: open.topLevel.map(({ label, comment }) => ({
           label,
-          excerpt: excerptOf(comment.body),
+          excerpt: excerptOf(comment.body, ctx.prWire),
         })),
         instruction: [
           `Address the review feedback on pull request #${p.pr} ("${feedback.title}").`,
           'Every item below is open feedback from a trusted maintainer or the pr-review workflow, verbatim. Items labeled T are review threads on a specific line; items labeled C are top-level feedback.',
           '',
-          renderRevisionFeedback(open),
+          renderRevisionFeedback(open, ctx.prWire),
           ...(ciLogs !== undefined ? ['', ciLogs] : []),
         ].join('\n'),
       };

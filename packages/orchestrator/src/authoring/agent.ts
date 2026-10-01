@@ -15,6 +15,7 @@
 import type { AgentRegistryConfig } from '../persistence/interfaces.js';
 import type { ToolSourceInput } from '../tools/schema.js';
 import { isDefinedTool, type DefinedTool } from '../tools/define-tool.js';
+import type { FinalAnswerCheck } from '../agents/executors/agent/executor.js';
 
 /** Brand marking a value produced by {@link agent}. */
 export const AGENT_BRAND: unique symbol = Symbol('cycgraph.authoring.agent');
@@ -66,6 +67,14 @@ export interface AgentSpec {
   effort?: AgentRegistryConfig['effort'];
   /** Provider-specific options, namespaced by provider name. */
   providerOptions?: AgentRegistryConfig['providerOptions'];
+  /**
+   * Checks the agent's final answer, returning a short problem description
+   * or `undefined` when it is acceptable. A failing answer gets one bounded
+   * continuation that names the problem. Runtime only: it never enters the
+   * stored agent config, and `run()` / `runRecorded()` hand it to the
+   * runner. A serialized graph or bundle does not carry it.
+   */
+  finalAnswer?: FinalAnswerCheck;
 }
 
 /**

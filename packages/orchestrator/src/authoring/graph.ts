@@ -23,6 +23,7 @@ import {
   toRegistryConfig,
   type AgentValue,
 } from './agent.js';
+import type { FinalAnswerCheck } from '../agents/executors/agent/executor.js';
 import { isNodeValue, NODE_BRAND, type NodeValue, type NodeSpec } from './node.js';
 import { SUBGRAPH_CHILD, SUBGRAPH_BUNDLE } from './subgraph.js';
 import type { GraphBundle } from '../authoring/bundle-schema.js';
@@ -46,8 +47,16 @@ const graphTools = new WeakMap<Graph, DefinedTool[]>();
 /** Child graphs referenced by `subgraph()` values in a facade-authored graph, for `run()`. */
 const graphChildren = new WeakMap<Graph, Graph[]>();
 
+/** Final-answer checks of a facade-authored graph's agents, keyed by agent id, for `run()`. */
+const graphAnswerChecks = new WeakMap<Graph, Record<string, FinalAnswerCheck>>();
+
 /** Capability ceilings declared by embedded bundles, keyed by subgraph id, for `run()`. */
 const graphCeilings = new WeakMap<Graph, Record<string, CapabilityCeiling>>();
+
+/** Retrieve the final-answer checks of a facade-authored graph's agents, keyed by agent id. */
+export function answerChecksForGraph(graph: Graph): Record<string, FinalAnswerCheck> {
+  return graphAnswerChecks.get(graph) ?? {};
+}
 
 /** Retrieve the agent configs a facade-authored graph references (empty if none). */
 export function agentsForGraph(graph: Graph): AgentRegistryConfig[] {
@@ -358,6 +367,12 @@ export function graph(spec: GraphSpec): Graph {
       }
     }
     graphAgents.set(built, configs);
+
+    const checks: Record<string, FinalAnswerCheck> = {};
+    for (const value of collectedAgents) {
+      if (value.spec.finalAnswer !== undefined) checks[ensureAgentId(value)] = value.spec.finalAnswer;
+    }
+    if (Object.keys(checks).length > 0) graphAnswerChecks.set(built, checks);
   }
 
   if (collectedTools.size > 0) {

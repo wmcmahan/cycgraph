@@ -31,6 +31,7 @@ import type { AgentRegistry } from '../../persistence/interfaces.js';
 import type { ProviderRegistry } from '../../agents/providers/provider-registry.js';
 import type { ToolsOption, CapabilityCeiling } from '../../tools/registry.js';
 import type { ChildEventSink } from '../coordination/child-events.js';
+import type { AgentCostLimits, FinalAnswerCheck } from '../../agents/executors/agent/executor.js';
 
 /** One child node's lifecycle beat, relative to the reporting runner. */
 export interface ChildNodeEvent {
@@ -127,6 +128,8 @@ export interface ExecutorDependencies {
         tags?: string[];
         maxFacts?: number;
       };
+      /** Cost limits enforced between the agent's model steps. */
+      costLimits?: AgentCostLimits;
     },
   ) => Promise<Action>;
 
@@ -273,6 +276,8 @@ export interface NodeExecutorContext {
   factSanitizer?: FactSanitizer;
   /** What to do when factSanitizer throws: 'drop' (fail closed) or 'pass'. */
   factSanitizerFailMode?: 'drop' | 'pass';
+  /** Final-answer checks keyed by agent id (from GraphRunnerOptions). */
+  finalAnswerChecks?: Readonly<Record<string, FinalAnswerCheck>>;
   /** Optional deterministic fitness evaluator for evolution nodes (from GraphRunnerOptions). */
   fitnessFunction?: FitnessFunction;
   /** Optional rate-limiting hook awaited before every LLM call (from GraphRunnerOptions). */

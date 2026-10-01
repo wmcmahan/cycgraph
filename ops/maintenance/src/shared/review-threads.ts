@@ -12,7 +12,9 @@
  */
 
 import type { PrComment, ReviewThread, ReviewThreadComment } from '@cycgraph/tools/git';
-import { TRUSTED_ASSOCIATIONS, WORKFLOW_MENTION } from './repo.js';
+import { TRUSTED_ASSOCIATIONS } from './repo.js';
+import { DEFAULT_PR_WIRE, allMentions } from './pr-wire.js';
+import type { PrWire } from './pr-wire.js';
 import { FOOTER_OPEN } from './provenance.js';
 import { isFindingThread, markerKindOf, parseOverallFindings, parseReviewFindings, withoutMarkers } from './review-findings.js';
 import type { ReviewFinding } from './review-findings.js';
@@ -51,8 +53,8 @@ export function isTrustedAuthor(comment: { author: string; authorAssociation: st
 }
 
 /** Whether a top-level comment is a pr-review review body. */
-export function isAdvisoryReview(body: string): boolean {
-  return markerKindOf(body) === 'review' || body.startsWith(ADVISORY_PREFIX);
+export function isAdvisoryReview(body: string, wire: PrWire = DEFAULT_PR_WIRE): boolean {
+  return markerKindOf(body, wire) === 'review' || body.startsWith(ADVISORY_PREFIX);
 }
 
 /**
@@ -61,21 +63,21 @@ export function isAdvisoryReview(body: string): boolean {
  * earlier review both spends the rounds cap and supplies the overall
  * points the next pass judges.
  */
-export function priorAdvisoryReviews(comments: readonly PrComment[]): PrComment[] {
+export function priorAdvisoryReviews(comments: readonly PrComment[], wire: PrWire = DEFAULT_PR_WIRE): PrComment[] {
   return comments.filter((comment) =>
-    comment.source !== 'inline' && isTrustedAuthor(comment) && isAdvisoryReview(comment.body));
+    comment.source !== 'inline' && isTrustedAuthor(comment) && isAdvisoryReview(comment.body, wire));
 }
 
 /** Whether a top-level comment is a pr-revise summary. */
-function isRevisionSummary(body: string): boolean {
-  return markerKindOf(body) === 'revision' || body.startsWith(REVISION_PREFIX);
+function isRevisionSummary(body: string, wire: PrWire): boolean {
+  return markerKindOf(body, wire) === 'revision' || body.startsWith(REVISION_PREFIX);
 }
 
 /** Whose words a comment is, named for the given reader. */
-function speaker(comment: { author: string; body: string }, reader: Reader, opener: boolean): string {
-  const kind = markerKindOf(comment.body);
+function speaker(comment: { author: string; body: string }, reader: Reader, opener: boolean, wire: PrWire): string {
+  const kind = markerKindOf(comment.body, wire);
   const fromReviewer = kind === 'finding' || kind === 'verify' || kind === 'review'
-    || (opener && isFindingThread(comment.body));
+    || (opener && isFindingThread(comment.body, wire));
   if (fromReviewer) return reader === 'reviewer' ? 'you, in an earlier review' : 'reviewer (pr-review)';
   if (kind === 'reply' || kind === 'revision') return reader === 'reviser' ? 'you, in an earlier revision' : 'reviser (pr-revise)';
   return comment.author;
@@ -86,8 +88,8 @@ function speaker(comment: { author: string; body: string }, reader: Reader, open
  * finding prefix removed, and the collapsed evidence block unfolded into
  * plain text.
  */
-function readable(body: string): string {
-  return withoutMarkers(body)
+function readable(body: string, wire: PrWire): string {
+  return withoutMarkers(body, wire)
     .replace(/^\*\*Finding \d+\*\*\s*[—–-]?\s*/, '')
     .replace(/<details><summary>Evidence<\/summary>\s*/g, 'Evidence:\n')
     .replace(/\s*<\/details>/g, '')
@@ -100,7 +102,7 @@ function hanging(text: string): string {
 }
 
 /** One open thread, rendered: its anchor, the code it sits on, and its conversation. */
-export function renderThread(item: LabeledThread, reader: Reader): string {
+export function renderThread(item: LabeledThread, reader: Reader, wire: PrWire = DEFAULT_PR_WIRE): string {
   const { thread } = item;
   const path = thread.path ?? 'unknown file';
   const anchor = thread.line !== undefined
@@ -113,7 +115,7 @@ export function renderThread(item: LabeledThread, reader: Reader): string {
     ? ['```diff', ...thread.diffHunk.split('\n').slice(-HUNK_TAIL), '```']
     : [];
   const conversation = item.comments.map((comment, index) =>
-    `- ${speaker(comment, reader, index === 0)}: ${hanging(readable(comment.body))}`);
+    `- ${speaker(comment, reader, index === 0, wire)}: ${hanging(readable(comment.body, wire))}`);
   return [`${item.label} · ${anchor}${outdated}`, ...hunk, ...conversation].join('\n');
 }
 
@@ -131,16 +133,17 @@ function labelThreads(threads: readonly ReviewThread[]): LabeledThread[] {
  * this workflow's own token opened, from any earlier round. Human threads
  * are never among them, so the reviewer never resolves a human's thread.
  */
-export function verificationThreads(threads: readonly ReviewThread[]): LabeledThread[] {
+export function verificationThreads(threads: readonly ReviewThread[], wire: PrWire = DEFAULT_PR_WIRE): LabeledThread[] {
   return labelThreads(threads.filter((thread) =>
-    !thread.isResolved && thread.viewerDidAuthor && isFindingThread(thread.body)));
+    !thread.isResolved && thread.viewerDidAuthor && isFindingThread(thread.body, wire)));
 }
 
 /** A top-level comment's text for an agent: the workflow's own framing lines removed. */
-export function topLevelText(body: string): string {
-  return withoutMarkers(body)
+export function topLevelText(body: string, wire: PrWire = DEFAULT_PR_WIRE): string {
+  const mentions = allMentions(wire);
+  return withoutMarkers(body, wire)
     .split('\n')
-    .filter((line) => !line.startsWith(ADVISORY_PREFIX) && !line.includes(WORKFLOW_MENTION) && !line.startsWith(FOOTER_OPEN))
+    .filter((line) => !line.startsWith(ADVISORY_PREFIX) && !mentions.some((mention) => line.includes(mention)) && !line.startsWith(FOOTER_OPEN))
     .join('\n')
     .trim();
 }
@@ -152,10 +155,10 @@ export function topLevelText(body: string): string {
  * the ones with a line already have threads, so from such a body only
  * the findings without a line count.
  */
-export function priorTopLevelFindings(latestAdvisoryBody: string): ReviewFinding[] {
-  return markerKindOf(latestAdvisoryBody) === 'review'
+export function priorTopLevelFindings(latestAdvisoryBody: string, wire: PrWire = DEFAULT_PR_WIRE): ReviewFinding[] {
+  return markerKindOf(latestAdvisoryBody, wire) === 'review'
     ? parseOverallFindings(latestAdvisoryBody)
-    : parseReviewFindings(topLevelText(latestAdvisoryBody)).filter((finding) => finding.line === undefined);
+    : parseReviewFindings(topLevelText(latestAdvisoryBody, wire)).filter((finding) => finding.line === undefined);
 }
 
 /**
@@ -163,9 +166,9 @@ export function priorTopLevelFindings(latestAdvisoryBody: string): ReviewFinding
  * answers it: the item's first line, or a name for a pr-review body,
  * whose first lines are only framing.
  */
-export function excerptOf(body: string): string {
-  if (isAdvisoryReview(body)) return 'the review summary';
-  const first = withoutMarkers(body).split('\n').find((line) => line.trim() !== '') ?? '';
+export function excerptOf(body: string, wire: PrWire = DEFAULT_PR_WIRE): string {
+  if (isAdvisoryReview(body, wire)) return 'the review summary';
+  const first = withoutMarkers(body, wire).split('\n').find((line) => line.trim() !== '') ?? '';
   return first.trim().length > 120 ? `${first.trim().slice(0, 117)}...` : first.trim();
 }
 
@@ -185,7 +188,7 @@ export interface RevisionFeedback {
  * summaries or notices, and at most the latest pr-review body, only when
  * it still carries findings of its own.
  */
-export function revisionFeedback(threads: readonly ReviewThread[], comments: readonly PrComment[]): RevisionFeedback {
+export function revisionFeedback(threads: readonly ReviewThread[], comments: readonly PrComment[], wire: PrWire = DEFAULT_PR_WIRE): RevisionFeedback {
   const open = threads.filter((thread) => {
     const opener = thread.comments[0];
     return !thread.isResolved && opener !== undefined && isTrustedAuthor(opener);
@@ -193,19 +196,19 @@ export function revisionFeedback(threads: readonly ReviewThread[], comments: rea
 
   const topLevel = comments.filter((comment) => comment.source !== 'inline' && isTrustedAuthor(comment));
   const lastRevisionAt = topLevel
-    .filter((comment) => isRevisionSummary(comment.body))
+    .filter((comment) => isRevisionSummary(comment.body, wire))
     .reduce<string | undefined>((latest, comment) =>
       comment.createdAt !== undefined && (latest === undefined || comment.createdAt > latest) ? comment.createdAt : latest,
     undefined);
   const since = topLevel.filter((comment) => {
-    const kind = markerKindOf(comment.body);
-    if (isRevisionSummary(comment.body) || kind === 'notice' || kind === 'reply') return false;
+    const kind = markerKindOf(comment.body, wire);
+    if (isRevisionSummary(comment.body, wire) || kind === 'notice' || kind === 'reply') return false;
     return lastRevisionAt === undefined || comment.createdAt === undefined || comment.createdAt > lastRevisionAt;
   });
-  const advisories = since.filter((comment) => isAdvisoryReview(comment.body));
+  const advisories = since.filter((comment) => isAdvisoryReview(comment.body, wire));
   const latestAdvisory = advisories[advisories.length - 1];
-  const kept = since.filter((comment) => !isAdvisoryReview(comment.body)
-    || (comment === latestAdvisory && priorTopLevelFindings(comment.body).length > 0));
+  const kept = since.filter((comment) => !isAdvisoryReview(comment.body, wire)
+    || (comment === latestAdvisory && priorTopLevelFindings(comment.body, wire).length > 0));
 
   return {
     threads: labelThreads(open),
@@ -214,12 +217,12 @@ export function revisionFeedback(threads: readonly ReviewThread[], comments: rea
 }
 
 /** The reviser's instruction: every feedback item, labeled, threads first. */
-export function renderRevisionFeedback(feedback: RevisionFeedback): string {
+export function renderRevisionFeedback(feedback: RevisionFeedback, wire: PrWire = DEFAULT_PR_WIRE): string {
   const threads = feedback.threads.length > 0
     ? [
       'Open review threads. Each is anchored to a line, shown with the code it was left on and its whole conversation in order:',
       '',
-      ...feedback.threads.flatMap((item) => [renderThread(item, 'reviser'), '']),
+      ...feedback.threads.flatMap((item) => [renderThread(item, 'reviser', wire), '']),
     ]
     : [];
   const topLevel = feedback.topLevel.length > 0
@@ -227,8 +230,9 @@ export function renderRevisionFeedback(feedback: RevisionFeedback): string {
       'Top-level feedback about the change as a whole:',
       '',
       ...feedback.topLevel.flatMap(({ label, comment }) => {
-        const who = isAdvisoryReview(comment.body) ? 'review by reviewer (pr-review)' : `${comment.source === 'review' ? 'review' : 'comment'} by ${comment.author}`;
-        const text = isAdvisoryReview(comment.body) ? topLevelText(comment.body) : withoutMarkers(comment.body);
+        const advisory = isAdvisoryReview(comment.body, wire);
+        const who = advisory ? 'review by reviewer (pr-review)' : `${comment.source === 'review' ? 'review' : 'comment'} by ${comment.author}`;
+        const text = advisory ? topLevelText(comment.body, wire) : withoutMarkers(comment.body, wire);
         return [`${label} · ${who}`, text, ''];
       }),
     ]
@@ -245,7 +249,7 @@ export function renderRevisionFeedback(feedback: RevisionFeedback): string {
 export function verificationBrief(
   threads: readonly LabeledThread[],
   prior: readonly ReviewFinding[],
-  options: { threadsUnreadable?: boolean } = {},
+  options: { threadsUnreadable?: boolean; wire?: PrWire } = {},
 ): string[] {
   const unreadable = options.threadsUnreadable === true;
   if (!unreadable && threads.length === 0 && prior.length === 0) {
@@ -270,7 +274,7 @@ export function verificationBrief(
     `Then review anything the revision newly changed, numbering any new findings as usual.${unreadable
       ? (prior.length > 0 ? ' Never restate a P item as a new finding: its line already carries it forward.' : '')
       : ' Never restate a T or P item as a new finding: its line already carries it forward.'}`,
-    ...(!unreadable && threads.length > 0 ? ['', 'Open finding threads:', '', ...threads.flatMap((item) => [renderThread(item, 'reviewer'), ''])] : []),
+    ...(!unreadable && threads.length > 0 ? ['', 'Open finding threads:', '', ...threads.flatMap((item) => [renderThread(item, 'reviewer', options.wire), ''])] : []),
     ...(prior.length > 0
       ? ['Prior top-level findings:', ...prior.map((finding) =>
         [`P${finding.ordinal}. ${finding.text}`, ...finding.evidence.map((line) => `   ${line}`)].join('\n'))]

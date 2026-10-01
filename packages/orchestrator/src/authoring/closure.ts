@@ -13,7 +13,8 @@ import type { Graph } from '../graph/graph.js';
 import type { AgentRegistryConfig } from '../persistence/interfaces.js';
 import type { DefinedTool } from '../tools/define-tool.js';
 import type { CapabilityCeiling } from '../tools/registry.js';
-import { agentsForGraph, ceilingsForGraph, graphsForGraph, toolsForGraph } from './graph.js';
+import type { FinalAnswerCheck } from '../agents/executors/agent/executor.js';
+import { agentsForGraph, answerChecksForGraph, ceilingsForGraph, graphsForGraph, toolsForGraph } from './graph.js';
 
 /** Everything a facade composition needs registered for one run. */
 export interface GraphClosure {
@@ -22,6 +23,8 @@ export interface GraphClosure {
   children: Map<string, Graph>;
   /** Declared capability ceilings for embedded bundles, keyed by subgraph id. */
   ceilings: Record<string, CapabilityCeiling>;
+  /** Final-answer checks of every facade agent in the composition, by agent id. */
+  answerChecks: Record<string, FinalAnswerCheck>;
 }
 
 /**
@@ -37,6 +40,7 @@ export function collectClosure(root: Graph): GraphClosure {
   const seenTools = new Set<DefinedTool>();
   const children = new Map<string, Graph>();
   const ceilings: Record<string, CapabilityCeiling> = {};
+  const answerChecks: Record<string, FinalAnswerCheck> = {};
   const visited = new Set<Graph>([root]);
   const queue: Graph[] = [root];
 
@@ -44,6 +48,17 @@ export function collectClosure(root: Graph): GraphClosure {
     const current = queue.shift()!;
 
     Object.assign(ceilings, ceilingsForGraph(current));
+
+    for (const [id, check] of Object.entries(answerChecksForGraph(current))) {
+      const prior = answerChecks[id];
+      if (prior !== undefined && prior !== check) {
+        throw new Error(
+          `Agent id "${id}" carries two different finalAnswer checks in this composition — ` +
+            'reuse the same agent() value across graphs, or give each definition its own id',
+        );
+      }
+      answerChecks[id] = check;
+    }
 
     for (const config of agentsForGraph(current)) {
       const id = (config as { id?: string }).id ?? '';
@@ -83,5 +98,5 @@ export function collectClosure(root: Graph): GraphClosure {
     }
   }
 
-  return { agents, tools, children, ceilings };
+  return { agents, tools, children, ceilings, answerChecks };
 }

@@ -13,6 +13,7 @@ import type { ToolSource } from '../../tools/schema.js';
 import { createLogger } from '../../observability/logger.js';
 import { NodeConfigError } from '../errors.js';
 import type { NodeExecutorContext } from './context.js';
+import type { AgentCostLimits } from '../../agents/executors/agent/executor.js';
 import { executeAnnealingLoop } from './annealing.js';
 import { executeSwarmAgentNode } from './swarm.js';
 import { resolveModelForAgent } from './resolve-model.js';
@@ -95,5 +96,27 @@ export async function executeAgentNode(
     contextCompressor: ctx.contextCompressor,
     onContextCompressed,
     ...buildAgentMemoryOptions(node, ctx),
+    ...agentCostLimits(node, ctx),
   });
+}
+
+/**
+ * The cost limits a standard agent node enforces between its model steps:
+ * the run's cost budget, read live so spend accounted by earlier nodes
+ * counts, and the node's own `budget.max_cost_usd`. Empty when neither is
+ * set, so an unbudgeted run calls the agent exactly as before.
+ */
+function agentCostLimits(node: GraphNode, ctx: NodeExecutorContext): { costLimits?: AgentCostLimits } {
+  const budgetUsd = ctx.state.budget_usd;
+  const workflow = budgetUsd !== undefined && budgetUsd > 0 && ctx.getRemainingBudgetUsd !== undefined
+    ? { budgetUsd, remainingUsd: ctx.getRemainingBudgetUsd }
+    : undefined;
+  const nodeMaxCostUsd = node.budget?.max_cost_usd;
+  if (workflow === undefined && nodeMaxCostUsd === undefined) return {};
+  return {
+    costLimits: {
+      ...(workflow !== undefined ? { workflow } : {}),
+      ...(nodeMaxCostUsd !== undefined ? { nodeMaxCostUsd } : {}),
+    },
+  };
 }

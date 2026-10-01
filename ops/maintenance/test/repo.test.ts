@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { RUNTIME_CONFIG_ENV_VARS } from '@cycgraph/orchestrator/internal';
-import { MAINTENANCE_SECRET_ENV_VARS, NEEDS_HUMAN_LABEL, WORKFLOW_MENTION, checksEnv, fatalNeedsHuman, flagNeedsHuman, giveUpNeedsHuman, maintenanceRunEnv, maintenanceSecrets, needsHumanNotice, repoMap, stripMentions } from '../src/shared/repo.js';
+import { MAINTENANCE_SECRET_ENV_VARS, NEEDS_HUMAN_LABEL, checksEnv, fatalNeedsHuman, flagNeedsHuman, giveUpNeedsHuman, maintenanceRunEnv, maintenanceSecrets, needsHumanNotice, repoMap } from '../src/shared/repo.js';
 
 const exec = promisify(execFile);
 
@@ -170,50 +170,6 @@ describe('repoMap', () => {
 
     const whole = `Repository map (tracked files). Root docs: ${names.join(', ')}`;
     expect(map).toBe(`${whole.slice(0, 8_000)}\n… (truncated)`);
-  });
-});
-
-describe('stripMentions', () => {
-  it('neutralizes the workflow-dispatching mention', () => {
-    const stripped = stripMentions(`${WORKFLOW_MENTION} please review`);
-
-    expect(stripped).toBe('cycgraph please review');
-  });
-
-  it('neutralizes the mention in mixed case', () => {
-    const stripped = stripMentions('@CycGraph please run');
-
-    expect(stripped).toBe('cycgraph please run');
-  });
-
-  it('neutralizes every occurrence', () => {
-    const stripped = stripMentions('@cycgraph and @cycgraph again');
-
-    expect(stripped).toBe('cycgraph and cycgraph again');
-  });
-
-  it('preserves punctuation trailing the mention', () => {
-    const stripped = stripMentions('@cycgraph, address the findings.');
-
-    expect(stripped).toBe('cycgraph, address the findings.');
-  });
-
-  it('neutralizes a mention embedded mid-sentence', () => {
-    const stripped = stripMentions('the reviewer asked @cycgraph to revise');
-
-    expect(stripped).toBe('the reviewer asked cycgraph to revise');
-  });
-
-  it('returns text without the mention unchanged', () => {
-    const stripped = stripMentions('the tests are exact and comment-free');
-
-    expect(stripped).toBe('the tests are exact and comment-free');
-  });
-
-  it('returns the empty string unchanged', () => {
-    const stripped = stripMentions('');
-
-    expect(stripped).toBe('');
   });
 });
 

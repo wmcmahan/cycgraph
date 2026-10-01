@@ -52,6 +52,7 @@ export { SecurityPolicyViolationError, readableTaintedKeys } from './security/se
 export { createObserverMiddleware } from './execution/middleware/observer-middleware.js';
 export type { ObserverMiddlewareOptions, ObserverFinding, ObserverSeverity, DiagnosticAgentOptions } from './execution/middleware/observer-middleware.js';
 export { BudgetExceededError, WorkflowTimeoutError, NodeConfigError, CircuitBreakerOpenError, EventLogCorruptionError, UnsupportedNodeTypeError, NodeBudgetExceededError, NoMatchingEdgeError } from './execution/errors.js';
+export type { BudgetStopUsage } from './execution/errors.js';
 export { MemoryWriterMissingError, VerificationFailedError, SubgraphIncompleteError, SubgraphInterfaceError } from './execution/nodes/errors.js';
 
 export {
@@ -115,7 +116,7 @@ export {
 export { agentFactory, AgentFactory, AgentNotFoundError, AgentLoadError, configureAgentFactory, configureProviderRegistry } from './agents/factory/index.js';
 export { executeAgent } from './agents/executors/agent/executor.js';
 export { PermissionDeniedError, AgentTimeoutError, AgentExecutionError } from './agents/executors/agent/errors.js';
-export type { TokenUsage } from './agents/executors/agent/executor.js';
+export type { AgentCostLimits, FinalAnswerCheck, TokenUsage } from './agents/executors/agent/executor.js';
 export { AgentConfigSchema, EffortLevelSchema } from './agents/types.js';
 export type { AgentConfig, AgentExecutionMetadata, EffortLevel } from './agents/types.js';
 

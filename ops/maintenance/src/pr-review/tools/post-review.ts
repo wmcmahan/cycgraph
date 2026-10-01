@@ -37,7 +37,8 @@ import type { PriorFinding, Provenance, ReviewFinding } from '../../shared/revie
 import { modelFor } from '../../shared/models.js';
 import { dryRunPreview, provenanceFooter } from '../../shared/provenance.js';
 import { ADVISORY_PREFIX } from '../../shared/review-threads.js';
-import { WORKFLOW_MENTION, stripMentions } from '../../shared/repo.js';
+import { stripMentions } from '../../shared/pr-wire.js';
+import type { PrWire } from '../../shared/pr-wire.js';
 import type { ReviewContext } from '../context.js';
 
 const exec = promisify(execFile);
@@ -50,7 +51,7 @@ type ResolvableThread = { label: string; thread_id: string; comment_id?: number 
  * can hold goes on that line; one that names a file the diff touches, but
  * no line it can hold, goes on the whole file. The rest stay in the body.
  */
-async function placeFindings(workspaceAt: string, review: string, provenance: Provenance): Promise<{
+async function placeFindings(workspaceAt: string, review: string, provenance: Provenance, wire: PrWire): Promise<{
   onLine: Map<number, ReviewInlineComment>;
   onFile: ReviewFinding[];
 }> {
@@ -62,7 +63,7 @@ async function placeFindings(workspaceAt: string, review: string, provenance: Pr
   for (const finding of parseReviewFindings(review)) {
     if (finding.path === undefined || !anchorable.has(finding.path)) continue;
     if (finding.line !== undefined && anchorable.get(finding.path)!.has(finding.line)) {
-      onLine.set(finding.ordinal, { path: finding.path, line: finding.line, body: inlineFindingBody(finding, { provenance }) });
+      onLine.set(finding.ordinal, { path: finding.path, line: finding.line, body: inlineFindingBody(finding, { provenance, wire }) });
     } else {
       onFile.push(finding);
     }
@@ -80,13 +81,14 @@ async function postFileFindings(
   pr: number,
   findings: readonly ReviewFinding[],
   provenance: Provenance,
+  wire: PrWire,
   auth: { token?: string },
 ): Promise<Set<number>> {
   const placed = new Set<number>();
   for (const finding of findings) {
     if (provenance.commit === undefined) break;
     const posted = await commentOnPrFile(repoRoot, pr,
-      { commitId: provenance.commit, path: finding.path!, body: inlineFindingBody(finding, { onFile: true, provenance }) }, auth);
+      { commitId: provenance.commit, path: finding.path!, body: inlineFindingBody(finding, { onFile: true, provenance, wire }) }, auth);
     if (posted.ok) placed.add(finding.ordinal);
   }
   return placed;
@@ -106,9 +108,9 @@ async function headCommit(workspaceAt: string): Promise<string | undefined> {
 }
 
 /** The review body as posted: the marker, the advisory framing, the text, the notes, the handoff, and the footer. */
-function framedBody(text: string, notes: readonly string[], handoff: string, provenance: Provenance, footer: string): string {
+function framedBody(text: string, notes: readonly string[], handoff: string, provenance: Provenance, footer: string, wire: PrWire): string {
   return [
-    reviewMarker('review', provenance),
+    reviewMarker('review', provenance, wire),
     `${ADVISORY_PREFIX} — the human merge decision stands either way.`,
     '',
     text,
@@ -124,12 +126,12 @@ type ThreadAnswer = { thread: ResolvableThread; addressed: boolean; reply: strin
  * judged, with whether to resolve it. Only threads the gather step handed
  * over are answered, so human threads never are.
  */
-function threadAnswers(review: string, threads: readonly ResolvableThread[], provenance: Provenance): ThreadAnswer[] {
+function threadAnswers(review: string, threads: readonly ResolvableThread[], provenance: Provenance, wire: PrWire): ThreadAnswer[] {
   const byLabel = new Map(threads.map((thread) => [thread.label, thread]));
   return parseThreadVerdicts(review).flatMap((verdict) => {
     const thread = byLabel.get(verdict.label);
     if (thread === undefined) return [];
-    const reply = `${reviewMarker('verify', provenance)}\n${verdict.addressed ? 'Verified as addressed' : 'Still open'}: ${verdict.note}`.slice(0, 2_000);
+    const reply = `${reviewMarker('verify', provenance, wire)}\n${verdict.addressed ? 'Verified as addressed' : 'Still open'}: ${verdict.note}`.slice(0, 2_000);
     return [{ thread, addressed: verdict.addressed, reply }];
   });
 }
@@ -189,7 +191,7 @@ export function postReviewTool(c: ReviewContext) {
       // clean pass, and the advisory prefix is what counts rounds). A dry
       // run touches nothing and says what it would have done.
       if (verdict?.malformed === true) {
-        const traceBody = `${reviewMarker('notice', provenance)}\n`
+        const traceBody = `${reviewMarker('notice', provenance, ctx.prWire)}\n`
           + 'The automated review could not produce a verdict after two attempts (a diff-only fallback included), so this PR now carries the `needs-human` label and waits on you. '
           + 'CI checks still reflect build and test health on their own; review the diff yourself and merge or close, or re-run the PR review workflow to try again — a later successful review clears the label.';
         if (!p.comment) {
@@ -214,11 +216,11 @@ export function postReviewTool(c: ReviewContext) {
       // trigger is the handoff below, only on a managed PR (GitHub
       // restricts that label to triage+ users) and only within the rounds
       // cap: past it, findings still post but the cycle hands to the human.
-      const reviewText = stripMentions(String(review ?? '')).slice(0, 12_000);
+      const reviewText = stripMentions(String(review ?? ''), ctx.prWire).slice(0, 12_000);
       const reviseEligible = p.revise && verdict?.approved === false && labels.includes(ctx.labels.managed);
       const capReached = reviseEligible && rounds >= 2;
       const handoff = reviseEligible && !capReached
-        ? `\n\n${WORKFLOW_MENTION} please address the open review threads and any findings above.`
+        ? `\n\n${ctx.prWire.mention} please address the open review threads and any findings above.`
         : capReached
           ? '\n\nRevision cycle cap reached — leaving the remaining findings to human review. This PR now carries the `needs-human` label; address the findings and re-run the review (an approval clears it), or merge or close by hand.'
           : '';
@@ -227,7 +229,7 @@ export function postReviewTool(c: ReviewContext) {
       // their own comments, line ones ride the review. The body lists only
       // what sits nowhere on the diff; if GitHub rejects the line comments,
       // their findings join that list so none is lost.
-      const { onLine, onFile } = await placeFindings(workspaceAt, reviewText, provenance);
+      const { onLine, onFile } = await placeFindings(workspaceAt, reviewText, provenance, ctx.prWire);
       const footer = provenanceFooter('Reviewed at', {
         ...(provenance.commit !== undefined ? { commit: provenance.commit } : {}),
         model,
@@ -241,9 +243,9 @@ export function postReviewTool(c: ReviewContext) {
           ? [`Earlier threads: ${verdicts.filter((v) => v.addressed).length} addressed, ${verdicts.filter((v) => !v.addressed).length} still open. Each judgment is a reply in its thread.`]
           : [];
       const bodyFor = (placed: ReadonlySet<number>): string =>
-        framedBody(composeReviewBody(reviewText, placed, prior), [...placedNote(placed.size), ...threadNote], handoff, provenance, footer);
+        framedBody(composeReviewBody(reviewText, placed, prior), [...placedNote(placed.size), ...threadNote], handoff, provenance, footer, ctx.prWire);
       const event = verdict?.approved === true ? 'APPROVE' : 'COMMENT';
-      const answers = threadAnswers(reviewText, gathered?.resolvable_threads ?? [], provenance);
+      const answers = threadAnswers(reviewText, gathered?.resolvable_threads ?? [], provenance, ctx.prWire);
       const armsMerge = p.merge && verdict?.approved === true && labels.includes(ctx.labels.managed);
 
       // A dry run stops here and returns everything it would post, built
@@ -251,7 +253,7 @@ export function postReviewTool(c: ReviewContext) {
       if (!p.comment) {
         const fileComments = onFile.map((finding) => ({
           title: `file comment · ${finding.path}`,
-          body: inlineFindingBody(finding, { onFile: true, provenance }),
+          body: inlineFindingBody(finding, { onFile: true, provenance, wire: ctx.prWire }),
         }));
         const labelChange = capReached
           ? `add ${ctx.labels.needsHuman}`
@@ -276,7 +278,7 @@ export function postReviewTool(c: ReviewContext) {
       // Submit as a COMMENT review, never REQUEST_CHANGES: the Actions
       // dispatcher fires pr-revise on any changes-requested review, which
       // would bypass the cap and label rules the handoff enforces.
-      const onFilePlaced = await postFileFindings(repoRoot, p.pr, onFile, provenance, auth);
+      const onFilePlaced = await postFileFindings(repoRoot, p.pr, onFile, provenance, ctx.prWire, auth);
       const submission = await submitPrReview(repoRoot, p.pr, {
         event,
         body: bodyFor(new Set([...onLine.keys(), ...onFilePlaced])),
@@ -293,7 +295,7 @@ export function postReviewTool(c: ReviewContext) {
       if (!submission.ok) {
         await setPrLabels(repoRoot, p.pr, { add: [ctx.labels.needsHuman] }, auth);
         await commentOnPr(repoRoot, p.pr,
-          `${reviewMarker('notice', provenance)}\nSomething went wrong while submitting the automated review, so this PR now carries the \`needs-human\` label. Re-run the PR review workflow, or review by hand — a later successful review clears the label.`,
+          `${reviewMarker('notice', provenance, ctx.prWire)}\nSomething went wrong while submitting the automated review, so this PR now carries the \`needs-human\` label. Re-run the PR review workflow, or review by hand — a later successful review clears the label.`,
           auth);
       } else if (capReached) {
         await setPrLabels(repoRoot, p.pr, { add: [ctx.labels.needsHuman] }, auth);

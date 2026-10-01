@@ -24,7 +24,7 @@ import { createStateView } from '../../state/state-view.js';
 import { withEffectiveReads } from '../../security/effective-permissions.js';
 import { getNodeExecutor } from '../nodes/index.js';
 import { calculateBackoff, sleep } from '../engine/helpers.js';
-import { WorkflowTimeoutError, UnsupportedNodeTypeError } from '../errors.js';
+import { BudgetExceededError, WorkflowTimeoutError, UnsupportedNodeTypeError } from '../errors.js';
 import { calculateCost } from '../../cost/pricing.js';
 import { createLogger } from '../../observability/logger.js';
 import { runWithContext } from '../../utils/context.js';
@@ -63,6 +63,12 @@ export interface NodeExecutionDriverDeps {
   ) => void;
   /** Push a stream event (retry notifications while streaming). */
   pushPending: (event: StreamEvent) => void;
+  /**
+   * Run the workflow cost-budget check against current state. Throws the
+   * run's {@link BudgetExceededError} when the budget is spent, firing the
+   * same threshold events as a breach found after a node completes.
+   */
+  enforceCostBudget?: () => Promise<void>;
 }
 
 /**
@@ -242,9 +248,19 @@ export class NodeExecutionDriver {
    * `partialUsage` that the agent executor attaches to its typed errors and
    * dispatches the same `_track_tokens` / `_track_cost` internal actions the
    * success path uses, so failed-attempt spend is visible to every budget.
+   * Cache detail, when the error carries it, prices input at cache rates.
    */
   private trackFailedAttemptUsage(error: unknown, nodeId: string): void {
-    const usage = (error as { partialUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number; model?: string } })?.partialUsage;
+    const usage = (error as {
+      partialUsage?: {
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+        model?: string;
+        cacheReadTokens?: number;
+        cacheWriteTokens?: number;
+      };
+    })?.partialUsage;
     if (!usage) return;
 
     const totalTokens = usage.totalTokens ?? ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
@@ -256,7 +272,10 @@ export class NodeExecutionDriver {
       });
     }
     if (usage.model && (usage.inputTokens || usage.outputTokens)) {
-      const cost = calculateCost(usage.model, usage.inputTokens ?? 0, usage.outputTokens ?? 0);
+      const cost = calculateCost(usage.model, usage.inputTokens ?? 0, usage.outputTokens ?? 0, {
+        ...(usage.cacheReadTokens !== undefined ? { readTokens: usage.cacheReadTokens } : {}),
+        ...(usage.cacheWriteTokens !== undefined ? { writeTokens: usage.cacheWriteTokens } : {}),
+      });
       if (cost > 0) {
         this.deps.dispatchInternal('_track_cost', { cost_usd: cost });
       }
@@ -309,6 +328,13 @@ export class NodeExecutionDriver {
         // ever counts the successful attempt's tokens, hiding up to N×
         // the visible spend from every budget.
         this.trackFailedAttemptUsage(error, node.id);
+
+        // An agent stopped mid-loop for the workflow budget throws before its
+        // spend is accounted. Now that it is, the run's own check decides the
+        // breach, so the run ends exactly as a post-node breach would.
+        if (error instanceof BudgetExceededError && error.partialUsage !== undefined) {
+          await this.deps.enforceCostBudget?.();
+        }
 
         // Update circuit breaker
         if (policy.circuit_breaker?.enabled) {

@@ -27,6 +27,7 @@ import type { MemoryWriter } from '../../memory/memory-writer.js';
 import type { A2AServerRegistry } from '../../a2a/schema.js';
 import type { A2AClient } from '../../a2a/client.js';
 import type { FactSanitizer } from '../../security/fact-sanitizer.js';
+import type { FinalAnswerCheck } from '../../agents/executors/agent/executor.js';
 import type { FitnessFunction } from '../nodes/fitness-function.js';
 import type { LogSink } from '../../observability/logger.js';
 import type { RateLimiter } from '../../agents/rate-limiter.js';
@@ -69,6 +70,7 @@ export interface ExecutorContextRunner {
   a2aClient?: A2AClient;
   factSanitizer?: FactSanitizer;
   factSanitizerFailMode?: 'drop' | 'pass';
+  finalAnswerChecks?: Readonly<Record<string, FinalAnswerCheck>>;
   fitnessFunction?: FitnessFunction;
   rateLimiter?: RateLimiter;
   logSink?: LogSink;
@@ -217,6 +219,7 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
     a2aClient: runner.a2aClient,
     factSanitizer: runner.factSanitizer,
     factSanitizerFailMode: runner.factSanitizerFailMode,
+    ...(runner.finalAnswerChecks !== undefined ? { finalAnswerChecks: runner.finalAnswerChecks } : {}),
     fitnessFunction: runner.fitnessFunction,
     rateLimiter,
     logger: runner.logSink,
@@ -277,7 +280,10 @@ export function buildExecutorContext(runner: ExecutorContextRunner): NodeExecuto
       // provider state — and (b) await an optional rate limiter before the
       // call. One chokepoint instead of threading both through every call site.
       executeAgent: (agentId, stateView, tools, attempt, options) => {
-        const scoped = { ...options, agentFactory: runner.agentFactory };
+        // The one chokepoint every agent-style node calls through, so an
+        // agent's final-answer check applies wherever the agent runs.
+        const finalAnswer = runner.finalAnswerChecks?.[agentId];
+        const scoped = { ...options, agentFactory: runner.agentFactory, ...(finalAnswer ? { finalAnswer } : {}) };
         const call = () => executeAgent(agentId, stateView, tools, attempt, scoped);
         return rateLimiter
           ? rateLimiter(
