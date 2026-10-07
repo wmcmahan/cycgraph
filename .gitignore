@@ -2,6 +2,7 @@ node_modules
 dist
 coverage
 .next
+*.tsbuildinfo
 .env
 .env.local
 *.log
