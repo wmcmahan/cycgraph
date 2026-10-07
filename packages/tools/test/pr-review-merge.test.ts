@@ -2,7 +2,8 @@
  * Tests for the degradation logic in src/git/pr.ts: the retry and
  * fallback chain in `submitPrReview`, the pending-review cleanup it
  * runs per attempt, `enableAutoMerge`'s direct-merge fallback,
- * `setPrLabels`' failure aggregation, and the review-thread reads.
+ * `setPrLabels`' failure aggregation, the review-thread reads, and
+ * `prFeedback`'s comment sources.
  *
  * Every `gh` invocation is scripted through a mocked `execFile`, so the
  * success and degradation branches run without an authenticated CLI:
@@ -53,6 +54,7 @@ const {
   commentOnPrFile,
   enableAutoMerge,
   listReviewThreads,
+  prFeedback,
   resolveReviewThread,
   setPrLabels,
   submitPrReview,
@@ -336,6 +338,84 @@ describe('setPrLabels', () => {
     const result = await setPrLabels('/repo', PR, { remove: ['blocked'] });
 
     expect(result).toEqual({ ok: true, detail: 'labels updated' });
+  });
+});
+
+describe('prFeedback', () => {
+  const VIEW = {
+    headRefName: 'upkeep/fix', isCrossRepository: false, title: 'Fix', body: 'Closes #3', labels: [],
+    comments: [
+      { author: { login: 'keelwise' }, authorAssociation: 'NONE', body: 'own note', createdAt: '2026-10-01T00:00:00Z', viewerDidAuthor: true },
+      { author: { login: 'maintainer' }, authorAssociation: 'OWNER', body: 'human note', createdAt: '2026-10-02T00:00:00Z', viewerDidAuthor: false },
+    ],
+  };
+  const reviewNode = (body: string, viewerDidAuthor: boolean) => ({
+    author: { login: 'keelwise' }, authorAssociation: 'NONE', body, submittedAt: '2026-10-03T00:00:00Z', viewerDidAuthor,
+  });
+  const reviewPage = (nodes: unknown[], endCursor: string | null) => JSON.stringify({
+    data: { repository: { pullRequest: { reviews: { nodes, pageInfo: { hasNextPage: endCursor !== null, endCursor } } } } },
+  });
+  const INLINE = [{ id: 7, user: { login: 'maintainer' }, author_association: 'OWNER', body: 'line note', path: 'a.ts', line: 3, created_at: '2026-10-04T00:00:00Z' }];
+
+  function scriptGh(reviewPages: string[]): void {
+    let page = 0;
+    handler = (call) => {
+      if (call.args[0] === 'repo') return { stdout: JSON.stringify({ owner: { login: 'acme' }, name: 'widgets' }) };
+      if (call.args[0] === 'pr') return { stdout: JSON.stringify(VIEW) };
+      if (call.args[1] === 'graphql') return { stdout: reviewPages[page++] ?? reviewPage([], null) };
+      return { stdout: JSON.stringify(INLINE) };
+    };
+  }
+
+  it('carries the viewer flag on review bodies and conversation comments', async () => {
+    scriptGh([reviewPage([reviewNode('own review', true), reviewNode('', true)], null)]);
+
+    const feedback = await prFeedback('/repo', PR);
+
+    expect(feedback?.comments).toEqual([
+      { author: 'keelwise', authorAssociation: 'NONE', body: 'own review', source: 'review', createdAt: '2026-10-03T00:00:00Z', viewerDidAuthor: true },
+      { author: 'keelwise', authorAssociation: 'NONE', body: 'own note', source: 'conversation', createdAt: '2026-10-01T00:00:00Z', viewerDidAuthor: true },
+      { author: 'maintainer', authorAssociation: 'OWNER', body: 'human note', source: 'conversation', createdAt: '2026-10-02T00:00:00Z', viewerDidAuthor: false },
+      { id: 7, author: 'maintainer', authorAssociation: 'OWNER', body: 'line note', path: 'a.ts', line: 3, source: 'inline', createdAt: '2026-10-04T00:00:00Z' },
+    ]);
+  });
+
+  it('leaves the viewer flag absent on inline comments', async () => {
+    scriptGh([reviewPage([], null)]);
+
+    const feedback = await prFeedback('/repo', PR);
+    const inline = feedback?.comments.find((comment) => comment.source === 'inline');
+
+    expect(inline).toBeDefined();
+    expect(inline).not.toHaveProperty('viewerDidAuthor');
+  });
+
+  it('reads every page of reviews', async () => {
+    scriptGh([reviewPage([reviewNode('first', false)], 'cursor-1'), reviewPage([reviewNode('second', true)], null)]);
+
+    const feedback = await prFeedback('/repo', PR);
+
+    expect(feedback?.comments.filter((comment) => comment.source === 'review').map((comment) => comment.body)).toEqual(['first', 'second']);
+    expect(argsOf().filter((args) => args[1] === 'graphql').map((args) => args.includes('cursor=cursor-1'))).toEqual([false, true]);
+  });
+
+  it('asks gh pr view for conversation comments but not reviews', async () => {
+    scriptGh([reviewPage([], null)]);
+
+    await prFeedback('/repo', PR);
+
+    expect(argsOf().find((args) => args[0] === 'pr')).toEqual(['pr', 'view', String(PR), '--json', 'headRefName,isCrossRepository,title,body,labels,comments']);
+  });
+
+  it('returns undefined when the reviews cannot be read', async () => {
+    handler = (call) => {
+      if (call.args[0] === 'repo') return { stdout: JSON.stringify({ owner: { login: 'acme' }, name: 'widgets' }) };
+      if (call.args[0] === 'pr') return { stdout: JSON.stringify(VIEW) };
+      if (call.args[1] === 'graphql') return { throws: apiError('Could not resolve to a PullRequest') };
+      return { stdout: JSON.stringify(INLINE) };
+    };
+
+    expect(await prFeedback('/repo', PR)).toBeUndefined();
   });
 });
 

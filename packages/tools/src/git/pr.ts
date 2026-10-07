@@ -62,6 +62,12 @@ export interface PrComment {
   source?: 'review' | 'conversation' | 'inline';
   /** ISO timestamp the comment was created or the review submitted. */
   createdAt?: string;
+  /**
+   * Whether the token's own identity wrote the comment; absent when the
+   * source does not say. GitHub sets it, so unlike a login it cannot be
+   * spoofed, and it holds for an App posting as `name[bot]`.
+   */
+  viewerDidAuthor?: boolean;
 }
 
 /** A pull request's head branch and the human feedback on it. */
@@ -128,6 +134,65 @@ function ghEnv(token?: string): NodeJS.ProcessEnv | undefined {
   return token !== undefined ? { ...process.env, GH_TOKEN: token } : undefined;
 }
 
+/** Reviews per GraphQL page, the API's maximum. */
+const REVIEW_PAGE_SIZE = 100;
+/** Most review pages {@link prReviewBodies} reads before stopping. */
+const MAX_REVIEW_PAGES = 10;
+
+/**
+ * The submitted review bodies on a pull request, read through GraphQL
+ * because `gh pr view` leaves out each review's `viewerDidAuthor`. Empty
+ * bodies are dropped. Throws when the reviews cannot be read.
+ */
+async function prReviewBodies(
+  repoRoot: string,
+  prNumber: number,
+  env: NodeJS.ProcessEnv | undefined,
+): Promise<PrComment[]> {
+  const slug = await repoSlug(repoRoot, env);
+  if (slug === undefined) throw new Error('cannot resolve the repository');
+  const query = 'query($owner:String!,$name:String!,$pr:Int!,$cursor:String){'
+    + 'repository(owner:$owner,name:$name){pullRequest(number:$pr){'
+    + `reviews(first:${REVIEW_PAGE_SIZE},after:$cursor){`
+    + 'nodes{author{login} authorAssociation body submittedAt viewerDidAuthor} '
+    + 'pageInfo{hasNextPage endCursor}}}}}';
+  const reviews: PrComment[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_REVIEW_PAGES; page++) {
+    const { stdout } = await exec('gh', [
+      'api', 'graphql',
+      '-f', `query=${query}`,
+      '-f', `owner=${slug.owner}`, '-f', `name=${slug.name}`, '-F', `pr=${prNumber}`,
+      ...(cursor !== undefined ? ['-f', `cursor=${cursor}`] : []),
+    ], { cwd: repoRoot, ...(env !== undefined ? { env } : {}) });
+    const parsed = JSON.parse(stdout) as {
+      data?: { repository?: { pullRequest?: { reviews?: {
+        nodes?: {
+          author?: { login?: string } | null; authorAssociation?: string; body?: string;
+          submittedAt?: string | null; viewerDidAuthor?: boolean;
+        }[];
+        pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+      } } } };
+    };
+    const connection = parsed.data?.repository?.pullRequest?.reviews;
+    if (connection === undefined) throw new Error('the pull request reviews could not be read');
+    for (const review of connection.nodes ?? []) {
+      if ((review.body ?? '') === '') continue;
+      reviews.push({
+        author: review.author?.login ?? '',
+        authorAssociation: review.authorAssociation ?? 'NONE',
+        body: review.body ?? '',
+        source: 'review',
+        ...(review.submittedAt != null ? { createdAt: review.submittedAt } : {}),
+        viewerDidAuthor: review.viewerDidAuthor === true,
+      });
+    }
+    if (connection.pageInfo?.hasNextPage !== true || connection.pageInfo.endCursor == null) break;
+    cursor = connection.pageInfo.endCursor;
+  }
+  return reviews;
+}
+
 /**
  * The review feedback on one pull request: submitted review bodies,
  * conversation comments, and diff-anchored review comments with their
@@ -142,31 +207,32 @@ export async function prFeedback(
   const opts = { cwd: repoRoot, ...(env !== undefined ? { env } : {}) };
   try {
     const { stdout } = await exec(
-      'gh', ['pr', 'view', String(prNumber), '--json', 'headRefName,isCrossRepository,title,body,labels,reviews,comments'], opts);
+      'gh', ['pr', 'view', String(prNumber), '--json', 'headRefName,isCrossRepository,title,body,labels,comments'], opts);
     const view = JSON.parse(stdout) as {
       headRefName: string; isCrossRepository?: boolean; title: string; body?: string;
       labels?: { name?: string }[];
-      reviews?: { author?: { login?: string }; authorAssociation?: string; body?: string; submittedAt?: string }[];
-      comments?: { author?: { login?: string }; authorAssociation?: string; body?: string; createdAt?: string }[];
+      comments?: {
+        author?: { login?: string }; authorAssociation?: string; body?: string; createdAt?: string;
+        viewerDidAuthor?: boolean;
+      }[];
     };
+    const reviews = await prReviewBodies(repoRoot, prNumber, env);
     const { stdout: lineJson } = await exec(
       'gh', ['api', `repos/{owner}/{repo}/pulls/${prNumber}/comments`], opts);
     const lineComments = JSON.parse(lineJson) as {
       id?: number; user?: { login?: string }; author_association?: string;
       body?: string; path?: string; line?: number | null; created_at?: string;
     }[];
+    // Inline comments come from REST, which has no viewer flag, so they
+    // leave `viewerDidAuthor` absent; `listReviewThreads` carries it.
     const comments: PrComment[] = [
-      ...(view.reviews ?? []).filter((r) => (r.body ?? '') !== '')
-        .map((r) => ({
-          author: r.author?.login ?? '', authorAssociation: r.authorAssociation ?? 'NONE', body: r.body ?? '',
-          source: 'review' as const,
-          ...(r.submittedAt !== undefined ? { createdAt: r.submittedAt } : {}),
-        })),
+      ...reviews,
       ...(view.comments ?? []).filter((c) => (c.body ?? '') !== '')
         .map((c) => ({
           author: c.author?.login ?? '', authorAssociation: c.authorAssociation ?? 'NONE', body: c.body ?? '',
           source: 'conversation' as const,
           ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}),
+          viewerDidAuthor: c.viewerDidAuthor === true,
         })),
       ...lineComments.filter((c) => (c.body ?? '') !== '').map((c) => ({
         ...(c.id !== undefined ? { id: c.id } : {}),
