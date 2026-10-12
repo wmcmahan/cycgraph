@@ -164,6 +164,28 @@ describe('searchTool', () => {
     expect(await searchTool({ root }).execute({ query: 'nowhere-at-all' }))
       .toBe("no file contains 'nowhere-at-all'");
   });
+
+  it('never reads a file symlink pointing out of the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cycgraph-outside-'));
+    await writeFile(join(outside, 'secret.txt'), 'needle host-secret\n');
+    await symlink(join(outside, 'secret.txt'), join(root, 'notes.md'));
+
+    const result = await searchTool({ root }).execute({ query: 'needle' });
+
+    expect(result).toBe("no file contains 'needle'");
+    expect(result).not.toContain('host-secret');
+
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  it('still searches a file symlink pointing back inside the root', async () => {
+    await symlink(join(root, 'src', 'config.ts'), join(root, 'alias.ts'));
+
+    const result = await searchTool({ root }).execute({ query: 'maxIterations' });
+
+    expect(result).toContain('alias.ts');
+    expect(result).toContain('src/config.ts');
+  });
 });
 
 describe('editFileTool', () => {

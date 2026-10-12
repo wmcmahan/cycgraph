@@ -13,6 +13,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { z } from 'zod';
 import { defineTool, type DefinedTool } from '@cycgraph/orchestrator';
+import { jailedPath, WorkspaceEscapeError } from './jail.js';
 
 /** Directories a source search never descends into. */
 const DEFAULT_SKIPPED = ['node_modules', '.git', 'dist', 'coverage', '.playground'];
@@ -57,7 +58,16 @@ export function searchTool(options: SearchToolOptions): DefinedTool {
         if (!skipped.has(entry.name)) yield* walk(join(dir, entry.name));
         continue;
       }
-      yield join(dir, entry.name);
+      const file = join(dir, entry.name);
+      // A dirent symlink is yielded here rather than descended into, and
+      // readFile follows it: only what the jail confines may be read.
+      try {
+        jailedPath(options.root, relative(options.root, file));
+      } catch (error) {
+        if (error instanceof WorkspaceEscapeError) continue;
+        throw error;
+      }
+      yield file;
     }
   }
 
