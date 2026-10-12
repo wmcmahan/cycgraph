@@ -1,0 +1,41 @@
+instructions:
+  - .github/keelwise/INSTRUCTIONS.md
+architecture: .github/keelwise/ARCHITECTURE.md
+product: .github/keelwise/PRODUCT.md
+scopes:
+  - path: packages/orchestrator
+    why: Core engine audited together with its flat `test/` folder. The survey's
+      per-subdirectory split would separate source from tests, so it stays one
+      unit.
+  - path: packages/orchestrator-postgres
+    why: SQL, RLS tenancy and the queue. Needs a real database and has its own CI
+      jobs.
+  - path: packages/memory
+    why: Standalone published library with its own coverage gate.
+  - path: packages/context-engine
+    why: Standalone compression pipeline with its own coverage gate.
+  - path: packages/tools
+    why: Security-sensitive code (SSRF, workspace jail, git/gh shell-outs) whose
+      tests PR CI does not run.
+  - path: packages/a2a
+    why: External protocol adapter with frequent security fixes; not covered by PR
+      CI.
+  - path: packages/evals
+    why: Eval harness and the deterministic CI gate; its large data folders should
+      be excluded.
+  - path: packages/studio
+    why: Server and CLI that depend on nearly every package; not covered by PR CI.
+  - path: packages/studio/ui
+    why: Next.js UI on a different stack from the studio server.
+  - path: packages/test-servers
+    why: Unpublished A2A and MCP scripted servers that integration tests depend on.
+  - path: packages/benchmarks
+    why: Unpublished performance benchmarks.
+  - path: scripts
+    why: Cross-package public-API smoke test run by CI.
+  - path: ops/maintenance
+    why: Private automation with GitHub write power; audit it for safety rather than
+      product behaviour.
+  - path: apps/docs
+    why: Separate Astro app and install; its content should be checked against the
+      code.
