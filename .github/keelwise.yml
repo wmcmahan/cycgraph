@@ -33,9 +33,3 @@ scopes:
     why: Unpublished performance benchmarks.
   - path: scripts
     why: Cross-package public-API smoke test run by CI.
-  - path: ops/maintenance
-    why: Private automation with GitHub write power; audit it for safety rather than
-      product behaviour.
-  - path: apps/docs
-    why: Separate Astro app and install; its content should be checked against the
-      code.
