@@ -36,7 +36,7 @@ Where the product is heading now. Keelwise drafted these from the repository's s
 
 - Opening up model providers: an OpenAI-compatible catalog, Google, and effort levels. (`packages/orchestrator/CHANGELOG.md`)
 - Hardening Agent2Agent interop across releases: retries, timeouts, SSRF pinning and settle behaviour. (`packages/a2a/CHANGELOG.md`)
-- The studio improve/tune ladder and self-improving maintenance workflows. (`ops/maintenance/README.md`, `packages/studio/README.md`)
+- The studio improve/tune ladder: debugging, improving and monitoring runs from the dashboard. (`packages/studio/README.md`)
 
 ## Constraints
 
