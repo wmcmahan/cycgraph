@@ -1,6 +1,6 @@
 # Architecture
 
-cycgraph is an npm-workspaces TypeScript monorepo (workspaces `packages/*` and `ops/*`) for building LLM agent workflows as cyclic graphs. `@cycgraph/orchestrator` is the core engine. Add-on packages provide Postgres durability, memory, prompt compression, tools, A2A interop and evals, and the studio dashboard/CLI depends on nearly all of them. The repo also holds its own maintenance automation (`ops/maintenance`), a separately installed Astro docs site (`apps/docs`), and unpublished test infrastructure. `build:libs` builds in this order: orchestrator → memory → context-engine → tools → a2a → postgres → evals, then studio.
+cycgraph is an npm-workspaces TypeScript monorepo (workspace `packages/*`) for building LLM agent workflows as cyclic graphs. `@cycgraph/orchestrator` is the core engine. Add-on packages provide Postgres durability, memory, prompt compression, tools, A2A interop and evals, and the studio dashboard/CLI depends on nearly all of them. The repo also holds a separately installed Astro docs site (`apps/docs`) and unpublished test infrastructure. `build:libs` builds in this order: orchestrator → memory → context-engine → tools → a2a → postgres → evals, then studio.
 
 ## Components
 
@@ -32,7 +32,7 @@ Prompt-compression pipeline with budget, format, pruning, routing and provider s
 
 Paths: `packages/tools`
 
-Plug-in tools exposed as subpath exports: SSRF-guarded web, data, memory, sandbox, workspace jail and git. The git subpath (branches, `git push`, PRs, issues) also powers the maintenance delivery. Depends on the orchestrator.
+Plug-in tools exposed as subpath exports: SSRF-guarded web, data, memory, sandbox, workspace jail and git. The git subpath (branches, `git push`, PRs, issues) is what repository-maintenance workflows deliver through. Depends on the orchestrator.
 
 ### a2a
 
@@ -64,12 +64,6 @@ Paths: `packages/benchmarks`
 
 Unpublished performance benchmarks for the @cycgraph packages.
 
-### maintenance workflows
-
-Paths: `ops/maintenance`
-
-The repo's private automation (repo-audit, code-scan, issue-fix, pr-review/revise, tune, implement-ticket, ...) with shared helpers in `src/shared`. Built on orchestrator, tools and postgres and triggered by the maintenance workflow YAMLs, so it holds GitHub write power.
-
 ### docs site
 
 Paths: `apps/docs`
@@ -86,7 +80,7 @@ Paths: `scripts`
 
 Paths: `.github/workflows`
 
-`ci.yml` (gates aggregated by `ci-complete`), `release.yml` (Changesets version PR and npm publish with provenance), and 15 maintenance workflow files.
+`ci.yml` (gates aggregated by `ci-complete`) and `release.yml` (Changesets version PR and npm publish with provenance).
 
 ## Generated and vendored
 
