@@ -9,8 +9,7 @@
     "url": "git+https://github.com/wmcmahan/cycgraph.git"
   },
   "workspaces": [
-    "packages/*",
-    "ops/*"
+    "packages/*"
   ],
   "scripts": {
     "build": "npm run build:libs && npm run build --workspace=packages/studio",
