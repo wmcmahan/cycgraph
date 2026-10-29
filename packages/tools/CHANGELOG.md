@@ -1,5 +1,11 @@
 # @cycgraph/tools
 
+## 1.7.1
+
+### Patch Changes
+
+- ecabef8: The workspace search tool now resolves every file through the jail and skips symlinks that point outside the root, so a committed link can no longer put host files into a search result.
+
 ## 1.7.0
 
 ### Minor Changes
