@@ -6,7 +6,8 @@ import { z } from 'zod';
 const realFetch = globalThis.fetch;
 let req = 0;
 globalThis.fetch = (async (url: any, init?: any) => {
-  const isApi = String(url).includes('anthropic.com');
+  const host = (() => { try { return new URL(String(url)).hostname; } catch { return ''; } })();
+  const isApi = host === 'anthropic.com' || host.endsWith('.anthropic.com');
   const marks = isApi ? (String(init?.body ?? '').match(/cache_control/g) ?? []).length : 0;
   const response = await realFetch(url, init);
   if (isApi) console.log(`request ${req++}: marks=${marks} status=${response.status}`);

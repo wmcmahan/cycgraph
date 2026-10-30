@@ -101,6 +101,15 @@ async function dbAgentRegistry(stack: Stack): Promise<AgentRegistry | undefined>
   }
 }
 
+/**
+ * What a response may say about a thrown value: an Error's message, or a
+ * fixed label for anything else. The exception itself never reaches a
+ * response, so neither does its stack.
+ */
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'unknown error';
+}
+
 function json(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -390,7 +399,7 @@ export async function handle(
             message: issue.message ?? 'invalid',
           })),
         }
-        : { message: err instanceof Error ? err.message : String(err) });
+        : { message: errorMessage(err) });
     } finally {
       watcher?.noteRunFinished();
       res.end();
@@ -477,7 +486,7 @@ export async function handle(
 
       send('done', outcome);
     } catch (err) {
-      send('error', { message: err instanceof Error ? err.message : String(err) });
+      send('error', { message: errorMessage(err) });
     } finally {
       watcher?.noteRunFinished();
       res.end();
@@ -593,7 +602,7 @@ export async function handle(
       const rows = await watcher.tickNow();
       json(res, 200, { rows });
     } catch (err) {
-      json(res, 409, { error: err instanceof Error ? err.message : String(err) });
+      json(res, 409, { error: errorMessage(err) });
     }
     return true;
   }
@@ -705,7 +714,7 @@ export async function handle(
         diff: result.diff,
       });
     } catch (err) {
-      json(res, 422, { error: err instanceof Error ? err.message : String(err) });
+      json(res, 422, { error: errorMessage(err) });
     }
     return true;
   }
@@ -745,7 +754,7 @@ export async function handle(
       });
       json(res, 200, loop.status());
     } catch (err) {
-      json(res, 409, { error: err instanceof Error ? err.message : String(err) });
+      json(res, 409, { error: errorMessage(err) });
     }
     return true;
   }
@@ -803,7 +812,7 @@ export async function handle(
         ...(outcome.skipped ? { skipped: outcome.skipped } : {}),
       });
     } catch (err) {
-      send('error', { message: err instanceof Error ? err.message : String(err) });
+      send('error', { message: errorMessage(err) });
     } finally {
       watcher?.noteWorkFinished();
       res.end();
@@ -866,7 +875,7 @@ export async function handle(
         ...(outcome.savedProposals ? { saved: outcome.savedProposals } : {}),
       });
     } catch (err) {
-      send('error', { message: err instanceof Error ? err.message : String(err) });
+      send('error', { message: errorMessage(err) });
     } finally {
       watcher?.noteWorkFinished();
       res.end();
@@ -919,7 +928,7 @@ export async function handle(
         fixture: repo.fixture,
       });
     } catch (err) {
-      send('error', { message: err instanceof Error ? err.message : String(err) });
+      send('error', { message: errorMessage(err) });
     } finally {
       watcher?.noteWorkFinished();
       res.end();

@@ -27,6 +27,14 @@ describe('parseJudgeResponse', () => {
     expect(result.reasoning).toBe('Excellent');
   });
 
+  it('skips a fence that holds no JSON object before one that does', () => {
+    const raw = '```\nnot json\n```\n```json\n{"score": 0.4, "reasoning": "later"}\n```';
+    const result = parseJudgeResponse(raw);
+
+    expect(result.score).toBe(0.4);
+    expect(result.reasoning).toBe('later');
+  });
+
   it('parses JSON with surrounding text', () => {
     const raw = 'Here is my evaluation:\n{"score": 0.7, "reasoning": "Partial match"}\nDone.';
     const result = parseJudgeResponse(raw);

@@ -49,11 +49,19 @@ function coerce(raw: string, field: ParamField): unknown {
   }
 }
 
+/** Whether a path segment would rewrite an object's prototype rather than set a property on it. */
+function isPrototypeSegment(segment: string): boolean {
+  return segment === '__proto__' || segment === 'constructor' || segment === 'prototype';
+}
+
 /** Write `value` at a dotted path, creating intermediate objects. */
 function assign(target: Record<string, unknown>, path: string, value: unknown): void {
   const segments = path.split('.');
   const last = segments.pop();
   if (!last) return;
+  if (isPrototypeSegment(last) || segments.some(isPrototypeSegment)) {
+    throw new FlagError(`"${path}" is not a valid parameter path`);
+  }
 
   let cursor = target;
   for (const segment of segments) {

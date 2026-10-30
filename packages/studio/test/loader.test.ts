@@ -135,6 +135,15 @@ describe('bundleScenario', () => {
     expect(built.input.memory).toEqual({ topic: 'graphs' });
   });
 
+  it('derives a trimmed slug id from a punctuated manifest name', () => {
+    const artifact = bundle(agented(), { version: '1.0.0' });
+    artifact.manifest.name = ' --Speaking Flow (v2)-- ';
+
+    const scenario = bundleScenario(artifact, 'speaking.json');
+
+    expect(scenario.id).toBe('speaking-flow-v2');
+  });
+
   it('requires declared required inputs as params', () => {
     const artifact = bundle(agented(), { version: '1.0.0' });
     artifact.manifest.inputs = {

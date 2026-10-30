@@ -91,10 +91,26 @@ const NEGATION_WORDS = new Set([
   "hadn't", "hadnt", 'nothing', 'nobody', 'nowhere',
 ]);
 
+/** Whether a character can belong to a word token: alphanumeric, underscore, or apostrophe. */
+function isWordChar(ch: string): boolean {
+  return /[\w']/.test(ch);
+}
+
+/**
+ * Strip non-word characters from both ends of a token. A linear scan rather
+ * than an anchored regex, which backtracks quadratically on long punctuation runs.
+ */
+function stripEdgePunctuation(token: string): string {
+  let start = 0;
+  let end = token.length;
+  while (start < end && !isWordChar(token.charAt(start))) start++;
+  while (end > start && !isWordChar(token.charAt(end - 1))) end--;
+  return token.slice(start, end);
+}
+
 /** Whether a raw token (with edge punctuation) is a negation word. */
 function isNegation(trimmed: string): boolean {
-  const normalized = trimmed.toLowerCase().replace(/^[^\w']+|[^\w']+$/g, '');
-  return NEGATION_WORDS.has(normalized);
+  return NEGATION_WORDS.has(stripEdgePunctuation(trimmed.toLowerCase()));
 }
 
 // ─── Filler Phrases ───────────────────────────────────────────────

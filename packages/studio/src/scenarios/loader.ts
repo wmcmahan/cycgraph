@@ -93,7 +93,8 @@ export async function loadScenarioFile(path: string): Promise<Scenario> {
 
 /** Filesystem- and CLI-safe id derived from a bundle's manifest name. */
 function bundleId(name: string, path: string): string {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  // Separator runs collapse to one dash, so at most one can lead or trail.
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   return slug.length > 0 ? slug : basename(path, '.json');
 }
 

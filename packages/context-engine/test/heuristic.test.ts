@@ -106,6 +106,14 @@ describe('createHeuristicScorer', () => {
     expect(notToken.protected).toBe(true);
   });
 
+  it('recognizes a negation wrapped in punctuation', () => {
+    const tokens = scorer.score('do ("not"), delete');
+    const notToken = tokens.find(t => t.text.includes('not'))!;
+
+    expect(notToken.score).toBe(1.0);
+    expect(notToken.protected).toBe(true);
+  });
+
   it('boosts a token whose context window overlaps the query', () => {
     const content = 'the revenue report';
 
