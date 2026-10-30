@@ -17,8 +17,8 @@
     "@astrojs/vercel": "^11.0.4",
     "@vercel/analytics": "^2.0.1",
     "astro": "^7.3.2",
-    "astro-mermaid": "^2.1.0",
-    "mermaid": "^11.16.1"
+    "astro-mermaid": "^2.2.0",
+    "mermaid": "^12.2.0"
   },
   "devDependencies": {
     "@astrojs/mdx": "^7.0.5",
