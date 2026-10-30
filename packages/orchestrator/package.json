@@ -111,9 +111,9 @@
     "@opentelemetry/semantic-conventions": "^1.41.1",
     "@types/node": "^25.3.5",
     "@types/uuid": "^11.0.0",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
     "typescript": "7.0.2",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "zod": "^4.3.6"
   }
 }

@@ -63,7 +63,8 @@
   "devDependencies": {
     "@types/node": "^25.3.5",
     "typescript": "7.0.2",
-    "vitest": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
+    "vitest": "^4.1.12",
     "zod": "^4.3.6"
   }
 }
