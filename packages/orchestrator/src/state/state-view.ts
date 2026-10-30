@@ -141,13 +141,15 @@ function deepPick(
 
 /**
  * Deep merge source into target (mutates target).
- * Only merges plain objects; other values are overwritten.
+ * Only merges plain objects; other values are overwritten. Keys that would
+ * rewrite the target's prototype are skipped, never assigned.
  */
 function deepMerge(
   target: Record<string, unknown>,
   source: Record<string, unknown>,
 ): void {
   for (const [key, value] of Object.entries(source)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     if (
       value !== null &&
       typeof value === 'object' &&

@@ -249,21 +249,41 @@ interface JudgeResponse {
 }
 
 /**
+ * The body of the first ``` fence that wraps a JSON object, or `undefined`
+ * when none does. Index scans rather than a regex, which backtracks
+ * polynomially on long runs of `{`.
+ */
+function fencedJson(raw: string): string | undefined {
+  let open = raw.indexOf('```');
+  while (open !== -1) {
+    let cursor = open + 3;
+    if (raw.startsWith('json', cursor)) cursor += 4;
+    while (cursor < raw.length && /\s/.test(raw.charAt(cursor))) cursor++;
+    const close = raw.indexOf('```', cursor);
+    if (close === -1) return undefined;
+    const body = raw.slice(cursor, close).trimEnd();
+    if (body.startsWith('{') && body.endsWith('}')) return body;
+    open = raw.indexOf('```', close + 3);
+  }
+  return undefined;
+}
+
+/**
  * Parses the judge LLM's response into a score and reasoning.
  * Handles both clean JSON and JSON embedded in markdown code blocks.
  */
 export function parseJudgeResponse(raw: string): JudgeResponse {
-  // Try to extract JSON from markdown code blocks first
-  const codeBlockMatch = raw.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-  const jsonStr = codeBlockMatch ? codeBlockMatch[1] : raw.trim();
+  const jsonStr = fencedJson(raw) ?? raw.trim();
 
-  const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const start = jsonStr.indexOf('{');
+  const end = jsonStr.lastIndexOf('}');
+  if (start === -1 || end < start) {
     return { score: 0, reasoning: `Failed to parse judge response: ${raw.slice(0, 200)}` };
   }
+  const candidate = jsonStr.slice(start, end + 1);
 
   try {
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(candidate);
 
     const score = typeof parsed.score === 'number'
       ? Math.max(0, Math.min(1, parsed.score))
@@ -279,7 +299,7 @@ export function parseJudgeResponse(raw: string): JudgeResponse {
     // values verbatim (e.g. conflict_types (["negation"])), and the unescaped
     // quotes break JSON.parse. The numeric score field itself is still
     // well-formed, so salvage it by regex rather than zeroing the verdict.
-    const scoreMatch = jsonMatch[0].match(/"score"\s*:\s*(-?\d+(?:\.\d+)?)/);
+    const scoreMatch = candidate.match(/"score"\s*:\s*(-?\d+(?:\.\d+)?)/);
     if (scoreMatch) {
       const salvaged = Math.max(0, Math.min(1, parseFloat(scoreMatch[1])));
       return {

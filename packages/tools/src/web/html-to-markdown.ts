@@ -154,7 +154,17 @@ export function convertHtml(
   parser.write(html);
   parser.end();
 
-  return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return out.split('\n').map(stripTrailingBlanks).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * `line` without trailing spaces and tabs. A scan rather than a regex,
+ * which backtracks quadratically on long runs of tabs.
+ */
+function stripTrailingBlanks(line: string): string {
+  let end = line.length;
+  while (end > 0 && (line.charAt(end - 1) === ' ' || line.charAt(end - 1) === '\t')) end--;
+  return line.slice(0, end);
 }
 
 /** Options for {@link htmlToMarkdownTool}. */

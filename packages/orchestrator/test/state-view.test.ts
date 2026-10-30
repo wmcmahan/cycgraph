@@ -290,6 +290,17 @@ describe('createStateView', () => {
       expect(view.memory).toEqual({});
     });
 
+    it('skips a __proto__ segment instead of rewriting the view prototype', () => {
+      const state = makeState(JSON.parse('{"__proto__": {"polluted": true}, "user": {"name": "Alice"}}'));
+
+      const view = createStateView(state, makeNode(['__proto__.polluted', 'user.name']));
+
+      expect(view.memory).toEqual({ user: { name: 'Alice' } });
+      expect('polluted' in view.memory).toBe(false);
+      expect(Object.getPrototypeOf(view.memory)).toBe(Object.prototype);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    });
+
     it('handles null/undefined in nested path gracefully', () => {
       const state = makeState({
         user: null,

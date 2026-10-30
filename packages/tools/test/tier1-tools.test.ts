@@ -201,6 +201,12 @@ describe('convertHtml', () => {
     expect(convertHtml(html)).toBe('a | b\n\nc | d');
   });
 
+  it('strips trailing spaces and tabs from each line', () => {
+    const html = '<p>alpha \t\t</p><p>beta</p>';
+
+    expect(convertHtml(html)).toBe('alpha\n\nbeta');
+  });
+
   it('renders prose without syntax in text mode', () => {
     const html = '<h1>Title</h1><p>See <a href="https://example.com/x">docs</a>.</p>';
 
