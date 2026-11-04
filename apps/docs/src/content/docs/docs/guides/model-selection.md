@@ -18,7 +18,7 @@ cycgraph can dynamically choose which LLM model to use for each agent at runtime
 |------|----------|---------------|
 | `high` | Complex reasoning, planning, code generation | `claude-opus-4-8`, `o3` |
 | `medium` | General-purpose tasks, summarization | `claude-sonnet-4-6`, `gpt-4o` |
-| `low` | Simple formatting, extraction, classification | `claude-haiku-4-5-20251001`, `gpt-4o-mini` |
+| `low` | Simple formatting, extraction, classification | `claude-haiku-5-5`, `gpt-6-luna` |
 
 ## Setting up a tier map
 
@@ -31,7 +31,7 @@ import type { ModelTierMap } from '@cycgraph/orchestrator';
 const tierMap: ModelTierMap = {
   high:   { anthropic: 'claude-opus-4-8',    openai: 'o3' },
   medium: { anthropic: 'claude-sonnet-4-6',  openai: 'gpt-4o' },
-  low:    { anthropic: 'claude-haiku-4-5-20251001', openai: 'gpt-4o-mini' },
+  low:    { anthropic: 'claude-haiku-5-5', openai: 'gpt-6-luna' },
 };
 
 const modelResolver = defaultModelResolver(tierMap);
@@ -47,14 +47,14 @@ Set `modelPreference` on the agent. The `model` field still serves as the fallba
 import { agent } from '@cycgraph/orchestrator';
 
 const researcher = agent({
-  model: 'claude-sonnet-4-6',
+  model: 'claude-sonnet-5-5',
   modelPreference: 'high',
   instructions: 'You are a research specialist...',
   tools: [{ mcp: 'web-search' }],
 });
 
 const formatter = agent({
-  model: 'claude-haiku-4-5-20251001',
+  model: 'claude-haiku-5-5',
   modelPreference: 'low',
   instructions: 'You format text into clean markdown...',
 });
@@ -177,20 +177,20 @@ import type { ModelTierMap } from '@cycgraph/orchestrator';
 
 // 1. Define the tier map
 const tierMap: ModelTierMap = {
-  high:   { anthropic: 'claude-opus-4-8' },
-  medium: { anthropic: 'claude-sonnet-4-6' },
-  low:    { anthropic: 'claude-haiku-4-5-20251001' },
+  high:   { anthropic: 'claude-opus-5-5' },
+  medium: { anthropic: 'claude-sonnet-5-5' },
+  low:    { anthropic: 'claude-haiku-5-5' },
 };
 
 // 2. Define agents with tier preferences
 const researcher = agent({
-  model: 'claude-sonnet-4-6',
+  model: 'claude-sonnet-5-5',
   modelPreference: 'high',
   instructions: 'You research topics thoroughly.',
 });
 
 const writer = agent({
-  model: 'claude-sonnet-4-6',
+  model: 'claude-sonnet-5-5',
   modelPreference: 'medium',
   instructions: 'You write clear, concise summaries.',
 });

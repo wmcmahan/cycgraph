@@ -119,5 +119,5 @@ When the map node launches your parallel workers, it hands each one a `## Task C
 
 Pair the right LLM tier with the right node.
 
-- **The worker (Map)** fans out potentially hundreds of tasks simultaneously, so it should use the fastest, cheapest model available (e.g. `claude-haiku-4-5-20251001` or `gpt-4o-mini`). Workers do focused, narrow work, so complex reasoning is rarely required.
+- **The worker (Map)** fans out potentially hundreds of tasks simultaneously, so it should use the fastest, cheapest model available (e.g. `claude-haiku-5-5` or `gpt-6-luna`). Workers do focused, narrow work, so complex reasoning is rarely required.
 - **The synthesizer (Reduce)** receives the full array of outputs and *does* need heavy reasoning to deduplicate and find patterns across fragments. Use a frontier model (e.g. `claude-sonnet-4-6` or `gpt-4o`).

@@ -172,13 +172,13 @@ These models are pre-registered and available out of the box:
 
 | Provider | Models |
 |----------|--------|
-| `openai` | `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, and the GPT-4/o-series |
-| `anthropic` | `claude-fable-5-1`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`, and the Claude 4.x/5 legacy line, `claude-sonnet-5` included |
-| `google` | `gemini-3.8-flash` through `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-2.5-flash-lite` |
+| `openai` | `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-6-sol`, `gpt-6-luna`, the `gpt-5.6-*` and `gpt-5.4-*` lines, `gpt-5.5`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, and the GPT-4/o-series |
+| `anthropic` | `claude-fable-5-1`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, and the Claude 4.x/5 legacy line, `claude-sonnet-5` and `claude-haiku-4-5` included |
+| `google` | `gemini-4-argon`, `gemini-3.8-flash` through `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite`, `gemini-2.5-flash-lite` |
 | `groq` | `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, plus pass-through |
 | `deepseek` | `deepseek-v4-pro`, `deepseek-flash` |
 | `xai` | `grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-build-0.1` |
-| `mistral` | `mistral-large-latest`, `mistral-medium-latest`, `mistral-small-latest`, `codestral-latest`, `ministral-8b-latest`, `ministral-3b-latest`, plus dated snapshots via pass-through |
+| `mistral` | `mistral-large-4`, `mistral-large-latest`, `mistral-medium-latest`, `mistral-small-latest`, `codestral-latest`, `ministral-8b-latest`, `ministral-3b-latest`, plus dated snapshots via pass-through |
 | `cerebras` | `gpt-oss-120b`, `qwen-3.8-27b`, plus pass-through |
 | `openrouter`, `together`, `fireworks` | Any model slug the host serves (pass-through) |
 | `ollama` | Any local model (register via `registerOllamaProvider()` with your model list) |

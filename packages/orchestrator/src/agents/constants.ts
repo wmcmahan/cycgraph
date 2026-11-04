@@ -40,7 +40,9 @@ export const DEFAULT_AGENT_SYSTEM_PROMPT =
 
 /** Known OpenAI model identifiers for provider inference and validation. */
 export const OPENAI_MODELS = [
-  'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna',
+  'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna',
+  'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
+  'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano',
   'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
   'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4',
   'o1-preview', 'o1-mini', 'o3', 'o3-mini', 'o4-mini',
@@ -48,7 +50,7 @@ export const OPENAI_MODELS = [
 
 /** Known Anthropic model identifiers for provider inference and validation. */
 export const ANTHROPIC_MODELS = [
-  'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5',
+  'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5',
   'claude-fable-5', 'claude-opus-5', 'claude-sonnet-5',
   'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6',
   'claude-sonnet-4-6',
@@ -61,9 +63,10 @@ export const ANTHROPIC_MODELS = [
 
 /** Known Google Gemini model identifiers for provider inference and validation. */
 export const GOOGLE_MODELS = [
+  'gemini-4-argon',
   'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash',
   'gemini-3.5-flash', 'gemini-3.5-flash-lite',
-  'gemini-3.1-pro-preview',
+  'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite',
   'gemini-2.5-flash-lite',
 ];
 
@@ -85,10 +88,13 @@ export const XAI_MODELS = [
 
 /**
  * Known Mistral API model identifiers for provider inference and validation.
- * The `-latest` aliases track the newest version of each line; dated
- * snapshots (e.g. `mistral-medium-2604`) pass through as unknown models.
+ * The `-latest` aliases track the newest generally available version of
+ * each line; preview releases such as `mistral-large-4` carry their own id.
+ * Dated snapshots (e.g. `mistral-medium-2604`) pass through as unknown
+ * models.
  */
 export const MISTRAL_MODELS = [
+  'mistral-large-4',
   'mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest',
   'codestral-latest', 'ministral-8b-latest', 'ministral-3b-latest',
 ];
@@ -101,6 +107,12 @@ export const CEREBRAS_MODELS = [
 /** Known Ollama model identifiers for provider inference and validation. */
 export const OLLAMA_MODELS = [
   // Tool-calling capable
+  'qwen3', 'qwen3:8b', 'qwen3:32b',
+  'qwen3.5', 'qwen3.5:27b',
+  'qwen3.6', 'qwen3.6:27b', 'qwen3.6:35b',
+  'qwen3-coder', 'qwen3-coder:30b',
+  'gemma4', 'gemma4:12b', 'gemma4:26b', 'gemma4:31b',
+  'gpt-oss', 'gpt-oss:20b', 'gpt-oss:120b',
   'llama3.1', 'llama3.1:8b', 'llama3.1:70b',
   'llama3.2', 'llama3.2:1b', 'llama3.2:3b',
   'llama3.3', 'llama3.3:70b',
