@@ -39,11 +39,19 @@ export interface ModelPricing {
  * is set only where the provider's cached-input price is not 10% of input.
  */
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
-  // OpenAI
+  // OpenAI (standard tier, prompts up to 272K tokens; longer prompts bill higher)
   'gpt-6-astra': { inputPerMToken: 10.00, outputPerMToken: 50.00 },
   'gpt-6.1-sol': { inputPerMToken: 2.00, outputPerMToken: 10.00, cachedInputPerMToken: 0.10 },
+  'gpt-6.1-terra': { inputPerMToken: 1.00, outputPerMToken: 5.00, cachedInputPerMToken: 0.05 },
   'gpt-6-sol': { inputPerMToken: 2.00, outputPerMToken: 10.00 },
   'gpt-6-luna': { inputPerMToken: 0.10, outputPerMToken: 0.50 },
+  'gpt-5.6-sol': { inputPerMToken: 4.00, outputPerMToken: 20.00 },
+  'gpt-5.6-terra': { inputPerMToken: 2.00, outputPerMToken: 12.00 },
+  'gpt-5.6-luna': { inputPerMToken: 0.20, outputPerMToken: 1.20 },
+  'gpt-5.5': { inputPerMToken: 5.00, outputPerMToken: 30.00 },
+  'gpt-5.4': { inputPerMToken: 2.50, outputPerMToken: 15.00 },
+  'gpt-5.4-mini': { inputPerMToken: 0.75, outputPerMToken: 4.50 },
+  'gpt-5.4-nano': { inputPerMToken: 0.20, outputPerMToken: 1.25 },
   'gpt-5.1': { inputPerMToken: 1.25, outputPerMToken: 10.00 },
   'gpt-5': { inputPerMToken: 1.25, outputPerMToken: 10.00 },
   'gpt-5-mini': { inputPerMToken: 0.25, outputPerMToken: 2.00 },
@@ -61,7 +69,10 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   // Anthropic Claude
   'claude-fable-5-1': { inputPerMToken: 10.00, outputPerMToken: 50.00, cachedInputPerMToken: 0.25 },
   'claude-opus-5-5': { inputPerMToken: 4.00, outputPerMToken: 20.00, cachedInputPerMToken: 0.20 },
-  'claude-sonnet-5-5': { inputPerMToken: 2.00, outputPerMToken: 10.00 },
+  'claude-sonnet-5-5': { inputPerMToken: 2.00, outputPerMToken: 10.00, cachedInputPerMToken: 0.10 },
+  // Haiku 5.5 is priced by prompt length: these are the rates for prompts up
+  // to 100K tokens; a longer prompt bills every token at five times these.
+  'claude-haiku-5-5': { inputPerMToken: 0.10, outputPerMToken: 0.50, cachedInputPerMToken: 0.01 },
   'claude-fable-5': { inputPerMToken: 10.00, outputPerMToken: 50.00 },
   'claude-opus-5': { inputPerMToken: 5.00, outputPerMToken: 25.00 },
   'claude-sonnet-5': { inputPerMToken: 2.00, outputPerMToken: 10.00 },
@@ -76,14 +87,17 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   'claude-3-5-sonnet-20241022': { inputPerMToken: 3.00, outputPerMToken: 15.00 },
   'claude-3-5-haiku-20241022': { inputPerMToken: 0.80, outputPerMToken: 4.00 },
   'claude-3-opus-20240229': { inputPerMToken: 15.00, outputPerMToken: 75.00 },
-  // Google Gemini (3.1 Pro: base tier, prompts under 200K tokens;
-  // 3.6–3.8 Flash rates are promotional through 2026-12-31, doubling after)
+  // Google Gemini (4 Argon rates are promotional through 2026-11-30 and
+  // 3.6–3.8 Flash through 2026-12-31, doubling after; 3.1 Pro: base tier,
+  // prompts under 200K tokens)
+  'gemini-4-argon': { inputPerMToken: 2.00, outputPerMToken: 10.00, cachedInputPerMToken: 0.10 },
   'gemini-3.8-flash': { inputPerMToken: 0.75, outputPerMToken: 3.75 },
   'gemini-3.7-flash': { inputPerMToken: 0.75, outputPerMToken: 3.75 },
   'gemini-3.6-flash': { inputPerMToken: 0.75, outputPerMToken: 3.75 },
   'gemini-3.5-flash': { inputPerMToken: 1.50, outputPerMToken: 9.00 },
   'gemini-3.5-flash-lite': { inputPerMToken: 0.30, outputPerMToken: 2.50 },
   'gemini-3.1-pro-preview': { inputPerMToken: 2.00, outputPerMToken: 12.00 },
+  'gemini-3.1-flash-lite': { inputPerMToken: 0.25, outputPerMToken: 1.50 },
   'gemini-2.5-flash-lite': { inputPerMToken: 0.10, outputPerMToken: 0.40 },
   // xAI Grok (base tier: prompts under 200K tokens; longer prompts bill higher)
   'grok-4.7': { inputPerMToken: 2.00, outputPerMToken: 6.00, cachedInputPerMToken: 0.50 },
@@ -94,7 +108,10 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   // DeepSeek API (peak rates; off-peak windows bill half)
   'deepseek-v4-pro': { inputPerMToken: 1.32, outputPerMToken: 3.96, cachedInputPerMToken: 0.044 },
   'deepseek-flash': { inputPerMToken: 0.30, outputPerMToken: 1.20, cachedInputPerMToken: 0.006 },
-  // Mistral API (`-latest` aliases; cached input bills at 10% via CACHE_READ_INPUT_RATE)
+  // Mistral API (cached input bills at 10% via CACHE_READ_INPUT_RATE).
+  // `mistral-large-latest` still carries the Large 3 rate; Large 4 is in
+  // public preview under its own id and is not yet behind the alias.
+  'mistral-large-4': { inputPerMToken: 0.70, outputPerMToken: 2.10 },
   'mistral-large-latest': { inputPerMToken: 0.50, outputPerMToken: 1.50 },
   'mistral-medium-latest': { inputPerMToken: 1.50, outputPerMToken: 7.50 },
   'mistral-small-latest': { inputPerMToken: 0.15, outputPerMToken: 0.60 },
@@ -111,6 +128,16 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   // Cerebras (qwen-3.8-27b has no public rate — dedicated-endpoint pricing only)
   'gpt-oss-120b': { inputPerMToken: 0.35, outputPerMToken: 0.75 },
   // Ollama / local models (no API cost)
+  'qwen3': { inputPerMToken: 0, outputPerMToken: 0 },
+  'qwen3.5': { inputPerMToken: 0, outputPerMToken: 0 },
+  'qwen3.6': { inputPerMToken: 0, outputPerMToken: 0 },
+  'qwen3.6:27b': { inputPerMToken: 0, outputPerMToken: 0 },
+  'qwen3-coder': { inputPerMToken: 0, outputPerMToken: 0 },
+  'gemma4': { inputPerMToken: 0, outputPerMToken: 0 },
+  'gemma4:26b': { inputPerMToken: 0, outputPerMToken: 0 },
+  'gpt-oss': { inputPerMToken: 0, outputPerMToken: 0 },
+  'gpt-oss:20b': { inputPerMToken: 0, outputPerMToken: 0 },
+  'gpt-oss:120b': { inputPerMToken: 0, outputPerMToken: 0 },
   'llama3.1': { inputPerMToken: 0, outputPerMToken: 0 },
   'llama3.1:8b': { inputPerMToken: 0, outputPerMToken: 0 },
   'llama3.1:70b': { inputPerMToken: 0, outputPerMToken: 0 },

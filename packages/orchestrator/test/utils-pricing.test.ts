@@ -1,4 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  ANTHROPIC_MODELS,
+  DEEPSEEK_API_MODELS,
+  GOOGLE_MODELS,
+  MISTRAL_MODELS,
+  OPENAI_MODELS,
+  XAI_MODELS,
+} from '../src/agents/constants.js';
 
 // Track warned models across tests by resetting module state
 let calculateCost: typeof import('../src/cost/pricing.js').calculateCost;
@@ -63,6 +71,10 @@ describe('calculateCost', () => {
 
     it('prices cache reads at the model\'s published cached-input rate', () => {
       expect(calculateCost('claude-opus-5-5', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.20, 10);
+      expect(calculateCost('claude-sonnet-5-5', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.10, 10);
+      expect(calculateCost('claude-haiku-5-5', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.01, 10);
+      expect(calculateCost('gpt-6.1-terra', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.05, 10);
+      expect(calculateCost('gemini-4-argon', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.10, 10);
     });
 
     it('prices cache reads above a tenth where the provider charges more', () => {
@@ -70,7 +82,7 @@ describe('calculateCost', () => {
     });
 
     it('falls back to a tenth of the input rate for a model without a cached rate', () => {
-      expect(calculateCost('claude-sonnet-5-5', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.20, 10);
+      expect(calculateCost('claude-sonnet-5', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.20, 10);
       expect(calculateCost('claude-opus-5', ONE_MILLION, 0, { readTokens: ONE_MILLION })).toBeCloseTo(0.50, 10);
     });
 
@@ -142,6 +154,20 @@ describe('MODEL_PRICING', () => {
   it('contains expected Anthropic models', () => {
     expect(MODEL_PRICING['claude-sonnet-4-20250514']).toBeDefined();
     expect(MODEL_PRICING['claude-opus-4-20250514']).toBeDefined();
+  });
+
+  it('prices the current flagship of every hosted provider', () => {
+    expect(MODEL_PRICING['claude-haiku-5-5']).toEqual({ inputPerMToken: 0.10, outputPerMToken: 0.50, cachedInputPerMToken: 0.01 });
+    expect(MODEL_PRICING['gpt-6.1-terra']).toEqual({ inputPerMToken: 1.00, outputPerMToken: 5.00, cachedInputPerMToken: 0.05 });
+    expect(MODEL_PRICING['gemini-4-argon']).toEqual({ inputPerMToken: 2.00, outputPerMToken: 10.00, cachedInputPerMToken: 0.10 });
+    expect(MODEL_PRICING['mistral-large-4']).toEqual({ inputPerMToken: 0.70, outputPerMToken: 2.10 });
+  });
+
+  it('prices every known hosted model', () => {
+    const hosted = [...OPENAI_MODELS, ...ANTHROPIC_MODELS, ...GOOGLE_MODELS, ...XAI_MODELS, ...DEEPSEEK_API_MODELS, ...MISTRAL_MODELS];
+    const unpriced = hosted.filter((model) => MODEL_PRICING[model] === undefined);
+
+    expect(unpriced).toEqual([]);
   });
 
   it('has non-negative pricing for all models', () => {

@@ -73,6 +73,13 @@ export const MODEL_PROFILES: Readonly<Record<string, ModelProfile>> = {
   // 1M-context Claude models; listed before the generic 'claude' entry so
   // prefix matching picks them up first. Older Claude models (Haiku 4.5,
   // Claude 3.x, dated Opus/Sonnet 4 snapshots) fall through to 200K.
+  'claude-haiku-5-5': {
+    family: 'claude',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 1_000_000,
+    supportsCaching: true,
+  },
   'claude-fable-5': {
     family: 'claude',
     supportsTabular: true,
@@ -166,6 +173,15 @@ export const MODEL_PROFILES: Readonly<Record<string, ModelProfile>> = {
     maxContextTokens: 128_000,
     supportsCaching: false,
   },
+  // 256K-context Qwen release; listed before the generic 'qwen' entry so
+  // prefix matching picks it up first.
+  'qwen3.6': {
+    family: 'qwen',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 256_000,
+    supportsCaching: false,
+  },
   'qwen': {
     family: 'qwen',
     supportsTabular: true,
@@ -182,6 +198,16 @@ export const MODEL_PROFILES: Readonly<Record<string, ModelProfile>> = {
   },
   'mistral': {
     family: 'mistral',
+    supportsTabular: true,
+    prefersJson: false,
+    maxContextTokens: 128_000,
+    supportsCaching: false,
+  },
+  // Gemma 4 reads tabular input and runs a 128K window (256K from 12B up);
+  // listed before the generic 'gemma' entry so prefix matching picks it up
+  // first.
+  'gemma4': {
+    family: 'gemma',
     supportsTabular: true,
     prefersJson: false,
     maxContextTokens: 128_000,

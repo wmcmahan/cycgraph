@@ -29,11 +29,29 @@ describe('resolveModelProfile', () => {
     expect(profile?.maxContextTokens).toBe(200_000);
   });
 
+  it('resolves haiku 5.5 to a 1M window ahead of the generic claude profile', () => {
+    expect(resolveModelProfile('claude-haiku-5-5')?.maxContextTokens).toBe(1_000_000);
+  });
+
   it('resolves gemma as a JSON-preferring, non-tabular profile', () => {
     const profile = resolveModelProfile('gemma-2-9b');
 
     expect(profile?.prefersJson).toBe(true);
     expect(profile?.supportsTabular).toBe(false);
+  });
+
+  it('resolves gemma 4 as a tabular-capable 128K profile', () => {
+    const profile = resolveModelProfile('gemma4:26b');
+
+    expect(profile?.family).toBe('gemma');
+    expect(profile?.supportsTabular).toBe(true);
+    expect(profile?.prefersJson).toBe(false);
+    expect(profile?.maxContextTokens).toBe(128_000);
+  });
+
+  it('resolves qwen 3.6 to a 256K window ahead of the generic qwen profile', () => {
+    expect(resolveModelProfile('qwen3.6:27b')?.maxContextTokens).toBe(256_000);
+    expect(resolveModelProfile('qwen2.5:7b')?.maxContextTokens).toBe(128_000);
   });
 
   it('resolves phi as a JSON-preferring profile', () => {
@@ -63,6 +81,7 @@ describe('MODEL_PROFILES', () => {
       'gpt-4',
       'o1',
       'o3',
+      'claude-haiku-5-5',
       'claude-fable-5',
       'claude-opus-5',
       'claude-opus-4-8',
@@ -76,9 +95,11 @@ describe('MODEL_PROFILES', () => {
       'deepseek-v4-pro',
       'deepseek-flash',
       'deepseek',
+      'qwen3.6',
       'qwen',
       'gemini',
       'mistral',
+      'gemma4',
       'gemma',
       'phi',
     ]);

@@ -131,7 +131,7 @@ for await (const event of runner.stream()) {
 }
 ```
 
-A workflow with `budgetUsd: 0.50` might start by using `claude-opus-4-8` for early tasks, then automatically switch to `claude-sonnet-4-6` or `claude-haiku-4-5-20251001` as the budget depletes, without any manual intervention.
+A workflow with `budgetUsd: 0.50` might start by using `claude-opus-5-5` for early tasks, then automatically switch to `claude-sonnet-5-5` or `claude-haiku-5-5` as the budget depletes, without any manual intervention.
 
 **Refs:**
 - [Budget-Aware Model Selection](/docs/guides/model-selection/): the full setup guide for tiers and resolvers.
